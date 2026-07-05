@@ -774,39 +774,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
                 if (!TryComp<HandsComponent>(uid, out var hands) ||
                     hands.ActiveHand is not { } activeHand ||
-                    activeHand.HeldEntity is not { Valid: true } held)
+                    activeHand.HeldEntity is not { Valid: true })
                 {
                     status = "active hand is empty";
                     return false;
                 }
 
-                if (!_storage.CanInsert(storageUid, held, out var reason, storage))
-                {
-                    status = reason == null
-                        ? $"could not store {FormatEntityRef(held)} in {FormatEntityRef(storageUid)}"
-                        : $"could not store {FormatEntityRef(held)} in {FormatEntityRef(storageUid)}: {reason}";
-                    return false;
-                }
-
-                if (!_hands.TryDrop(uid, activeHand, handsComp: hands))
-                {
-                    status = $"could not drop {FormatEntityRef(held)} for storage insert";
-                    return false;
-                }
-
-                var inserted = _storage.Insert(storageUid, held, out var stacked, out _, user: uid, storageComp: storage);
-                if (stacked != null &&
-                    !_storage.CanInsert(storageUid, held, out _, storage) &&
-                    TryComp<StackComponent>(held, out var handStack) &&
-                    handStack.Count > 0)
-                {
-                    _hands.TryPickup(uid, held, handsComp: hands);
-                }
-
-                status = inserted
-                    ? $"stored {FormatEntityRef(held)} in {FormatEntityRef(storageUid)} from slot {slot}"
-                    : $"could not store {FormatEntityRef(held)} in {FormatEntityRef(storageUid)}";
-                return inserted;
+                return TryStoreHeldItemInStorage(uid, hands, activeHand, storageUid, storage, slot, out status);
             }
             case LuaMRescuePlayerActionKind.TakeStorage:
             {
@@ -880,6 +854,111 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         storage = storageComp;
         storageUid = slotItem;
         return true;
+    }
+
+    private bool TryStoreHeldItemInStorage(
+        EntityUid uid,
+        HandsComponent hands,
+        Hand hand,
+        EntityUid storageUid,
+        StorageComponent storage,
+        string slot,
+        out string status)
+    {
+        if (hand.HeldEntity is not { Valid: true } held)
+        {
+            status = "hand is empty";
+            return false;
+        }
+
+        if (!_storage.CanInsert(storageUid, held, out var reason, storage))
+        {
+            status = reason == null
+                ? $"could not store {FormatEntityRef(held)} in {FormatEntityRef(storageUid)}"
+                : $"could not store {FormatEntityRef(held)} in {FormatEntityRef(storageUid)}: {reason}";
+            return false;
+        }
+
+        if (!_hands.TryDrop(uid, hand, handsComp: hands))
+        {
+            status = $"could not drop {FormatEntityRef(held)} for storage insert";
+            return false;
+        }
+
+        var inserted = _storage.Insert(storageUid, held, out var stacked, out _, user: uid, storageComp: storage);
+        if (stacked != null &&
+            !_storage.CanInsert(storageUid, held, out _, storage) &&
+            TryComp<StackComponent>(held, out var handStack) &&
+            handStack.Count > 0)
+        {
+            _hands.TryPickup(uid, held, handsComp: hands);
+        }
+
+        if (inserted)
+        {
+            status = $"stored {FormatEntityRef(held)} in {FormatEntityRef(storageUid)} from slot {slot}";
+            return true;
+        }
+
+        _hands.TryPickup(uid, held, hand, handsComp: hands);
+        status = $"could not store {FormatEntityRef(held)} in {FormatEntityRef(storageUid)}";
+        return false;
+    }
+
+    private bool TryAutoStowHeldItemForTreatment(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        out string status)
+    {
+        status = string.Empty;
+
+        if (!rescue.AutoStowHeldItemsForTreatment)
+            return false;
+
+        if (!TryComp<HandsComponent>(uid, out var hands))
+        {
+            status = "agent has no hands";
+            return false;
+        }
+
+        if (_hands.TryGetEmptyHand(uid, out _, hands))
+            return false;
+
+        foreach (var hand in EnumerateHandsForAutoStow(hands))
+        {
+            if (hand.HeldEntity is not { Valid: true })
+                continue;
+
+            foreach (var slot in TreatmentStorageSlotPriority)
+            {
+                if (!TryResolveStorageSlot(uid, slot, out var storageUid, out var storage, out _))
+                    continue;
+
+                if (!TryStoreHeldItemInStorage(uid, hands, hand, storageUid, storage, slot, out status))
+                    continue;
+
+                rescue.NextAutoTreatmentAttempt = _timing.CurTime;
+                rescue.LastPlayerActionStatus = status;
+                return true;
+            }
+        }
+
+        status = "no storage slot can hold a hand item";
+        return false;
+    }
+
+    private static IEnumerable<Hand> EnumerateHandsForAutoStow(HandsComponent hands)
+    {
+        if (hands.ActiveHand != null)
+            yield return hands.ActiveHand;
+
+        foreach (var hand in hands.Hands.Values)
+        {
+            if (hand == hands.ActiveHand)
+                continue;
+
+            yield return hand;
+        }
     }
 
     private void UpdatePendingVendingAction(
@@ -1356,6 +1435,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (!status.StartsWith("failed", StringComparison.OrdinalIgnoreCase) &&
             completedAction is LuaMRescuePlayerActionKind.Pickup
+                or LuaMRescuePlayerActionKind.StoreSlot
                 or LuaMRescuePlayerActionKind.TakeStorage
                 or LuaMRescuePlayerActionKind.Vend)
         {
@@ -1730,7 +1810,19 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryFindTreatmentItem(uid, target, null, null, includeDiagnosticItems: false, out var item, out var status))
         {
             rescue.LastAutoTreatmentStatus = status;
-            if (status.StartsWith("no usable medical item", StringComparison.OrdinalIgnoreCase))
+            if (status.Equals("no empty hand for treatment item", StringComparison.OrdinalIgnoreCase))
+            {
+                if (TryAutoStowHeldItemForTreatment(uid, rescue, out var stowStatus))
+                {
+                    rescue.LastAutoSupplyStatus = stowStatus;
+                    Dirty(uid, rescue);
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(stowStatus))
+                    rescue.LastAutoSupplyStatus = stowStatus;
+            }
+            else if (status.StartsWith("no usable medical item", StringComparison.OrdinalIgnoreCase))
             {
                 if (TryStartAutoPickupNearbyMedicalSupply(uid, rescue, htn, target, out var supplyStatus))
                 {
