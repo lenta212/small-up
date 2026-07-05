@@ -68,6 +68,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         agent = _rescueAgent.SpawnAgent(anchor, followTarget, controller, control);
         var rescue = EnsureComp<LuaMRescueAgentComponent>(agent.Value);
         rescue.AssignedShuttle = shuttle;
+        rescue.AssignedShuttleAnchor = anchor;
         rescue.AssignedTarget = followTarget;
         Dirty(agent.Value, rescue);
 

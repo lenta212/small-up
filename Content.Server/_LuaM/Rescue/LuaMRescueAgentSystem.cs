@@ -9,6 +9,8 @@ using Content.Shared.Chemistry.Components.SolutionManager;
 using Content.Shared.Damage;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
+using Content.Shared.Movement.Pulling.Components;
+using Content.Shared.Movement.Pulling.Systems;
 using Content.Shared.Silicons.Bots;
 using Content.Shared.Administration;
 using Robust.Server.Player;
@@ -27,6 +29,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly MindSystem _mind = default!;
     [Dependency] private readonly EntityLookupSystem _lookup = default!;
     [Dependency] private readonly MedibotSystem _medibot = default!;
+    [Dependency] private readonly PullingSystem _pulling = default!;
 
     public override void Update(float frameTime)
     {
@@ -68,6 +71,15 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     private void UpdateAssignedTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
     {
+        if (UpdateEvacuation(uid, rescue, htn))
+            return;
+
+        if (rescue.AssignedTarget is { Valid: true } assigned &&
+            TryStartOrContinueEvacuation(uid, rescue, htn, assigned))
+        {
+            return;
+        }
+
         if (!TryComp<MedibotComponent>(uid, out var medibot))
         {
             ClearFollowTarget(uid, rescue, htn);
@@ -77,13 +89,25 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (rescue.AssignedTarget is { Valid: true } current &&
             IsRescueCandidate(uid, current, medibot, requireRange: false, rescue.SearchRange, out _))
         {
+            if (TryStartOrContinueEvacuation(uid, rescue, htn, current))
+                return;
+
             SetFollowTarget(uid, rescue, htn, current);
             return;
         }
 
         if (TryFindRescueTarget(uid, rescue.SearchRange, medibot, out var target))
         {
+            if (TryStartOrContinueEvacuation(uid, rescue, htn, target))
+                return;
+
             SetFollowTarget(uid, rescue, htn, target);
+            return;
+        }
+
+        if (TryFindEvacuationTarget(uid, rescue.SearchRange, rescue, out var evacuationTarget) &&
+            TryStartOrContinueEvacuation(uid, rescue, htn, evacuationTarget))
+        {
             return;
         }
 
@@ -108,6 +132,108 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         return target != default;
+    }
+
+    private bool TryFindEvacuationTarget(
+        EntityUid uid,
+        float searchRange,
+        LuaMRescueAgentComponent rescue,
+        out EntityUid target)
+    {
+        target = default;
+        var bestScore = float.MinValue;
+
+        foreach (var candidate in _lookup.GetEntitiesInRange(uid, searchRange))
+        {
+            if (!IsEvacuationCandidate(uid, candidate, rescue, searchRange, out var score))
+                continue;
+
+            if (score <= bestScore)
+                continue;
+
+            target = candidate;
+            bestScore = score;
+        }
+
+        return target != default;
+    }
+
+    private bool UpdateEvacuation(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    {
+        if (!CanUseAssignedShuttle(rescue))
+        {
+            rescue.EvacuatingTarget = null;
+            return false;
+        }
+
+        if (rescue.EvacuatingTarget is not { Valid: true } target ||
+            Deleted(target))
+        {
+            rescue.EvacuatingTarget = null;
+            return false;
+        }
+
+        if (!TryComp<MobStateComponent>(target, out var mobState) ||
+            mobState.CurrentState == MobState.Dead)
+        {
+            StopPullingTarget(uid, target);
+            rescue.EvacuatingTarget = null;
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        if (IsOnAssignedShuttle(target, rescue) ||
+            IsAtAssignedShuttleAnchor(target, rescue))
+        {
+            StopPullingTarget(uid, target);
+            rescue.EvacuatingTarget = null;
+            rescue.AssignedTarget = null;
+            ClearFollowTarget(uid, rescue, htn);
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        if (!IsPullingTarget(uid, target))
+        {
+            if (IsWithinRange(uid, target, rescue.EvacuationStartRange))
+                _pulling.TryStartPull(uid, target);
+
+            if (!IsPullingTarget(uid, target))
+            {
+                SetFollowTarget(uid, rescue, htn, target);
+                return true;
+            }
+        }
+
+        return SetFollowShuttle(uid, rescue, htn);
+    }
+
+    private bool TryStartOrContinueEvacuation(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target)
+    {
+        if (!NeedsEvacuation(target, rescue))
+            return false;
+
+        rescue.EvacuatingTarget = target;
+
+        if (!IsWithinRange(uid, target, rescue.EvacuationStartRange))
+        {
+            SetFollowTarget(uid, rescue, htn, target);
+            return true;
+        }
+
+        _pulling.TryStartPull(uid, target);
+
+        if (!IsPullingTarget(uid, target))
+        {
+            SetFollowTarget(uid, rescue, htn, target);
+            return true;
+        }
+
+        return SetFollowShuttle(uid, rescue, htn);
     }
 
     private bool IsRescueCandidate(
@@ -151,6 +277,109 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return true;
     }
 
+    private bool NeedsEvacuation(EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        if (!rescue.EvacuateTargetsToShuttle ||
+            !CanUseAssignedShuttle(rescue) ||
+            IsOnAssignedShuttle(target, rescue) ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            !TryComp<DamageableComponent>(target, out var damage) ||
+            !HasComp<PullableComponent>(target) ||
+            mobState.CurrentState == MobState.Dead)
+        {
+            return false;
+        }
+
+        return mobState.CurrentState == MobState.Critical ||
+               damage.TotalDamage.Float() >= rescue.EvacuationMinDamage;
+    }
+
+    private bool IsEvacuationCandidate(
+        EntityUid rescuer,
+        EntityUid candidate,
+        LuaMRescueAgentComponent rescue,
+        float searchRange,
+        out float score)
+    {
+        score = 0f;
+
+        if (candidate == rescuer ||
+            Deleted(candidate) ||
+            !NeedsEvacuation(candidate, rescue))
+        {
+            return false;
+        }
+
+        var rescuerCoordinates = Transform(rescuer).Coordinates;
+        var candidateCoordinates = Transform(candidate).Coordinates;
+        if (!rescuerCoordinates.TryDistance(EntityManager, candidateCoordinates, out var distance) ||
+            distance > searchRange)
+        {
+            return false;
+        }
+
+        if (!TryComp<MobStateComponent>(candidate, out var mobState) ||
+            !TryComp<DamageableComponent>(candidate, out var damage))
+        {
+            return false;
+        }
+
+        score = damage.TotalDamage.Float() - distance;
+        if (mobState.CurrentState == MobState.Critical)
+            score += 1000f;
+
+        return true;
+    }
+
+    private bool CanUseAssignedShuttle(LuaMRescueAgentComponent rescue)
+    {
+        return rescue.EvacuateTargetsToShuttle &&
+               rescue.AssignedShuttle is { Valid: true } shuttle &&
+               !Deleted(shuttle);
+    }
+
+    private bool IsOnAssignedShuttle(EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        return rescue.AssignedShuttle is { Valid: true } shuttle &&
+               !Deleted(shuttle) &&
+               Transform(target).GridUid == shuttle;
+    }
+
+    private bool IsAtAssignedShuttleAnchor(EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        if (!TryGetShuttleAnchorCoordinates(rescue, out var coordinates))
+            return false;
+
+        var targetCoordinates = Transform(target).Coordinates;
+        return targetCoordinates.TryDistance(EntityManager, coordinates, out var distance) &&
+               distance <= rescue.EvacuationArrivalRange;
+    }
+
+    private bool IsPullingTarget(EntityUid uid, EntityUid target)
+    {
+        return TryComp<PullerComponent>(uid, out var puller) &&
+               puller.Pulling == target;
+    }
+
+    private void StopPullingTarget(EntityUid uid, EntityUid target)
+    {
+        if (!IsPullingTarget(uid, target) ||
+            !TryComp<PullableComponent>(target, out var pullable))
+        {
+            return;
+        }
+
+        _pulling.TryStopPull(target, pullable);
+    }
+
+    private bool IsWithinRange(EntityUid uid, EntityUid target, float range)
+    {
+        var uidCoordinates = Transform(uid).Coordinates;
+        var targetCoordinates = Transform(target).Coordinates;
+        return uidCoordinates.TryDistance(EntityManager, targetCoordinates, out var distance) &&
+               distance <= range;
+    }
+
     private void SetFollowTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
     {
         rescue.AssignedTarget = target;
@@ -159,6 +388,39 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         _npc.SetBlackboard(uid, "FollowRange", rescue.FollowRange, htn);
         _npc.WakeNPC(uid, htn);
         Dirty(uid, rescue);
+    }
+
+    private bool SetFollowShuttle(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    {
+        if (!TryGetShuttleAnchorCoordinates(rescue, out var coordinates))
+            return false;
+
+        _npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, coordinates, htn);
+        _npc.SetBlackboard(uid, "FollowCloseRange", rescue.FollowCloseRange, htn);
+        _npc.SetBlackboard(uid, "FollowRange", rescue.FollowRange, htn);
+        _npc.WakeNPC(uid, htn);
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool TryGetShuttleAnchorCoordinates(LuaMRescueAgentComponent rescue, out EntityCoordinates coordinates)
+    {
+        if (rescue.AssignedShuttleAnchor is { Valid: true } anchor &&
+            !Deleted(anchor))
+        {
+            coordinates = Transform(anchor).Coordinates;
+            return true;
+        }
+
+        if (rescue.AssignedShuttle is { Valid: true } shuttle &&
+            !Deleted(shuttle))
+        {
+            coordinates = Transform(shuttle).Coordinates;
+            return true;
+        }
+
+        coordinates = default;
+        return false;
     }
 
     private void ClearFollowTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
