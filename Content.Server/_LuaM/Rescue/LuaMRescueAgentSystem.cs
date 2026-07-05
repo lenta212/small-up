@@ -134,6 +134,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         while (query.MoveNext(out var uid, out var rescue))
         {
             PruneSkippedTargets(rescue);
+            PruneSkippedSupplyTargets(rescue);
             lines.Add(BuildRescueStatusLine(uid, rescue));
         }
 
@@ -327,7 +328,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return $"{FormatEntityRef(uid)} phase={GetRescuePhase(uid, rescue)}; " +
                $"target={FormatEntityRef(target)}; shuttle={FormatEntityRef(rescue.AssignedShuttle)}; " +
                $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
-               $"skipped={rescue.SkippedTargets.Count}; autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
+               $"skipped={rescue.SkippedTargets.Count}; skippedSupply={rescue.SkippedSupplyTargets.Count}; " +
+               $"autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoEvac={rescue.LastAutoEvacuationStatus}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
@@ -1654,15 +1656,24 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         string status)
     {
         var completedAction = rescue.PendingPlayerAction;
+        var completedTarget = rescue.PendingPlayerActionTarget;
+        var failed = status.StartsWith("failed", StringComparison.OrdinalIgnoreCase);
         ClearPendingPlayerAction(rescue, status);
 
-        if (!status.StartsWith("failed", StringComparison.OrdinalIgnoreCase) &&
+        if (!failed &&
             completedAction is LuaMRescuePlayerActionKind.Pickup
                 or LuaMRescuePlayerActionKind.StoreSlot
                 or LuaMRescuePlayerActionKind.TakeStorage
                 or LuaMRescuePlayerActionKind.Vend)
         {
             rescue.NextAutoTreatmentAttempt = _timing.CurTime;
+        }
+
+        if (failed &&
+            completedTarget is { Valid: true } failedSupply &&
+            completedAction is LuaMRescuePlayerActionKind.Pickup or LuaMRescuePlayerActionKind.Vend)
+        {
+            TemporarilySkipSupplyTarget(rescue, failedSupply, status);
         }
 
         StandbyAtAssignedShuttle(uid, rescue, htn);
@@ -1760,6 +1771,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private void UpdateAssignedTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
     {
         PruneSkippedTargets(rescue);
+        PruneSkippedSupplyTargets(rescue);
         PruneAnalyzedTargets(rescue);
 
         if (UpdateEvacuation(uid, rescue, htn))
@@ -2213,7 +2225,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (!TryFindNearbyMedicalSupply(uid, target, rescue.AutoPickupSupplyRange, out var supplyUid, out status))
+        if (!TryFindNearbyMedicalSupply(uid, target, rescue, rescue.AutoPickupSupplyRange, out var supplyUid, out status))
             return false;
 
         rescue.PendingPlayerAction = LuaMRescuePlayerActionKind.Pickup;
@@ -2234,6 +2246,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private bool TryFindNearbyMedicalSupply(
         EntityUid uid,
         EntityUid target,
+        LuaMRescueAgentComponent rescue,
         float searchRange,
         out EntityUid supplyUid,
         out string status)
@@ -2247,6 +2260,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (candidate == uid ||
                 candidate == target ||
                 Deleted(candidate) ||
+                IsSupplyTemporarilySkipped(candidate, rescue) ||
                 _container.IsEntityOrParentInContainer(candidate))
             {
                 continue;
@@ -2288,7 +2302,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (!TryFindMedicalVendingSupply(uid, rescue.AutoResupplyRange, out var vendingUid, out var productId, out status))
+        if (!TryFindMedicalVendingSupply(uid, rescue, rescue.AutoResupplyRange, out var vendingUid, out var productId, out status))
             return false;
 
         rescue.PendingPlayerAction = LuaMRescuePlayerActionKind.Vend;
@@ -2308,6 +2322,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     private bool TryFindMedicalVendingSupply(
         EntityUid uid,
+        LuaMRescueAgentComponent rescue,
         float searchRange,
         out EntityUid vendingUid,
         out string productId,
@@ -2320,7 +2335,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var bestScore = float.MinValue;
         foreach (var candidate in _lookup.GetEntitiesInRange(uid, searchRange))
         {
-            if (!TryComp<VendingMachineComponent>(candidate, out var vending) ||
+            if (IsSupplyTemporarilySkipped(candidate, rescue) ||
+                !TryComp<VendingMachineComponent>(candidate, out var vending) ||
                 vending.Broken ||
                 vending.Ejecting ||
                 !TrySelectVendingProduct(candidate, vending, null, includeDiagnosticItems: false, out var product, out _))
@@ -2554,6 +2570,21 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
     }
 
+    private void PruneSkippedSupplyTargets(LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.SkippedSupplyTargets.Count == 0)
+            return;
+
+        var now = _timing.CurTime;
+        foreach (var target in rescue.SkippedSupplyTargets
+                     .Where(entry => Deleted(entry.Key) || entry.Value <= now)
+                     .Select(entry => entry.Key)
+                     .ToArray())
+        {
+            rescue.SkippedSupplyTargets.Remove(target);
+        }
+    }
+
     private void PruneAnalyzedTargets(LuaMRescueAgentComponent rescue)
     {
         if (rescue.AnalyzedTargets.Count == 0)
@@ -2590,6 +2621,18 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
 
         rescue.SkippedTargets.Remove(target);
+        return false;
+    }
+
+    private bool IsSupplyTemporarilySkipped(EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        if (!rescue.SkippedSupplyTargets.TryGetValue(target, out var skipUntil))
+            return false;
+
+        if (_timing.CurTime < skipUntil)
+            return true;
+
+        rescue.SkippedSupplyTargets.Remove(target);
         return false;
     }
 
@@ -2687,6 +2730,20 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         StandbyAtAssignedShuttle(uid, rescue, htn);
         Dirty(uid, rescue);
+    }
+
+    private void TemporarilySkipSupplyTarget(LuaMRescueAgentComponent rescue, EntityUid target, string reason)
+    {
+        if (!rescue.TemporarilySkipFailedSupplies ||
+            rescue.SupplySkipSeconds <= 0f ||
+            Deleted(target))
+        {
+            return;
+        }
+
+        rescue.SkippedSupplyTargets[target] = _timing.CurTime + TimeSpan.FromSeconds(rescue.SupplySkipSeconds);
+        rescue.LastAutoSupplyStatus = $"skipping {FormatEntityRef(target)} for {rescue.SupplySkipSeconds:0.0}s after {reason}";
+        rescue.NextAutoTreatmentAttempt = _timing.CurTime;
     }
 
     private void ResetTargetProgress(LuaMRescueAgentComponent rescue)

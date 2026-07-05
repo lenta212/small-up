@@ -652,6 +652,7 @@ def run_anthropic_mock_test() -> dict[str, object]:
                 assert "stow held items" in body["system"]
                 assert "auto-treat" in body["system"]
                 assert "retrieve dispensed vending purchases" in body["system"]
+                assert "temporarily skip failed supply sources" in body["system"]
                 assert "evacuate critical patients" in body["system"]
                 assert "store-slot" in body["system"]
                 assert "take-storage" in body["system"]

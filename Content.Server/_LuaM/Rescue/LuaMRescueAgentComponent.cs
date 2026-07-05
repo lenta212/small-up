@@ -70,6 +70,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool TemporarilySkipStalledTargets = true;
 
     [DataField]
+    public bool TemporarilySkipFailedSupplies = true;
+
+    [DataField]
     public bool ShuttleReturnRouted;
 
     [DataField]
@@ -100,6 +103,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float TargetSkipSeconds = 45f;
 
     [DataField]
+    public float SupplySkipSeconds = 30f;
+
+    [DataField]
     public float TargetProgressTolerance = 0.25f;
 
     [DataField]
@@ -120,6 +126,8 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float TargetRefreshAccumulator;
 
     public readonly Dictionary<EntityUid, TimeSpan> SkippedTargets = new();
+
+    public readonly Dictionary<EntityUid, TimeSpan> SkippedSupplyTargets = new();
 
     public readonly Dictionary<EntityUid, TimeSpan> AnalyzedTargets = new();
 
