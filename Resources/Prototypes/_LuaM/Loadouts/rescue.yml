@@ -15,6 +15,7 @@
   storage:
     back:
     - EmergencyRollerBedSpawnFolded
+    - DefibrillatorCompact
     - MedkitCombatFilled
     - OmnizineChemistryBottle
     - EpinephrineChemistryBottle

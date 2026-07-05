@@ -6,6 +6,7 @@ using Content.Server.Bed.Components;
 using Content.Server.Buckle.Systems;
 using Content.Server.Hands.Systems;
 using Content.Server.Interaction;
+using Content.Server.Medical;
 using Content.Server.Medical.Components;
 using Content.Server.Mind;
 using Content.Server.NPC;
@@ -22,6 +23,8 @@ using Content.Shared.Damage;
 using Content.Shared.Hands.Components;
 using Content.Shared.Interaction;
 using Content.Shared.Inventory;
+using Content.Shared.Item.ItemToggle;
+using Content.Shared.Medical;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Movement.Pulling.Components;
@@ -77,7 +80,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly HandsSystem _hands = default!;
     [Dependency] private readonly InventorySystem _inventory = default!;
     [Dependency] private readonly InteractionSystem _interaction = default!;
+    [Dependency] private readonly DefibrillatorSystem _defibrillator = default!;
     [Dependency] private readonly SharedStorageSystem _storage = default!;
+    [Dependency] private readonly ItemToggleSystem _itemToggle = default!;
     [Dependency] private readonly SharedContainerSystem _container = default!;
     [Dependency] private readonly ActionBlockerSystem _actionBlocker = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
@@ -358,7 +363,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"skipped={rescue.SkippedTargets.Count}; skippedSupply={rescue.SkippedSupplyTargets.Count}; " +
                $"skippedDelivery={rescue.SkippedDeliveryTargets.Count}; " +
                $"autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
-               $"autoTreat={rescue.LastAutoTreatmentStatus}; autoEvac={rescue.LastAutoEvacuationStatus}; " +
+               $"autoTreat={rescue.LastAutoTreatmentStatus}; autoDefib={rescue.LastAutoDefibStatus}; " +
+               $"autoEvac={rescue.LastAutoEvacuationStatus}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
     }
@@ -1793,6 +1799,104 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return false;
     }
 
+    private bool TryFindDefibrillatorItem(
+        EntityUid uid,
+        out EntityUid item,
+        out string status)
+    {
+        item = default;
+        status = string.Empty;
+
+        if (!TryComp<HandsComponent>(uid, out var hands))
+        {
+            status = "agent has no hands";
+            return false;
+        }
+
+        foreach (var hand in hands.Hands.Values)
+        {
+            if (hand.HeldEntity is not { Valid: true } held ||
+                !HasComp<DefibrillatorComponent>(held))
+            {
+                continue;
+            }
+
+            item = held;
+            return true;
+        }
+
+        if (!_hands.TryGetEmptyHand(uid, out var emptyHand, hands))
+        {
+            status = "no empty hand for defibrillator";
+            return false;
+        }
+
+        foreach (var candidateSlot in TreatmentStorageSlotPriority)
+        {
+            if (TryTakeDefibrillatorFromSlot(uid, candidateSlot, emptyHand, hands, out item, out _))
+                return true;
+        }
+
+        status = "no defibrillator found in hands or storage";
+        return false;
+    }
+
+    private bool TryTakeDefibrillatorFromSlot(
+        EntityUid uid,
+        string slot,
+        Hand emptyHand,
+        HandsComponent hands,
+        out EntityUid item,
+        out string status)
+    {
+        item = default;
+
+        if (!TryResolveStorageSlot(uid, slot, out var storageUid, out var storage, out status))
+            return false;
+
+        if (!TrySelectDefibrillatorItem(storageUid, storage, out var storedItem, out status))
+            return false;
+
+        if (!_container.RemoveEntity(storageUid, storedItem))
+        {
+            status = $"could not remove {FormatEntityRef(storedItem)} from {FormatEntityRef(storageUid)}";
+            return false;
+        }
+
+        if (!_hands.TryPickup(uid, storedItem, emptyHand, handsComp: hands))
+        {
+            _storage.Insert(storageUid, storedItem, out _, user: uid, storageComp: storage);
+            status = $"could not take {FormatEntityRef(storedItem)} from {FormatEntityRef(storageUid)} into hand";
+            return false;
+        }
+
+        item = storedItem;
+        status = $"took defibrillator {FormatEntityRef(storedItem)} from {FormatEntityRef(storageUid)}";
+        return true;
+    }
+
+    private bool TrySelectDefibrillatorItem(
+        EntityUid storageUid,
+        StorageComponent storage,
+        out EntityUid item,
+        out string status)
+    {
+        item = default;
+        status = string.Empty;
+
+        foreach (var contained in storage.Container.ContainedEntities)
+        {
+            if (!HasComp<DefibrillatorComponent>(contained))
+                continue;
+
+            item = contained;
+            return true;
+        }
+
+        status = $"no defibrillator in {FormatEntityRef(storageUid)}";
+        return false;
+    }
+
     private bool TryFindTreatmentItem(
         EntityUid uid,
         EntityUid target,
@@ -2233,11 +2337,15 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         if (TryFindEvacuationTarget(uid, rescue.SearchRange, rescue, out var evacuationTarget) &&
-            (TryAutoTreatTarget(uid, rescue, htn, evacuationTarget) ||
+            (TryAutoDefibTarget(uid, rescue, htn, evacuationTarget) ||
+             TryAutoTreatTarget(uid, rescue, htn, evacuationTarget) ||
              TryStartOrContinueEvacuation(uid, rescue, htn, evacuationTarget)))
         {
             return;
         }
+
+        if (TryAutoDefibDeadPatientOnShuttle(uid, rescue, htn))
+            return;
 
         if (TryReleaseStabilizedPatientOnShuttle(uid, rescue, htn))
             return;
@@ -2360,6 +2468,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         if (!IsPullingTarget(uid, target) &&
+            TryAutoDefibTarget(uid, rescue, htn, target))
+        {
+            return true;
+        }
+
+        if (!IsPullingTarget(uid, target) &&
             TryAutoTreatTarget(uid, rescue, htn, target))
         {
             return true;
@@ -2479,6 +2593,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             null,
             $"evacuating {FormatEntityRef(target)}");
         TryRouteShuttleToTarget(uid, rescue, target);
+
+        if (TryAutoDefibTarget(uid, rescue, htn, target))
+            return true;
 
         if (TryAutoTreatTarget(uid, rescue, htn, target))
             return true;
@@ -2704,6 +2821,86 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
 
         SetFollowTarget(uid, rescue, htn, target);
+        return true;
+    }
+
+    private bool TryAutoDefibTarget(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target)
+    {
+        if (!rescue.AutoDefibDeadPatients ||
+            Deleted(target) ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            mobState.CurrentState != MobState.Dead)
+        {
+            return false;
+        }
+
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.TreatingPatient,
+            target,
+            null,
+            $"defibrillating {FormatEntityRef(target)}");
+
+        if (!IsWithinRange(uid, target, rescue.PlayerActionRange))
+        {
+            rescue.LastAutoDefibStatus = $"moving to defibrillate {FormatEntityRef(target)}";
+            SetFollowTarget(uid, rescue, htn, target);
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        if (_timing.CurTime < rescue.NextAutoDefibAttempt)
+        {
+            if (rescue.LastAutoDefibStatus.StartsWith("started defibrillation", StringComparison.OrdinalIgnoreCase))
+            {
+                rescue.LastAutoDefibStatus = $"defibrillation in progress for {FormatEntityRef(target)}";
+                Dirty(uid, rescue);
+                return true;
+            }
+
+            return false;
+        }
+
+        rescue.NextAutoDefibAttempt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoDefibCooldown));
+
+        if (!TryFindDefibrillatorItem(uid, out var defib, out var status))
+        {
+            rescue.LastAutoDefibStatus = status;
+            if (status.Equals("no empty hand for defibrillator", StringComparison.OrdinalIgnoreCase) &&
+                TryAutoStowHeldItemForTreatment(uid, rescue, out var stowStatus))
+            {
+                rescue.LastAutoSupplyStatus = stowStatus;
+                rescue.NextAutoDefibAttempt = _timing.CurTime;
+                Dirty(uid, rescue);
+                return true;
+            }
+
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        if (!_itemToggle.IsActivated(defib) &&
+            !_itemToggle.TryActivate(defib, uid))
+        {
+            rescue.LastAutoDefibStatus = $"could not activate defibrillator {FormatEntityRef(defib)}";
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        if (!_defibrillator.TryStartZap(defib, target, uid))
+        {
+            rescue.LastAutoDefibStatus = $"could not start defibrillation of {FormatEntityRef(target)} with {FormatEntityRef(defib)}";
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        rescue.LastAutoDefibStatus = $"started defibrillation of {FormatEntityRef(target)} with {FormatEntityRef(defib)}";
+        Dirty(uid, rescue);
         return true;
     }
 
@@ -3693,6 +3890,87 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         status = holdingStatus;
+        return false;
+    }
+
+    private bool TryAutoDefibDeadPatientOnShuttle(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (!rescue.AutoDefibDeadPatients)
+            return false;
+
+        if (!TryFindDeadShuttlePatient(rescue, out var patient, out var patientStrap, out var status))
+        {
+            if (!string.IsNullOrWhiteSpace(status))
+                rescue.LastAutoDefibStatus = status;
+
+            return false;
+        }
+
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.TreatingPatient,
+            patient,
+            patientStrap,
+            $"defibrillating onboard {FormatEntityRef(patient)} at {FormatEntityRef(patientStrap)}");
+
+        if (!IsWithinRange(uid, patientStrap, rescue.PlayerActionRange))
+        {
+            rescue.LastAutoDefibStatus = $"moving to onboard defibrillation {FormatEntityRef(patient)} at {FormatEntityRef(patientStrap)}";
+            SetFollowDeliveryStrap(uid, rescue, htn, patientStrap);
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        return TryAutoDefibTarget(uid, rescue, htn, patient);
+    }
+
+    private bool TryFindDeadShuttlePatient(
+        LuaMRescueAgentComponent rescue,
+        out EntityUid patient,
+        out EntityUid patientStrap,
+        out string status)
+    {
+        patient = default;
+        patientStrap = default;
+        status = string.Empty;
+
+        if (rescue.AssignedShuttle is not { Valid: true } shuttle ||
+            Deleted(shuttle))
+        {
+            return false;
+        }
+
+        var query = EntityQueryEnumerator<StrapComponent, TransformComponent>();
+        while (query.MoveNext(out var strapUid, out var strap, out var xform))
+        {
+            if (xform.GridUid != shuttle ||
+                !IsAssignedShuttlePatientStrap(strapUid, rescue))
+            {
+                continue;
+            }
+
+            foreach (var buckled in strap.BuckledEntities)
+            {
+                if (Deleted(buckled) ||
+                    !TryComp<BuckleComponent>(buckled, out var buckledComp) ||
+                    buckledComp.BuckledTo != strapUid ||
+                    !TryComp<MobStateComponent>(buckled, out var mobState) ||
+                    mobState.CurrentState != MobState.Dead)
+                {
+                    continue;
+                }
+
+                patient = buckled;
+                patientStrap = strapUid;
+                status = $"dead onboard patient {FormatEntityRef(buckled)} awaits defibrillation";
+                return true;
+            }
+        }
+
         return false;
     }
 

@@ -55,6 +55,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoTreatWithCarriedItems = true;
 
     [DataField]
+    public bool AutoDefibDeadPatients = true;
+
+    [DataField]
     public bool AutoAnalyzeBeforeTreatment = true;
 
     [DataField]
@@ -139,6 +142,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float AutoTreatCooldown = 6f;
 
     [DataField]
+    public float AutoDefibCooldown = 8f;
+
+    [DataField]
     public float AutoAnalyzeCooldown = 45f;
 
     [DataField]
@@ -158,6 +164,8 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public readonly Dictionary<EntityUid, TimeSpan> AnalyzedTargets = new();
 
     public TimeSpan NextAutoTreatmentAttempt;
+
+    public TimeSpan NextAutoDefibAttempt;
 
     public TimeSpan NextAutoAnalyzeAttempt;
 
@@ -206,6 +214,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     [DataField]
     public string LastAutoTreatmentStatus = "none";
+
+    [DataField]
+    public string LastAutoDefibStatus = "none";
 
     [DataField]
     public string LastAutoAnalyzeStatus = "none";

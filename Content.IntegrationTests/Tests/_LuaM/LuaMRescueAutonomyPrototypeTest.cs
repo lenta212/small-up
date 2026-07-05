@@ -22,6 +22,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(ScalarValue(equipment, "gloves"), Is.EqualTo("ClothingHandsGlovesCombat"));
         Assert.That(SequenceValues(Sequence(gear, "inhand")), Does.Contain("WeaponLaserCarbine"));
         Assert.That(SequenceValues(Sequence(Mapping(gear, "storage"), "back")), Does.Contain("MedkitCombatFilled"));
+        Assert.That(SequenceValues(Sequence(Mapping(gear, "storage"), "back")), Does.Contain("DefibrillatorCompact"));
 
         var entities = LoadSequence("Resources/Prototypes/_LuaM/Entities/Mobs/rescue_agent.yml");
         AssertLoadout(entities, "LuaMRescueAgent");
@@ -78,6 +79,28 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("score += 1500f"));
         Assert.That(source, Does.Contain("holding dead onboard patient"));
         Assert.That(source, Does.Contain("mobState.CurrentState == MobState.Dead ||"));
+    }
+
+    [Test]
+    public void RescueAgentAutoDefibsDeadPatientsWithStandardDefibrillatorSystem()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("AutoDefibDeadPatients = true"));
+        Assert.That(component, Does.Contain("AutoDefibCooldown = 8f"));
+        Assert.That(component, Does.Contain("NextAutoDefibAttempt"));
+        Assert.That(component, Does.Contain("LastAutoDefibStatus"));
+        Assert.That(source, Does.Contain("DefibrillatorSystem"));
+        Assert.That(source, Does.Contain("ItemToggleSystem"));
+        Assert.That(source, Does.Contain("TryAutoDefibTarget"));
+        Assert.That(source, Does.Contain("TryAutoDefibDeadPatientOnShuttle"));
+        Assert.That(source, Does.Contain("TryFindDefibrillatorItem"));
+        Assert.That(source, Does.Contain("_itemToggle.TryActivate(defib, uid)"));
+        Assert.That(source, Does.Contain("_defibrillator.TryStartZap(defib, target, uid)"));
+        Assert.That(source, Does.Contain("defibrillation in progress"));
+        Assert.That(source, Does.Contain("defibrillating onboard"));
+        Assert.That(source, Does.Contain("autoDefib={rescue.LastAutoDefibStatus}"));
     }
 
     [Test]
