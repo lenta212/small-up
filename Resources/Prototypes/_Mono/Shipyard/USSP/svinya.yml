@@ -10,7 +10,7 @@
   parent: BaseVessel
   name: UW Svinya
   description: A compact attack craft, bristling with small caliber armament.
-  price: 39000 # appraised at ~33200
+  price: 65000 # appraised at ~33200
   category: Small
   group: Ussp
   access: Mercenary

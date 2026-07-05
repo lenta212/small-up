@@ -5,7 +5,7 @@
   parent: BaseVesselAntag
   name: TSF-PIN Aldebaran
   description: A frontal up-puncher corvette equipped with two cyrexas for long range engagements and torpedoes for heavier targets and close range.
-  price: 160200
+  price: 217000
   purchasable: false # voucher only
   category: Medium
   group: Security

@@ -3,7 +3,7 @@
   parent: BaseVesselAntag
   name: Hunter
   description: A cheap, armored personnel carrier armed with 4 100mm autocannons.
-  price: 50000
+  price: 80000
   category: Small
   group: Syndicate
   shuttlePath: /Maps/_Mono/Shuttles/Syndicate/hunter.yml

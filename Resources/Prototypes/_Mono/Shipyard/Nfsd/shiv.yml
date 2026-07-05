@@ -5,7 +5,7 @@
   parent: BaseVesselAntag
   name: TSF-PIN Shiv
   description: The workhorse of industry of the Solarian fleets, comes with an artifact research bay and good mining capabilities.
-  price: 60000
+  price: 80000
   category: Small
   group: Security
   access: Security

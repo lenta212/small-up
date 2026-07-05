@@ -4,7 +4,7 @@
   parent: BaseVesselAntag
   name: TSF-PIN Hoplite
   description: A patrol craft meant to intercept smugglers and light enemy craft with powerful engines and EMPs. It is equipped with 2 RUBICON, two plasma pulsers and two MARAUDER plasma cannons
-  price: 78500
+  price: 110000
   category: Small
   group: Security
   access: Security

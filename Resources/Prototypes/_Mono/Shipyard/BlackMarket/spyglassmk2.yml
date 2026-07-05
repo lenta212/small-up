@@ -5,7 +5,7 @@
   parent: BaseVesselAntag
   name: PDV Spyglass MKII
   description: One of salvage ships you'll see from the Phaethon Dynasty. This baby is capable of Xenoarcheology and salvage work.
-  price: 62500
+  price: 91000
   category: Small
   group: BlackMarket
   access: Pirate

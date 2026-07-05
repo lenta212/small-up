@@ -3,7 +3,7 @@
   parent: BaseVesselAntag
   name: Talon
   description: A heavy syndicate interceptor, with 4 forward facing Fang autocannons and 2 sidemounted Adder scatter cannons
-  price: 45000
+  price: 80000
   category: Small
   group: Syndicate
   shuttlePath: /Maps/_Mono/Shuttles/Syndicate/talon.yml

@@ -5,7 +5,7 @@
   parent: BaseVesselAntag
   name: WEN Garm
   description: Gruff hull with 3 GPOL's and long-range Bofors artillery for station bombardments and fleet support.
-  price: 105200 # 86700 appraisegrid
+  price: 153000 # 86700 appraisegrid
   purchasable: false # voucher only
   category: Medium
   group: BlackMarket

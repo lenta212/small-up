@@ -4,7 +4,7 @@
   name: BYP Kupol
   description: A gunnery unit made to make up for the lacking fire-power of the Ledokol.
   limit: 1
-  price: 90000
+  price: 117000
   category: Small
   group: Custom
   access: USSP

@@ -3,7 +3,7 @@
   parent: BaseVesselAntag
   name: Infiltrator
   description: A light syndicate frigate meant for raiding enemy stations. Armed to the teeth with missiles and Hydras.
-  price: 275000
+  price: 399000
   category: Large
   group: Syndicate
   shuttlePath: /Maps/_Mono/Shuttles/Syndicate/infiltrator.yml

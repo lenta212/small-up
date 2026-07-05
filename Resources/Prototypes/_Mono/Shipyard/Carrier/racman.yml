@@ -3,7 +3,7 @@
   parent: BaseVessel
   name: Z-22 Rac-Man
   description: An assault drone with two forward mounted 30mm rotary autocannons.
-  price: 22000
+  price: 40000
   category: Micro
   group: Custom
   access: Mercenary
