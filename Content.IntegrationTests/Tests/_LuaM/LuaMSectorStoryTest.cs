@@ -223,9 +223,11 @@ public sealed class LuaMSectorStoryTest
             var adminState = director.BuildAdminState(string.Empty, string.Empty);
             Assert.That(adminState.AiBaseSummary, Does.Contain("physical beacons 1"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("logistics ships 1"));
-            Assert.That(adminState.AiBaseSummary, Does.Contain("mining drones 1"));
+            Assert.That(adminState.AiBaseSummary, Does.Contain("drones 1"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("supply drops 1"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("compensate"));
+            Assert.That(adminState.AiBaseDiagnostics, Does.Contain("AI base diagnostics"));
+            Assert.That(adminState.AiBaseDiagnostics, Does.Contain("Suggested command:"));
 
             Assert.That(storySystem.TryExportMemoryJson(out var exportedJson), Is.True);
             Assert.That(exportedJson, Does.Contain("AiBase"));

@@ -796,6 +796,13 @@ public sealed class LuaMAiDirectorWindowTest : RobustUnitTest
             "fallback-text",
             "local read-only",
             "fallback source parser");
+        var aiBase = InvokeBuildRecommendationProvenance(
+            LuaMAiDirectorEuiMsg.QuickStatus,
+            "aiBaseDiagnostic=S4; drones=0; physical beacons=1",
+            "local AI-base diagnostics: beacons, drones, ships, drops",
+            LuaMAiDirectorRecommendationSourceClass.AiBase,
+            "read-only diagnostics",
+            "AI base evidence aligned");
 
         Assert.That(partial, Does.Contain("source classes: gateway,pressure"));
         Assert.That(partial, Does.Contain("source check: warning-partial - SourceClasses=gateway,pressure; textCues=sector,pressure; verify source evidence before applying"));
@@ -804,6 +811,9 @@ public sealed class LuaMAiDirectorWindowTest : RobustUnitTest
 
         Assert.That(fallback, Does.Contain("source classes: fallback-text"));
         Assert.That(fallback, Does.Contain("source check: fallback-text - explicit SourceClasses unavailable; verify source/evidence text before applying"));
+
+        Assert.That(aiBase, Does.Contain("source classes: ai-base"));
+        Assert.That(aiBase, Does.Contain("source check: aligned - SourceClasses match source/evidence cues (ai-base)"));
     }
 
     [Test]

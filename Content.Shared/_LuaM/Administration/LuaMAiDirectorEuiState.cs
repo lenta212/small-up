@@ -33,6 +33,7 @@ public sealed class LuaMAiDirectorEuiState : EuiStateBase
     public int AiBaseSupplyScore { get; init; }
     public int AiBaseTradeCycles { get; init; }
     public string AiBaseSummary { get; init; } = string.Empty;
+    public string AiBaseDiagnostics { get; init; } = string.Empty;
     public string RunLevel { get; init; } = string.Empty;
     public string AiOutcomeStatus { get; init; } = string.Empty;
     public string AiOutcomeGroup { get; init; } = string.Empty;
@@ -136,6 +137,7 @@ public static class LuaMAiDirectorRecommendationSourceClass
     public const string Sector = "sector";
     public const string Pressure = "pressure";
     public const string Gateway = "gateway";
+    public const string AiBase = "ai-base";
 }
 
 public static class LuaMAiDirectorEuiMsg

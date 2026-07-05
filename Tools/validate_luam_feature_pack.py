@@ -720,6 +720,7 @@ def main() -> int:
         "LuaMAiDirectorRecommendationSourceClass.Sector",
         "LuaMAiDirectorRecommendationSourceClass.Pressure",
         "LuaMAiDirectorRecommendationSourceClass.Gateway",
+        "LuaMAiDirectorRecommendationSourceClass.AiBase",
         "AdminGenerateAsync",
         "GenerateImmediateAsync",
         "AdminChatAsync",
@@ -785,12 +786,18 @@ def main() -> int:
         "AllowedEntityPrototypeIds",
         "AllowedSectorCommandIds",
         "ai_base_create",
+        "ai_base_diagnostics",
         "ai_base_mine",
         "ai_base_build",
         "ai_base_develop",
+        "BuildAiBaseDiagnosticsReport",
+        "BuildAiBaseDiagnostics",
+        "AiBaseDiagnosticEntry",
+        "AiBasePhysicalSnapshot",
         "DispatchAiBaseRoleShipAsync",
         "DispatchAiBaseDevelopmentAsync",
         "IsAiBaseRobotDevelopmentRequest",
+        "IsAiBaseDiagnosticsRequest",
         "AdminModeEnabled",
         "SpawnChatEntityAsync",
         "RunChatSectorCommandAsync",
@@ -976,6 +983,7 @@ def main() -> int:
         "ChatTranscript",
         "CanRunServerActions",
         "GameMasterModeEnabled",
+        "AiBaseDiagnostics",
         "HasPendingConfirmation",
         "PendingConfirmationId",
         "PendingConfirmationTitle",
@@ -1031,6 +1039,7 @@ def main() -> int:
         "public const string Sector = \"sector\"",
         "public const string Pressure = \"pressure\"",
         "public const string Gateway = \"gateway\"",
+        "public const string AiBase = \"ai-base\"",
         "AdminModeEnabled",
         "Review",
         "LogReview",
@@ -1206,9 +1215,12 @@ def main() -> int:
     assert_contains(ai_director, "ai_base_mine", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "ai_base_build", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "ai_base_develop", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "ai_base_diagnostics", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "DispatchAiBaseDevelopmentAsync", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "DispatchAiBaseRoleShipAsync", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "IsAiBaseRobotDevelopmentRequest", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "IsAiBaseDiagnosticsRequest", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "BuildAiBaseDiagnosticsReport", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "HasAiBaseMiningIntent", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "HasAiBaseBuildIntent", "LuaMSectorAiDirectorSystem")
 
@@ -1221,9 +1233,13 @@ def main() -> int:
         "allowServerActions: false",
         "LuaMAiDirectorGameMasterMode",
         "GameMasterModeEnabled",
+        "AiBaseDiagnostics",
+        "LuaMAiDirectorRecommendationSourceClass.AiBase",
+        "ai_base_diagnostics",
         "ai_base_mine",
         "ai_base_build",
         "ai_base_develop",
+        "AI base diagnostics",
         "open ai robots mine resources and build the ai base",
         "dispatch AI builder Hammerhead",
         "Server-flag confirmed action",
@@ -1782,6 +1798,7 @@ def main() -> int:
         "RecommendationFiltersSortByRiskConfidenceAndServerScope",
         "RecommendationSourceFiltersGroupEvidenceClasses",
         "LuaMAiDirectorRecommendationSourceClass.Gateway",
+        "LuaMAiDirectorRecommendationSourceClass.AiBase",
         "RecommendationEmptyStateExplainsSafeNextStep",
         "RecommendationCopyTextUsesFilteredSortAndRedactsSensitiveValues",
         "ActionHistoryCopyTextUsesFilterAndRedactsSensitiveValues",
@@ -2167,9 +2184,11 @@ def main() -> int:
         "spawn_entity",
         "run_sector_command",
         "ai_base_create",
+        "ai_base_diagnostics",
         "ai_base_mine",
         "ai_base_build",
         "ai_base_develop",
+        "wants_ai_base_diagnostics",
         "wants_ai_base_mining",
         "wants_ai_base_building",
         "run_admin_command",
@@ -2261,7 +2280,9 @@ def main() -> int:
         "store-slot",
         "take-storage",
         "take-target-storage",
+        "ai_base_diagnostics",
         "ai_base_develop",
+        "aiBaseDiagnosticsChat",
         "aiBaseDevelopChat",
         "slot=<slot>",
         "item=<name|prototype|entity>",

@@ -68,6 +68,7 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
         LuaMAiDirectorRecommendationSourceClass.Sector,
         LuaMAiDirectorRecommendationSourceClass.Pressure,
         LuaMAiDirectorRecommendationSourceClass.Gateway,
+        LuaMAiDirectorRecommendationSourceClass.AiBase,
     ];
 
     private string _selectedPlayer = string.Empty;
@@ -566,6 +567,11 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
         if (!string.IsNullOrWhiteSpace(state.AiBaseSummary))
         {
             status += $"\nAI base: {state.AiBaseSummary}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(state.AiBaseDiagnostics))
+        {
+            status += $"\nAI base diagnostics: {state.AiBaseDiagnostics}";
         }
 
         if (!string.IsNullOrWhiteSpace(state.AiNextStepHint))
@@ -2685,6 +2691,20 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
                     "gatewayConfigured=",
                     "provider",
                     "route="),
+            _ when sourceClass.Equals(LuaMAiDirectorRecommendationSourceClass.AiBase, StringComparison.OrdinalIgnoreCase) =>
+                RecommendationTextContainsAny(
+                    sourceSummary,
+                    "AI-base",
+                    "AI base",
+                    "base diagnostics",
+                    "beacons",
+                    "drones") ||
+                RecommendationTextContainsAny(
+                    evidenceSummary,
+                    "aiBase",
+                    "aiBaseDiagnostic=",
+                    "physical beacons",
+                    "drones="),
             _ => false,
         };
     }
@@ -2702,6 +2722,7 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
             RecommendationFilterSourceSector => LuaMAiDirectorRecommendationSourceClass.Sector,
             RecommendationFilterSourcePressure => LuaMAiDirectorRecommendationSourceClass.Pressure,
             RecommendationFilterSourceGateway => LuaMAiDirectorRecommendationSourceClass.Gateway,
+            _ when filter.Equals(LuaMAiDirectorRecommendationSourceClass.AiBase, StringComparison.OrdinalIgnoreCase) => LuaMAiDirectorRecommendationSourceClass.AiBase,
             _ => string.Empty,
         };
     }
@@ -2714,6 +2735,7 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
             LuaMAiDirectorRecommendationSourceClass.Sector or RecommendationFilterSourceSector => RecommendationFilterSourceSector,
             LuaMAiDirectorRecommendationSourceClass.Pressure or RecommendationFilterSourcePressure => RecommendationFilterSourcePressure,
             LuaMAiDirectorRecommendationSourceClass.Gateway or RecommendationFilterSourceGateway => RecommendationFilterSourceGateway,
+            LuaMAiDirectorRecommendationSourceClass.AiBase => LuaMAiDirectorRecommendationSourceClass.AiBase,
             _ => string.Empty,
         };
     }

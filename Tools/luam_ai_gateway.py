@@ -466,6 +466,7 @@ Treat rescue sortie digest / autonomy=escort-group / plan=... / planAge=... / pl
 - spawn_entity: создать один разрешенный предмет рядом с выбранным или активным игроком;
 - run_sector_command with sectorCommandId spawn_ship: spawn one shipyard vessel grid near the admin/current in-game position. Use only for an explicit shuttle/ship/vessel spawn request. Put the requested vessel ID/name in instruction; if no vessel is specified, the server defaults to Baeg.
 - run_sector_command with sectorCommandId ai_base_create: deploy the local LuaM AI base anchor near the admin/current in-game position.
+- run_sector_command with sectorCommandId ai_base_diagnostics: inspect the local AI base state, physical beacons, ships, drones, drops, resource deficits, and recommended improvements without spawning anything.
 - run_sector_command with sectorCommandId ai_base_mine: dispatch an AI-base mining ship with mining drones so the base starts collecting ore/resources through local game systems.
 - run_sector_command with sectorCommandId ai_base_build: dispatch an AI-base builder/repair ship with builder drones so the base starts construction and repair tasks.
 - run_sector_command with sectorCommandId ai_base_develop: when the admin asks OpenAI/AI robots/drones to both mine resources and build/expand the AI base, deploy the base and dispatch both miner and builder drone crews.
@@ -482,6 +483,7 @@ enable_auto_ai, world pressure и максимальная опасность д
 If the admin asks to create pressure, conditions, danger, panic, or an event around themselves, near the selected player, or around a specific human target, prefer run_sector_command with sectorCommandId personal_pressure.
 If that request also asks for maximum danger, panic, administrator will, or anything-can-happen escalation, prefer sectorCommandId personal_max_danger.
 If the admin asks OpenAI, AI robots, or AI drones to mine resources and build/expand the AI base, prefer run_sector_command with sectorCommandId ai_base_develop when it is present in allowedSectorCommandIds.
+If the admin asks what is wrong with the AI base, what is not working, what can be improved, or asks for diagnostics/audit/check/fix plan, prefer run_sector_command with sectorCommandId ai_base_diagnostics when it is present in allowedSectorCommandIds. This is read-only.
 If the admin only asks AI robots/drones to mine, extract ore, gather resources, or run mining for the AI base, prefer sectorCommandId ai_base_mine.
 If the admin only asks AI robots/drones to build, repair, construct, expand, or develop the AI base, prefer sectorCommandId ai_base_build.
 If the admin asks to create/deploy the AI base without mining/building drone work, prefer sectorCommandId ai_base_create.
@@ -1982,6 +1984,7 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
             capabilities.append("выполнить предустановленную безопасную LuaM-команду")
             capabilities.append("создать shipyard-корабль рядом с администратором по vessel ID или имени")
             capabilities.append("запустить AI-base роботов для добычи ресурсов и строительства базы")
+            capabilities.append("проверить AI-base diagnostics без спавна")
         if is_allowed("run_admin_command"):
             capabilities.append("выполнить только allowlist SS14-команду")
         if is_allowed("send_sector_message"):
@@ -2183,6 +2186,32 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
         "\u043e\u0441\u043d\u0443",
         "\u043f\u043e\u0434\u043d\u0438\u043c",
     ))
+    wants_ai_base_diagnostics = wants_ai_base_subject and any(word in lowered for word in (
+        "diagnostic",
+        "diagnostics",
+        "health",
+        "audit",
+        "inspect",
+        "improve",
+        "improvement",
+        "what is wrong",
+        "not working",
+        "fix",
+        "issue",
+        "issues",
+        "problem",
+        "problems",
+        "\u0434\u0438\u0430\u0433\u043d\u043e\u0441\u0442",
+        "\u043f\u0440\u043e\u0432\u0435\u0440",
+        "\u0447\u0442\u043e \u043d\u0435 \u0442\u0430\u043a",
+        "\u043d\u0435 \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442",
+        "\u0443\u043b\u0443\u0447\u0448",
+        "\u0438\u0441\u043f\u0440\u0430\u0432",
+        "\u0444\u0438\u043a\u0441",
+        "\u043f\u0440\u043e\u0431\u043b\u0435\u043c",
+        "\u043e\u0448\u0438\u0431",
+        "\u0430\u0443\u0434\u0438\u0442",
+    ))
     wants_rescue = any(word in lowered for word in ("rescue", "luam_rescue", "rescuer", "triage", "спас", "эвак", "триаж"))
     wants_rescue_shuttle = wants_rescue and any(word in lowered for word in ("shuttle", "ship", "vessel", "triage", "шатл", "шаттл", "кораб", "судн"))
     rescue_slot = detect_rescue_slot()
@@ -2274,6 +2303,11 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
         action = "run_admin_command"
         admin_command = "luam_rescue_action action=drop"
         reply = "AI provider is temporarily unavailable. Ordering the LuaM rescue agent to drop its active hand item locally."
+    elif wants_ai_base_diagnostics and is_allowed("run_sector_command") and choose_allowed_sector_command("ai_base_diagnostics"):
+        action = "run_sector_command"
+        sector_command_id = choose_allowed_sector_command("ai_base_diagnostics")
+        instruction = message[:600]
+        reply = "AI provider is temporarily unavailable. Running local AI-base diagnostics."
     elif wants_ai_base_mining and wants_ai_base_building and is_allowed("run_sector_command") and choose_allowed_sector_command("ai_base_develop", "ai_base_mine", "ai_base_build"):
         action = "run_sector_command"
         sector_command_id = choose_allowed_sector_command("ai_base_develop", "ai_base_mine", "ai_base_build")

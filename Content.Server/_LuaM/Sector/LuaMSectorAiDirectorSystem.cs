@@ -317,6 +317,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         "resolve_open_lead",
         "cleanup_markers",
         "ai_base_status",
+        "ai_base_diagnostics",
         "ai_base_create",
         "ai_base_mine",
         "ai_base_build",
@@ -742,6 +743,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             AiBaseSupplyScore = aiBase.SupplyScore,
             AiBaseTradeCycles = aiBase.TradeCycles,
             AiBaseSummary = BuildAiBaseSummary(aiBase),
+            AiBaseDiagnostics = BuildAiBaseDiagnosticsReport(aiBase),
             RunLevel = _ticker.RunLevel.ToString(),
             AiOutcomeStatus = BuildAiOutcomeStatus(
                 lastResult,
@@ -1411,6 +1413,13 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var gatewayConfigured = !string.IsNullOrWhiteSpace(_cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl));
         var maxDanger = _cfg.GetCVar(CCVars.LuaMAiDirectorMaxDanger);
         var aiBase = _stories.GetAiBaseState();
+        var aiBasePhysical = BuildAiBasePhysicalSnapshot();
+        var aiBaseDiagnostics = BuildAiBaseDiagnostics(aiBase, aiBasePhysical);
+        var topAiBaseDiagnostic = aiBaseDiagnostics
+            .Where(entry => entry.Severity >= 3)
+            .OrderByDescending(entry => entry.Severity)
+            .ThenBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
 
         void Add(
             string title,
@@ -1539,6 +1548,28 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 sourceSummary: "local AI-base inventory + needs ledger",
                 sourceClasses:
                 [
+                    LuaMAiDirectorRecommendationSourceClass.Sector,
+                ]);
+        }
+
+        if (!string.IsNullOrWhiteSpace(topAiBaseDiagnostic.Title))
+        {
+            Add(
+                $"AI-база: {topAiBaseDiagnostic.Title}",
+                $"Диагностика базы зафиксировала проблему: {topAiBaseDiagnostic.Evidence}. Улучшение: {topAiBaseDiagnostic.Improvement}.",
+                topAiBaseDiagnostic.SuggestedCommand,
+                Math.Clamp(topAiBaseDiagnostic.Severity, 1, 5),
+                topAiBaseDiagnostic.SuggestedCommand.Contains("ai_base_create", StringComparison.OrdinalIgnoreCase) ||
+                topAiBaseDiagnostic.SuggestedCommand.Contains("ai_base_mine", StringComparison.OrdinalIgnoreCase) ||
+                topAiBaseDiagnostic.SuggestedCommand.Contains("ai_base_build", StringComparison.OrdinalIgnoreCase) ||
+                topAiBaseDiagnostic.SuggestedCommand.Contains("ai_base_develop", StringComparison.OrdinalIgnoreCase) ||
+                topAiBaseDiagnostic.SuggestedCommand.Contains("ai_base_logistics", StringComparison.OrdinalIgnoreCase),
+                LuaMAiDirectorEuiMsg.QuickRecommendations,
+                evidenceSummary: $"aiBaseDiagnostic=S{topAiBaseDiagnostic.Severity}; issue={topAiBaseDiagnostic.Title}; evidence={topAiBaseDiagnostic.Evidence}; command={topAiBaseDiagnostic.SuggestedCommand}",
+                sourceSummary: "local AI-base diagnostics: memory state, physical beacons, ships, drones, drops, needs ledger",
+                sourceClasses:
+                [
+                    LuaMAiDirectorRecommendationSourceClass.AiBase,
                     LuaMAiDirectorRecommendationSourceClass.Sector,
                 ]);
         }
@@ -1771,6 +1802,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             LuaMAiDirectorRecommendationSourceClass.Sector => LuaMAiDirectorRecommendationSourceClass.Sector,
             LuaMAiDirectorRecommendationSourceClass.Pressure => LuaMAiDirectorRecommendationSourceClass.Pressure,
             LuaMAiDirectorRecommendationSourceClass.Gateway => LuaMAiDirectorRecommendationSourceClass.Gateway,
+            LuaMAiDirectorRecommendationSourceClass.AiBase => LuaMAiDirectorRecommendationSourceClass.AiBase,
             _ => string.Empty,
         };
     }
@@ -2283,7 +2315,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         commandId = ResolveAllowedSectorCommandId(commandId);
         return commandId switch
         {
-            "" or "status" or "history" or "ai_base_status" => false,
+            "" or "status" or "history" or "ai_base_status" or "ai_base_diagnostics" => false,
             _ => true,
         };
     }
@@ -2566,6 +2598,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 return await CleanupDynamicMarkersAsync();
             case "ai_base_status":
                 return _stories.BuildAiBaseStatusText();
+            case "ai_base_diagnostics":
+                return BuildAiBaseDiagnosticsReport(_stories.GetAiBaseState());
             case "ai_base_create":
                 return await ExecuteAiBaseAdminActionAsync(
                     admin,
@@ -3632,7 +3666,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var miner = await DispatchAiBaseRoleShipAsync(admin, "miner", originalMessage, instruction);
         var builder = await DispatchAiBaseRoleShipAsync(admin, "builder", originalMessage, instruction);
 
-        return $"AI base development command accepted: OpenAI contour is assigning mining and builder drones.\n{create}\n{miner}\n{builder}";
+        return $"AI base development command accepted: OpenAI contour is assigning mining and builder drones.\n{create}\n{miner}\n{builder}\n{BuildAiBaseDiagnosticsReport(_stories.GetAiBaseState())}";
     }
 
     private async Task<string> DispatchAiBaseRoleShipAsync(
@@ -3935,6 +3969,38 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private static bool IsAiBaseRobotDevelopmentRequest(string message)
     {
         return IsAiBaseRobotMiningRequest(message) && IsAiBaseRobotBuildRequest(message);
+    }
+
+    private static bool IsAiBaseDiagnosticsRequest(string message)
+    {
+        return (IsAiBaseRequest(message) || HasAiBaseAutomationSubject(message)) && ContainsAny(
+            message,
+            "diagnostic",
+            "diagnostics",
+            "health",
+            "audit",
+            "inspect",
+            "improve",
+            "improvement",
+            "what is wrong",
+            "not working",
+            "fix",
+            "issue",
+            "issues",
+            "problem",
+            "problems",
+            "диагност",
+            "проверь",
+            "провер",
+            "что не так",
+            "не работает",
+            "не так",
+            "улучш",
+            "исправ",
+            "фикс",
+            "проблем",
+            "ошиб",
+            "аудит");
     }
 
     private static bool IsAiBaseStatusRequest(string message)
@@ -4911,6 +4977,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return true;
         }
 
+        if (IsAiBaseDiagnosticsRequest(message))
+        {
+            commandId = "ai_base_diagnostics";
+            return true;
+        }
+
         if (IsAiBaseRobotMiningRequest(message))
         {
             commandId = "ai_base_mine";
@@ -5557,9 +5629,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private string BuildAiBaseSummary(LuaMAiBaseState state)
     {
-        var physical = BuildAiBasePhysicalSummary();
+        var physical = BuildAiBasePhysicalSnapshot();
+        var physicalText = BuildAiBasePhysicalSummary(physical);
         if (!state.Created)
-            return $"not deployed; next local world pulse or admin command can create the AI supply base; {physical}";
+            return $"not deployed; next local world pulse or admin command can create the AI supply base; {BuildAiBaseDiagnosticsSummary(state, physical)}; {physicalText}";
 
         var topNeed = state.Needs
             .Where(need => need.Target > 0)
@@ -5577,11 +5650,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             ? "no logistics yet"
             : TrimForChat(last.Summary, 120);
         var compensation = TrimForChat(LuaMSectorStorySystem.BuildAiBaseCompensationSummary(state, 2), 160);
+        var diagnostics = BuildAiBaseDiagnosticsSummary(state, physical);
 
-        return $"score {state.SupplyScore}/100; cycles {state.TradeCycles}; top need {needText}; compensate {compensation}; last {lastText}; {physical}";
+        return $"score {state.SupplyScore}/100; cycles {state.TradeCycles}; top need {needText}; compensate {compensation}; diagnostics {diagnostics}; last {lastText}; {physicalText}";
     }
 
-    private string BuildAiBasePhysicalSummary()
+    private AiBasePhysicalSnapshot BuildAiBasePhysicalSnapshot()
     {
         var anchors = 0;
         var anchorQuery = EntityQueryEnumerator<LuaMAiBaseAnchorComponent>();
@@ -5618,17 +5692,216 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         }
 
         var drones = 0;
+        var miningDrones = 0;
+        var builderDrones = 0;
+        var taskedDrones = 0;
         var droneQuery = EntityQueryEnumerator<LuaMAiMiningDroneComponent>();
-        while (droneQuery.MoveNext(out var uid, out _))
+        while (droneQuery.MoveNext(out var uid, out var drone))
         {
             if (!TerminatingOrDeleted(uid))
+            {
                 drones++;
+                var role = drone.DroneRole.Trim().ToLowerInvariant();
+                if (role == "miner")
+                    miningDrones++;
+                if (role is "builder" or "repair" or "engineer")
+                    builderDrones++;
+                if (HasComp<LuaMAiDroneTaskComponent>(uid))
+                    taskedDrones++;
+            }
         }
 
-        var nextText = ships <= 0
+        return new AiBasePhysicalSnapshot(anchors, ships, drones, miningDrones, builderDrones, taskedDrones, drops, nextCycleSeconds);
+    }
+
+    private string BuildAiBasePhysicalSummary()
+    {
+        return BuildAiBasePhysicalSummary(BuildAiBasePhysicalSnapshot());
+    }
+
+    private static string BuildAiBasePhysicalSummary(AiBasePhysicalSnapshot physical)
+    {
+        var nextText = physical.Ships <= 0
             ? "no physical logistics ships"
-            : $"next physical cycle {nextCycleSeconds ?? 0}s";
-        return $"physical beacons {anchors}; logistics ships {ships}; mining drones {drones}; supply drops {drops}; {nextText}";
+            : $"next physical cycle {physical.NextCycleSeconds ?? 0}s";
+        return $"physical beacons {physical.Anchors}; logistics ships {physical.Ships}; drones {physical.Drones} (miners {physical.MiningDrones}, builders {physical.BuilderDrones}, tasked {physical.TaskedDrones}); supply drops {physical.SupplyDrops}; {nextText}";
+    }
+
+    private string BuildAiBaseDiagnosticsReport(LuaMAiBaseState state)
+    {
+        var physical = BuildAiBasePhysicalSnapshot();
+        var diagnostics = BuildAiBaseDiagnostics(state, physical);
+        var issueCount = diagnostics.Count(entry => entry.Severity >= 3);
+        var output = new StringBuilder();
+        output.AppendLine($"AI base diagnostics: issues={issueCount}; {BuildAiBasePhysicalSummary(physical)}.");
+        foreach (var entry in diagnostics.Take(5))
+        {
+            output.AppendLine($"- S{entry.Severity} {entry.Title}: {entry.Evidence}. Improve: {entry.Improvement}. Suggested command: {entry.SuggestedCommand}.");
+        }
+
+        return output.ToString().TrimEnd();
+    }
+
+    private string BuildAiBaseDiagnosticsSummary(LuaMAiBaseState state, AiBasePhysicalSnapshot physical)
+    {
+        var diagnostics = BuildAiBaseDiagnostics(state, physical)
+            .Take(2)
+            .Select(entry => $"S{entry.Severity} {entry.Title} -> {entry.SuggestedCommand}")
+            .ToArray();
+
+        return diagnostics.Length == 0
+            ? "stable"
+            : string.Join(" | ", diagnostics);
+    }
+
+    private IReadOnlyList<AiBaseDiagnosticEntry> BuildAiBaseDiagnostics(LuaMAiBaseState state, AiBasePhysicalSnapshot physical)
+    {
+        var entries = new List<AiBaseDiagnosticEntry>();
+        var compensation = LuaMSectorStorySystem.BuildAiBaseCompensationPlan(state);
+
+        if (!state.Created)
+        {
+            entries.Add(new AiBaseDiagnosticEntry(
+                5,
+                "AI base not deployed",
+                "aiBaseCreated=false",
+                "deploy the base memory and physical anchor before assigning drone work",
+                "Chat: ai_base_create",
+                "builder"));
+        }
+        else
+        {
+            if (physical.Anchors <= 0)
+            {
+                entries.Add(new AiBaseDiagnosticEntry(
+                    5,
+                    "physical anchor missing",
+                    "aiBaseCreated=true but physical beacons=0",
+                    "create or recreate the visible base beacon so zones and drone tasks can attach",
+                    "Chat: ai_base_create",
+                    "builder"));
+            }
+
+            if (physical.Ships <= 0)
+            {
+                entries.Add(new AiBaseDiagnosticEntry(
+                    4,
+                    "no logistics ship active",
+                    "physical logistics ships=0",
+                    "dispatch a role ship so the base has a carrier, crew manifest, and cycle timer",
+                    "Chat: ai_base_develop",
+                    "hauler"));
+            }
+
+            if (physical.Drones <= 0)
+            {
+                entries.Add(new AiBaseDiagnosticEntry(
+                    4,
+                    "no drone crew active",
+                    "drones=0",
+                    "dispatch miner/builder ships so the AI can mine, repair, and contribute work-zone cycles",
+                    "Chat: ai_base_develop",
+                    "builder"));
+            }
+
+            var needsMiner = compensation.Any(entry =>
+                entry.SuggestedRole.Equals("miner", StringComparison.OrdinalIgnoreCase) && entry.Severity >= 3);
+            if (needsMiner && physical.MiningDrones <= 0)
+            {
+                entries.Add(new AiBaseDiagnosticEntry(
+                    4,
+                    "mining deficit without miners",
+                    "compensation plan asks for miner but mining drones=0",
+                    "send a mining ship so ore/resource deficits start closing automatically",
+                    "Chat: ai_base_mine",
+                    "miner"));
+            }
+
+            var needsBuilder = compensation.Any(entry =>
+                entry.SuggestedRole.Equals("builder", StringComparison.OrdinalIgnoreCase) && entry.Severity >= 3);
+            if (needsBuilder && physical.BuilderDrones <= 0)
+            {
+                entries.Add(new AiBaseDiagnosticEntry(
+                    4,
+                    "construction deficit without builders",
+                    "compensation plan asks for builder but builder/repair drones=0",
+                    "send a builder ship so hull-parts/electronics repair work starts closing",
+                    "Chat: ai_base_build",
+                    "builder"));
+            }
+
+            if (physical.Drones > 0 && physical.TaskedDrones < physical.Drones && physical.Anchors > 0)
+            {
+                entries.Add(new AiBaseDiagnosticEntry(
+                    2,
+                    "some drones not assigned to zones",
+                    $"tasked drones {physical.TaskedDrones}/{physical.Drones}",
+                    "wait for the ecology tick or verify the beacon map has dock/storage/mining/patrol/contact zones",
+                    "Chat: ai_base_diagnostics",
+                    "operator"));
+            }
+
+            if (state.TradeCycles <= 0)
+            {
+                entries.Add(new AiBaseDiagnosticEntry(
+                    3,
+                    "logistics cycles not started",
+                    "tradeCycles=0",
+                    "run first supply/mining/building cycle before trusting the stock ledger",
+                    "Chat: ai_base_develop",
+                    "hauler"));
+            }
+
+            if (physical.SupplyDrops <= 0 && state.TradeCycles > 0)
+            {
+                entries.Add(new AiBaseDiagnosticEntry(
+                    2,
+                    "no visible supply drops",
+                    $"tradeCycles={state.TradeCycles} but supply drops=0",
+                    "allow the latest logistics cycle to spawn a drop or dispatch another hauler if the world needs a visible cache",
+                    "Chat: ai_base_logistics",
+                    "hauler"));
+            }
+        }
+
+        foreach (var entry in compensation.Where(entry => entry.Severity >= 3).Take(3))
+        {
+            entries.Add(new AiBaseDiagnosticEntry(
+                entry.Severity,
+                entry.Title,
+                entry.Evidence,
+                entry.Compensation,
+                $"Chat: ai_base_{GetAiBaseCommandForRole(entry.SuggestedRole)}",
+                entry.SuggestedRole));
+        }
+
+        if (entries.Count == 0)
+        {
+            entries.Add(new AiBaseDiagnosticEntry(
+                1,
+                "base stable",
+                $"supplyScore={state.SupplyScore}/100; tradeCycles={state.TradeCycles}; drones={physical.Drones}",
+                "keep scout, patrol, and surplus logistics running; no immediate fix required",
+                "Chat: ai_base_status",
+                "scout"));
+        }
+
+        return entries
+            .OrderByDescending(entry => entry.Severity)
+            .ThenBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase)
+            .Take(8)
+            .ToList();
+    }
+
+    private static string GetAiBaseCommandForRole(string role)
+    {
+        return role.Trim().ToLowerInvariant() switch
+        {
+            "miner" => "mine",
+            "builder" or "repair" or "engineer" => "build",
+            "hauler" or "trader" or "logistics" => "logistics",
+            _ => "diagnostics",
+        };
     }
 
     private static int GetAiBaseInventoryAmount(LuaMAiBaseState state, string resource)
@@ -5658,7 +5931,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             $"Канал админки LuaM AI активен: {gateway}\n" +
             $"{adminMode} {gameMasterMode} {autoMode}\n\n" +
             "Без внешнего API доступны: статус, история, событие рядом с выбранным игроком, подпространственные врата, синтетический контур, условия сектора, очистка меток, закрытие зацепки, набор Монолита и пакет бумажных задач.\n" +
-            "AI-база работает локально: создай AI базу, покажи склад AI базы, вызови AI торговца/снабженца/разведчика/шахтера/строителя или прикажи OpenAI-роботам добывать ресурсы и строить базу. Логистический корабль спавнится рядом с админом, получает дронов по роли и обновляет склад базы после подтверждения.\n" +
+            "AI-база работает локально: создай AI базу, покажи склад/диагностику AI базы, вызови AI торговца/снабженца/разведчика/шахтера/строителя или прикажи OpenAI-роботам добывать ресурсы и строить базу. Диагностика сразу фиксирует, что не работает или что можно улучшить: маяк, корабли, дроны, supply drops, циклы и дефициты склада. Логистический корабль спавнится рядом с админом, получает дронов по роли и обновляет склад базы после подтверждения.\n" +
             "Также локально доступен подтверждаемый запрос: создать любой shipyard/shuttle ship build рядом с текущей позицией администратора по ID или имени, например Baeg, Hammerhead, Twilight, QJ490. Если имя не указано, используется Baeg. Команду можно повторять для новых экземпляров.\n" +
             "Через gateway дополнительно доступны свободные вопросы админа, review влияния/процессов, выбор одного безопасного действия из whitelist и генерация события по текстовой инструкции.";
     }
@@ -8777,6 +9050,24 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         string ConfidenceBand,
         int ConfidencePercent,
         string ConfidenceReason);
+
+    private readonly record struct AiBasePhysicalSnapshot(
+        int Anchors,
+        int Ships,
+        int Drones,
+        int MiningDrones,
+        int BuilderDrones,
+        int TaskedDrones,
+        int SupplyDrops,
+        int? NextCycleSeconds);
+
+    private readonly record struct AiBaseDiagnosticEntry(
+        int Severity,
+        string Title,
+        string Evidence,
+        string Improvement,
+        string SuggestedCommand,
+        string SuggestedRole);
 
     private sealed record GatewayAuditSnapshot(
         int Redactions,

@@ -427,11 +427,20 @@ public sealed class LuaMAiDirectorAdminChatTest
                 string.Empty,
                 LuaMAiDirectorEuiMsg.AutoTemplateId,
                 allowServerActions: false);
+            var diagnostics = await director.AdminChatAsync(
+                admin,
+                "ai base diagnostics: what is wrong and what can be improved",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId,
+                allowServerActions: false);
 
             Assert.That(blockedCreate, Does.Contain("Action not executed"));
             Assert.That(blockedCreate, Does.Contain("AI base request"));
             Assert.That(status, Does.Contain("AI base is not deployed"));
             Assert.That(status, Does.Not.Contain("OpenAI-compatible API"));
+            Assert.That(diagnostics, Does.Contain("AI base diagnostics"));
+            Assert.That(diagnostics, Does.Contain("AI base not deployed"));
+            Assert.That(diagnostics, Does.Not.Contain("Action not executed"));
 
             var autonomous = string.Empty;
             var aiBaseCreated = false;
@@ -466,6 +475,8 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(state.AiBaseTradeCycles, Is.EqualTo(1));
             Assert.That(state.AiBaseSupplyScore, Is.GreaterThan(0));
             Assert.That(state.AiBaseSummary, Does.Contain("score"));
+            Assert.That(state.AiBaseSummary, Does.Contain("diagnostics"));
+            Assert.That(state.AiBaseDiagnostics, Does.Contain("AI base diagnostics"));
             Assert.That(state.AiBaseSummary, Does.Contain("physical beacons"));
             Assert.That(state.AiBaseSummary, Does.Contain("logistics ships"));
         }
@@ -515,12 +526,14 @@ public sealed class LuaMAiDirectorAdminChatTest
                         LuaMAiDirectorRecommendationSourceClass.Sector,
                         LuaMAiDirectorRecommendationSourceClass.Pressure,
                         LuaMAiDirectorRecommendationSourceClass.Gateway,
+                        LuaMAiDirectorRecommendationSourceClass.AiBase,
                     }, Does.Contain(sourceClass));
                 }
             }
 
             var safeLocalRecommendation = state.Recommendations.First(recommendation =>
-                recommendation.QuickAction is LuaMAiDirectorEuiMsg.QuickHistory or LuaMAiDirectorEuiMsg.QuickRecommendations);
+                recommendation.QuickAction is LuaMAiDirectorEuiMsg.QuickHistory or LuaMAiDirectorEuiMsg.QuickRecommendations &&
+                recommendation.RiskReason.Contains("read-only/local advice"));
 
             Assert.That(safeLocalRecommendation.RiskLevel, Is.EqualTo("low"));
             Assert.That(safeLocalRecommendation.RiskReason, Does.Contain("read-only/local advice"));
@@ -646,6 +659,7 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(json, Does.Contain("token=[redacted]"));
             Assert.That(json, Does.Contain("[redacted-id]"));
             Assert.That(json, Does.Contain("ai_base_create"));
+            Assert.That(json, Does.Contain("ai_base_diagnostics"));
             Assert.That(json, Does.Contain("ai_base_mine"));
             Assert.That(json, Does.Contain("ai_base_build"));
             Assert.That(json, Does.Contain("ai_base_develop"));
