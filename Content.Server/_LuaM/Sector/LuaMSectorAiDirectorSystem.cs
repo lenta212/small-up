@@ -114,6 +114,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private const int AiBaseLogisticsShipInitialCycleDelaySeconds = 60;
     private const int AiBaseAutonomousLogisticsShipInitialCycleDelaySeconds = 45;
     private const int AiBaseAutonomousPhysicalShipLimit = 3;
+    private const int AiBaseAutopilotMaxActions = 3;
     private const int AiShipSpawnSuggestionLimit = 12;
     private const float SubspaceRiftExitRadiusMin = 18f;
     private const float SubspaceRiftExitRadiusMax = 34f;
@@ -320,6 +321,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         "ai_base_diagnostics",
         "ai_base_plan",
         "ai_base_autofix",
+        "ai_base_autopilot",
         "ai_base_create",
         "ai_base_mine",
         "ai_base_build",
@@ -1994,6 +1996,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             or LuaMAiDirectorEuiMsg.QuickSyntheticControl
             or LuaMAiDirectorEuiMsg.QuickAnnouncement
             or LuaMAiDirectorEuiMsg.QuickAiBaseAutofix
+            or LuaMAiDirectorEuiMsg.QuickAiBaseAutopilot
             or LuaMAiDirectorEuiMsg.QuickAiBaseMine
             or LuaMAiDirectorEuiMsg.QuickAiBaseBuild
             or LuaMAiDirectorEuiMsg.QuickAiBaseDevelop;
@@ -2615,6 +2618,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 return await RunOnMainThread(() => BuildAiBaseDevelopmentPlanReport(_stories.GetAiBaseState(), BuildAiBasePhysicalSnapshot()));
             case "ai_base_autofix":
                 return await DispatchAiBaseAutofixAsync(admin, originalMessage, command.Instruction);
+            case "ai_base_autopilot":
+                return await DispatchAiBaseAutopilotAsync(admin, originalMessage, command.Instruction);
             case "ai_base_create":
                 return await ExecuteAiBaseAdminActionAsync(
                     admin,
@@ -3622,6 +3627,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 return await RunOnMainThread(() => BuildAiBaseDevelopmentPlanReport(_stories.GetAiBaseState(), BuildAiBasePhysicalSnapshot()));
             case "autofix":
                 return await DispatchAiBaseAutofixAsync(admin, originalMessage, action.VesselId);
+            case "autopilot":
+                return await DispatchAiBaseAutopilotAsync(admin, originalMessage, action.VesselId);
             case "create":
                 return await RunOnMainThread(() =>
                 {
@@ -3686,8 +3693,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             baseText);
         var miner = await DispatchAiBaseRoleShipAsync(admin, "miner", originalMessage, instruction);
         var builder = await DispatchAiBaseRoleShipAsync(admin, "builder", originalMessage, instruction);
+        var diagnostics = await RunOnMainThread(() => BuildAiBaseDiagnosticsReport(_stories.GetAiBaseState()));
 
-        return $"AI base development command accepted: OpenAI contour is assigning mining and builder drones.\n{create}\n{miner}\n{builder}\n{BuildAiBaseDiagnosticsReport(_stories.GetAiBaseState())}";
+        return $"AI base development command accepted: OpenAI contour is assigning mining and builder drones.\n{create}\n{miner}\n{builder}\n{diagnostics}";
     }
 
     private async Task<string> DispatchAiBaseAutofixAsync(
@@ -3719,32 +3727,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var top = before.Diagnostics[0];
         var commandId = ResolveAiBaseDiagnosticCommandId(top);
         var actor = $"{DirectorActor} / autofix / admin {admin.Name}";
-        string result;
-
-        switch (commandId)
-        {
-            case "ai_base_create":
-                result = await ExecuteAiBaseAdminActionAsync(
-                    admin,
-                    new AiBaseAdminAction("create", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true),
-                    string.IsNullOrWhiteSpace(instruction) ? originalMessage : instruction);
-                break;
-            case "ai_base_mine":
-                result = await DispatchAiBaseRoleShipAsync(admin, "miner", originalMessage, instruction);
-                break;
-            case "ai_base_build":
-                result = await DispatchAiBaseRoleShipAsync(admin, "builder", originalMessage, instruction);
-                break;
-            case "ai_base_develop":
-                result = await DispatchAiBaseDevelopmentAsync(admin, originalMessage, instruction);
-                break;
-            case "ai_base_logistics":
-                result = await DispatchAiBaseRoleShipAsync(admin, "hauler", originalMessage, instruction);
-                break;
-            default:
-                result = $"AI base autofix did not execute a mutating action: diagnostic '{top.Title}' suggests '{top.SuggestedCommand}'.";
-                break;
-        }
+        var result = await DispatchAiBaseCommandByIdAsync(admin, commandId, originalMessage, instruction);
 
         var success = IsAiBaseAutofixCommand(commandId) && AiBaseAutofixResultLooksSuccessful(result);
         var after = await RunOnMainThread(() =>
@@ -3776,6 +3759,100 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return output.ToString().TrimEnd();
     }
 
+    private async Task<string> DispatchAiBaseAutopilotAsync(
+        ICommonSession admin,
+        string originalMessage,
+        string instruction)
+    {
+        var before = await RunOnMainThread(() =>
+        {
+            var state = _stories.GetAiBaseState();
+            var physical = BuildAiBasePhysicalSnapshot();
+            var commands = ResolveAiBaseAutopilotCommandIds(state, physical, AiBaseAutopilotMaxActions).ToArray();
+            var summary = BuildAiBaseDiagnosticsSummary(state, physical);
+            var report = BuildAiBaseDiagnosticsReport(state);
+            var plan = BuildAiBaseDevelopmentPlanReport(state, physical);
+            return (Commands: commands, Summary: summary, Report: report, Plan: plan);
+        });
+
+        if (before.Commands.Length == 0)
+            return $"AI base autopilot: no runnable plan step found.\n{before.Report}\n{before.Plan}";
+
+        var actor = $"{DirectorActor} / autopilot / admin {admin.Name}";
+        var output = new StringBuilder();
+        output.AppendLine($"AI base autopilot: executing {before.Commands.Length} bounded game step(s): {string.Join(", ", before.Commands)}.");
+        output.AppendLine($"Before: {before.Summary}");
+
+        var previousSummary = before.Summary;
+        for (var index = 0; index < before.Commands.Length; index++)
+        {
+            var commandId = before.Commands[index];
+            var result = await DispatchAiBaseCommandByIdAsync(admin, commandId, originalMessage, instruction);
+            var success = IsAiBaseAutofixCommand(commandId) && AiBaseAutofixResultLooksSuccessful(result);
+            var stepNumber = index + 1;
+            var afterStep = await RunOnMainThread(() =>
+            {
+                var state = _stories.GetAiBaseState();
+                var physical = BuildAiBasePhysicalSnapshot();
+                var summary = BuildAiBaseDiagnosticsSummary(state, physical);
+                var memory = _stories.RecordAiBaseAutofixAttempt(
+                    actor,
+                    $"autopilot step {stepNumber}",
+                    commandId,
+                    previousSummary,
+                    CompactAiBaseAutofixResult(result),
+                    summary,
+                    success);
+
+                return (Summary: summary, Memory: memory);
+            });
+
+            output.AppendLine($"Step {stepNumber}/{before.Commands.Length}: command={commandId}; success={success}.");
+            output.AppendLine($"Result: {CompactAiBaseAutofixResult(result)}");
+            output.AppendLine(afterStep.Memory);
+            previousSummary = afterStep.Summary;
+        }
+
+        var after = await RunOnMainThread(() =>
+        {
+            var state = _stories.GetAiBaseState();
+            var physical = BuildAiBasePhysicalSnapshot();
+            var summary = BuildAiBaseDiagnosticsSummary(state, physical);
+            var plan = BuildAiBaseDevelopmentPlanReport(state, physical);
+            return (Summary: summary, Plan: plan);
+        });
+
+        output.AppendLine($"After: {after.Summary}");
+        output.AppendLine(after.Plan);
+        return output.ToString().TrimEnd();
+    }
+
+    private async Task<string> DispatchAiBaseCommandByIdAsync(
+        ICommonSession admin,
+        string commandId,
+        string originalMessage,
+        string instruction)
+    {
+        switch (commandId)
+        {
+            case "ai_base_create":
+                return await ExecuteAiBaseAdminActionAsync(
+                    admin,
+                    new AiBaseAdminAction("create", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true),
+                    string.IsNullOrWhiteSpace(instruction) ? originalMessage : instruction);
+            case "ai_base_mine":
+                return await DispatchAiBaseRoleShipAsync(admin, "miner", originalMessage, instruction);
+            case "ai_base_build":
+                return await DispatchAiBaseRoleShipAsync(admin, "builder", originalMessage, instruction);
+            case "ai_base_develop":
+                return await DispatchAiBaseDevelopmentAsync(admin, originalMessage, instruction);
+            case "ai_base_logistics":
+                return await DispatchAiBaseRoleShipAsync(admin, "hauler", originalMessage, instruction);
+            default:
+                return $"AI base command dispatcher did not execute a mutating action for command '{commandId}'.";
+        }
+    }
+
     private async Task<string> DispatchAiBaseRoleShipAsync(
         ICommonSession admin,
         string role,
@@ -3803,7 +3880,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private static string ResolveAiBaseDiagnosticCommandId(AiBaseDiagnosticEntry entry)
     {
-        var command = entry.SuggestedCommand.Trim();
+        var command = entry.SuggestedCommand?.Trim() ?? string.Empty;
         foreach (var id in new[]
                  {
                      "ai_base_create",
@@ -3818,6 +3895,81 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         }
 
         return string.Empty;
+    }
+
+    private IReadOnlyList<string> ResolveAiBaseAutopilotCommandIds(
+        LuaMAiBaseState state,
+        AiBasePhysicalSnapshot physical,
+        int maxActions)
+    {
+        var limit = Math.Clamp(maxActions, 1, AiBaseAutopilotMaxActions);
+        var commands = new List<string>(limit);
+
+        void AddCommand(string commandId)
+        {
+            if (commands.Count >= limit ||
+                !IsAiBaseAutofixCommand(commandId) ||
+                commands.Contains(commandId, StringComparer.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (commandId == "ai_base_develop" &&
+                (commands.Contains("ai_base_mine", StringComparer.OrdinalIgnoreCase) ||
+                 commands.Contains("ai_base_build", StringComparer.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            commands.Add(commandId);
+        }
+
+        foreach (var step in BuildAiBaseDevelopmentPlan(state, physical))
+        {
+            if (commands.Count >= limit)
+                break;
+
+            if (step.CommandId == "ai_base_autofix")
+            {
+                var diagnostics = BuildAiBaseDiagnostics(state, physical)
+                    .Where(entry => entry.Severity >= 3)
+                    .OrderByDescending(entry => entry.Severity)
+                    .ThenBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (diagnostics.Count > 0)
+                    AddCommand(ResolveAiBaseDiagnosticCommandId(diagnostics[0]));
+                continue;
+            }
+
+            if (!IsAiBaseAutofixCommand(step.CommandId))
+                continue;
+
+            var status = step.Status;
+            if (step.CommandId == "ai_base_create")
+            {
+                if (!status.Equals("done", StringComparison.OrdinalIgnoreCase))
+                    AddCommand(step.CommandId);
+                continue;
+            }
+
+            if (status.Equals("current", StringComparison.OrdinalIgnoreCase) ||
+                status.Equals("recommended", StringComparison.OrdinalIgnoreCase))
+            {
+                AddCommand(step.CommandId);
+            }
+        }
+
+        if (commands.Count == 0)
+        {
+            var topDiagnostic = BuildAiBaseDiagnostics(state, physical)
+                .Where(entry => entry.Severity >= 3)
+                .OrderByDescending(entry => entry.Severity)
+                .ThenBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault();
+            AddCommand(ResolveAiBaseDiagnosticCommandId(topDiagnostic));
+        }
+
+        return commands;
     }
 
     private static bool IsAiBaseAutofixCommand(string commandId)
@@ -3886,6 +4038,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         if (string.IsNullOrWhiteSpace(message) || !IsAiBaseRequest(message))
             return false;
+
+        if (IsAiBaseAutopilotRequest(message))
+        {
+            action = new AiBaseAdminAction("autopilot", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true);
+            return true;
+        }
 
         if (IsAiBasePlanRequest(message))
         {
@@ -4022,6 +4180,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             "ai mining",
             "ai builder",
             "ai construction",
+            "ai autopilot",
+            "base autopilot",
+            "openai autopilot",
             "ии торгов",
             "ии-торгов",
             "торговец ии",
@@ -4033,6 +4194,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             "ии шахт",
             "ии добы",
             "ии стро",
+            "автопилот ии",
+            "автопилот базы",
+            "авторазвит",
+            "сам разв",
             "шахтер ии",
             "шахтёр ии",
             "строитель ии",
@@ -4140,6 +4305,33 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private static bool IsAiBaseRobotDevelopmentRequest(string message)
     {
         return IsAiBaseRobotMiningRequest(message) && IsAiBaseRobotBuildRequest(message);
+    }
+
+    private static bool IsAiBaseAutopilotRequest(string message)
+    {
+        return (IsAiBaseRequest(message) || HasAiBaseAutomationSubject(message)) && ContainsAny(
+            message,
+            "autopilot",
+            "auto pilot",
+            "auto develop",
+            "auto-development",
+            "auto run",
+            "execute plan",
+            "run plan",
+            "follow plan",
+            "apply plan",
+            "development loop",
+            "multi fix",
+            "governor",
+            "автопилот",
+            "авто пилот",
+            "авторазвит",
+            "авто разв",
+            "выполни план",
+            "запусти план",
+            "по плану",
+            "цикл развития",
+            "сам разв");
     }
 
     private static bool IsAiBasePlanRequest(string message)
@@ -5183,6 +5375,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 "журнал сектора"))
         {
             commandId = "history";
+            return true;
+        }
+
+        if (IsAiBaseAutopilotRequest(message))
+        {
+            commandId = "ai_base_autopilot";
             return true;
         }
 
@@ -6307,7 +6505,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             $"Канал админки LuaM AI активен: {gateway}\n" +
             $"{adminMode} {gameMasterMode} {autoMode}\n\n" +
             "Без внешнего API доступны: статус, история, событие рядом с выбранным игроком, подпространственные врата, синтетический контур, условия сектора, очистка меток, закрытие зацепки, набор Монолита и пакет бумажных задач.\n" +
-            "AI-база работает локально: создай AI базу, покажи склад/диагностику/план AI базы, запусти AI-base autofix, вызови AI торговца/снабженца/разведчика/шахтера/строителя или прикажи OpenAI-роботам добывать ресурсы и строить базу. Диагностика сразу фиксирует, что не работает или что можно улучшить: маяк, корабли, дроны, stuck-дроны, supply drops, циклы, дефициты склада и память попыток autofix. Логистический корабль спавнится рядом с админом, получает дронов по роли и обновляет склад базы после подтверждения.\n" +
+            "AI-база работает локально: создай AI базу, покажи склад/диагностику/план AI базы, запусти AI-base autofix или подтверждаемый AI-base autopilot, вызови AI торговца/снабженца/разведчика/шахтера/строителя или прикажи OpenAI-роботам добывать ресурсы и строить базу. Диагностика сразу фиксирует, что не работает или что можно улучшить: маяк, корабли, дроны, stuck-дроны, supply drops, циклы, дефициты склада и память попыток autofix/autopilot. Логистический корабль спавнится рядом с админом, получает дронов по роли и обновляет склад базы после подтверждения.\n" +
             "Также локально доступен подтверждаемый запрос: создать любой shipyard/shuttle ship build рядом с текущей позицией администратора по ID или имени, например Baeg, Hammerhead, Twilight, QJ490. Если имя не указано, используется Baeg. Команду можно повторять для новых экземпляров.\n" +
             "Через gateway дополнительно доступны свободные вопросы админа, review влияния/процессов, выбор одного безопасного действия из whitelist и генерация события по текстовой инструкции.";
     }

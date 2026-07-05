@@ -239,6 +239,7 @@
                                 <Button Name="QuickAiBaseDiagnosticsButton" Text="{Loc luam-ai-director-quick-ai-base-diagnostics}" HorizontalExpand="True" />
                                 <Button Name="QuickAiBasePlanButton" Text="{Loc luam-ai-director-quick-ai-base-plan}" HorizontalExpand="True" />
                                 <Button Name="QuickAiBaseAutofixButton" Text="{Loc luam-ai-director-quick-ai-base-autofix}" HorizontalExpand="True" />
+                                <Button Name="QuickAiBaseAutopilotButton" Text="{Loc luam-ai-director-quick-ai-base-autopilot}" HorizontalExpand="True" />
                                 <Button Name="QuickAiBaseMineButton" Text="{Loc luam-ai-director-quick-ai-base-mine}" HorizontalExpand="True" />
                                 <Button Name="QuickAiBaseBuildButton" Text="{Loc luam-ai-director-quick-ai-base-build}" HorizontalExpand="True" />
                                 <Button Name="QuickAiBaseDevelopButton" Text="{Loc luam-ai-director-quick-ai-base-develop}" HorizontalExpand="True" />

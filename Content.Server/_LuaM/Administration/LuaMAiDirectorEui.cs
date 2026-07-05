@@ -605,6 +605,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics => "ai base diagnostics: what is wrong and what can be improved",
             LuaMAiDirectorEuiMsg.QuickAiBasePlan => "ai base development plan and next steps",
             LuaMAiDirectorEuiMsg.QuickAiBaseAutofix => "ai base autofix: fix the top diagnostic issue now",
+            LuaMAiDirectorEuiMsg.QuickAiBaseAutopilot => "ai base autopilot: execute the next bounded AI-base development plan steps",
             LuaMAiDirectorEuiMsg.QuickAiBaseMine => "ai base mine: dispatch AI mining robots to gather resources",
             LuaMAiDirectorEuiMsg.QuickAiBaseBuild => "ai base build: dispatch AI builder robots to build and repair the base",
             LuaMAiDirectorEuiMsg.QuickAiBaseDevelop => "open ai robots should mine resources and build the AI base",
@@ -639,6 +640,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             or LuaMAiDirectorEuiMsg.QuickSyntheticControl
             or LuaMAiDirectorEuiMsg.QuickAnnouncement
             or LuaMAiDirectorEuiMsg.QuickAiBaseAutofix
+            or LuaMAiDirectorEuiMsg.QuickAiBaseAutopilot
             or LuaMAiDirectorEuiMsg.QuickAiBaseMine
             or LuaMAiDirectorEuiMsg.QuickAiBaseBuild
             or LuaMAiDirectorEuiMsg.QuickAiBaseDevelop
@@ -814,6 +816,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             "diagnostics" => "Show AI base diagnostics",
             "plan" => "Show AI base development plan",
             "autofix" => "Autofix AI base",
+            "autopilot" => "Run AI base autopilot",
             "develop" => "Develop AI base",
             _ => "AI base action",
         };
@@ -831,16 +834,17 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             "diagnostics" => "show AI base diagnostics, stuck drone status, improvements, and suggested commands",
             "plan" => "show the staged AI base development plan and next command queue",
             "autofix" => "run one local autofix for the highest-severity AI base diagnostic and record the attempt",
+            "autopilot" => "execute up to three bounded AI base plan/autofix steps and record each attempt",
             "develop" => "deploy the base and dispatch miner plus builder AI crews",
             _ => "run one AI base local action",
         };
-        var execution = action.Kind is "ship" or "autofix" or "develop"
+        var execution = action.Kind is "ship" or "autofix" or "autopilot" or "develop"
             ? "local server action only; no external provider call; may resolve a shipyard vessel or shuttle gameMap, load a grid, and record AI-base memory"
             : "local memory/read-only action only; no external provider call";
         var risk = action.RequiresConfirmation
             ? "high; can mutate sector memory and may spawn a ship/grid in the current map"
             : "low; read-only status result";
-        var duration = action.Kind is "ship" or "autofix" or "develop"
+        var duration = action.Kind is "ship" or "autofix" or "autopilot" or "develop"
             ? "spawned ship persists by normal game rules; AI base stock persists in LuaM sector memory"
             : "AI base ledger persists in LuaM sector memory until reset/import";
 
@@ -965,6 +969,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics => "show AI-base diagnostics without spawning anything",
             LuaMAiDirectorEuiMsg.QuickAiBasePlan => "show AI-base development plan and next-step queue",
             LuaMAiDirectorEuiMsg.QuickAiBaseAutofix => "run one AI-base autofix for the top diagnostic issue",
+            LuaMAiDirectorEuiMsg.QuickAiBaseAutopilot => "run up to three bounded AI-base plan/autofix steps",
             LuaMAiDirectorEuiMsg.QuickAiBaseMine => "dispatch AI-base mining robots to gather resources",
             LuaMAiDirectorEuiMsg.QuickAiBaseBuild => "dispatch AI-base builder robots to construct and repair",
             LuaMAiDirectorEuiMsg.QuickAiBaseDevelop => "deploy the AI base and dispatch miner plus builder crews",
@@ -991,6 +996,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             LuaMAiDirectorEuiMsg.QuickAiChat or LuaMAiDirectorEuiMsg.QuickAnnouncement =>
                 "AI chat command may create one player-visible message after local policy parsing",
             LuaMAiDirectorEuiMsg.QuickAiBaseAutofix
+                or LuaMAiDirectorEuiMsg.QuickAiBaseAutopilot
                 or LuaMAiDirectorEuiMsg.QuickAiBaseMine
                 or LuaMAiDirectorEuiMsg.QuickAiBaseBuild
                 or LuaMAiDirectorEuiMsg.QuickAiBaseDevelop =>
@@ -1016,6 +1022,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
                 or LuaMAiDirectorEuiMsg.QuickSyntheticControl
                 or LuaMAiDirectorEuiMsg.QuickAnnouncement
                 or LuaMAiDirectorEuiMsg.QuickAiBaseAutofix
+                or LuaMAiDirectorEuiMsg.QuickAiBaseAutopilot
                 or LuaMAiDirectorEuiMsg.QuickAiBaseMine
                 or LuaMAiDirectorEuiMsg.QuickAiBaseBuild
                 or LuaMAiDirectorEuiMsg.QuickAiBaseDevelop => "high; player-visible or round-affecting action",
@@ -1066,6 +1073,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             LuaMAiDirectorEuiMsg.QuickAiChat
                 or LuaMAiDirectorEuiMsg.QuickAnnouncement => "one player-visible message",
             LuaMAiDirectorEuiMsg.QuickAiBaseAutofix => "single autofix attempt; attempt memory persists in LuaM sector memory",
+            LuaMAiDirectorEuiMsg.QuickAiBaseAutopilot => "bounded multi-step AI-base run; each step writes attempt memory in LuaM sector memory",
             LuaMAiDirectorEuiMsg.QuickAiBaseMine
                 or LuaMAiDirectorEuiMsg.QuickAiBaseBuild
                 or LuaMAiDirectorEuiMsg.QuickAiBaseDevelop => "single dispatch; spawned ships/drones persist by normal game rules",

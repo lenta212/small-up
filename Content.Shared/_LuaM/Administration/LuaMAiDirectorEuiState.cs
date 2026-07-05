@@ -176,6 +176,7 @@ public static class LuaMAiDirectorEuiMsg
     public const string QuickGatewayShipTokarev = "gateway-ship-tokarev";
     public const string QuickAiBaseDiagnostics = "ai-base-diagnostics";
     public const string QuickAiBaseAutofix = "ai-base-autofix";
+    public const string QuickAiBaseAutopilot = "ai-base-autopilot";
     public const string QuickAiBasePlan = "ai-base-plan";
     public const string QuickAiBaseMine = "ai-base-mine";
     public const string QuickAiBaseBuild = "ai-base-build";

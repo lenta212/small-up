@@ -413,6 +413,28 @@ public sealed class LuaMAiDirectorAdminChatTest
 
             Assert.That(
                 director.TryResolveAiBaseAdminRequest(
+                    "run the ai base autopilot and execute the next plan steps",
+                    out var autopilotAction,
+                    out var autopilotError),
+                Is.True);
+            Assert.That(autopilotError, Is.EqualTo(string.Empty));
+            Assert.That(autopilotAction.Kind, Is.EqualTo("autopilot"));
+            Assert.That(autopilotAction.RequiresConfirmation, Is.True);
+
+            var localAutopilotResolveArgs = new object[]
+            {
+                "run the ai base autopilot and execute the next plan steps",
+                string.Empty,
+            };
+            var localSectorResolve = typeof(LuaMSectorAiDirectorSystem).GetMethod(
+                "TryResolveLocalChatSectorCommand",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.That(localSectorResolve, Is.Not.Null, "Missing local sector command resolver");
+            Assert.That((bool) localSectorResolve!.Invoke(null, localAutopilotResolveArgs)!, Is.True);
+            Assert.That(localAutopilotResolveArgs[1], Is.EqualTo("ai_base_autopilot"));
+
+            Assert.That(
+                director.TryResolveAiBaseAdminRequest(
                     "dispatch AI miner Hammerhead",
                     out var minerAction,
                     out var minerError),
@@ -465,6 +487,12 @@ public sealed class LuaMAiDirectorAdminChatTest
                 string.Empty,
                 LuaMAiDirectorEuiMsg.AutoTemplateId,
                 allowServerActions: false);
+            var blockedAutopilot = await director.AdminChatAsync(
+                admin,
+                "run the ai base autopilot and execute the next plan steps",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId,
+                allowServerActions: false);
             var autofix = await director.AdminChatAsync(
                 admin,
                 "ai base autofix now",
@@ -482,6 +510,7 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(plan, Does.Contain("AI base development plan"));
             Assert.That(plan, Does.Contain("command=ai_base_create"));
             Assert.That(blockedAutofix, Does.Contain("Action not executed"));
+            Assert.That(blockedAutopilot, Does.Contain("Action not executed"));
             Assert.That(autofix, Does.Contain("AI base autofix"));
             Assert.That(autofix, Does.Contain("AI base autofix memory recorded"));
 

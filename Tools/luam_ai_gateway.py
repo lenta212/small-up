@@ -488,6 +488,7 @@ Treat rescue sortie digest / autonomy=escort-group / plan=... / planAge=... / pl
 - run_sector_command with sectorCommandId ai_base_diagnostics: inspect the local AI base state, physical beacons, ships, drones, drops, resource deficits, and recommended improvements without spawning anything.
 - run_sector_command with sectorCommandId ai_base_plan: show the staged AI-base development queue and next recommended commands without spawning anything.
 - run_sector_command with sectorCommandId ai_base_autofix: execute one local AI-base autofix for the highest-severity diagnostic issue and record the attempt; this may spawn a base or role ship.
+- run_sector_command with sectorCommandId ai_base_autopilot: execute up to a few confirmed AI-base plan/autofix steps inside the game contour and record each attempt; this may spawn a base or role ship, but never gives shell/server control.
 - run_sector_command with sectorCommandId ai_base_mine: dispatch an AI-base mining ship with mining drones so the base starts collecting ore/resources through local game systems.
 - run_sector_command with sectorCommandId ai_base_build: dispatch an AI-base builder/repair ship with builder drones so the base starts construction and repair tasks.
 - run_sector_command with sectorCommandId ai_base_develop: when the admin asks OpenAI/AI robots/drones to both mine resources and build/expand the AI base, deploy the base and dispatch both miner and builder drone crews.
@@ -503,6 +504,7 @@ enable_auto_ai, world pressure и максимальная опасность д
 Если администратор просит быть проводником его воли или включает максимальную опасность, предпочитай run_sector_command с sectorCommandId admin_will_max_danger, если он есть в allowedSectorCommandIds.
 If the admin asks to create pressure, conditions, danger, panic, or an event around themselves, near the selected player, or around a specific human target, prefer run_sector_command with sectorCommandId personal_pressure.
 If that request also asks for maximum danger, panic, administrator will, or anything-can-happen escalation, prefer sectorCommandId personal_max_danger.
+If the admin asks for AI-base autopilot, autonomous development cycle, execute/follow/apply/run the AI-base plan, or multi-step AI-base fixes, prefer run_sector_command with sectorCommandId ai_base_autopilot when it is present in allowedSectorCommandIds.
 If the admin asks OpenAI, AI robots, or AI drones to mine resources and build/expand the AI base, prefer run_sector_command with sectorCommandId ai_base_develop when it is present in allowedSectorCommandIds.
 If the admin asks for the AI-base plan, queue, stages, roadmap, or next steps, prefer run_sector_command with sectorCommandId ai_base_plan when it is present in allowedSectorCommandIds. This is read-only.
 If the admin explicitly asks to autofix, auto-fix, fix now, repair now, self-heal, apply the fix, почини, исправь, or сразу фиксировать the AI base, prefer run_sector_command with sectorCommandId ai_base_autofix when it is present in allowedSectorCommandIds.
@@ -2554,6 +2556,29 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
         "\u043e\u0441\u043d\u0443",
         "\u043f\u043e\u0434\u043d\u0438\u043c",
     ))
+    wants_ai_base_autopilot = wants_ai_base_subject and any(word in lowered for word in (
+        "autopilot",
+        "auto pilot",
+        "auto develop",
+        "auto-development",
+        "auto run",
+        "execute plan",
+        "run plan",
+        "follow plan",
+        "apply plan",
+        "development loop",
+        "multi fix",
+        "governor",
+        "\u0430\u0432\u0442\u043e\u043f\u0438\u043b\u043e\u0442",
+        "\u0430\u0432\u0442\u043e \u043f\u0438\u043b\u043e\u0442",
+        "\u0430\u0432\u0442\u043e\u0440\u0430\u0437\u0432\u0438\u0442",
+        "\u0430\u0432\u0442\u043e \u0440\u0430\u0437\u0432",
+        "\u0432\u044b\u043f\u043e\u043b\u043d\u0438 \u043f\u043b\u0430\u043d",
+        "\u0437\u0430\u043f\u0443\u0441\u0442\u0438 \u043f\u043b\u0430\u043d",
+        "\u043f\u043e \u043f\u043b\u0430\u043d\u0443",
+        "\u0446\u0438\u043a\u043b \u0440\u0430\u0437\u0432\u0438\u0442\u0438\u044f",
+        "\u0441\u0430\u043c \u0440\u0430\u0437\u0432",
+    ))
     wants_ai_base_plan = wants_ai_base_subject and any(word in lowered for word in (
         "plan",
         "roadmap",
@@ -2705,6 +2730,11 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
         action = "run_admin_command"
         admin_command = "luam_rescue_action action=drop"
         reply = "AI provider is temporarily unavailable. Ordering the LuaM rescue agent to drop its active hand item locally."
+    elif wants_ai_base_autopilot and is_allowed("run_sector_command") and choose_allowed_sector_command("ai_base_autopilot"):
+        action = "run_sector_command"
+        sector_command_id = choose_allowed_sector_command("ai_base_autopilot")
+        instruction = message[:600]
+        reply = "AI provider is temporarily unavailable. Running the bounded local AI-base autopilot."
     elif wants_ai_base_plan and is_allowed("run_sector_command") and choose_allowed_sector_command("ai_base_plan"):
         action = "run_sector_command"
         sector_command_id = choose_allowed_sector_command("ai_base_plan")

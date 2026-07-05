@@ -169,6 +169,7 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
         QuickAiBaseDiagnosticsButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics);
         QuickAiBasePlanButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBasePlan);
         QuickAiBaseAutofixButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseAutofix);
+        QuickAiBaseAutopilotButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseAutopilot);
         QuickAiBaseMineButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseMine);
         QuickAiBaseBuildButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseBuild);
         QuickAiBaseDevelopButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseDevelop);
@@ -3664,6 +3665,8 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
                                           !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiBasePlan);
         QuickAiBaseAutofixButton.Disabled = serverActionDisabled ||
                                             !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiBaseAutofix);
+        QuickAiBaseAutopilotButton.Disabled = serverActionDisabled ||
+                                              !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiBaseAutopilot);
         QuickAiBaseMineButton.Disabled = serverActionDisabled ||
                                          !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiBaseMine);
         QuickAiBaseBuildButton.Disabled = serverActionDisabled ||

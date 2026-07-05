@@ -802,6 +802,7 @@ def main() -> int:
         "ai_base_diagnostics",
         "ai_base_plan",
         "ai_base_autofix",
+        "ai_base_autopilot",
         "ai_base_mine",
         "ai_base_build",
         "ai_base_develop",
@@ -1078,6 +1079,7 @@ def main() -> int:
         "QuickGatewayShipTokarev",
         "QuickAiBaseDiagnostics",
         "QuickAiBaseAutofix",
+        "QuickAiBaseAutopilot",
         "QuickAiBasePlan",
         "QuickAiBaseMine",
         "QuickAiBaseBuild",
@@ -1248,12 +1250,15 @@ def main() -> int:
     assert_contains(ai_director, "ai_base_diagnostics", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "ai_base_plan", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "ai_base_autofix", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "ai_base_autopilot", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "DispatchAiBaseDevelopmentAsync", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "DispatchAiBaseAutofixAsync", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "DispatchAiBaseAutopilotAsync", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "DispatchAiBaseRoleShipAsync", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "IsAiBaseRobotDevelopmentRequest", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "IsAiBasePlanRequest", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "IsAiBaseAutofixRequest", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "IsAiBaseAutopilotRequest", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "IsAiBaseDiagnosticsRequest", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "BuildAiBaseDiagnosticsReport", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "BuildAiBaseDevelopmentPlanReport", "LuaMSectorAiDirectorSystem")
@@ -1306,6 +1311,7 @@ def main() -> int:
         "ai_base_diagnostics",
         "ai_base_plan",
         "ai_base_autofix",
+        "ai_base_autopilot",
         "ai_base_mine",
         "ai_base_build",
         "ai_base_develop",
@@ -1779,6 +1785,7 @@ def main() -> int:
     assert_contains(ai_admin_xaml, "luam-ai-director-quick-gateway-ship", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "QuickAiBaseDiagnosticsButton", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "QuickAiBaseAutofixButton", "LuaMAiDirectorWindow.xaml")
+    assert_contains(ai_admin_xaml, "QuickAiBaseAutopilotButton", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "QuickAiBasePlanButton", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "PrivacyLabel", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "luam-ai-director-privacy", "LuaMAiDirectorWindow.xaml")
@@ -2263,11 +2270,13 @@ def main() -> int:
         "ai_base_diagnostics",
         "ai_base_plan",
         "ai_base_autofix",
+        "ai_base_autopilot",
         "ai_base_mine",
         "ai_base_build",
         "ai_base_develop",
         "wants_ai_base_plan",
         "wants_ai_base_autofix",
+        "wants_ai_base_autopilot",
         "wants_ai_base_diagnostics",
         "wants_ai_base_mining",
         "wants_ai_base_building",
@@ -2391,9 +2400,11 @@ def main() -> int:
         "ai_base_diagnostics",
         "ai_base_plan",
         "ai_base_autofix",
+        "ai_base_autopilot",
         "ai_base_develop",
         "aiBasePlanChat",
         "aiBaseAutofixChat",
+        "aiBaseAutopilotChat",
         "aiBaseDiagnosticsChat",
         "aiBaseDevelopChat",
         "slot=<slot>",
