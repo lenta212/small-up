@@ -175,6 +175,20 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueTeamClearsCompletedPatientForReturnOrExtract()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("GetActiveRescuePatient"));
+        Assert.That(source, Does.Contain("var patient = GetActiveRescuePatient(rescue);"));
+        Assert.That(source, Does.Contain("escort.Patient = GetActiveRescuePatient(rescue);"));
+        Assert.That(source, Does.Not.Contain("?? team.Patient"));
+        Assert.That(source, Does.Contain("LuaMRescueTeamPhase.ReturnOrExtract"));
+        Assert.That(source, Does.Contain("plan return-to-shuttle: extraction phase"));
+        Assert.That(source, Does.Contain("returning or extracting"));
+    }
+
+    [Test]
     public void RescueEscortsActivelyScreenHostileThreatTargets()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);

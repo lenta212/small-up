@@ -234,7 +234,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         LuaMRescueAgentComponent rescue,
         float frameTime)
     {
-        var patient = ValidOrNull(rescue.EvacuatingTarget ?? rescue.AssignedTarget ?? rescue.TaskPatientTarget ?? team.Patient);
+        var patient = GetActiveRescuePatient(rescue);
         var shuttle = ValidOrNull(rescue.AssignedShuttle);
         var shuttleAnchor = ValidOrNull(rescue.AssignedShuttleAnchor);
         var phase = GetTeamPhase(uid, rescue, patient);
@@ -829,7 +829,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (TryComp<LuaMRescueAgentComponent>(leader, out var rescue))
         {
-            escort.Patient = ValidOrNull(rescue.EvacuatingTarget ?? rescue.AssignedTarget ?? rescue.TaskPatientTarget);
+            escort.Patient = GetActiveRescuePatient(rescue);
             escort.Shuttle = ValidOrNull(rescue.AssignedShuttle);
             escort.ShuttleAnchor = ValidOrNull(rescue.AssignedShuttleAnchor);
             var scene = ScanRescueScene(leader, escort.TeamId, leader, escort.Patient, escort.Shuttle, escort.ShuttleAnchor);
@@ -1687,6 +1687,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         return uid is { Valid: true } entity && !Deleted(entity)
             ? entity
             : null;
+    }
+
+    private EntityUid? GetActiveRescuePatient(LuaMRescueAgentComponent rescue)
+    {
+        return ValidOrNull(rescue.EvacuatingTarget ?? rescue.AssignedTarget ?? rescue.TaskPatientTarget);
     }
 
     private bool IsWithinRange(EntityUid first, EntityUid second, float range)
