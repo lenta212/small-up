@@ -61,17 +61,7 @@ jobs:
         run: dotnet restore
 
       - name: Audit dependency vulnerabilities
-        shell: pwsh
-        run: |
-          $audit = dotnet list Content.Server.Database/Content.Server.Database.csproj package --vulnerable --include-transitive --format json | Out-String
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
-
-          if ($audit -match '"vulnerabilities"\s*:\s*\[\s*\{') {
-            Write-Error $audit
-            exit 1
-          }
+        run: pwsh -NoProfile -File Tools/audit_luam_dependency_vulnerabilities.ps1
 
       - name: Build Packaging
         run: dotnet build Content.Packaging --configuration Release --no-restore /m

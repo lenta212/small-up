@@ -95,9 +95,11 @@ $requiredFiles = @(
     ".github/workflows/publish-testing.yml",
     ".github/workflows/test-packaging.yml",
     "Tools/local_stack.md",
+    "Tools/monolith_improvement_audit.md",
     "Tools/luam_admin_ranks.yml",
     "Tools/generate_luam_admin_rank_sql.py",
     "Tools/audit_release_surface.ps1",
+    "Tools/audit_luam_dependency_vulnerabilities.ps1",
     "Tools/deploy_luam_server_release.ps1",
     "Tools/monolith-restart-when-empty.ps1",
     "Tools/monolith_release_runbook.md",
@@ -221,9 +223,11 @@ $releaseScopes = @(
     ".github/workflows/publish-testing.yml",
     ".github/workflows/test-packaging.yml",
     "Tools/local_stack.md",
+    "Tools/monolith_improvement_audit.md",
     "Tools/luam_admin_ranks.yml",
     "Tools/generate_luam_admin_rank_sql.py",
     "Tools/audit_release_surface.ps1",
+    "Tools/audit_luam_dependency_vulnerabilities.ps1",
     "Tools/deploy_luam_server_release.ps1",
     "Tools/monolith-restart-when-empty.ps1",
     "Tools/monolith_release_runbook.md",
@@ -468,24 +472,27 @@ try {
         Add-Step "round-length-seven-days" "passed" "LuaM preset and remote config keep shuttle.auto_call_time = 10080."
     }
 
-    $dependencyAudit = Invoke-Captured -FilePath "dotnet" -Arguments @(
-        "list",
-        "Content.Server.Database\Content.Server.Database.csproj",
-        "package",
-        "--vulnerable",
-        "--include-transitive",
-        "--format",
-        "json"
+    $powerShellExe = (Get-Process -Id $PID).Path
+    if ([string]::IsNullOrWhiteSpace($powerShellExe)) {
+        $powerShellExe = "pwsh"
+    }
+
+    $dependencyAuditScript = Join-Path $PSScriptRoot "audit_luam_dependency_vulnerabilities.ps1"
+    $dependencyAudit = Invoke-Captured -FilePath $powerShellExe -Arguments @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        $dependencyAuditScript,
+        "-Json"
     )
     $dependencyAuditJson = $dependencyAudit.Output -join [Environment]::NewLine
     if ($dependencyAudit.ExitCode -ne 0) {
         $issues.Add("Dependency vulnerability audit failed: $(Format-CapturedTail $dependencyAudit)") | Out-Null
-        Add-Step "dependency-vulnerability-audit" "failed" "dotnet list package returned $($dependencyAudit.ExitCode)."
-    } elseif ($dependencyAuditJson -match '"vulnerabilities"\s*:\s*\[\s*\{') {
-        $issues.Add("Dependency vulnerability audit found vulnerable packages: $dependencyAuditJson") | Out-Null
-        Add-Step "dependency-vulnerability-audit" "failed" "Vulnerable package entries found."
+        Add-Step "dependency-vulnerability-audit" "failed" "Dependency audit script returned $($dependencyAudit.ExitCode)."
     } else {
-        Add-Step "dependency-vulnerability-audit" "passed" "No vulnerable packages found for Content.Server.Database."
+        $dependencyAuditResult = $dependencyAuditJson | ConvertFrom-Json
+        Add-Step "dependency-vulnerability-audit" "passed" "No vulnerable packages found across $($dependencyAuditResult.projectCount) release-critical project(s)."
     }
 
     $validator = Invoke-Captured -FilePath "python" -Arguments @("Tools\validate_luam_feature_pack.py")
