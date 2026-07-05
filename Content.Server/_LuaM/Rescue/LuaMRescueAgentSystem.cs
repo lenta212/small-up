@@ -3850,12 +3850,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.ShuttleRoutedTarget = null;
         ResetTargetProgress(rescue);
 
-        if (!HasPendingEvacuationTarget(uid, rescue, target))
+        var hasPendingEvacuationTarget = HasPendingEvacuationTarget(uid, rescue, target);
+        if (!hasPendingEvacuationTarget)
             TryRouteShuttleHome(uid, rescue);
         else
+        {
             rescue.ShuttleReturnRouted = false;
+            rescue.LastAutoEvacuationStatus = $"holding shuttle forward after skipping {FormatEntityRef(target)}; pending evacuation target detected";
+        }
 
-        StandbyAtAssignedShuttle(uid, rescue, htn);
+        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget);
         Dirty(uid, rescue);
     }
 
@@ -3913,15 +3917,19 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.ShuttleRoutedTarget = null;
         ResetTargetProgress(rescue);
-        if (!HasPendingEvacuationTarget(uid, rescue, target))
+        var hasPendingEvacuationTarget = HasPendingEvacuationTarget(uid, rescue, target);
+        if (!hasPendingEvacuationTarget)
             TryRouteShuttleHome(uid, rescue);
         else
+        {
             rescue.ShuttleReturnRouted = false;
+            rescue.LastAutoEvacuationStatus = $"holding shuttle forward after evacuation of {FormatEntityRef(target)}; pending evacuation target detected";
+        }
 
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
-        StandbyAtAssignedShuttle(uid, rescue, htn);
+        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget);
         Dirty(uid, rescue);
     }
 
@@ -4347,7 +4355,11 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return true;
     }
 
-    private void StandbyAtAssignedShuttle(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    private void StandbyAtAssignedShuttle(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        bool allowAutoReturn = true)
     {
         ClearRescueTask(uid, rescue, "standby");
         rescue.EvacuatingTarget = null;
@@ -4356,7 +4368,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (CanUseAssignedShuttle(rescue))
         {
-            TryRouteShuttleHome(uid, rescue);
+            if (allowAutoReturn)
+                TryRouteShuttleHome(uid, rescue);
 
             if (!IsOnAssignedShuttle(uid, rescue) &&
                 SetFollowShuttle(uid, rescue, htn))

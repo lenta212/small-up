@@ -103,6 +103,20 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAgentKeepsShuttleForwardForPendingEvacuationTargets()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("var hasPendingEvacuationTarget = HasPendingEvacuationTarget(uid, rescue, target);"));
+        Assert.That(source, Does.Contain("allowAutoReturn: !hasPendingEvacuationTarget"));
+        Assert.That(source, Does.Contain("holding shuttle forward after evacuation"));
+        Assert.That(source, Does.Contain("holding shuttle forward after skipping"));
+        Assert.That(source, Does.Contain("pending evacuation target detected"));
+        Assert.That(source, Does.Contain("bool allowAutoReturn = true"));
+        Assert.That(source, Does.Contain("if (allowAutoReturn)"));
+    }
+
+    [Test]
     public void RescueAgentAutoDefibsDeadPatientsWithStandardDefibrillatorSystem()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
