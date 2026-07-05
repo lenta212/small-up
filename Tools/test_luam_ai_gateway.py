@@ -645,6 +645,8 @@ def run_anthropic_mock_test() -> dict[str, object]:
             if "allowedActions" in context:
                 assert "equip-slot" in body["system"]
                 assert "treat" in body["system"]
+                assert "auto-treat" in body["system"]
+                assert "evacuate critical patients" in body["system"]
                 assert "store-slot" in body["system"]
                 assert "take-storage" in body["system"]
                 assert "slot=<slot>" in body["system"]

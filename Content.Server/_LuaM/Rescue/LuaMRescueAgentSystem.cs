@@ -308,7 +308,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return $"{FormatEntityRef(uid)} phase={GetRescuePhase(uid, rescue)}; " +
                $"target={FormatEntityRef(target)}; shuttle={FormatEntityRef(rescue.AssignedShuttle)}; " +
                $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
-               $"skipped={rescue.SkippedTargets.Count}; {FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
+               $"skipped={rescue.SkippedTargets.Count}; autoTreat={rescue.LastAutoTreatmentStatus}; " +
+               $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
     }
 
     private string GetRescuePhase(EntityUid uid, LuaMRescueAgentComponent rescue)
@@ -533,7 +534,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                     return false;
                 }
 
-                if (!TryFindTreatmentItem(uid, targetUid, slot, itemSelector, out var item, out status))
+                if (!TryFindTreatmentItem(uid, targetUid, slot, itemSelector, includeDiagnosticItems: true, out var item, out status))
                     return false;
 
                 var handled = _interaction.InteractUsing(uid, item, targetUid, Transform(targetUid).Coordinates);
@@ -921,6 +922,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         EntityUid target,
         string? slot,
         string? itemSelector,
+        bool includeDiagnosticItems,
         out EntityUid item,
         out string status)
     {
@@ -938,7 +940,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (hand.HeldEntity is not { Valid: true } held)
                 continue;
 
-            if (GetTreatmentItemScore(held, target, itemSelector) <= 0f)
+            if (GetTreatmentItemScore(held, target, itemSelector, includeDiagnosticItems) <= 0f)
                 continue;
 
             item = held;
@@ -953,12 +955,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (!string.IsNullOrWhiteSpace(slot))
         {
-            return TryTakeTreatmentItemFromSlot(uid, target, slot, itemSelector, emptyHand, hands, out item, out status);
+            return TryTakeTreatmentItemFromSlot(uid, target, slot, itemSelector, includeDiagnosticItems, emptyHand, hands, out item, out status);
         }
 
         foreach (var candidateSlot in TreatmentStorageSlotPriority)
         {
-            if (TryTakeTreatmentItemFromSlot(uid, target, candidateSlot, itemSelector, emptyHand, hands, out item, out _))
+            if (TryTakeTreatmentItemFromSlot(uid, target, candidateSlot, itemSelector, includeDiagnosticItems, emptyHand, hands, out item, out _))
                 return true;
         }
 
@@ -973,6 +975,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         EntityUid target,
         string slot,
         string? itemSelector,
+        bool includeDiagnosticItems,
         Hand emptyHand,
         HandsComponent hands,
         out EntityUid item,
@@ -983,7 +986,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryResolveStorageSlot(uid, slot, out var storageUid, out var storage, out status))
             return false;
 
-        if (!TrySelectTreatmentItem(storageUid, storage, target, itemSelector, out var storedItem, out status))
+        if (!TrySelectTreatmentItem(storageUid, storage, target, itemSelector, includeDiagnosticItems, out var storedItem, out status))
             return false;
 
         if (!_container.RemoveEntity(storageUid, storedItem))
@@ -1009,6 +1012,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         StorageComponent storage,
         EntityUid target,
         string? itemSelector,
+        bool includeDiagnosticItems,
         out EntityUid item,
         out string status)
     {
@@ -1018,7 +1022,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var bestScore = 0f;
         foreach (var contained in storage.Container.ContainedEntities)
         {
-            var score = GetTreatmentItemScore(contained, target, itemSelector);
+            var score = GetTreatmentItemScore(contained, target, itemSelector, includeDiagnosticItems);
             if (score <= bestScore)
                 continue;
 
@@ -1035,7 +1039,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return false;
     }
 
-    private float GetTreatmentItemScore(EntityUid item, EntityUid target, string? itemSelector)
+    private float GetTreatmentItemScore(EntityUid item, EntityUid target, string? itemSelector, bool includeDiagnosticItems)
     {
         if (!string.IsNullOrWhiteSpace(itemSelector) &&
             !StorageItemMatchesSelector(item, itemSelector))
@@ -1054,7 +1058,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (HasComp<HyposprayComponent>(item) || HasComp<InjectorComponent>(item))
             score = Math.Max(score, 110f);
 
-        if (HasComp<HealthAnalyzerComponent>(item))
+        if (includeDiagnosticItems && HasComp<HealthAnalyzerComponent>(item))
             score = Math.Max(score, 90f);
 
         if (score > 0f)
@@ -1199,7 +1203,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (rescue.AssignedTarget is { Valid: true } assigned &&
             !IsTargetTemporarilySkipped(assigned, rescue) &&
-            TryStartOrContinueEvacuation(uid, rescue, htn, assigned))
+            (TryAutoTreatTarget(uid, rescue, htn, assigned) ||
+             TryStartOrContinueEvacuation(uid, rescue, htn, assigned)))
         {
             return;
         }
@@ -1214,6 +1219,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             !IsTargetTemporarilySkipped(current, rescue) &&
             IsRescueCandidate(uid, current, medibot, requireRange: false, rescue.SearchRange, out _))
         {
+            if (TryAutoTreatTarget(uid, rescue, htn, current))
+                return;
+
             if (TryStartOrContinueEvacuation(uid, rescue, htn, current))
                 return;
 
@@ -1223,6 +1231,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (TryFindRescueTarget(uid, rescue.SearchRange, rescue, medibot, out var target))
         {
+            if (TryAutoTreatTarget(uid, rescue, htn, target))
+                return;
+
             if (TryStartOrContinueEvacuation(uid, rescue, htn, target))
                 return;
 
@@ -1231,7 +1242,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         if (TryFindEvacuationTarget(uid, rescue.SearchRange, rescue, out var evacuationTarget) &&
-            TryStartOrContinueEvacuation(uid, rescue, htn, evacuationTarget))
+            (TryAutoTreatTarget(uid, rescue, htn, evacuationTarget) ||
+             TryStartOrContinueEvacuation(uid, rescue, htn, evacuationTarget)))
         {
             return;
         }
@@ -1349,6 +1361,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        if (!IsPullingTarget(uid, target) &&
+            TryAutoTreatTarget(uid, rescue, htn, target))
+        {
+            return true;
+        }
+
         if (TryFindPatientDeliveryStrap(rescue, out var patientStrap, out _))
         {
             rescue.AssignedPatientStrap = patientStrap;
@@ -1412,6 +1430,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.EvacuatingTarget = target;
         TryRouteShuttleToTarget(uid, rescue, target);
 
+        if (TryAutoTreatTarget(uid, rescue, htn, target))
+            return true;
+
         if (!IsWithinRange(uid, target, rescue.EvacuationStartRange))
         {
             SetFollowTarget(uid, rescue, htn, target);
@@ -1427,6 +1448,47 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         return SetFollowShuttle(uid, rescue, htn);
+    }
+
+    private bool TryAutoTreatTarget(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target)
+    {
+        if (!rescue.AutoTreatWithCarriedItems ||
+            _timing.CurTime < rescue.NextAutoTreatmentAttempt ||
+            Deleted(target) ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            mobState.CurrentState == MobState.Dead ||
+            !TryComp<DamageableComponent>(target, out var damageable) ||
+            damageable.TotalDamage.Float() < rescue.AutoTreatMinDamage ||
+            !IsWithinRange(uid, target, rescue.PlayerActionRange))
+        {
+            return false;
+        }
+
+        rescue.NextAutoTreatmentAttempt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoTreatCooldown));
+
+        if (!TryFindTreatmentItem(uid, target, null, null, includeDiagnosticItems: false, out var item, out var status))
+        {
+            rescue.LastAutoTreatmentStatus = status;
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        var handled = _interaction.InteractUsing(uid, item, target, Transform(target).Coordinates);
+        rescue.LastAutoTreatmentStatus = handled
+            ? $"treated {FormatEntityRef(target)} using {FormatEntityRef(item)}"
+            : $"treatment of {FormatEntityRef(target)} using {FormatEntityRef(item)} was not handled";
+
+        Dirty(uid, rescue);
+
+        if (!handled)
+            return false;
+
+        SetFollowTarget(uid, rescue, htn, target);
+        return true;
     }
 
     private bool IsRescueCandidate(

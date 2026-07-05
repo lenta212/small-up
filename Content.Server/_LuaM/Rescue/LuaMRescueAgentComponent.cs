@@ -43,6 +43,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool PreferStasisBedDelivery = true;
 
     [DataField]
+    public bool AutoTreatWithCarriedItems = true;
+
+    [DataField]
     public bool AutoRouteShuttleToTargets = true;
 
     [DataField]
@@ -84,9 +87,17 @@ public sealed partial class LuaMRescueAgentComponent : Component
     [DataField]
     public float TargetProgressTolerance = 0.25f;
 
+    [DataField]
+    public float AutoTreatMinDamage = 5f;
+
+    [DataField]
+    public float AutoTreatCooldown = 6f;
+
     public float TargetRefreshAccumulator;
 
     public readonly Dictionary<EntityUid, TimeSpan> SkippedTargets = new();
+
+    public TimeSpan NextAutoTreatmentAttempt;
 
     public EntityUid? ProgressTarget;
 
@@ -118,6 +129,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     [DataField]
     public string LastPlayerActionStatus = "none";
+
+    [DataField]
+    public string LastAutoTreatmentStatus = "none";
 
     [DataField]
     public string Role = "rescue";
