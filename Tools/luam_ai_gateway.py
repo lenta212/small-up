@@ -2691,6 +2691,8 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
     elif wants_rescue_shuttle and not any(word in lowered for word in ("status", "state")) and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_shuttle"):
         action = "run_admin_command"
         admin_command = "luam_rescue_shuttle"
+        if rescue_target:
+            admin_command += f" target={rescue_target}"
         reply = "AI provider is temporarily unavailable. Dispatching a local LuaM Triage rescue shuttle."
     elif wants_rescue and any(word in lowered for word in ("status", "state")) and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_status"):
         action = "run_admin_command"

@@ -2226,6 +2226,7 @@ def main() -> int:
         "luam_rescue_action",
         "luam_rescue_order",
         "luam_rescue_shuttle",
+        "admin_command += f\" target={rescue_target}\"",
         "luam_rescue_status",
         "autonomous rescue escort team",
         "Tourniquet",
