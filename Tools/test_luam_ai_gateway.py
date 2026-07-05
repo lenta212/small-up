@@ -651,6 +651,8 @@ def run_anthropic_mock_test() -> dict[str, object]:
                 assert "prefer navigation-reachable targets" in body["system"]
                 assert "remember the current rescue patient" in body["system"]
                 assert "prefer damage-matching treatment items" in body["system"]
+                assert "delivery beds" in body["system"]
+                assert "fall back to shuttle delivery" in body["system"]
                 assert "auto-analyze" in body["system"]
                 assert "stow held items" in body["system"]
                 assert "auto-treat" in body["system"]

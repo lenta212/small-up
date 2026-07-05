@@ -137,6 +137,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         {
             PruneSkippedTargets(rescue);
             PruneSkippedSupplyTargets(rescue);
+            PruneSkippedDeliveryTargets(rescue);
             lines.Add(BuildRescueStatusLine(uid, rescue));
         }
 
@@ -350,6 +351,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"taskPatient={FormatEntityRef(rescue.TaskPatientTarget)}; taskSupply={FormatEntityRef(rescue.TaskSupplyTarget)}; " +
                $"taskLast={rescue.LastTaskStatus}; " +
                $"skipped={rescue.SkippedTargets.Count}; skippedSupply={rescue.SkippedSupplyTargets.Count}; " +
+               $"skippedDelivery={rescue.SkippedDeliveryTargets.Count}; " +
                $"autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoEvac={rescue.LastAutoEvacuationStatus}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
@@ -516,6 +518,20 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 rescue.TaskPatientTarget,
                 null,
                 $"forgot unavailable supply {FormatEntityRef(supply)}");
+        }
+
+        if (rescue.TaskSupplyTarget is { Valid: true } delivery &&
+            IsDeliveryTargetTemporarilySkipped(delivery, rescue))
+        {
+            SetRescueTask(
+                uid,
+                rescue,
+                rescue.TaskPatientTarget is { Valid: true }
+                    ? LuaMRescueTaskStage.DeliveringPatient
+                    : LuaMRescueTaskStage.None,
+                rescue.TaskPatientTarget,
+                null,
+                $"forgot unavailable delivery target {FormatEntityRef(delivery)}");
         }
     }
 
@@ -1960,6 +1976,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         PruneSkippedTargets(rescue);
         PruneSkippedSupplyTargets(rescue);
+        PruneSkippedDeliveryTargets(rescue);
         PruneAnalyzedTargets(rescue);
         PruneRescueTaskMemory(uid, rescue);
 
@@ -2139,6 +2156,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (UpdateTargetProgress(uid, target, rescue))
         {
+            if (TryHandleStalledDeliveryTarget(uid, target, rescue, htn))
+                return true;
+
             TemporarilySkipTarget(uid, rescue, htn, target);
             return false;
         }
@@ -2162,6 +2182,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             {
                 CompleteEvacuation(uid, rescue, htn, target);
                 return false;
+            }
+
+            if (ShouldSkipFailedPatientDeliveryTarget(target, patientStrap, rescue))
+            {
+                TemporarilySkipDeliveryTarget(rescue, patientStrap, "buckle failed");
+                ResetTargetProgress(rescue);
+                if (TryFindPatientDeliveryStrap(rescue, out var replacementStrap, out _))
+                    rescue.AssignedPatientStrap = replacementStrap;
             }
         }
         else
@@ -2189,11 +2217,21 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         if (rescue.AssignedPatientStrap is { Valid: true } deliveryStrap &&
-            !Deleted(deliveryStrap) &&
-            TryBucklePatientToStrap(uid, target, deliveryStrap, rescue))
+            !Deleted(deliveryStrap))
         {
-            CompleteEvacuation(uid, rescue, htn, target);
-            return false;
+            if (TryBucklePatientToStrap(uid, target, deliveryStrap, rescue))
+            {
+                CompleteEvacuation(uid, rescue, htn, target);
+                return false;
+            }
+
+            if (ShouldSkipFailedPatientDeliveryTarget(target, deliveryStrap, rescue))
+            {
+                TemporarilySkipDeliveryTarget(rescue, deliveryStrap, "buckle failed");
+                ResetTargetProgress(rescue);
+                if (TryFindPatientDeliveryStrap(rescue, out var replacementStrap, out _))
+                    rescue.AssignedPatientStrap = replacementStrap;
+            }
         }
 
         if (rescue.AssignedPatientStrap is { Valid: true } assignedStrap &&
@@ -2873,6 +2911,21 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
     }
 
+    private void PruneSkippedDeliveryTargets(LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.SkippedDeliveryTargets.Count == 0)
+            return;
+
+        var now = _timing.CurTime;
+        foreach (var target in rescue.SkippedDeliveryTargets
+                     .Where(entry => Deleted(entry.Key) || entry.Value <= now)
+                     .Select(entry => entry.Key)
+                     .ToArray())
+        {
+            rescue.SkippedDeliveryTargets.Remove(target);
+        }
+    }
+
     private void PruneAnalyzedTargets(LuaMRescueAgentComponent rescue)
     {
         if (rescue.AnalyzedTargets.Count == 0)
@@ -2922,6 +2975,84 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.SkippedSupplyTargets.Remove(target);
         return false;
+    }
+
+    private bool IsDeliveryTargetTemporarilySkipped(EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        if (!rescue.SkippedDeliveryTargets.TryGetValue(target, out var skipUntil))
+            return false;
+
+        if (_timing.CurTime < skipUntil)
+            return true;
+
+        rescue.SkippedDeliveryTargets.Remove(target);
+        return false;
+    }
+
+    private bool ShouldSkipFailedPatientDeliveryTarget(
+        EntityUid target,
+        EntityUid patientStrap,
+        LuaMRescueAgentComponent rescue)
+    {
+        if (Deleted(target) ||
+            Deleted(patientStrap) ||
+            !TryComp<BuckleComponent>(target, out var buckle) ||
+            !TryComp<StrapComponent>(patientStrap, out var strap) ||
+            !IsAssignedShuttlePatientStrap(patientStrap, rescue))
+        {
+            return true;
+        }
+
+        if (buckle.BuckledTo == patientStrap)
+            return false;
+
+        if (!strap.Enabled ||
+            IsDeliveryTargetTemporarilySkipped(patientStrap, rescue) ||
+            strap.BuckledEntities.Count != 0)
+        {
+            return true;
+        }
+
+        return IsWithinRange(target, patientStrap, buckle.Range);
+    }
+
+    private bool TryHandleStalledDeliveryTarget(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (!IsPullingTarget(uid, target) ||
+            rescue.ProgressGoal is not { Valid: true } progressGoal ||
+            rescue.AssignedPatientStrap != progressGoal)
+        {
+            return false;
+        }
+
+        TemporarilySkipDeliveryTarget(rescue, progressGoal, "stalled delivery route");
+        ResetTargetProgress(rescue);
+
+        if (TryFindPatientDeliveryStrap(rescue, out var replacementStrap, out _))
+        {
+            rescue.AssignedPatientStrap = replacementStrap;
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.DeliveringPatient,
+                target,
+                replacementStrap,
+                $"rerouting {FormatEntityRef(target)} to alternate delivery target {FormatEntityRef(replacementStrap)}");
+            return SetFollowDeliveryStrap(uid, rescue, htn, replacementStrap);
+        }
+
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.DeliveringPatient,
+            target,
+            rescue.AssignedShuttleAnchor ?? rescue.AssignedShuttle,
+            $"falling back to shuttle delivery for {FormatEntityRef(target)}");
+        return SetFollowShuttle(uid, rescue, htn);
     }
 
     private bool UpdateTargetProgress(EntityUid uid, EntityUid target, LuaMRescueAgentComponent rescue)
@@ -3064,6 +3195,22 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.NextAutoTreatmentAttempt = _timing.CurTime;
     }
 
+    private void TemporarilySkipDeliveryTarget(LuaMRescueAgentComponent rescue, EntityUid target, string reason)
+    {
+        if (!rescue.TemporarilySkipFailedDeliveryTargets ||
+            rescue.DeliverySkipSeconds <= 0f ||
+            Deleted(target))
+        {
+            return;
+        }
+
+        rescue.SkippedDeliveryTargets[target] = _timing.CurTime + TimeSpan.FromSeconds(rescue.DeliverySkipSeconds);
+        if (rescue.AssignedPatientStrap == target)
+            rescue.AssignedPatientStrap = null;
+
+        rescue.LastAutoEvacuationStatus = $"skipping delivery target {FormatEntityRef(target)} for {rescue.DeliverySkipSeconds:0.0}s after {reason}";
+    }
+
     private void ResetTargetProgress(LuaMRescueAgentComponent rescue)
     {
         rescue.ProgressTarget = null;
@@ -3160,6 +3307,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         LuaMRescueAgentComponent rescue)
     {
         return strap.Enabled &&
+               !IsDeliveryTargetTemporarilySkipped(uid, rescue) &&
                strap.BuckledEntities.Count == 0 &&
                IsAssignedShuttlePatientStrap(uid, rescue);
     }
