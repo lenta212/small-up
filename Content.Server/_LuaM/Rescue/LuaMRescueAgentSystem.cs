@@ -5,6 +5,7 @@ using Content.Server.Mind;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Systems;
+using Content.Server.Shuttles.Components;
 using Content.Shared.Chemistry.Components.SolutionManager;
 using Content.Shared.Damage;
 using Content.Shared.Mobs;
@@ -186,6 +187,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             IsAtAssignedShuttleAnchor(target, rescue))
         {
             StopPullingTarget(uid, target);
+            TryRouteShuttleHome(uid, rescue);
             rescue.EvacuatingTarget = null;
             rescue.AssignedTarget = null;
             ClearFollowTarget(uid, rescue, htn);
@@ -216,6 +218,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         if (!NeedsEvacuation(target, rescue))
             return false;
+
+        if (rescue.EvacuatingTarget != target)
+            rescue.ShuttleReturnRouted = false;
 
         rescue.EvacuatingTarget = target;
 
@@ -282,6 +287,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!rescue.EvacuateTargetsToShuttle ||
             !CanUseAssignedShuttle(rescue) ||
             IsOnAssignedShuttle(target, rescue) ||
+            IsAtAssignedShuttleAnchor(target, rescue) ||
             !TryComp<MobStateComponent>(target, out var mobState) ||
             !TryComp<DamageableComponent>(target, out var damage) ||
             !HasComp<PullableComponent>(target) ||
@@ -370,6 +376,28 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         _pulling.TryStopPull(target, pullable);
+    }
+
+    private bool TryRouteShuttleHome(EntityUid uid, LuaMRescueAgentComponent rescue)
+    {
+        if (!rescue.AutoReturnShuttle ||
+            rescue.ShuttleReturnRouted ||
+            rescue.AssignedShuttleConsole is not { Valid: true } console ||
+            Deleted(console) ||
+            rescue.AssignedReturnTarget is not { Valid: true } returnTarget ||
+            Deleted(returnTarget) ||
+            !TryComp<ShuttleConsoleComponent>(console, out var shuttleConsole) ||
+            !TryComp<HTNComponent>(console, out var htn))
+        {
+            return false;
+        }
+
+        _npc.SetBlackboard(console, shuttleConsole.AutopilotTargetKey, new EntityCoordinates(returnTarget, Vector2.Zero), htn);
+        htn.Blackboard.Remove<Angle>(shuttleConsole.AutopilotRotationKey);
+        _npc.WakeNPC(console, htn);
+        rescue.ShuttleReturnRouted = true;
+        Dirty(uid, rescue);
+        return true;
     }
 
     private bool IsWithinRange(EntityUid uid, EntityUid target, float range)

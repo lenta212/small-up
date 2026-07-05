@@ -63,6 +63,13 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         if (_station.GetOwningStation(shuttle.Value) is { Valid: true } shuttleStation)
             _station.RenameStation(shuttleStation, shuttleName, loud: false);
 
+        if (TryFindAutopilotConsole(shuttle.Value, out var shuttleConsoleEntity, out _, out _))
+            autopilotConsole = shuttleConsoleEntity;
+
+        var returnTarget = TryFindStationReturnTarget(station, out var stationReturnTarget)
+            ? stationReturnTarget
+            : (EntityUid?) null;
+
         var routed = false;
         if (routeToTarget &&
             followTarget is { Valid: true } routeTarget)
@@ -84,6 +91,8 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         var rescue = EnsureComp<LuaMRescueAgentComponent>(agent.Value);
         rescue.AssignedShuttle = shuttle;
         rescue.AssignedShuttleAnchor = anchor;
+        rescue.AssignedShuttleConsole = autopilotConsole;
+        rescue.AssignedReturnTarget = returnTarget;
         rescue.AssignedTarget = followTarget;
         Dirty(agent.Value, rescue);
 
@@ -141,6 +150,19 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         console = default;
         shuttleConsole = default!;
         htn = default!;
+        return false;
+    }
+
+    private bool TryFindStationReturnTarget(EntityUid station, out EntityUid returnTarget)
+    {
+        if (TryComp<StationDataComponent>(station, out var stationData) &&
+            _station.GetLargestGrid((station, stationData)) is { Valid: true } grid)
+        {
+            returnTarget = grid;
+            return true;
+        }
+
+        returnTarget = default;
         return false;
     }
 
