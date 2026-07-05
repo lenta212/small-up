@@ -151,6 +151,7 @@ Last local verification:
 - `Tools\check_luam_release_ready.ps1 -RunTests -RunLocalSmoke` passed with `utf8-release-text`, zero untracked release-scope files, LuaM dotnet test filters, and full local gateway/server/client smoke.
 - `Tools\verify_luam_release_package.ps1` passed with `utf8-package-text`, `admin-rank-artifacts`, `luam-resource-artifacts`, recorded local smoke evidence, and `scope-audit`.
 - `Tools\audit_release_surface.ps1 -ReleaseDir release` passed after rebuilding `SS14.Client.zip` and `SS14.Server_linux-x64.zip`; the previous 15 `.pdb` entries were removed.
+- `dotnet list Content.Server.Database\Content.Server.Database.csproj package --vulnerable --include-transitive` passed with no vulnerable packages after pinning `System.Security.Cryptography.Xml` to a patched 10.0.x package.
 - `dotnet test Content.Tests\Content.Tests.csproj --filter "FullyQualifiedName~LuaM" --no-restore` passed, 1/1.
 - `dotnet test Content.IntegrationTests\Content.IntegrationTests.csproj --filter "FullyQualifiedName~LuaM" --no-restore` passed, 80/80.
 - `dotnet test Content.IntegrationTests\Content.IntegrationTests.csproj --filter "FullyQualifiedName~LuaMBankAndPdaContractsTest" --no-restore` passed, 14/14.
@@ -158,7 +159,7 @@ Last local verification:
 
 Expected existing warnings:
 
-- NU1903 vulnerability warnings for `System.Security.Cryptography.Xml` in `Content.Server.Database`.
+- NU1510 trim-analysis warnings for existing RobustToolbox package references.
 - Existing analyzer/obsolete warnings in unrelated test and engine paths.
 
 ## Local Smoke Test

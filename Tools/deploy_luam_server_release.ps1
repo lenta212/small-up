@@ -134,6 +134,53 @@ function Test-ZipEntry {
     }
 }
 
+function Assert-SafeZipEntries {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ArchivePath,
+        [int]$MaxEntries = 250000,
+        [int64]$MaxUncompressedBytes = 5GB
+    )
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $entryCount = 0
+        $totalBytes = [int64]0
+        foreach ($entry in $archive.Entries) {
+            if ([string]::IsNullOrWhiteSpace($entry.FullName) -or $entry.FullName.EndsWith("/")) {
+                continue
+            }
+
+            $entryCount += 1
+            if ($entryCount -gt $MaxEntries) {
+                throw "Package has too many entries: $entryCount > $MaxEntries"
+            }
+
+            $totalBytes += [int64]$entry.Length
+            if ($totalBytes -gt $MaxUncompressedBytes) {
+                throw "Package uncompressed size exceeds limit: $totalBytes > $MaxUncompressedBytes"
+            }
+
+            $normalized = ($entry.FullName -replace "\\", "/")
+            if ($normalized.StartsWith("/") -or $normalized -match "^[A-Za-z]:") {
+                throw "Package contains an absolute path entry: $($entry.FullName)"
+            }
+
+            foreach ($part in $normalized.Split([char[]]@('/'), [System.StringSplitOptions]::RemoveEmptyEntries)) {
+                if ($part -eq "." -or $part -eq ".." -or $part.Contains(":")) {
+                    throw "Package contains an unsafe path entry: $($entry.FullName)"
+                }
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 if (-not (Test-Path -LiteralPath $PackagePath -PathType Leaf)) {
     throw "Package not found: $PackagePath"
 }
@@ -143,6 +190,8 @@ $packageName = [System.IO.Path]::GetFileName($resolvedPackage)
 if (-not $packageName.EndsWith(".zip", [StringComparison]::OrdinalIgnoreCase)) {
     throw "Package must be a .zip file: $resolvedPackage"
 }
+
+Assert-SafeZipEntries -ArchivePath $resolvedPackage
 
 $hasRobustServer = Test-ZipEntry -ArchivePath $resolvedPackage -EntryName "Robust.Server"
 $hasClientZip = Test-ZipEntry -ArchivePath $resolvedPackage -EntryName "Content.Client.zip"
@@ -265,15 +314,48 @@ import zipfile
 
 zip_path = sys.argv[1]
 stage_dir = pathlib.Path(sys.argv[2])
+stage_root = stage_dir.resolve()
+max_entries = 250000
+max_uncompressed_bytes = 5 * 1024 * 1024 * 1024
+
+def safe_target_path(raw_name):
+    name = raw_name.replace('\\', '/')
+    if not name or name.endswith('/'):
+        return None
+
+    path = pathlib.PurePosixPath(name)
+    if path.is_absolute():
+        raise ValueError(f"absolute zip entry path: {raw_name!r}")
+
+    if any(part in ('', '.', '..') or ':' in part for part in path.parts):
+        raise ValueError(f"unsafe zip entry path: {raw_name!r}")
+
+    target = (stage_root / pathlib.Path(*path.parts)).resolve()
+    try:
+        target.relative_to(stage_root)
+    except ValueError as exc:
+        raise ValueError(f"zip entry escapes staging directory: {raw_name!r}") from exc
+
+    return target
 
 with zipfile.ZipFile(zip_path) as archive:
+    total_bytes = 0
+    entry_count = 0
     for info in archive.infolist():
-        name = info.filename.replace('\\', '/')
-        if not name or name.endswith('/'):
+        target = safe_target_path(info.filename)
+        if target is None:
             continue
-        target = stage_dir / name
+
+        entry_count += 1
+        if entry_count > max_entries:
+            raise SystemExit(f"Package has too many entries: {entry_count} > {max_entries}")
+
+        total_bytes += info.file_size
+        if total_bytes > max_uncompressed_bytes:
+            raise SystemExit(f"Package uncompressed size exceeds limit: {total_bytes} > {max_uncompressed_bytes}")
+
         target.parent.mkdir(parents=True, exist_ok=True)
-        with archive.open(info) as source, open(target, 'wb') as dest:
+        with archive.open(info) as source, target.open('wb') as dest:
             dest.write(source.read())
 PY
 
