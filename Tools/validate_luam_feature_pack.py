@@ -2115,6 +2115,8 @@ def main() -> int:
         "recent threat pressure",
         "rescue sortie digest",
         "autonomy=escort-group",
+        "sortie planner",
+        "plan=...",
         "take medical supplies from accessible nearby storage",
         "take-target-storage",
         "store collected medical supplies",
@@ -3284,6 +3286,8 @@ def main() -> int:
     assert_contains(rescue_team_system, "BuildRescueAiMemoryDigestLines", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "rescue sortie digest", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "autonomy=escort-group", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "plan=", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "planStatus=", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "identities=withheld", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "coordinates=withheld", "LuaMRescueTeamSystem")
 
@@ -3349,6 +3353,9 @@ def main() -> int:
     assert_contains(rescue_team_component, "Kostyl", "LuaMRescueEscortRole")
     assert_contains(rescue_team_component, "Zaslon", "LuaMRescueEscortRole")
     assert_contains(rescue_team_component, "LuaMRescueTeamPhase", "LuaMRescueTeamPhase")
+    assert_contains(rescue_team_component, "LuaMRescueSortiePlan", "LuaMRescueSortiePlan")
+    assert_contains(rescue_team_component, "SortiePlan", "LuaMRescueSortiePlan")
+    assert_contains(rescue_team_component, "LastSortiePlanStatus", "LuaMRescueTeamComponent")
     assert_contains(rescue_team_component, "LuaMRescueEscortDuty", "LuaMRescueEscortDuty")
     assert_contains(rescue_team_component, "SceneAnchor", "LuaMRescueTeamComponent")
     assert_contains(rescue_team_component, "ThreatTarget", "LuaMRescueTeamComponent")
@@ -3365,11 +3372,17 @@ def main() -> int:
     assert_contains(rescue_team_component, "ThreatScreen", "LuaMRescueEscortDuty")
     assert_contains(rescue_team_component, "CrowdControl", "LuaMRescueEscortDuty")
     assert_contains(rescue_team_component, "ClearRoute", "LuaMRescueEscortDuty")
+    assert_contains(rescue_team_component, "Resupply", "LuaMRescueSortiePlan")
+    assert_contains(rescue_team_component, "EvacuatePatient", "LuaMRescueSortiePlan")
+    assert_contains(rescue_team_component, "ReturnToShuttle", "LuaMRescueSortiePlan")
 
     rescue_team_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs").read_text(encoding="utf-8")
     assert_contains(rescue_team_system, "SpawnEscortTeam", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "BuildRescueTeamStatusLines", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "UpdateEscortDuty", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "UpdateSortiePlan", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "SelectSortiePlan", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "GetPlannedEscortDuty", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "GetEscortDuty", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "SetEscortFollowTarget", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "ScanRescueScene", "LuaMRescueTeamSystem")
@@ -3383,6 +3396,7 @@ def main() -> int:
     assert_contains(rescue_team_system, "RefreshSceneMemoryDigest", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "FindSceneMemoryToReinforce", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "BuildSceneMemoryDigest", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "FormatPlan", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "SceneMemoryLimit", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "SceneMemoryLifetimeSeconds", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "SceneMemoryReinforceSeconds", "LuaMRescueTeamSystem")

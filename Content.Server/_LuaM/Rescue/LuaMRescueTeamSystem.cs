@@ -91,6 +91,10 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.Phase = team.Patient is { Valid: true }
             ? LuaMRescueTeamPhase.Dispatch
             : LuaMRescueTeamPhase.Idle;
+        team.SortiePlan = team.Patient is { Valid: true }
+            ? LuaMRescueSortiePlan.ApproachPatient
+            : LuaMRescueSortiePlan.Standby;
+        team.LastSortiePlanStatus = $"plan {FormatPlan(team.SortiePlan)} after dispatch";
         team.LastStatus = "autonomous rescue team deployed";
         team.LastMemoryDigest = "memory clear";
         team.RecentThreatMemories = 0;
@@ -122,10 +126,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             PruneTeamEscorts(team);
             lines.Add(
                 $"team={team.TeamId}; leader={FormatEntityRef(uid)}; phase={FormatPhase(team.Phase)}; " +
+                $"plan={FormatPlan(team.SortiePlan)}; " +
                 $"patient={FormatEntityRef(team.Patient)}; shuttle={FormatEntityRef(team.Shuttle)}; " +
                 $"escorts={team.Escorts.Count}; scene={team.LastSceneStatus}; " +
                 $"threat={FormatEntityRef(team.ThreatTarget)}; crowd={team.NearbyCrowd}; " +
-                $"blockers={team.NearbyBlockers}; memory={team.LastMemoryDigest}; last={team.LastStatus}");
+                $"blockers={team.NearbyBlockers}; memory={team.LastMemoryDigest}; planStatus={team.LastSortiePlanStatus}; last={team.LastStatus}");
         }
 
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
@@ -133,7 +138,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         {
             lines.Add(
                 $"escort={FormatEntityRef(uid)}; team={escort.TeamId}; role={FormatRole(escort.Role)}; " +
-                $"duty={FormatDuty(escort.CurrentDuty)}; follow={FormatEntityRef(escort.CurrentFollowTarget)}; " +
+                $"plan={FormatPlan(escort.SortiePlan)}; duty={FormatDuty(escort.CurrentDuty)}; follow={FormatEntityRef(escort.CurrentFollowTarget)}; " +
                 $"leader={FormatEntityRef(escort.Leader)}; patient={FormatEntityRef(escort.Patient)}; " +
                 $"threat={FormatEntityRef(escort.ThreatTarget)}; scene={escort.LastSceneStatus}; " +
                 $"memory={escort.LastMemoryDigest}; last={escort.LastDutyStatus}");
@@ -152,9 +157,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             var escortCount = team.Escorts.Count(escort => escort.Valid && !Deleted(escort));
             lines.Add(
                 $"ADMIN_ONLY: rescue sortie digest: team={team.TeamId}; autonomy=escort-group; " +
-                $"phase={FormatPhase(team.Phase)}; escorts={escortCount}; scene={team.LastSceneStatus}; " +
+                $"phase={FormatPhase(team.Phase)}; plan={FormatPlan(team.SortiePlan)}; escorts={escortCount}; scene={team.LastSceneStatus}; " +
                 $"pressure(threat/crowd/route)={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
-                $"memory={team.LastMemoryDigest}; identities=withheld; coordinates=withheld.");
+                $"memory={team.LastMemoryDigest}; planStatus={team.LastSortiePlanStatus}; identities=withheld; coordinates=withheld.");
         }
 
         return lines
@@ -180,6 +185,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         escort.Shuttle = ValidOrNull(shuttle);
         escort.ShuttleAnchor = ValidOrNull(shuttleAnchor);
         escort.CurrentDuty = LuaMRescueEscortDuty.Standby;
+        escort.SortiePlan = LuaMRescueSortiePlan.Standby;
         escort.LastDutyStatus = "deployed";
         escort.NextSpeechTime = _timing.CurTime;
 
@@ -254,6 +260,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             changed |= PruneSceneMemory(team);
         }
 
+        changed |= UpdateSortiePlan(team, phase, patient);
+
         if (changed)
             Dirty(uid, team);
     }
@@ -268,7 +276,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         escort.CurrentDuty = duty;
         escort.CurrentFollowTarget = followTarget;
-        escort.LastDutyStatus = $"{FormatRole(escort.Role)} {FormatDuty(duty)}; {escort.LastSceneStatus}; {escort.LastMemoryDigest}";
+        escort.LastDutyStatus = $"{FormatRole(escort.Role)} plan={FormatPlan(escort.SortiePlan)} duty={FormatDuty(duty)}; {escort.LastSceneStatus}; {escort.LastMemoryDigest}";
 
         SetEscortFollowTarget(uid, escort, htn, followTarget, duty);
         if ((changed || forceSpeech) &&
@@ -279,6 +287,29 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         Dirty(uid, escort);
+    }
+
+    private bool UpdateSortiePlan(
+        LuaMRescueTeamComponent team,
+        LuaMRescueTeamPhase phase,
+        EntityUid? patient)
+    {
+        var (plan, status) = SelectSortiePlan(team, phase, patient);
+        var changed = false;
+
+        if (team.SortiePlan != plan)
+        {
+            team.SortiePlan = plan;
+            changed = true;
+        }
+
+        if (!string.Equals(team.LastSortiePlanStatus, status, StringComparison.Ordinal))
+        {
+            team.LastSortiePlanStatus = status;
+            changed = true;
+        }
+
+        return changed;
     }
 
     private void SyncEscortContextFromLeader(LuaMRescueEscortComponent escort)
@@ -296,6 +327,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.NearbyBlockers = 0;
             escort.LastSceneStatus = "scene clear";
             escort.LastMemoryDigest = "memory clear";
+            escort.SortiePlan = LuaMRescueSortiePlan.Standby;
             escort.RecentThreatMemories = 0;
             escort.RecentCrowdMemories = 0;
             escort.RecentRouteMemories = 0;
@@ -316,6 +348,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.NearbyBlockers = team.NearbyBlockers;
             escort.LastSceneStatus = team.LastSceneStatus;
             escort.LastMemoryDigest = team.LastMemoryDigest;
+            escort.SortiePlan = team.SortiePlan;
             escort.RecentThreatMemories = team.RecentThreatMemories;
             escort.RecentCrowdMemories = team.RecentCrowdMemories;
             escort.RecentRouteMemories = team.RecentRouteMemories;
@@ -329,6 +362,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.ShuttleAnchor = ValidOrNull(rescue.AssignedShuttleAnchor);
             var scene = ScanRescueScene(leader, escort.TeamId, leader, escort.Patient, escort.Shuttle, escort.ShuttleAnchor);
             ApplySceneToEscort(escort, scene);
+            escort.SortiePlan = escort.Patient is { Valid: true }
+                ? LuaMRescueSortiePlan.ApproachPatient
+                : LuaMRescueSortiePlan.Standby;
         }
     }
 
@@ -770,6 +806,28 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         return escort.NearbyBlockers >= RouteBlockerThreshold || escort.RecentRouteMemories > 0;
     }
 
+    private static bool HasSceneThreat(LuaMRescueTeamComponent team)
+    {
+        return team.ThreatTarget is { Valid: true } ||
+            team.NearbyHostiles > 0 ||
+            team.NearbyCombatants > 0;
+    }
+
+    private static bool HasThreatPressure(LuaMRescueTeamComponent team)
+    {
+        return HasSceneThreat(team) || team.RecentThreatMemories > 0;
+    }
+
+    private static bool HasCrowdPressure(LuaMRescueTeamComponent team)
+    {
+        return team.NearbyCrowd >= CrowdPressureThreshold || team.RecentCrowdMemories > 0;
+    }
+
+    private static bool HasRoutePressure(LuaMRescueTeamComponent team)
+    {
+        return team.NearbyBlockers >= RouteBlockerThreshold || team.RecentRouteMemories > 0;
+    }
+
     private static string BuildSceneSummary(int hostiles, int combatants, int crowd, int blockers)
     {
         if (hostiles > 0)
@@ -787,6 +845,102 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         return $"scene clear crowd={crowd} blockers={blockers}";
     }
 
+    private static (LuaMRescueSortiePlan Plan, string Status) SelectSortiePlan(
+        LuaMRescueTeamComponent team,
+        LuaMRescueTeamPhase phase,
+        EntityUid? patient)
+    {
+        if (patient is not { Valid: true })
+        {
+            var returnPlan = team.ShuttleAnchor is { Valid: true } || team.Shuttle is { Valid: true }
+                ? LuaMRescueSortiePlan.ReturnToShuttle
+                : LuaMRescueSortiePlan.Standby;
+            return (returnPlan, $"plan {FormatPlan(returnPlan)}: no active patient");
+        }
+
+        if (HasThreatPressure(team))
+            return (LuaMRescueSortiePlan.ThreatScreen, $"plan threat-screen: hostile or combat pressure; {team.LastSceneStatus}; {team.LastMemoryDigest}");
+
+        if (phase is LuaMRescueTeamPhase.PrepareEvacuation or LuaMRescueTeamPhase.EvacuateToShuttle &&
+            HasRoutePressure(team))
+        {
+            return (LuaMRescueSortiePlan.ClearRoute, $"plan clear-route: evacuation route blocked; {team.LastSceneStatus}; {team.LastMemoryDigest}");
+        }
+
+        if (phase == LuaMRescueTeamPhase.Triage)
+            return (LuaMRescueSortiePlan.Resupply, $"plan resupply: Aibolit is collecting medical supplies; {team.LastMemoryDigest}");
+
+        if (HasCrowdPressure(team))
+            return (LuaMRescueSortiePlan.CrowdControl, $"plan crowd-control: medical scene crowd pressure; {team.LastSceneStatus}; {team.LastMemoryDigest}");
+
+        if (HasRoutePressure(team))
+            return (LuaMRescueSortiePlan.ClearRoute, $"plan clear-route: route pressure remembered; {team.LastSceneStatus}; {team.LastMemoryDigest}");
+
+        return phase switch
+        {
+            LuaMRescueTeamPhase.TreatOnSite => (LuaMRescueSortiePlan.TreatPatient, $"plan treat-patient: on-site treatment; {team.LastSceneStatus}"),
+            LuaMRescueTeamPhase.PrepareEvacuation or LuaMRescueTeamPhase.EvacuateToShuttle => (LuaMRescueSortiePlan.EvacuatePatient, $"plan evacuate-patient: move patient to shuttle; {team.LastSceneStatus}"),
+            LuaMRescueTeamPhase.SecureScene => (LuaMRescueSortiePlan.SecureScene, $"plan secure-scene: stabilize rescue zone; {team.LastSceneStatus}"),
+            LuaMRescueTeamPhase.ReturnOrExtract => (LuaMRescueSortiePlan.ReturnToShuttle, $"plan return-to-shuttle: extraction phase; {team.LastSceneStatus}"),
+            _ => (LuaMRescueSortiePlan.ApproachPatient, $"plan approach-patient: reach and assess patient; {team.LastSceneStatus}"),
+        };
+    }
+
+    private static LuaMRescueEscortDuty? GetPlannedEscortDuty(LuaMRescueEscortComponent escort)
+    {
+        return escort.SortiePlan switch
+        {
+            LuaMRescueSortiePlan.ApproachPatient => escort.Role switch
+            {
+                LuaMRescueEscortRole.Kostyl => LuaMRescueEscortDuty.PatientSupport,
+                LuaMRescueEscortRole.Zaslon when HasThreatPressure(escort) => LuaMRescueEscortDuty.ThreatScreen,
+                LuaMRescueEscortRole.Tourniquet when HasCrowdPressure(escort) => LuaMRescueEscortDuty.CrowdControl,
+                _ => LuaMRescueEscortDuty.SecureScene,
+            },
+            LuaMRescueSortiePlan.SecureScene => escort.Role switch
+            {
+                LuaMRescueEscortRole.Kostyl => LuaMRescueEscortDuty.PatientSupport,
+                LuaMRescueEscortRole.Zaslon when HasThreatPressure(escort) => LuaMRescueEscortDuty.ThreatScreen,
+                LuaMRescueEscortRole.Tourniquet when HasCrowdPressure(escort) => LuaMRescueEscortDuty.CrowdControl,
+                _ => LuaMRescueEscortDuty.SecureScene,
+            },
+            LuaMRescueSortiePlan.ThreatScreen => escort.Role switch
+            {
+                LuaMRescueEscortRole.Zaslon => LuaMRescueEscortDuty.ThreatScreen,
+                LuaMRescueEscortRole.Tourniquet when HasCrowdPressure(escort) => LuaMRescueEscortDuty.CrowdControl,
+                LuaMRescueEscortRole.Kostyl => LuaMRescueEscortDuty.PatientSupport,
+                _ => LuaMRescueEscortDuty.SecureScene,
+            },
+            LuaMRescueSortiePlan.CrowdControl => escort.Role switch
+            {
+                LuaMRescueEscortRole.Tourniquet => LuaMRescueEscortDuty.CrowdControl,
+                LuaMRescueEscortRole.Kostyl => LuaMRescueEscortDuty.PatientSupport,
+                _ => LuaMRescueEscortDuty.SecureScene,
+            },
+            LuaMRescueSortiePlan.ClearRoute => escort.Role == LuaMRescueEscortRole.Kostyl
+                ? LuaMRescueEscortDuty.PatientSupport
+                : LuaMRescueEscortDuty.ClearRoute,
+            LuaMRescueSortiePlan.Resupply => escort.Role switch
+            {
+                LuaMRescueEscortRole.Kostyl => LuaMRescueEscortDuty.PatientSupport,
+                LuaMRescueEscortRole.Zaslon when HasThreatPressure(escort) => LuaMRescueEscortDuty.ThreatScreen,
+                LuaMRescueEscortRole.Tourniquet when HasCrowdPressure(escort) => LuaMRescueEscortDuty.CrowdControl,
+                _ => LuaMRescueEscortDuty.SecureScene,
+            },
+            LuaMRescueSortiePlan.TreatPatient => escort.Role switch
+            {
+                LuaMRescueEscortRole.Kostyl => LuaMRescueEscortDuty.PatientSupport,
+                LuaMRescueEscortRole.Zaslon when HasThreatPressure(escort) => LuaMRescueEscortDuty.ThreatScreen,
+                LuaMRescueEscortRole.Tourniquet when HasCrowdPressure(escort) => LuaMRescueEscortDuty.CrowdControl,
+                _ => LuaMRescueEscortDuty.SecureScene,
+            },
+            LuaMRescueSortiePlan.EvacuatePatient => escort.Role == LuaMRescueEscortRole.Kostyl
+                ? LuaMRescueEscortDuty.PatientSupport
+                : LuaMRescueEscortDuty.EvacuationCorridor,
+            _ => null,
+        };
+    }
+
     private LuaMRescueEscortDuty GetEscortDuty(LuaMRescueEscortComponent escort)
     {
         var patient = escort.Patient is { Valid: true } patientUid && !Deleted(patientUid)
@@ -797,6 +951,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             return escort.ShuttleAnchor is { Valid: true } || escort.Shuttle is { Valid: true }
                 ? LuaMRescueEscortDuty.ReturnToShuttle
                 : LuaMRescueEscortDuty.Standby;
+
+        if (GetPlannedEscortDuty(escort) is { } plannedDuty)
+            return plannedDuty;
 
         if (escort.Leader is { Valid: true } leader &&
             TryComp<LuaMRescueAgentComponent>(leader, out var rescue))
@@ -1066,6 +1223,24 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             LuaMRescueEscortDuty.ThreatScreen => "threat-screen",
             LuaMRescueEscortDuty.CrowdControl => "crowd-control",
             LuaMRescueEscortDuty.ClearRoute => "clear-route",
+            _ => "unknown",
+        };
+    }
+
+    private static string FormatPlan(LuaMRescueSortiePlan plan)
+    {
+        return plan switch
+        {
+            LuaMRescueSortiePlan.Standby => "standby",
+            LuaMRescueSortiePlan.ApproachPatient => "approach-patient",
+            LuaMRescueSortiePlan.SecureScene => "secure-scene",
+            LuaMRescueSortiePlan.ThreatScreen => "threat-screen",
+            LuaMRescueSortiePlan.CrowdControl => "crowd-control",
+            LuaMRescueSortiePlan.ClearRoute => "clear-route",
+            LuaMRescueSortiePlan.Resupply => "resupply",
+            LuaMRescueSortiePlan.TreatPatient => "treat-patient",
+            LuaMRescueSortiePlan.EvacuatePatient => "evacuate-patient",
+            LuaMRescueSortiePlan.ReturnToShuttle => "return-to-shuttle",
             _ => "unknown",
         };
     }

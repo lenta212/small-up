@@ -25,6 +25,12 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public LuaMRescueTeamPhase Phase = LuaMRescueTeamPhase.Idle;
 
     [DataField]
+    public LuaMRescueSortiePlan SortiePlan = LuaMRescueSortiePlan.Standby;
+
+    [DataField]
+    public string LastSortiePlanStatus = "plan standby";
+
+    [DataField]
     public string LastStatus = "none";
 
     [DataField]
@@ -96,6 +102,9 @@ public sealed partial class LuaMRescueEscortComponent : Component
 
     [DataField]
     public LuaMRescueEscortDuty CurrentDuty = LuaMRescueEscortDuty.Standby;
+
+    [DataField]
+    public LuaMRescueSortiePlan SortiePlan = LuaMRescueSortiePlan.Standby;
 
     [DataField]
     public string LastDutyStatus = "none";
@@ -178,6 +187,20 @@ public enum LuaMRescueTeamPhase : byte
     EvacuateToShuttle,
     Handoff,
     ReturnOrExtract,
+}
+
+public enum LuaMRescueSortiePlan : byte
+{
+    Standby,
+    ApproachPatient,
+    SecureScene,
+    ThreatScreen,
+    CrowdControl,
+    ClearRoute,
+    Resupply,
+    TreatPatient,
+    EvacuatePatient,
+    ReturnToShuttle,
 }
 
 public sealed class LuaMRescueSceneMemoryEntry
