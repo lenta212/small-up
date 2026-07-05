@@ -50,6 +50,9 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs"), Encoding.UTF8);
 
+        Assert.That(source, Does.Contain("DeathSignalFlag"));
+        Assert.That(source, Does.Contain("--death-signal"));
+        Assert.That(source, Does.Contain("requires target=<entity|player> so Aibolit can report who it is flying to"));
         Assert.That(source, Does.Contain("\u041c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u0441\u043c\u0435\u0440\u0442\u0438 \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a {targetName}."));
         Assert.That(source, Does.Contain("_radio.SendRadioMessage("));
         Assert.That(source, Does.Contain("MedicalRadioChannel"));

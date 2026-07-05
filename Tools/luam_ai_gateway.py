@@ -512,7 +512,7 @@ If the admin asks what is wrong with the AI base, what is not working, what can 
 If the admin only asks AI robots/drones to mine, extract ore, gather resources, or run mining for the AI base, prefer sectorCommandId ai_base_mine.
 If the admin only asks AI robots/drones to build, repair, construct, expand, or develop the AI base, prefer sectorCommandId ai_base_build.
 If the admin asks to create/deploy the AI base without mining/building drone work, prefer sectorCommandId ai_base_create.
-If the admin explicitly asks for a LuaM rescue shuttle, Triage rescue ship, rescue operator shuttle, спасательный шаттл, or спасательный корабль, choose run_admin_command with "luam_rescue_shuttle" or "luam_rescue_shuttle target=<target>" only when luam_rescue_shuttle is present in allowedAdminCommandNames. By default this deploys Aibolit plus an autonomous rescue escort team with scene assessment and short sortie memory digest: Tourniquet controls the medical zone and crowd control, Kostyl supports the patient and evacuation, and Zaslon holds the corridor, threat screen, recent threat pressure, or route blockers. Use "--no-team" only if the admin explicitly asks for a solo rescue agent.
+If the admin explicitly asks for a LuaM rescue shuttle, Triage rescue ship, rescue operator shuttle, спасательный шаттл, or спасательный корабль, choose run_admin_command with "luam_rescue_shuttle" or "luam_rescue_shuttle target=<target>" only when luam_rescue_shuttle is present in allowedAdminCommandNames. For an explicit death medsignal / medical death signal with a known target, choose "luam_rescue_shuttle --death-signal target=<target>" so Aibolit reports over Medical radio that the death signal was accepted and it is flying to that target. By default this deploys Aibolit plus an autonomous rescue escort team with scene assessment and short sortie memory digest: Tourniquet controls the medical zone and crowd control, Kostyl supports the patient and evacuation, and Zaslon holds the corridor, threat screen, recent threat pressure, or route blockers. Use "--no-team" only if the admin explicitly asks for a solo rescue agent.
 If the admin explicitly asks to create or spawn a Baeg, shuttle, ship, or named vessel near them, prefer run_sector_command with sectorCommandId spawn_ship when it is present in allowedSectorCommandIds. Keep the vessel name/ID in instruction. Do not map this request to spawn_entity.
 If the admin explicitly asks for LuaM rescue agent status, choose run_admin_command with "luam_rescue_status" when it is present in allowedAdminCommandNames.
 If the admin explicitly asks to order an existing LuaM rescue agent to help, follow, or rescue a target, choose run_admin_command with "luam_rescue_order target=<target>" or "luam_rescue_order clear" only when luam_rescue_order is present in allowedAdminCommandNames. This server-side rescue order can prefer navigation-reachable targets and supply sources, remember the current rescue patient while collecting supplies, prefer damage-matching treatment items, auto-analyze damaged patients with a health analyzer, auto-treat damaged targets with carried, nearby, stored, or vended medical items, take medical supplies from accessible nearby storage, stow held items to free hands when storage is available, retrieve dispensed vending purchases, store collected medical supplies in available worn storage, temporarily skip failed supply sources and delivery beds, try alternatives, fall back to shuttle delivery, unbuckle patients from non-delivery straps when evacuating, and evacuate critical patients to the assigned shuttle. Do not invent hidden coordinates or unsafe commands.
@@ -2641,6 +2641,7 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
     ))
     wants_rescue = any(word in lowered for word in ("rescue", "luam_rescue", "rescuer", "triage", "спас", "эвак", "триаж"))
     wants_rescue_shuttle = wants_rescue and any(word in lowered for word in ("shuttle", "ship", "vessel", "triage", "шатл", "шаттл", "кораб", "судн"))
+    wants_rescue_death_signal = wants_rescue_shuttle and any(phrase in lowered for phrase in ("death medsignal", "medical death signal", "death signal", "medsignal", "med signal"))
     rescue_slot = detect_rescue_slot()
     rescue_item = detect_rescue_item()
     rescue_target_match = re.search(r"\btarget=([A-Za-z0-9_.:-]+)", message, re.IGNORECASE)
@@ -2691,6 +2692,8 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
     elif wants_rescue_shuttle and not any(word in lowered for word in ("status", "state")) and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_shuttle"):
         action = "run_admin_command"
         admin_command = "luam_rescue_shuttle"
+        if wants_rescue_death_signal and rescue_target:
+            admin_command += " --death-signal"
         if rescue_target:
             admin_command += f" target={rescue_target}"
         reply = "AI provider is temporarily unavailable. Dispatching a local LuaM Triage rescue shuttle."

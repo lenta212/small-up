@@ -2226,6 +2226,8 @@ def main() -> int:
         "luam_rescue_action",
         "luam_rescue_order",
         "luam_rescue_shuttle",
+        "wants_rescue_death_signal",
+        "admin_command += \" --death-signal\"",
         "admin_command += f\" target={rescue_target}\"",
         "luam_rescue_status",
         "autonomous rescue escort team",
@@ -3678,6 +3680,9 @@ def main() -> int:
     assert_contains(rescue_shuttle_system, "AutopilotRotationKey", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "WakeNPC(console, htn)", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "new EntityCoordinates(target, Vector2.Zero)", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "DeathSignalFlag", "LuaMRescueShuttleCommand")
+    assert_contains(rescue_shuttle_system, "--death-signal", "LuaMRescueShuttleCommand")
+    assert_contains(rescue_shuttle_system, "requires target=<entity|player> so Aibolit can report who it is flying to", "LuaMRescueShuttleCommand")
     assert_contains(rescue_shuttle_system, "NoAutopilotFlag", "LuaMRescueShuttleCommand")
     assert_contains(rescue_shuttle_system, "autopilotConsole", "LuaMRescueShuttleCommand")
     assert_contains(rescue_shuttle_system, "rescue.AssignedShuttle = shuttle", "LuaMRescueShuttleSystem")

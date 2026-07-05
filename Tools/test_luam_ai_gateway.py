@@ -639,7 +639,7 @@ def run_no_key_fallback_test() -> dict[str, object]:
         assert rescue_shuttle_chat["action"] == "run_admin_command"
         assert rescue_shuttle_chat["adminCommand"] == "luam_rescue_shuttle"
         assert rescue_targeted_shuttle_chat["action"] == "run_admin_command"
-        assert rescue_targeted_shuttle_chat["adminCommand"] == "luam_rescue_shuttle target=42"
+        assert rescue_targeted_shuttle_chat["adminCommand"] == "luam_rescue_shuttle --death-signal target=42"
         assert rescue_stop_pull_chat["action"] == "run_admin_command"
         assert rescue_stop_pull_chat["adminCommand"] == "luam_rescue_action action=stop-pull"
         assert rescue_take_storage_chat["action"] == "run_admin_command"

@@ -234,6 +234,7 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
     private const string NoAgentFlag = "--no-agent";
     private const string NoTeamFlag = "--no-team";
     private const string NoAutopilotFlag = "--no-autopilot";
+    private const string DeathSignalFlag = "--death-signal";
 
     [Dependency] private readonly IEntityManager _entities = default!;
     [Dependency] private readonly IPlayerManager _players = default!;
@@ -242,10 +243,11 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
     public string Command => "luam_rescue_shuttle";
     public string Description => "Purchases a LuaM rescue shuttle and optionally deploys a rescue agent aboard it.";
     public string Help =>
-        $"Usage: {Command} [station=<stationEntity>] [vessel={LuaMRescueShuttleSystem.DefaultVessel}] [target=<entity|player>] [{ControlFlag}] [{NoAgentFlag}] [{NoTeamFlag}] [{NoAutopilotFlag}]";
+        $"Usage: {Command} [station=<stationEntity>] [vessel={LuaMRescueShuttleSystem.DefaultVessel}] [target=<entity|player>] [{DeathSignalFlag}] [{ControlFlag}] [{NoAgentFlag}] [{NoTeamFlag}] [{NoAutopilotFlag}]";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
     {
+        var deathSignal = args.Any(arg => arg.Equals(DeathSignalFlag, StringComparison.OrdinalIgnoreCase));
         var control = args.Any(arg => arg.Equals(ControlFlag, StringComparison.OrdinalIgnoreCase));
         var spawnAgent = !args.Any(arg => arg.Equals(NoAgentFlag, StringComparison.OrdinalIgnoreCase));
         var spawnTeam = spawnAgent && !args.Any(arg => arg.Equals(NoTeamFlag, StringComparison.OrdinalIgnoreCase));
@@ -260,6 +262,12 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
         var stationArg = GetValue(args, "station");
         var vesselId = GetValue(args, "vessel") ?? LuaMRescueShuttleSystem.DefaultVessel;
         var targetArg = GetValue(args, "target");
+
+        if (deathSignal && string.IsNullOrWhiteSpace(targetArg))
+        {
+            shell.WriteError($"{DeathSignalFlag} requires target=<entity|player> so Aibolit can report who it is flying to.");
+            return;
+        }
 
         if (!TryResolveStation(shell, stationArg, out var station, out var error))
         {
@@ -311,7 +319,7 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
             ? _entities.GetNetEntity(autopilotUid).ToString()
             : "none";
 
-        shell.WriteLine($"{status} shuttle={shuttleNet}; agent={agentNet}; escorts={escortCount}; autopilotConsole={autopilotNet}; vessel={vessel.ID}.");
+        shell.WriteLine($"{status} shuttle={shuttleNet}; agent={agentNet}; escorts={escortCount}; autopilotConsole={autopilotNet}; vessel={vessel.ID}; deathSignal={deathSignal}.");
     }
 
     public CompletionResult GetCompletion(IConsoleShell shell, string[] args)
@@ -321,6 +329,7 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
                 $"vessel={LuaMRescueShuttleSystem.DefaultVessel}",
                 "station=",
                 "target=",
+                DeathSignalFlag,
                 ControlFlag,
                 NoAgentFlag,
                 NoTeamFlag,
