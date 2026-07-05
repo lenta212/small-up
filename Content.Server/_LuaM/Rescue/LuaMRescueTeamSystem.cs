@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Content.Server.Chat.Systems;
 using Content.Server.NPC;
@@ -139,6 +140,27 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         return lines;
+    }
+
+    public List<string> BuildRescueAiMemoryDigestLines(int limit = 4)
+    {
+        var lines = new List<string>();
+
+        var teamQuery = EntityQueryEnumerator<LuaMRescueTeamComponent>();
+        while (teamQuery.MoveNext(out _, out var team))
+        {
+            var escortCount = team.Escorts.Count(escort => escort.Valid && !Deleted(escort));
+            lines.Add(
+                $"ADMIN_ONLY: rescue sortie digest: team={team.TeamId}; autonomy=escort-group; " +
+                $"phase={FormatPhase(team.Phase)}; escorts={escortCount}; scene={team.LastSceneStatus}; " +
+                $"pressure(threat/crowd/route)={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
+                $"memory={team.LastMemoryDigest}; identities=withheld; coordinates=withheld.");
+        }
+
+        return lines
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Take(limit)
+            .ToList();
     }
 
     private void ConfigureEscort(

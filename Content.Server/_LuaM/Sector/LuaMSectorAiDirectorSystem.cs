@@ -14,6 +14,7 @@ using Content.Server.Chat.Managers;
 using Content.Server.Chat.V2;
 using Content.Server.GameTicking;
 using Content.Server.Pinpointer;
+using Content.Server._LuaM.Rescue;
 using Content.Server._NF.Radio;
 using Content.Server.Radio;
 using Content.Server.Radio.Components;
@@ -84,7 +85,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private const int RadioAiReactionDedupSeconds = 3;
     private const int RadioAiWorldActionCooldownSeconds = 20;
     private const int RadioAiReplyTokenLifetimeSeconds = 5;
-    private const int AiMemoryBriefMaxEntries = 12;
+    private const int AiMemoryBriefMaxEntries = 16;
     private const int AiMemoryBriefMaxText = 220;
     private const int GatewayContextMaxText = 180;
     private const int GatewayConditionSummaryLimit = 6;
@@ -533,6 +534,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     [Dependency] private LuaMAiSupplyDropSystem _supplyDrops = default!;
     [Dependency] private LuaMAiLogisticsShipSystem _logisticsShips = default!;
     [Dependency] private LuaMSectorDynamicEventSystem _dynamicEvents = default!;
+    [Dependency] private LuaMRescueTeamSystem _rescueTeams = default!;
 
     private HttpClient _http = new();
     private ISawmill _sawmill = default!;
@@ -7819,7 +7821,13 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             ActiveMarkers = activeMarkers,
             HasOpenRuntimeLead = hasOpenLead,
             OpenRuntimeLead = SanitizeGatewayContextTextAudited(openLead),
-            AiMemoryBrief = BuildAiMemoryBriefAudited(status, mapNodes, synthetic, activePlayers, openLead),
+            AiMemoryBrief = BuildAiMemoryBriefAudited(
+                status,
+                mapNodes,
+                synthetic,
+                activePlayers,
+                openLead,
+                _rescueTeams.BuildRescueAiMemoryDigestLines()),
             SafetyDirectives = BuildAiSafetyDirectives(),
             ActivePlayerSummaries = BuildActivePlayerSummaries(),
             ActiveConditionSummaries = BuildGatewayConditionSummariesAudited(status),
@@ -7939,9 +7947,17 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         LuaMSectorMapNodeUiEntry[] mapNodes,
         SyntheticControlSnapshot synthetic,
         int activePlayers,
-        string openLead)
+        string openLead,
+        IReadOnlyList<string> rescueMemoryDigest)
     {
-        return BuildAiMemoryBriefCore(status, mapNodes, synthetic, activePlayers, openLead, SanitizeGatewayContextTextAudited);
+        return BuildAiMemoryBriefCore(
+            status,
+            mapNodes,
+            synthetic,
+            activePlayers,
+            openLead,
+            rescueMemoryDigest,
+            SanitizeGatewayContextTextAudited);
     }
 
     private static string[] BuildAiMemoryBrief(
@@ -7951,7 +7967,14 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         int activePlayers,
         string openLead)
     {
-        return BuildAiMemoryBriefCore(status, mapNodes, synthetic, activePlayers, openLead, SanitizeGatewayContextText);
+        return BuildAiMemoryBriefCore(
+            status,
+            mapNodes,
+            synthetic,
+            activePlayers,
+            openLead,
+            Array.Empty<string>(),
+            SanitizeGatewayContextText);
     }
 
     private static string[] BuildAiMemoryBriefCore(
@@ -7960,6 +7983,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         SyntheticControlSnapshot synthetic,
         int activePlayers,
         string openLead,
+        IReadOnlyList<string> rescueMemoryDigest,
         Func<string, int, string> sanitize)
     {
         var brief = new List<string>
@@ -7970,6 +7994,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         if (!string.IsNullOrWhiteSpace(openLead))
             brief.Add($"Open lead: {sanitize(openLead, GatewayContextMaxText)}");
+
+        brief.AddRange(rescueMemoryDigest
+            .Select(line => sanitize(line, GatewayContextMaxText))
+            .Where(line => line.Length > 0)
+            .Take(4));
 
         brief.AddRange(status.Conditions
             .Where(condition => condition.Active)

@@ -2113,6 +2113,8 @@ def main() -> int:
         "route blockers",
         "short sortie memory digest",
         "recent threat pressure",
+        "rescue sortie digest",
+        "autonomy=escort-group",
         "take medical supplies from accessible nearby storage",
         "take-target-storage",
         "store collected medical supplies",
@@ -3278,6 +3280,12 @@ def main() -> int:
     assert_contains(rescue_agent_system, "ActorComponent", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "AdminFlags.Server", "LuaMRescueAgentCommand")
     assert_contains(rescue_agent_system, "No LuaM rescue agents are active", "LuaMRescueStatusCommand")
+    rescue_team_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs").read_text(encoding="utf-8")
+    assert_contains(rescue_team_system, "BuildRescueAiMemoryDigestLines", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "rescue sortie digest", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "autonomy=escort-group", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "identities=withheld", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "coordinates=withheld", "LuaMRescueTeamSystem")
 
     assert_contains(rescue_agent_component, "AssignedShuttle", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AssignedShuttleAnchor", "LuaMRescueAgentComponent")
