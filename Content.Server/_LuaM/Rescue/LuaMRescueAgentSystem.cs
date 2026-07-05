@@ -10,6 +10,7 @@ using Content.Server.Medical.Components;
 using Content.Server.Mind;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
+using Content.Server.NPC.Pathfinding;
 using Content.Server.NPC.Systems;
 using Content.Server.Shuttles.Components;
 using Content.Server.VendingMachines;
@@ -80,6 +81,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly IGameTiming _timing = default!;
     [Dependency] private readonly VendingMachineSystem _vending = default!;
     [Dependency] private readonly IPrototypeManager _prototype = default!;
+    [Dependency] private readonly PathfindingSystem _pathfinding = default!;
 
     public override void Update(float frameTime)
     {
@@ -1290,6 +1292,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 Deleted(candidate) ||
                 _container.IsEntityOrParentInContainer(candidate) ||
                 !EntityPrototypeMatches(candidate, productId) ||
+                !TryGetNavigationSelectionPenalty(uid, candidate, rescue.PlayerActionRange, out _) ||
                 !TryGetDistance(vendingUid, candidate, out var distance) ||
                 distance >= bestDistance)
             {
@@ -2268,12 +2271,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
             var itemScore = GetTreatmentItemScore(candidate, target, itemSelector: null, includeDiagnosticItems: false);
             if (itemScore <= 0f ||
+                !TryGetNavigationSelectionPenalty(uid, candidate, rescue.PlayerActionRange, out var navPenalty) ||
                 !TryGetDistance(uid, candidate, out var distance))
             {
                 continue;
             }
 
-            var score = itemScore * 100f - distance;
+            var score = itemScore * 100f - distance - navPenalty;
             if (score <= bestScore)
                 continue;
 
@@ -2347,7 +2351,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (!TryGetDistance(uid, candidate, out var distance))
                 continue;
 
-            var score = GetMedicalVendingProductScore(product.ID, includeDiagnosticItems: false) * 100f - distance;
+            if (!TryGetNavigationSelectionPenalty(uid, candidate, rescue.PlayerActionRange, out var navPenalty))
+                continue;
+
+            var score = GetMedicalVendingProductScore(product.ID, includeDiagnosticItems: false) * 100f - distance - navPenalty;
             if (score <= bestScore)
                 continue;
 
@@ -2397,7 +2404,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (requireRange && distance > searchRange)
             return false;
 
-        score = damage.TotalDamage.Float() - distance;
+        if (!TryGetNavigationSelectionPenalty(rescuer, candidate, SharedInteractionSystem.InteractionRange, out var navPenalty))
+            return false;
+
+        score = damage.TotalDamage.Float() - distance - navPenalty;
         if (mobState.CurrentState == MobState.Critical)
             score += 1000f;
 
@@ -2452,7 +2462,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        score = damage.TotalDamage.Float() - distance;
+        if (!TryGetNavigationSelectionPenalty(rescuer, candidate, SharedInteractionSystem.InteractionRange, out var navPenalty))
+            return false;
+
+        score = damage.TotalDamage.Float() - distance - navPenalty;
         if (mobState.CurrentState == MobState.Critical)
             score += 1000f;
 
@@ -2710,6 +2723,35 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var firstCoordinates = Transform(first).Coordinates;
         var secondCoordinates = Transform(second).Coordinates;
         return firstCoordinates.TryDistance(EntityManager, secondCoordinates, out distance);
+    }
+
+    private bool TryGetNavigationSelectionPenalty(
+        EntityUid uid,
+        EntityUid target,
+        float directAllowRange,
+        out float penalty)
+    {
+        penalty = 0f;
+
+        if (!TryGetDistance(uid, target, out var directDistance))
+            return false;
+
+        if (directDistance <= directAllowRange)
+            return true;
+
+        var sourcePoly = _pathfinding.GetPoly(Transform(uid).Coordinates);
+        var targetPoly = _pathfinding.GetPoly(Transform(target).Coordinates);
+
+        if (sourcePoly == null || targetPoly == null)
+        {
+            penalty = 500f;
+            return true;
+        }
+
+        if (sourcePoly.GraphUid != targetPoly.GraphUid)
+            penalty = 250f;
+
+        return true;
     }
 
     private void TemporarilySkipTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
