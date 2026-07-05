@@ -206,7 +206,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             message,
             chat.TargetUserId,
             chat.TemplateId,
-            allowServerActions);
+            allowServerActions || IsGameMasterModeEnabled());
 
         RemovePendingChatLine(pending);
         AppendChat($"AI Director: {reply}");
@@ -423,6 +423,12 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
         if (!TryRequireServerAction(title))
             return;
 
+        if (IsGameMasterModeEnabled())
+        {
+            _ = ExecuteGameMasterActionAsync(actionKey, title, detail, executeAsync, impact);
+            return;
+        }
+
         if (_pendingConfirmation != null)
         {
             _lastResult = "Confirm or cancel the current pending AI action before starting another one.";
@@ -442,6 +448,47 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
         AppendChat($"AI Director: confirmation required for {title}. {detail}");
         LogAiAction(impact, "confirmation requested", $"{actionKey}; {CompactForLog(detail)}");
         StateDirty();
+    }
+
+    private async Task ExecuteGameMasterActionAsync(
+        string actionKey,
+        string title,
+        string detail,
+        Func<Task> executeAsync,
+        LogImpact impact)
+    {
+        var action = new PendingAiDirectorAction(
+            Guid.NewGuid().ToString("N"),
+            actionKey,
+            title,
+            detail,
+            executeAsync,
+            impact);
+
+        _lastResult = $"Game-master mode: executing {title} without manual confirmation.";
+        AppendChat($"AI Director: game-master mode executing {title}. {detail}");
+        LogAiAction(impact, "game-master executed", $"{actionKey}; {CompactForLog(detail)}");
+        StateDirty();
+
+        try
+        {
+            await executeAsync();
+            AppendAiActionHistory(
+                action,
+                "game-master",
+                "game-master mode; manual confirmation bypassed; execution finished or submitted locally");
+            StateDirty();
+        }
+        catch (Exception e)
+        {
+            _lastResult = "AI game-master action failed: local execution error; details kept in the server log.";
+            LogAiAction(LogImpact.High, "failed", $"{actionKey}; {e.Message}");
+            AppendAiActionHistory(
+                action,
+                "failed",
+                "game-master mode; local execution error; details kept in server log");
+            StateDirty();
+        }
     }
 
     private async Task ConfirmPendingActionAsync(string confirmationId)
@@ -504,7 +551,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
 
     private bool TryRequireServerAction(string actionLabel)
     {
-        if (_admin.HasAdminFlag(Player, AdminFlags.Server))
+        if (_admin.HasAdminFlag(Player, AdminFlags.Server) || IsGameMasterModeEnabled())
             return true;
 
         _pendingConfirmation = null;
@@ -513,6 +560,11 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
         LogAiAction(LogImpact.High, "denied", $"{actionLabel}; missing Server flag");
         StateDirty();
         return false;
+    }
+
+    private bool IsGameMasterModeEnabled()
+    {
+        return _director.IsGameMasterModeEnabled();
     }
 
     private void LogAiAction(LogImpact impact, string outcome, string detail)

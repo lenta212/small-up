@@ -36,6 +36,13 @@ public sealed partial class CCVars
         CVarDef.Create("luam.ai_director.admin_mode", false, CVar.SERVERONLY);
 
     /// <summary>
+    /// Lets the LuaM AI director execute gameplay-affecting LuaM actions without EUI confirmations.
+    /// This does not grant operating-system, secret, server lifecycle, database, or arbitrary console access.
+    /// </summary>
+    public static readonly CVarDef<bool> LuaMAiDirectorGameMasterMode =
+        CVarDef.Create("luam.ai_director.game_master_mode", false, CVar.SERVERONLY);
+
+    /// <summary>
     /// Enables a local UserData inbox bridge for development-time AI operator commands.
     /// </summary>
     public static readonly CVarDef<bool> LuaMAiDirectorLocalBridgeEnabled =

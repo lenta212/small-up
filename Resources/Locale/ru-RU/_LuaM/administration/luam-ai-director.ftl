@@ -125,6 +125,7 @@ luam-ai-director-mode-manual-pulse-configured = Ручной режим с пу�
 luam-ai-director-mode-auto = Авто-ИИ включен. Следите за зацепками и подтверждениями.
 luam-ai-director-mode-auto-pulse = Авто-ИИ и пульс мира включены. Сектор может получать фоновое давление.
 luam-ai-director-mode-max-danger = Повышенная опасность включена. Используйте только после явного решения админа.
+luam-ai-director-mode-game-master = Game-master режим включен. ИИ может выполнять игровые LuaM-действия без ручного подтверждения; ОС, секреты и опасные серверные команды остаются закрыты.
 luam-ai-director-result =
     Итог: { $result }
     API: { $gateway } | fallback: { $fallback } | admin: { $adminMode } | max-danger: { $maxDanger }

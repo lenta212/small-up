@@ -656,6 +656,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         _gatewayRagDeniedSources = 0;
     }
 
+    public bool IsGameMasterModeEnabled()
+    {
+        return _cfg.GetCVar(CCVars.LuaMAiDirectorGameMasterMode);
+    }
+
+    private bool CanRunAiAdminConsoleCommands()
+    {
+        return _cfg.GetCVar(CCVars.LuaMAiDirectorAdminMode) || IsGameMasterModeEnabled();
+    }
+
     public LuaMAiDirectorEuiState BuildAdminState(
         string lastResult,
         string chatTranscript,
@@ -678,6 +688,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (_nextWorldPulse != TimeSpan.Zero && _nextWorldPulse > _timing.CurTime)
             nextWorldPulseSeconds = (int) Math.Ceiling((_nextWorldPulse - _timing.CurTime).TotalSeconds);
 
+        var gameMasterModeEnabled = IsGameMasterModeEnabled();
+        var canRunGameplayActions = canRunServerActions || gameMasterModeEnabled;
         var status = _stories.GetStatusSnapshot();
         var aiBase = _stories.GetAiBaseState();
         var hasOpenLead = _stories.TryGetOpenRuntimeDistressStory(out var openStory) && openStory != null;
@@ -700,9 +712,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             Enabled = enabled,
             FallbackEnabled = fallbackEnabled,
             AdminModeEnabled = adminModeEnabled,
+            GameMasterModeEnabled = gameMasterModeEnabled,
             GatewayConfigured = gatewayConfigured,
             RequestInFlight = _requestInFlight,
-            CanRunServerActions = canRunServerActions,
+            CanRunServerActions = canRunGameplayActions,
             HasPendingConfirmation = !string.IsNullOrWhiteSpace(pendingConfirmationId),
             HasOpenRuntimeLead = hasOpenLead,
             WorldPulseEnabled = worldPulseEnabled,
@@ -751,7 +764,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 enabled,
                 worldPulseEnabled,
                 gatewayBudget,
-                canRunServerActions,
+                canRunGameplayActions,
                 hasOpenLead,
                 activePlayers,
                 syntheticControl),
@@ -767,7 +780,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             PendingConfirmationDetail = pendingConfirmationDetail,
             GatewaySharedContext = BuildGatewaySharedContextSummary(status, activePlayers, syntheticControl, hasOpenLead),
             GatewayWithheldContext = BuildGatewayWithheldContextSummary(),
-            GatewayPrivacyNotes = BuildGatewayPrivacyNotes(canRunServerActions),
+            GatewayPrivacyNotes = BuildGatewayPrivacyNotes(canRunGameplayActions, gameMasterModeEnabled),
             GatewayLastRequestShape = BuildGatewayLastRequestShape(),
             GatewayRagSourceShape = BuildGatewayRagSourceShape(),
             GatewayBlockReasonSummary = BuildGatewayBlockReasonSummary(),
@@ -860,9 +873,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         ];
     }
 
-    private string[] BuildGatewayPrivacyNotes(bool canRunServerActions)
+    private string[] BuildGatewayPrivacyNotes(bool canRunServerActions, bool gameMasterModeEnabled)
     {
-        var execution = canRunServerActions
+        var execution = gameMasterModeEnabled
+            ? "Game-master mode can execute gameplay LuaM actions directly; coordinates, targets, and final validation remain local."
+            : canRunServerActions
             ? "This EUI session may confirm server actions; exact placement and execution remain local."
             : "This EUI session cannot run server actions; external AI can only support status/advice/review.";
 
@@ -2042,6 +2057,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (message.Length > 1200)
             message = message[..1200];
 
+        var allowGameplayActions = allowServerActions || IsGameMasterModeEnabled();
         var normalizedMessage = message.ToLowerInvariant();
         if (IsAdminAiCapabilityRequest(normalizedMessage))
             return BuildAdminCapabilitiesResult();
@@ -2057,7 +2073,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             if (!string.IsNullOrWhiteSpace(aiBaseError))
                 return aiBaseError;
 
-            if (!allowServerActions && aiBaseAction.RequiresConfirmation)
+            if (!allowGameplayActions && aiBaseAction.RequiresConfirmation)
                 return "Action not executed: this AI base request changes the round. Use a Server-flag confirmed action from the AI Director window.";
 
             return await ExecuteAiBaseAdminActionAsync(admin, aiBaseAction, message);
@@ -2069,7 +2085,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 return shipSpawnError;
 
             var shipName = string.IsNullOrWhiteSpace(shipDisplayName) ? shipVesselId : shipDisplayName;
-            if (!allowServerActions)
+            if (!allowGameplayActions)
                 return $"Action not executed: local ship spawn request for {shipName} changes the round. Use a Server-flag confirmed action from the AI Director window.";
 
             return await ExecuteChatCommandAsync(
@@ -2088,7 +2104,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         if (TryResolveLocalChatSectorCommand(message, out var localSectorCommand))
         {
-            if (!allowServerActions && IsServerActionSectorCommand(localSectorCommand))
+            if (!allowGameplayActions && IsServerActionSectorCommand(localSectorCommand))
                 return "Action not executed: this AI request changes the round or sends player-visible output. Use a Server-flag confirmed action from the AI Director window.";
 
             return await ExecuteChatCommandAsync(
@@ -2143,7 +2159,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             _requestInFlight = false;
         }
 
-        if (!allowServerActions && IsServerActionGatewayCommand(command))
+        if (!allowGameplayActions && IsServerActionGatewayCommand(command))
         {
             RecordGatewayProviderOutputBlock(
                 GatewayBlockCategoryForbiddenAction,
@@ -2975,8 +2991,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     {
         return RunOnMainThread(() =>
         {
-            if (!_cfg.GetCVar(CCVars.LuaMAiDirectorAdminMode))
-                return "Команда не выполнена: admin-mode ИИ-директора выключен (luam.ai_director.admin_mode).";
+            if (!CanRunAiAdminConsoleCommands())
+                return "Команда не выполнена: admin-mode/game-master mode ИИ-директора выключены.";
 
             var adminCommand = NormalizeAiAdminConsoleCommand(command.AdminCommand);
             if (!IsSafeAiAdminConsoleCommand(adminCommand, out var blockReason))
@@ -5424,13 +5440,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var adminMode = state.AdminModeEnabled
             ? "admin-mode включен: модель может предложить только allowlist-команду серверной консоли, сервер всё равно фильтрует опасные команды."
             : "admin-mode выключен: прямые серверные console-команды от модели запрещены.";
+        var gameMasterMode = state.GameMasterModeEnabled
+            ? "game-master режим включен: игровые LuaM-действия выполняются без ручного подтверждения в EUI."
+            : "game-master режим выключен: сильные игровые действия требуют обычных подтверждений/прав.";
         var autoMode = state.Enabled
             ? "авто-ИИ включен."
             : "авто-ИИ выключен; ручные команды из админки остаются доступны.";
 
         return
             $"Канал админки LuaM AI активен: {gateway}\n" +
-            $"{adminMode} {autoMode}\n\n" +
+            $"{adminMode} {gameMasterMode} {autoMode}\n\n" +
             "Без внешнего API доступны: статус, история, событие рядом с выбранным игроком, подпространственные врата, синтетический контур, условия сектора, очистка меток, закрытие зацепки, набор Монолита и пакет бумажных задач.\n" +
             "AI-база работает локально: создай AI базу, покажи склад AI базы, вызови AI торговца/снабженца/разведчика/строителя. Логистический корабль спавнится рядом с админом и обновляет склад базы после подтверждения.\n" +
             "Также локально доступен подтверждаемый запрос: создать любой shipyard/shuttle ship build рядом с текущей позицией администратора по ID или имени, например Baeg, Hammerhead, Twilight, QJ490. Если имя не указано, используется Baeg. Команду можно повторять для новых экземпляров.\n" +
@@ -5883,7 +5902,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             {
                 File.WriteAllText(
                     inboxPath,
-                    "# LuaM local AI bridge. Safe commands: status, route. Round-affecting commands require luam.ai_director.local_bridge_unsafe_actions_enabled=true: robots, say|text, tell|targetNameOrId|text, subspace|text, subspace|route|text, subspace|operator|targetNameOrId, pulse|text, max|text, mission|text, nearby|text, personal|targetUserId|text, personal_max|targetUserId|text, cmd|command" + Environment.NewLine);
+                    "# LuaM local AI bridge. Safe commands: status, route. Round-affecting commands require luam.ai_director.local_bridge_unsafe_actions_enabled=true or luam.ai_director.game_master_mode=true: robots, say|text, tell|targetNameOrId|text, subspace|text, subspace|route|text, subspace|operator|targetNameOrId, pulse|text, max|text, mission|text, nearby|text, personal|targetUserId|text, personal_max|targetUserId|text, cmd|command" + Environment.NewLine);
                 _localBridgeProcessedLines = 1;
                 _localBridgeInitialized = true;
                 return;
@@ -5937,7 +5956,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var actor = $"{DirectorActor} / local bridge";
 
         if (IsUnsafeLocalBridgeCommand(command) &&
-            !_cfg.GetCVar(CCVars.LuaMAiDirectorLocalBridgeUnsafeActionsEnabled))
+            !_cfg.GetCVar(CCVars.LuaMAiDirectorLocalBridgeUnsafeActionsEnabled) &&
+            !IsGameMasterModeEnabled())
         {
             const string reason = "unsafe local bridge actions are disabled";
             AppendAiAdminCommandAudit("bridge", "local-bridge", line, "blocked", reason);
@@ -6119,8 +6139,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             case "cmd":
             case "console":
             {
-                if (!_cfg.GetCVar(CCVars.LuaMAiDirectorAdminMode))
-                    return "bridge console skipped: admin mode is disabled";
+                if (!CanRunAiAdminConsoleCommands())
+                    return "bridge console skipped: admin-mode/game-master mode is disabled";
 
                 var consoleCommand = NormalizeAiAdminConsoleCommand(first);
                 if (!IsSafeAiAdminConsoleCommand(consoleCommand, out var blockReason))
@@ -7719,6 +7739,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var activePlayers = CountActivePlayers();
 
         var adminModeEnabled = _cfg.GetCVar(CCVars.LuaMAiDirectorAdminMode);
+        var gameMasterModeEnabled = IsGameMasterModeEnabled();
+        var consoleCommandModeEnabled = adminModeEnabled || gameMasterModeEnabled;
         var allowedActions = new List<string>
         {
             "none",
@@ -7734,13 +7756,15 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             "run_sector_command",
             "send_sector_message",
         };
-        if (adminModeEnabled)
+        if (consoleCommandModeEnabled)
             allowedActions.Add("run_admin_command");
 
         return new LuaMAiGatewayChatRequest
         {
             Version = 1,
-            Goal = adminModeEnabled
+            Goal = gameMasterModeEnabled
+                ? "Answer the admin in Russian and choose at most one gameplay action. Game-master mode is enabled: gameplay-affecting LuaM actions may execute directly without EUI confirmation. You still must stay inside allowedActions, allowedSectorCommands, allowedEntities, allowedRadioChannels, and allowedAdminCommandNames; OS, secret, server lifecycle, database, file, network, kick, ban, and admin-rights commands are blocked server-side."
+                : adminModeEnabled
                 ? "Answer the admin in Russian and choose at most one server action. Admin mode is enabled: run_admin_command may execute one allowlisted SS14 server console command from allowedAdminCommandNames only; destructive, security, file, network, database, secret, restart, kick, ban, and admin-rights commands are blocked server-side."
                 : "Answer the admin in Russian and choose at most one whitelisted safe server action that can affect LuaM sector events, items, announcements, or preset LuaM commands.",
             Language = "ru-RU",
@@ -7748,7 +7772,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             Message = SanitizeGatewayContextTextAudited(message, 700),
             TargetUserId = string.Empty,
             SelectedTemplateId = SanitizeGatewayContextTextAudited(selectedTemplateId, 80),
-            AdminModeEnabled = adminModeEnabled,
+            AdminModeEnabled = consoleCommandModeEnabled,
             AllowedActions = allowedActions.ToArray(),
             AllowedAdminCommandNames = AllowedAiAdminCommandNames,
             AllowedTemplateIds = _dynamicEvents.GetTemplateIds().OrderBy(id => id).ToArray(),

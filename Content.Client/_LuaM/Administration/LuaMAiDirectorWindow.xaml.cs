@@ -580,6 +580,9 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
 
     private static string BuildMode(LuaMAiDirectorEuiState state)
     {
+        if (state.GameMasterModeEnabled)
+            return Loc.GetString("luam-ai-director-mode-game-master");
+
         if (!state.GatewayConfigured)
             return Loc.GetString("luam-ai-director-mode-gateway-missing");
 
@@ -621,8 +624,10 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
         AppendReadinessLine(
             output,
             "server actions",
-            state.CanRunServerActions ? "ready" : "blocked",
-            state.CanRunServerActions
+            state.GameMasterModeEnabled ? "game-master" : state.CanRunServerActions ? "ready" : "blocked",
+            state.GameMasterModeEnabled
+                ? "gameplay-affecting LuaM actions execute directly by server-side game-master configuration"
+                : state.CanRunServerActions
                 ? "world-changing actions can proceed only through local validation and confirmation"
                 : "current admin flow cannot execute world-changing actions; review/status/advice remain available");
         AppendReadinessLine(
@@ -910,6 +915,9 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
         if (state.RequestInFlight)
             return "busy";
 
+        if (state.GameMasterModeEnabled)
+            return "game-master";
+
         if (state.HasPendingConfirmation)
             return "waiting-approval";
 
@@ -985,6 +993,9 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
     private static string BuildWorkflowPresetSummary(string preset, LuaMAiDirectorEuiState state)
     {
         var gate = GetRoundAuditGate(state);
+        var impactMode = state.GameMasterModeEnabled
+            ? "server config game-master mode bypasses manual confirmation for gameplay actions"
+            : "server-impact actions stay visible but still require confirmation, readiness checks, and recommendation risk/confidence review";
         return preset switch
         {
             WorkflowPresetReviewOnly =>
@@ -992,7 +1003,7 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
             WorkflowPresetLowRiskLocal =>
                 $"AI workflow preset: low-risk-local - safe local quick actions and low-risk non-server recommendations only; OpenAI-compatible gateway checkbox is forced off for generated processes. gate={gate}",
             WorkflowPresetGatedServerImpact =>
-                $"AI workflow preset: gated-server-impact - server-impact actions stay visible but still require confirmation, readiness checks, and recommendation risk/confidence review. gate={gate}",
+                $"AI workflow preset: gated-server-impact - {impactMode}. gate={gate}",
             _ =>
                 $"AI workflow preset: unknown - falling back to gated server-impact behavior. gate={gate}",
         };
@@ -1538,6 +1549,9 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
         if (state.RequestInFlight)
             return "busy";
 
+        if (state.GameMasterModeEnabled)
+            return "game-master";
+
         if (state.HasPendingConfirmation)
             return "waiting-confirmation";
 
@@ -1557,6 +1571,9 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
     {
         if (state.RequestInFlight)
             return "busy";
+
+        if (state.GameMasterModeEnabled)
+            return "game-master";
 
         if (state.HasPendingConfirmation)
             return "waiting";

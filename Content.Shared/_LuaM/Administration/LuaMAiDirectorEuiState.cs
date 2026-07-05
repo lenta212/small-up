@@ -9,6 +9,7 @@ public sealed class LuaMAiDirectorEuiState : EuiStateBase
     public bool Enabled { get; init; }
     public bool FallbackEnabled { get; init; }
     public bool AdminModeEnabled { get; init; }
+    public bool GameMasterModeEnabled { get; init; }
     public bool GatewayConfigured { get; init; }
     public bool RequestInFlight { get; init; }
     public bool CanRunServerActions { get; init; }

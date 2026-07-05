@@ -135,6 +135,7 @@ luam-ai-director-mode-manual-pulse-configured = Manual mode with world pulse con
 luam-ai-director-mode-auto = Auto AI is on. Watch active leads and confirmations.
 luam-ai-director-mode-auto-pulse = Auto AI and world pulse are on. The sector can receive background pressure.
 luam-ai-director-mode-max-danger = Elevated danger is on. Use only after an explicit admin decision.
+luam-ai-director-mode-game-master = Game-master mode is on. AI may run gameplay LuaM actions without manual confirmation; OS, secrets, and dangerous server commands remain closed.
 luam-ai-director-result =
     Result: { $result }
     API: { $gateway } | fallback: { $fallback } | admin: { $adminMode } | max-danger: { $maxDanger }

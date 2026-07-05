@@ -140,6 +140,54 @@ public sealed class LuaMAiDirectorAdminChatTest
     }
 
     [Test]
+    public async Task AdminChatGameMasterModeBypassesEuiServerActionBlockForGameplay()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false
+        });
+
+        try
+        {
+            var server = pair.Server;
+            var clientSession = pair.Client.Session;
+            Assert.That(clientSession, Is.Not.Null);
+
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorGatewayUrl, string.Empty);
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorGameMasterMode, true);
+
+            var playerMan = server.ResolveDependency<IPlayerManager>();
+            var admin = playerMan.GetSessionById(clientSession!.UserId);
+            var entMan = server.ResolveDependency<IEntityManager>();
+            var director = entMan.System<LuaMSectorAiDirectorSystem>();
+
+            var state = director.BuildAdminState(
+                string.Empty,
+                string.Empty,
+                canRunServerActions: false);
+
+            var reply = await director.AdminChatAsync(
+                admin,
+                "ai_chat say in chat: game master check",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId,
+                allowServerActions: false);
+
+            Assert.That(state.GameMasterModeEnabled, Is.True);
+            Assert.That(state.CanRunServerActions, Is.True);
+            Assert.That(reply, Does.Not.Contain("Action not executed"));
+            Assert.That(reply, Does.Contain("LuaM"));
+            Assert.That(reply, Does.Contain("API"));
+        }
+        finally
+        {
+            await pair.CleanReturnAsync();
+        }
+    }
+
+    [Test]
     public async Task AdminShipSpawnResolverUsesShipyardVesselPrototypes()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings

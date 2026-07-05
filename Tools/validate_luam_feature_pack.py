@@ -1201,8 +1201,11 @@ def main() -> int:
     for required_test_marker in [
         "AdminChatCapabilitiesAndStatusDoNotRequireGateway",
         "AdminChatCanDisableServerActionsForEui",
+        "AdminChatGameMasterModeBypassesEuiServerActionBlockForGameplay",
         "AdminChatRefusesUnsafeRequestsBeforeGateway",
         "allowServerActions: false",
+        "LuaMAiDirectorGameMasterMode",
+        "GameMasterModeEnabled",
         "Server-flag confirmed action",
         "LuaMAiDirectorGatewayUrl",
         "Что ты можешь делать на сервере?",
