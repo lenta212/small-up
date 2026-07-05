@@ -52,6 +52,9 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public EntityUid? ThreatTarget;
 
     [DataField]
+    public EntityUid? RouteBlockerTarget;
+
+    [DataField]
     public int NearbyHostiles;
 
     [DataField]
@@ -134,10 +137,19 @@ public sealed partial class LuaMRescueEscortComponent : Component
     public string LastDutyStatus = "none";
 
     [DataField]
+    public string LastDutyActionStatus = "none";
+
+    [DataField]
+    public int DutyActions;
+
+    [DataField]
     public EntityUid? SceneAnchor;
 
     [DataField]
     public EntityUid? ThreatTarget;
+
+    [DataField]
+    public EntityUid? RouteBlockerTarget;
 
     [DataField]
     public int NearbyHostiles;
@@ -176,6 +188,8 @@ public sealed partial class LuaMRescueEscortComponent : Component
     public float DutyRefreshInterval = 1f;
 
     public float DutyRefreshAccumulator;
+
+    public TimeSpan NextDutyActionAt;
 
     public TimeSpan NextSpeechTime;
 }

@@ -10,6 +10,8 @@ using Content.Shared.Chat;
 using Content.Shared.CombatMode;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
+using Content.Shared.Movement.Pulling.Components;
+using Content.Shared.Movement.Pulling.Systems;
 using Content.Shared.NPC.Components;
 using Content.Shared.NPC.Systems;
 using Robust.Server.GameObjects;
@@ -32,6 +34,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double SceneMemoryReinforceSeconds = 18;
     private const double SortiePlanHoldSeconds = 4;
     private const double EscortDutyHoldSeconds = 2;
+    private const double EscortDutyActionIntervalSeconds = 2;
+    private const float EscortDutyActionRange = 1.75f;
 
     private static readonly (LuaMRescueEscortRole Role, Vector2 Offset)[] EscortFormation =
     [
@@ -45,6 +49,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     [Dependency] private readonly MetaDataSystem _metaData = default!;
     [Dependency] private readonly EntityLookupSystem _lookup = default!;
     [Dependency] private readonly NpcFactionSystem _factions = default!;
+    [Dependency] private readonly PullingSystem _pulling = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
     private readonly HashSet<EntityUid> _sceneEntities = new();
@@ -102,6 +107,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.SortiePlanTransitions = 0;
         team.LastSortiePlanStatus = $"plan {FormatPlan(team.SortiePlan)} after dispatch";
         team.LastStatus = "autonomous rescue team deployed";
+        team.RouteBlockerTarget = null;
         team.LastMemoryDigest = "memory clear";
         team.RecentThreatMemories = 0;
         team.RecentCrowdMemories = 0;
@@ -136,7 +142,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"patient={FormatEntityRef(team.Patient)}; shuttle={FormatEntityRef(team.Shuttle)}; " +
                 $"escorts={team.Escorts.Count}; scene={team.LastSceneStatus}; " +
                 $"threat={FormatEntityRef(team.ThreatTarget)}; crowd={team.NearbyCrowd}; " +
-                $"blockers={team.NearbyBlockers}; memory={team.LastMemoryDigest}; planStatus={team.LastSortiePlanStatus}; last={team.LastStatus}");
+                $"blockers={team.NearbyBlockers}; blockerTarget={FormatEntityRef(team.RouteBlockerTarget)}; " +
+                $"memory={team.LastMemoryDigest}; planStatus={team.LastSortiePlanStatus}; last={team.LastStatus}");
         }
 
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
@@ -148,7 +155,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"dutyAge={GetEscortDutyAgeSeconds(escort)}s; dutyTransitions={escort.DutyTransitions}; " +
                 $"follow={FormatEntityRef(escort.CurrentFollowTarget)}; " +
                 $"leader={FormatEntityRef(escort.Leader)}; patient={FormatEntityRef(escort.Patient)}; " +
-                $"threat={FormatEntityRef(escort.ThreatTarget)}; scene={escort.LastSceneStatus}; " +
+                $"threat={FormatEntityRef(escort.ThreatTarget)}; blockerTarget={FormatEntityRef(escort.RouteBlockerTarget)}; " +
+                $"scene={escort.LastSceneStatus}; action={escort.LastDutyActionStatus}; " +
                 $"memory={escort.LastMemoryDigest}; last={escort.LastDutyStatus}");
         }
 
@@ -200,6 +208,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         escort.DutyTransitions = 0;
         escort.SortiePlan = LuaMRescueSortiePlan.Standby;
         escort.LastDutyStatus = "deployed";
+        escort.LastDutyActionStatus = "deployed";
+        escort.DutyActions = 0;
+        escort.NextDutyActionAt = _timing.CurTime;
         escort.NextSpeechTime = _timing.CurTime;
 
         _metaData.SetEntityName(uid, GetRoleName(role));
@@ -290,9 +301,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var followChanged = escort.CurrentFollowTarget != followTarget;
 
         escort.CurrentFollowTarget = followTarget;
-        escort.LastDutyStatus = BuildEscortDutyStatus(escort, candidateDuty, followTarget, _timing.CurTime);
 
         SetEscortFollowTarget(uid, escort, htn, followTarget, duty);
+        TryRunEscortDutyAction(uid, escort, duty, followTarget);
+        escort.LastDutyStatus = BuildEscortDutyStatus(escort, candidateDuty, followTarget, _timing.CurTime);
+
         if ((dutyChanged || followChanged || forceSpeech) &&
             _timing.CurTime >= escort.NextSpeechTime)
         {
@@ -381,7 +394,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     {
         var dutyAge = GetEscortDutyAgeSeconds(escort);
         var status = $"{FormatRole(escort.Role)} plan={FormatPlan(escort.SortiePlan)} duty={FormatDuty(escort.CurrentDuty)} " +
-            $"age={dutyAge}s transitions={escort.DutyTransitions} focus={FormatEntityRef(followTarget)}";
+            $"age={dutyAge}s transitions={escort.DutyTransitions} focus={FormatEntityRef(followTarget)} " +
+            $"action={escort.LastDutyActionStatus} actions={escort.DutyActions}";
 
         if (candidateDuty != escort.CurrentDuty)
         {
@@ -390,6 +404,66 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         return $"{status}; {escort.LastSceneStatus}; {escort.LastMemoryDigest}";
+    }
+
+    private void TryRunEscortDutyAction(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty duty,
+        EntityUid? followTarget)
+    {
+        if (_timing.CurTime < escort.NextDutyActionAt)
+            return;
+
+        escort.NextDutyActionAt = _timing.CurTime + TimeSpan.FromSeconds(EscortDutyActionIntervalSeconds);
+
+        if (duty != LuaMRescueEscortDuty.ClearRoute)
+        {
+            escort.LastDutyActionStatus = $"watch {FormatDuty(duty)}";
+            return;
+        }
+
+        TryRunClearRouteAction(uid, escort, followTarget);
+    }
+
+    private void TryRunClearRouteAction(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        EntityUid? followTarget)
+    {
+        var blocker = ValidOrNull(escort.RouteBlockerTarget) ?? ValidOrNull(followTarget);
+        if (blocker is not { Valid: true } blockerUid)
+        {
+            escort.LastDutyActionStatus = "clear-route no blocker target";
+            return;
+        }
+
+        if (!TryComp<PullableComponent>(blockerUid, out var pullable))
+        {
+            escort.LastDutyActionStatus = $"clear-route blocker not pullable {FormatEntityRef(blockerUid)}";
+            return;
+        }
+
+        if (!TryComp<PullerComponent>(uid, out var puller))
+        {
+            escort.LastDutyActionStatus = "clear-route escort cannot pull";
+            return;
+        }
+
+        if (!IsWithinRange(uid, blockerUid, EscortDutyActionRange))
+        {
+            escort.LastDutyActionStatus = $"clear-route moving to {FormatEntityRef(blockerUid)}";
+            return;
+        }
+
+        if (_pulling.TryStartPull(uid, blockerUid, puller, pullable))
+        {
+            escort.DutyActions++;
+            escort.LastDutyActionStatus = $"clear-route pulling {FormatEntityRef(blockerUid)}";
+            return;
+        }
+
+        escort.LastDutyActionStatus = $"clear-route pull blocked {FormatEntityRef(blockerUid)}";
     }
 
     private bool UpdateSortiePlan(
@@ -535,6 +609,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.Patient = null;
             escort.SceneAnchor = null;
             escort.ThreatTarget = null;
+            escort.RouteBlockerTarget = null;
             escort.NearbyHostiles = 0;
             escort.NearbyCombatants = 0;
             escort.NearbyCrowd = 0;
@@ -556,6 +631,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.ShuttleAnchor = ValidOrNull(team.ShuttleAnchor);
             escort.SceneAnchor = ValidOrNull(team.SceneAnchor);
             escort.ThreatTarget = ValidOrNull(team.ThreatTarget);
+            escort.RouteBlockerTarget = ValidOrNull(team.RouteBlockerTarget);
             escort.NearbyHostiles = team.NearbyHostiles;
             escort.NearbyCombatants = team.NearbyCombatants;
             escort.NearbyCrowd = team.NearbyCrowd;
@@ -605,7 +681,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var crowdCount = 0;
         var blockerCount = 0;
         EntityUid? threatTarget = null;
+        EntityUid? routeBlockerTarget = null;
         var threatDistance = float.MaxValue;
+        var routeBlockerDistance = float.MaxValue;
 
         _sceneEntities.Clear();
         _lookup.GetEntitiesInRange(anchorUid, SceneScanRange, _sceneEntities, LookupFlags.Dynamic | LookupFlags.Sundries | LookupFlags.Approximate);
@@ -647,7 +725,15 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             }
 
             if (IsRouteBlocker(candidate, hasMobState))
+            {
                 blockerCount++;
+                var distance = (candidateXform.MapPosition.Position - origin.Position).LengthSquared();
+                if (distance < routeBlockerDistance)
+                {
+                    routeBlockerDistance = distance;
+                    routeBlockerTarget = candidate;
+                }
+            }
         }
 
         _sceneEntities.Clear();
@@ -656,6 +742,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         return new LuaMRescueSceneSnapshot(
             anchorUid,
             ValidOrNull(threatTarget),
+            ValidOrNull(routeBlockerTarget),
             hostileCount,
             combatantCount,
             crowdCount,
@@ -676,6 +763,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (team.ThreatTarget != scene.ThreatTarget)
         {
             team.ThreatTarget = scene.ThreatTarget;
+            changed = true;
+        }
+
+        if (team.RouteBlockerTarget != scene.RouteBlockerTarget)
+        {
+            team.RouteBlockerTarget = scene.RouteBlockerTarget;
             changed = true;
         }
 
@@ -716,6 +809,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     {
         escort.SceneAnchor = scene.Anchor;
         escort.ThreatTarget = scene.ThreatTarget;
+        escort.RouteBlockerTarget = scene.RouteBlockerTarget;
         escort.NearbyHostiles = scene.HostileCount;
         escort.NearbyCombatants = scene.CombatantCount;
         escort.NearbyCrowd = scene.CrowdCount;
@@ -1253,6 +1347,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var threat = escort.ThreatTarget is { Valid: true } threatUid && !Deleted(threatUid)
             ? threatUid
             : (EntityUid?) null;
+        var routeBlocker = escort.RouteBlockerTarget is { Valid: true } blockerUid && !Deleted(blockerUid)
+            ? blockerUid
+            : (EntityUid?) null;
         var sceneAnchor = escort.SceneAnchor is { Valid: true } sceneAnchorUid && !Deleted(sceneAnchorUid)
             ? sceneAnchorUid
             : (EntityUid?) null;
@@ -1261,7 +1358,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         {
             LuaMRescueEscortDuty.ThreatScreen => threat ?? sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle,
             LuaMRescueEscortDuty.CrowdControl => sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle,
-            LuaMRescueEscortDuty.ClearRoute => sceneAnchor ?? leader ?? shuttleAnchor ?? patient ?? shuttle,
+            LuaMRescueEscortDuty.ClearRoute => routeBlocker ?? sceneAnchor ?? leader ?? shuttleAnchor ?? patient ?? shuttle,
             LuaMRescueEscortDuty.SecureScene => escort.Role == LuaMRescueEscortRole.Zaslon
                 ? threat ?? patient ?? leader ?? shuttleAnchor ?? shuttle
                 : leader ?? patient ?? shuttleAnchor ?? shuttle,
@@ -1392,6 +1489,20 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             : null;
     }
 
+    private bool IsWithinRange(EntityUid first, EntityUid second, float range)
+    {
+        if (Deleted(first) || Deleted(second) ||
+            !TryComp(first, out TransformComponent? firstXform) ||
+            !TryComp(second, out TransformComponent? secondXform) ||
+            firstXform.MapID != secondXform.MapID)
+        {
+            return false;
+        }
+
+        var distance = (firstXform.MapPosition.Position - secondXform.MapPosition.Position).LengthSquared();
+        return distance <= range * range;
+    }
+
     private string FormatEntityRef(EntityUid? uid)
     {
         if (uid is not { Valid: true } entity)
@@ -1480,6 +1591,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private readonly record struct LuaMRescueSceneSnapshot(
         EntityUid? Anchor,
         EntityUid? ThreatTarget,
+        EntityUid? RouteBlockerTarget,
         int HostileCount,
         int CombatantCount,
         int CrowdCount,
@@ -1487,6 +1599,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         string Status)
     {
         public static LuaMRescueSceneSnapshot Clear => new(
+            null,
             null,
             null,
             0,
