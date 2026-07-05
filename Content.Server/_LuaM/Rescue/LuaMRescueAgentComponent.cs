@@ -46,6 +46,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoTreatWithCarriedItems = true;
 
     [DataField]
+    public bool AutoResupplyFromVending = true;
+
+    [DataField]
     public bool AutoRouteShuttleToTargets = true;
 
     [DataField]
@@ -93,6 +96,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     [DataField]
     public float AutoTreatCooldown = 6f;
 
+    [DataField]
+    public float AutoResupplyRange = 24f;
+
     public float TargetRefreshAccumulator;
 
     public readonly Dictionary<EntityUid, TimeSpan> SkippedTargets = new();
@@ -134,6 +140,13 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public string LastAutoTreatmentStatus = "none";
 
     [DataField]
+    public string LastAutoSupplyStatus = "none";
+
+    public bool PendingVendingStarted;
+
+    public string? PendingVendingProduct;
+
+    [DataField]
     public string Role = "rescue";
 }
 
@@ -153,4 +166,5 @@ public enum LuaMRescuePlayerActionKind : byte
     StoreSlot,
     TakeStorage,
     Treat,
+    Vend,
 }

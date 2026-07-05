@@ -12,6 +12,7 @@ using Content.Server.NPC;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Systems;
 using Content.Server.Shuttles.Components;
+using Content.Server.VendingMachines;
 using Content.Shared.Buckle.Components;
 using Content.Shared.Chemistry.Components;
 using Content.Shared.Chemistry.Components.SolutionManager;
@@ -28,11 +29,13 @@ using Content.Shared.Administration;
 using Content.Shared.Stacks;
 using Content.Shared.Storage;
 using Content.Shared.Storage.EntitySystems;
+using Content.Shared.VendingMachines;
 using Robust.Server.Player;
 using Robust.Shared.Containers;
 using Robust.Shared.Console;
 using Robust.Shared.Map;
 using Robust.Shared.Player;
+using Robust.Shared.Prototypes;
 using Robust.Shared.Timing;
 
 namespace Content.Server._LuaM.Rescue;
@@ -51,6 +54,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         "outerClothing",
         "jumpsuit",
     ];
+    private static readonly string[] MedicalVendingProductPriority =
+    [
+        "Brutepack",
+        "Ointment",
+        "Gauze",
+        "EmergencyMedipen",
+        "PillCanisterTricordrazine",
+        "EpinephrineChemistryBottle",
+        "Bloodpack",
+        "HandheldHealthAnalyzer",
+    ];
 
     [Dependency] private readonly NPCSystem _npc = default!;
     [Dependency] private readonly MindSystem _mind = default!;
@@ -64,6 +78,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly SharedStorageSystem _storage = default!;
     [Dependency] private readonly SharedContainerSystem _container = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
+    [Dependency] private readonly VendingMachineSystem _vending = default!;
+    [Dependency] private readonly IPrototypeManager _prototype = default!;
 
     public override void Update(float frameTime)
     {
@@ -309,6 +325,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"target={FormatEntityRef(target)}; shuttle={FormatEntityRef(rescue.AssignedShuttle)}; " +
                $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
                $"skipped={rescue.SkippedTargets.Count}; autoTreat={rescue.LastAutoTreatmentStatus}; " +
+               $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
     }
 
@@ -444,6 +461,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
                 return;
             }
+        }
+
+        if (action == LuaMRescuePlayerActionKind.Vend)
+        {
+            UpdatePendingVendingAction(uid, rescue, htn, target!.Value);
+            return;
         }
 
         var succeeded = TryExecutePlayerAction(
@@ -859,6 +882,226 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return true;
     }
 
+    private void UpdatePendingVendingAction(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid vendingUid)
+    {
+        if (!TryComp<VendingMachineComponent>(vendingUid, out var vending))
+        {
+            FinishPendingPlayerAction(uid, rescue, htn, $"failed vend: {FormatEntityRef(vendingUid)} is not a vending machine");
+            return;
+        }
+
+        if (!rescue.PendingVendingStarted)
+        {
+            if (!TryStartVendingProduct(
+                    uid,
+                    vendingUid,
+                    vending,
+                    rescue,
+                    rescue.PendingPlayerActionItem,
+                    includeDiagnosticItems: true,
+                    out var vendStatus))
+            {
+                FinishPendingPlayerAction(uid, rescue, htn, $"failed vend: {vendStatus}");
+                return;
+            }
+
+            rescue.LastPlayerActionStatus = vendStatus;
+            Dirty(uid, rescue);
+            return;
+        }
+
+        var product = rescue.PendingVendingProduct;
+        if (rescue.PlayerActionAccumulator >= rescue.PlayerActionTimeout)
+        {
+            var timeoutStatus = product == null
+                ? $"timed out waiting for {FormatEntityRef(vendingUid)} vend"
+                : $"timed out finding dispensed {product} near {FormatEntityRef(vendingUid)}";
+            FinishPendingPlayerAction(uid, rescue, htn, $"failed vend: {timeoutStatus}");
+            return;
+        }
+
+        if (vending.Ejecting)
+        {
+            rescue.LastPlayerActionStatus = product == null
+                ? $"waiting for {FormatEntityRef(vendingUid)} to vend"
+                : $"waiting for {FormatEntityRef(vendingUid)} to vend {product}";
+            Dirty(uid, rescue);
+            return;
+        }
+
+        var pickupStatus = product == null
+            ? $"waiting for dispensed item near {FormatEntityRef(vendingUid)}"
+            : $"waiting for dispensed {product} near {FormatEntityRef(vendingUid)}";
+        if (product != null && TryPickupDispensedVendingProduct(uid, vendingUid, product, out pickupStatus))
+        {
+            FinishPendingPlayerAction(uid, rescue, htn, pickupStatus);
+            return;
+        }
+
+        rescue.LastPlayerActionStatus = pickupStatus;
+        Dirty(uid, rescue);
+    }
+
+    private bool TryStartVendingProduct(
+        EntityUid uid,
+        EntityUid vendingUid,
+        VendingMachineComponent vending,
+        LuaMRescueAgentComponent rescue,
+        string? itemSelector,
+        bool includeDiagnosticItems,
+        out string status)
+    {
+        if (vending.Broken)
+        {
+            status = $"{FormatEntityRef(vendingUid)} is broken";
+            return false;
+        }
+
+        if (vending.Ejecting)
+        {
+            status = $"{FormatEntityRef(vendingUid)} is already vending";
+            return false;
+        }
+
+        if (!TrySelectVendingProduct(vendingUid, vending, itemSelector, includeDiagnosticItems, out var product, out status))
+            return false;
+
+        _vending.AuthorizedVend(vendingUid, uid, product.Type, product.ID, vending);
+        if (!vending.Ejecting || !string.Equals(vending.NextItemToEject, product.ID, StringComparison.Ordinal))
+        {
+            status = $"could not buy {product.ID} from {FormatEntityRef(vendingUid)}";
+            return false;
+        }
+
+        rescue.PendingVendingStarted = true;
+        rescue.PendingVendingProduct = product.ID;
+        status = $"buying {product.ID} from {FormatEntityRef(vendingUid)}";
+        return true;
+    }
+
+    private bool TrySelectVendingProduct(
+        EntityUid vendingUid,
+        VendingMachineComponent vending,
+        string? itemSelector,
+        bool includeDiagnosticItems,
+        out VendingMachineInventoryEntry product,
+        out string status)
+    {
+        product = default!;
+        status = string.Empty;
+
+        var available = _vending.GetAvailableInventory(vendingUid, vending);
+        if (available.Count == 0)
+        {
+            status = $"{FormatEntityRef(vendingUid)} has no available inventory";
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(itemSelector))
+        {
+            foreach (var entry in available)
+            {
+                if (!VendingProductMatchesSelector(entry, itemSelector))
+                    continue;
+
+                product = entry;
+                return true;
+            }
+
+            status = $"no vending product matching '{itemSelector}' in {FormatEntityRef(vendingUid)}";
+            return false;
+        }
+
+        var bestScore = 0;
+        foreach (var entry in available)
+        {
+            var score = GetMedicalVendingProductScore(entry.ID, includeDiagnosticItems);
+            if (score <= bestScore)
+                continue;
+
+            product = entry;
+            bestScore = score;
+        }
+
+        if (bestScore > 0)
+            return true;
+
+        status = $"no useful medical product in {FormatEntityRef(vendingUid)}";
+        return false;
+    }
+
+    private bool VendingProductMatchesSelector(VendingMachineInventoryEntry product, string itemSelector)
+    {
+        var selector = itemSelector.Trim();
+        if (selector.Length == 0)
+            return false;
+
+        if (product.ID.Equals(selector, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var lowered = selector.ToLowerInvariant();
+        if (product.ID.ToLowerInvariant().Contains(lowered))
+            return true;
+
+        return _prototype.TryIndex<EntityPrototype>(product.ID, out var prototype) &&
+               prototype.Name.ToLowerInvariant().Contains(lowered);
+    }
+
+    private int GetMedicalVendingProductScore(string productId, bool includeDiagnosticItems)
+    {
+        for (var i = 0; i < MedicalVendingProductPriority.Length; i++)
+        {
+            if (!productId.Equals(MedicalVendingProductPriority[i], StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!includeDiagnosticItems && productId.Equals("HandheldHealthAnalyzer", StringComparison.OrdinalIgnoreCase))
+                return 0;
+
+            return MedicalVendingProductPriority.Length - i;
+        }
+
+        return 0;
+    }
+
+    private bool TryPickupDispensedVendingProduct(
+        EntityUid uid,
+        EntityUid vendingUid,
+        string productId,
+        out string status)
+    {
+        foreach (var candidate in _lookup.GetEntitiesInRange(vendingUid, 2.5f))
+        {
+            if (candidate == uid ||
+                candidate == vendingUid ||
+                Deleted(candidate) ||
+                !EntityPrototypeMatches(candidate, productId))
+            {
+                continue;
+            }
+
+            if (_hands.TryPickupAnyHand(uid, candidate))
+            {
+                status = $"picked up vended {FormatEntityRef(candidate)} from {FormatEntityRef(vendingUid)}";
+                return true;
+            }
+
+            status = $"dispensed {FormatEntityRef(candidate)} from {FormatEntityRef(vendingUid)} but could not pick it up";
+            return false;
+        }
+
+        status = $"no dispensed {productId} found near {FormatEntityRef(vendingUid)}";
+        return false;
+    }
+
+    private bool EntityPrototypeMatches(EntityUid entity, string prototypeId)
+    {
+        return MetaData(entity).EntityPrototype?.ID?.Equals(prototypeId, StringComparison.OrdinalIgnoreCase) == true;
+    }
+
     private bool TrySelectStoredItem(
         EntityUid storageUid,
         StorageComponent storage,
@@ -1118,6 +1361,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return action is LuaMRescuePlayerActionKind.Interact
             or LuaMRescuePlayerActionKind.AltInteract
             or LuaMRescuePlayerActionKind.Treat
+            or LuaMRescuePlayerActionKind.Vend
             or LuaMRescuePlayerActionKind.Pickup
             or LuaMRescuePlayerActionKind.Pull
             or LuaMRescuePlayerActionKind.Buckle;
@@ -1169,6 +1413,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             LuaMRescuePlayerActionKind.AltInteract => "alt-interact",
             LuaMRescuePlayerActionKind.Use => "use",
             LuaMRescuePlayerActionKind.Treat => "treat",
+            LuaMRescuePlayerActionKind.Vend => "vend",
             LuaMRescuePlayerActionKind.Pickup => "pickup",
             LuaMRescuePlayerActionKind.Drop => "drop",
             LuaMRescuePlayerActionKind.Pull => "pull",
@@ -1188,6 +1433,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.PendingPlayerActionTarget = null;
         rescue.PendingPlayerActionSlot = null;
         rescue.PendingPlayerActionItem = null;
+        rescue.PendingVendingStarted = false;
+        rescue.PendingVendingProduct = null;
         rescue.PlayerActionAccumulator = 0f;
 
         if (lastStatus != null)
@@ -1473,6 +1720,19 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryFindTreatmentItem(uid, target, null, null, includeDiagnosticItems: false, out var item, out var status))
         {
             rescue.LastAutoTreatmentStatus = status;
+            if (status.StartsWith("no usable medical item", StringComparison.OrdinalIgnoreCase))
+            {
+                if (TryStartAutoResupplyFromVending(uid, rescue, htn, out var supplyStatus))
+                {
+                    rescue.LastAutoSupplyStatus = supplyStatus;
+                    Dirty(uid, rescue);
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(supplyStatus))
+                    rescue.LastAutoSupplyStatus = supplyStatus;
+            }
+
             Dirty(uid, rescue);
             return false;
         }
@@ -1489,6 +1749,78 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         SetFollowTarget(uid, rescue, htn, target);
         return true;
+    }
+
+    private bool TryStartAutoResupplyFromVending(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        out string status)
+    {
+        status = string.Empty;
+
+        if (!rescue.AutoResupplyFromVending ||
+            rescue.AutoResupplyRange <= 0f)
+        {
+            return false;
+        }
+
+        if (!TryFindMedicalVendingSupply(uid, rescue.AutoResupplyRange, out var vendingUid, out var productId, out status))
+            return false;
+
+        rescue.PendingPlayerAction = LuaMRescuePlayerActionKind.Vend;
+        rescue.PendingPlayerActionTarget = vendingUid;
+        rescue.PendingPlayerActionSlot = null;
+        rescue.PendingPlayerActionItem = productId;
+        rescue.PendingVendingStarted = false;
+        rescue.PendingVendingProduct = null;
+        rescue.PlayerActionAccumulator = 0f;
+        rescue.LastPlayerActionStatus = $"pending vend {productId} from {FormatEntityRef(vendingUid)}";
+        SetFollowTarget(uid, rescue, htn, vendingUid);
+
+        status = $"resupplying {productId} from {FormatEntityRef(vendingUid)}";
+        return true;
+    }
+
+    private bool TryFindMedicalVendingSupply(
+        EntityUid uid,
+        float searchRange,
+        out EntityUid vendingUid,
+        out string productId,
+        out string status)
+    {
+        vendingUid = default;
+        productId = string.Empty;
+        status = string.Empty;
+
+        var bestScore = float.MinValue;
+        foreach (var candidate in _lookup.GetEntitiesInRange(uid, searchRange))
+        {
+            if (!TryComp<VendingMachineComponent>(candidate, out var vending) ||
+                vending.Broken ||
+                vending.Ejecting ||
+                !TrySelectVendingProduct(candidate, vending, null, includeDiagnosticItems: false, out var product, out _))
+            {
+                continue;
+            }
+
+            if (!TryGetDistance(uid, candidate, out var distance))
+                continue;
+
+            var score = GetMedicalVendingProductScore(product.ID, includeDiagnosticItems: false) * 100f - distance;
+            if (score <= bestScore)
+                continue;
+
+            vendingUid = candidate;
+            productId = product.ID;
+            bestScore = score;
+        }
+
+        if (vendingUid is { Valid: true })
+            return true;
+
+        status = $"no medical vending supply found within {searchRange:0.0}m";
+        return false;
     }
 
     private bool IsRescueCandidate(
@@ -2423,6 +2755,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
         "alt",
         "use",
         "treat",
+        "vend",
         "pickup",
         "drop",
         "pull",
@@ -2461,8 +2794,12 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
         "ointment",
         "gauze",
         "brutepack",
+        "Brutepack",
         "bruise",
         "burn",
+        "EmergencyMedipen",
+        "PillCanisterTricordrazine",
+        "EpinephrineChemistryBottle",
         "analyzer",
         "health-analyzer",
         "tool",
@@ -2474,7 +2811,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
     public string Command => "luam_rescue_action";
     public string Description => "Orders active LuaM rescue agents to perform player-like interactions.";
     public string Help =>
-        $"Usage: {Command} {ActionKey}=<interact|alt|use|treat|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|store-slot|take-storage|clear> " +
+        $"Usage: {Command} {ActionKey}=<interact|alt|use|treat|vend|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|store-slot|take-storage|clear> " +
         $"[agent=<entity|{NearestAgentValue}|{AllAgentsValue}>] [target=<entity|player>] [slot=<inventorySlot>] [item=<name|prototype|entity>]";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
@@ -2487,7 +2824,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
         if (string.IsNullOrWhiteSpace(actionArg) ||
             !TryParseAction(actionArg, out var action))
         {
-            shell.WriteError($"Pass {ActionKey}=<interact|alt|use|treat|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|store-slot|take-storage|clear>.");
+            shell.WriteError($"Pass {ActionKey}=<interact|alt|use|treat|vend|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|store-slot|take-storage|clear>.");
             return;
         }
 
@@ -2516,6 +2853,12 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             targetArg = null;
         }
         else if (action == LuaMRescuePlayerActionKind.Treat)
+        {
+            itemArg ??= remainingPositionals
+                .Skip(string.IsNullOrWhiteSpace(explicitTargetArg) ? 1 : 0)
+                .FirstOrDefault();
+        }
+        else if (action == LuaMRescuePlayerActionKind.Vend)
         {
             itemArg ??= remainingPositionals
                 .Skip(string.IsNullOrWhiteSpace(explicitTargetArg) ? 1 : 0)
@@ -2753,6 +3096,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             "alt" or "alt-interact" or "altinteract" => LuaMRescuePlayerActionKind.AltInteract,
             "use" or "use-held" or "usehand" => LuaMRescuePlayerActionKind.Use,
             "treat" or "heal" or "medical" or "medicate" or "analyze" or "scan-health" => LuaMRescuePlayerActionKind.Treat,
+            "vend" or "buy" or "purchase" or "dispense" or "vending" => LuaMRescuePlayerActionKind.Vend,
             "pickup" or "pick-up" or "take" or "grab" => LuaMRescuePlayerActionKind.Pickup,
             "drop" => LuaMRescuePlayerActionKind.Drop,
             "pull" or "drag" => LuaMRescuePlayerActionKind.Pull,
@@ -2777,6 +3121,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
         return action is LuaMRescuePlayerActionKind.Interact
             or LuaMRescuePlayerActionKind.AltInteract
             or LuaMRescuePlayerActionKind.Treat
+            or LuaMRescuePlayerActionKind.Vend
             or LuaMRescuePlayerActionKind.Pickup
             or LuaMRescuePlayerActionKind.Pull
             or LuaMRescuePlayerActionKind.Buckle;
@@ -2798,6 +3143,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             LuaMRescuePlayerActionKind.AltInteract => "alt-interact",
             LuaMRescuePlayerActionKind.Use => "use",
             LuaMRescuePlayerActionKind.Treat => "treat",
+            LuaMRescuePlayerActionKind.Vend => "vend",
             LuaMRescuePlayerActionKind.Pickup => "pickup",
             LuaMRescuePlayerActionKind.Drop => "drop",
             LuaMRescuePlayerActionKind.Pull => "pull",

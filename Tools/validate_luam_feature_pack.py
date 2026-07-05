@@ -2186,6 +2186,7 @@ def main() -> int:
         "action=stop-pull",
         "equip-slot",
         "treat",
+        "vend",
         "store-slot",
         "take-storage",
         "slot=<slot>",
@@ -3089,7 +3090,7 @@ def main() -> int:
     assert_contains(rescue_agent_system, "UpdatePendingPlayerAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryExecutePlayerAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "LuaMRescueActionCommand", "LuaMRescueActionCommand")
-    assert_contains(rescue_agent_system, "<interact|alt|use|treat|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|store-slot|take-storage|clear>", "LuaMRescueActionCommand")
+    assert_contains(rescue_agent_system, "<interact|alt|use|treat|vend|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|store-slot|take-storage|clear>", "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, "slot=<inventorySlot>", "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, "item=<name|prototype|entity>", "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, "InteractUsing", "LuaMRescueAgentSystem")
@@ -3110,9 +3111,18 @@ def main() -> int:
     assert_contains(rescue_agent_system, "TrySelectTreatmentItem", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryAutoTreatTarget", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "includeDiagnosticItems: false", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "VendingMachineSystem", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryStartAutoResupplyFromVending", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryFindMedicalVendingSupply", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "UpdatePendingVendingAction", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryStartVendingProduct", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TrySelectVendingProduct", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "AuthorizedVend", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "GetAvailableInventory", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryEquip", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryUnequip", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "treat", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "vend", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "equip-slot", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "unequip-slot", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "store-slot", "LuaMRescueAgentSystem")
@@ -3130,6 +3140,7 @@ def main() -> int:
     assert_contains(rescue_agent_system, "StandbyAtAssignedShuttle", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "phase=", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "autoTreat=", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "autoSupply=", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "standby-on-shuttle", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "standby-return-to-shuttle", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "skipped=", "LuaMRescueAgentSystem")
@@ -3190,6 +3201,7 @@ def main() -> int:
     assert_contains(rescue_agent_component, "BucklePatientsOnShuttle = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "PreferStasisBedDelivery = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoTreatWithCarriedItems = true", "LuaMRescueAgentComponent")
+    assert_contains(rescue_agent_component, "AutoResupplyFromVending = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoRouteShuttleToTargets = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoReturnShuttle = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "TemporarilySkipStalledTargets = true", "LuaMRescueAgentComponent")
@@ -3203,8 +3215,12 @@ def main() -> int:
     assert_contains(rescue_agent_component, "TargetSkipSeconds = 45f", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoTreatMinDamage = 5f", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoTreatCooldown = 6f", "LuaMRescueAgentComponent")
+    assert_contains(rescue_agent_component, "AutoResupplyRange = 24f", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "NextAutoTreatmentAttempt", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "LastAutoTreatmentStatus", "LuaMRescueAgentComponent")
+    assert_contains(rescue_agent_component, "LastAutoSupplyStatus", "LuaMRescueAgentComponent")
+    assert_contains(rescue_agent_component, "PendingVendingStarted", "LuaMRescueAgentComponent")
+    assert_contains(rescue_agent_component, "PendingVendingProduct", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "SkippedTargets", "LuaMRescueAgentComponent")
 
     rescue_shuttle_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs").read_text(encoding="utf-8")
