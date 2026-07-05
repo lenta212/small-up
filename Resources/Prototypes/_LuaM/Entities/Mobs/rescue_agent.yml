@@ -1,0 +1,30 @@
+- type: entity
+  parent: MobHuman
+  id: LuaMRescueAgent
+  name: LuaM rescue agent
+  suffix: LuaM, Player-like NPC
+  description: Человекоподобный спасатель, которым управляет LuaM-сервер или администратор.
+  components:
+  - type: RandomHumanoidAppearance
+    randomizeName: false
+  - type: Loadout
+    prototypes:
+    - ParamedicGear
+  - type: NpcFactionMember
+    factions:
+    - NanoTrasen
+  - type: InputMover
+  - type: MobMover
+  - type: LuaMRescueAgent
+  - type: HTN
+    rootTask:
+      task: FollowCompound
+    blackboard:
+      FollowCloseRange: !type:Single
+        1.25
+      FollowRange: !type:Single
+        4.0
+      MinimumIdleTime: !type:Single
+        0.5
+      MaximumIdleTime: !type:Single
+        1.5

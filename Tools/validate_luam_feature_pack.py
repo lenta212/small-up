@@ -253,6 +253,8 @@ def main() -> int:
         "Content.Server/_LuaM/Administration/LuaMAiDirectorEui.cs",
         "Content.Server/_LuaM/Donation/LuaMDonationShopCommand.cs",
         "Content.Server/_LuaM/Donation/LuaMDonationShopSystem.cs",
+        "Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs",
+        "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs",
         "Content.Server/_LuaM/Sector/LuaMSectorAiDirectorSystem.cs",
         "Content.Server/_LuaM/Sector/LuaMSectorCommands.cs",
         "Content.Server/_LuaM/Sector/LuaMDistressBeaconComponent.cs",
@@ -292,6 +294,7 @@ def main() -> int:
         "Resources/Prototypes/InventoryTemplates/corpse_inventory_template.yml",
         "Resources/Prototypes/InventoryTemplates/human_inventory_template.yml",
         "Resources/Prototypes/_NF/Entities/Mobs/NPCs/mob_hostile_rogue_ai.yml",
+        "Resources/Prototypes/_LuaM/Entities/Mobs/rescue_agent.yml",
     ]
 
     guide_xmls = [
@@ -3048,6 +3051,24 @@ def main() -> int:
     assert_equal(remote_config["events"]["enabled"], True, "remote events.enabled")
     assert_equal(remote_config["gateway"]["generator_enabled"], True, "remote gateway.generator_enabled")
     assert_equal(remote_config["luam"]["sector"]["all_hazards_enabled"], True, "remote luam.sector.all_hazards_enabled")
+
+    rescue_agent_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs").read_text(encoding="utf-8")
+    assert_contains(rescue_agent_system, 'Command => "luam_rescue_agent"', "LuaMRescueAgentCommand")
+    assert_contains(rescue_agent_system, "MindSystem", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "ControlMob(controller.UserId, agent)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "NPCBlackboard.FollowTarget", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "new EntityCoordinates(target, Vector2.Zero)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "AdminFlags.Server", "LuaMRescueAgentCommand")
+
+    rescue_agent = prototypes["LuaMRescueAgent"]
+    assert_equal(rescue_agent["parent"], "MobHuman", "LuaMRescueAgent.parent")
+    assert_equal(component(rescue_agent, "LuaMRescueAgent")["type"], "LuaMRescueAgent", "LuaMRescueAgent.component")
+    assert_equal(component(rescue_agent, "Loadout")["prototypes"], ["ParamedicGear"], "LuaMRescueAgent.loadout")
+    assert_equal(component(rescue_agent, "NpcFactionMember")["factions"], ["NanoTrasen"], "LuaMRescueAgent.faction")
+    component(rescue_agent, "InputMover")
+    component(rescue_agent, "MobMover")
+    htn = component(rescue_agent, "HTN")
+    assert_equal(htn["rootTask"]["task"], "FollowCompound", "LuaMRescueAgent.htn.rootTask")
 
     allowed_low_pop_pois = {"CargoDepot", "CargoDepotAlt", "TradeMall", "Medical", "Edison", "Tinnia"}
     actual_low_pop_pois: set[str] = set()
