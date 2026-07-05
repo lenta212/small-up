@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Content.Server.Administration;
@@ -74,6 +75,101 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             _mind.ControlMob(controller.UserId, agent);
 
         return agent;
+    }
+
+    public List<string> BuildRescueStatusLines()
+    {
+        var lines = new List<string>();
+        var query = EntityQueryEnumerator<LuaMRescueAgentComponent>();
+        while (query.MoveNext(out var uid, out var rescue))
+        {
+            PruneSkippedTargets(rescue);
+            lines.Add(BuildRescueStatusLine(uid, rescue));
+        }
+
+        return lines;
+    }
+
+    private string BuildRescueStatusLine(EntityUid uid, LuaMRescueAgentComponent rescue)
+    {
+        var target = rescue.EvacuatingTarget ?? rescue.AssignedTarget;
+        var route = rescue.ShuttleReturnRouted
+            ? "home"
+            : rescue.ShuttleRoutedTarget is { Valid: true } routedTarget && !Deleted(routedTarget)
+                ? $"target:{FormatEntityRef(routedTarget)}"
+                : "none";
+
+        return $"{FormatEntityRef(uid)} phase={GetRescuePhase(uid, rescue)}; " +
+               $"target={FormatEntityRef(target)}; shuttle={FormatEntityRef(rescue.AssignedShuttle)}; " +
+               $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
+               $"skipped={rescue.SkippedTargets.Count}; {FormatProgress(rescue)}";
+    }
+
+    private string GetRescuePhase(EntityUid uid, LuaMRescueAgentComponent rescue)
+    {
+        if (HasComp<ActorComponent>(uid))
+            return "manual-control";
+
+        if (!rescue.AutoAcquireTargets)
+            return "manual";
+
+        if (rescue.EvacuatingTarget is { Valid: true } target &&
+            !Deleted(target))
+        {
+            if (IsBuckledToAssignedShuttlePatientStrap(target, rescue) ||
+                IsOnAssignedShuttle(target, rescue) &&
+                rescue.AssignedPatientStrap is not { Valid: true })
+            {
+                return "delivered";
+            }
+
+            if (IsPullingTarget(uid, target))
+            {
+                return rescue.AssignedPatientStrap is { Valid: true } patientStrap && !Deleted(patientStrap)
+                    ? "deliver-to-bed"
+                    : "return-to-shuttle";
+            }
+
+            return "approach-patient";
+        }
+
+        if (rescue.AssignedTarget is { Valid: true } assigned &&
+            !Deleted(assigned))
+        {
+            return "follow-target";
+        }
+
+        if (rescue.ShuttleReturnRouted)
+            return "shuttle-return-home";
+
+        if (rescue.ShuttleRoutedTarget is { Valid: true } routedTarget &&
+            !Deleted(routedTarget))
+        {
+            return "shuttle-routing-to-target";
+        }
+
+        return "idle";
+    }
+
+    private string FormatProgress(LuaMRescueAgentComponent rescue)
+    {
+        var distance = float.IsPositiveInfinity(rescue.LastProgressDistance)
+            ? "n/a"
+            : $"{rescue.LastProgressDistance:0.0}";
+
+        return $"progressGoal={FormatEntityRef(rescue.ProgressGoal)}; " +
+               $"distance={distance}; stall={rescue.TargetStallAccumulator:0.0}/{rescue.TargetStallSeconds:0.0}s";
+    }
+
+    private string FormatEntityRef(EntityUid? uid)
+    {
+        if (uid is not { Valid: true } entity)
+            return "none";
+
+        if (Deleted(entity))
+            return $"{entity}:deleted";
+
+        return $"{GetNetEntity(entity)}:{Name(entity)}";
     }
 
     private void UpdateAssignedTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
@@ -966,5 +1062,37 @@ public sealed class LuaMRescueAgentCommand : IConsoleCommand
             ? $"Target player name is ambiguous: {raw}."
             : $"Target not found or has no attached entity: {raw}.";
         return false;
+    }
+}
+
+[AdminCommand(AdminFlags.Server)]
+public sealed class LuaMRescueStatusCommand : IConsoleCommand
+{
+    [Dependency] private readonly IEntityManager _entities = default!;
+
+    public string Command => "luam_rescue_status";
+    public string Description => "Prints LuaM rescue agent mission telemetry.";
+    public string Help => $"Usage: {Command}";
+
+    public void Execute(IConsoleShell shell, string argStr, string[] args)
+    {
+        var system = _entities.System<LuaMRescueAgentSystem>();
+        var lines = system.BuildRescueStatusLines();
+        if (lines.Count == 0)
+        {
+            shell.WriteLine("No LuaM rescue agents are active.");
+            return;
+        }
+
+        shell.WriteLine($"LuaM rescue agents: {lines.Count}");
+        foreach (var line in lines)
+        {
+            shell.WriteLine(line);
+        }
+    }
+
+    public CompletionResult GetCompletion(IConsoleShell shell, string[] args)
+    {
+        return CompletionResult.Empty;
     }
 }
