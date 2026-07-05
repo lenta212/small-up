@@ -2,6 +2,8 @@
 
 Current policy: do not upload, restart, or update the remote server until the server freeze is lifted.
 
+The machine-readable policy lives in `Tools\luam_release_policy.json`. The deploy helper reads that JSON file first and falls back to this manifest only if the JSON file is missing.
+
 This manifest exists to prevent the local LuaM feature pack from being partially released. The LuaM package scope should be present in the git snapshot before deployment; use `Tools\check_luam_release_ready.ps1` as the automated gate for this check.
 
 ## Release Scope
@@ -77,6 +79,7 @@ LuaM file groups that must be in the release/package snapshot:
 - `Tools/stop_local_stack.ps1`
 - `Tools/test_local_stack.ps1`
 - `Tools/test_local_frontier.ps1`
+- `Tools/luam_release_policy.json`
 
 Before any release, confirm the exact untracked list with:
 
@@ -134,7 +137,7 @@ To deploy a verified server release zip to the VPS, use the guarded deploy helpe
 powershell -NoProfile -ExecutionPolicy Bypass -File Tools\deploy_luam_server_release.ps1 -PackagePath release\SS14.Server_linux-x64.zip -ExpectedSha256 <sha256> -Tag <tag>
 ```
 
-The helper checks this manifest first and refuses a real upload while the current freeze policy is active. `-DryRun` remains available for inspecting the deploy plan without contacting the remote server.
+The helper checks `Tools\luam_release_policy.json` first and refuses a real upload while the current freeze policy is active. `-DryRun` remains available for inspecting the deploy plan without contacting the remote server.
 For real deployment, the helper requires `-ExpectedSha256`, verifies the local zip contains `Robust.Server` and `Content.Client.zip`, checks the live player count, uploads the package, verifies the remote SHA256, stages into `/opt/monolith-ds/deploy-staging`, preserves the live `server_config.toml`, creates `/opt/monolith-ds/backups/server-<tag>` and `server_config-before-<tag>.toml`, restores executable bits on `Robust.Server`/`Robust.Packaging`, starts `monolith-ds.service`, and rolls back if start verification fails. Use `-AllowClientZipRestore` only for emergency rollback-style deploys where reusing the previous client zip is intentional.
 
 ## Verified Locally

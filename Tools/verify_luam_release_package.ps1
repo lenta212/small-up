@@ -276,6 +276,7 @@ try {
         "Tools/deploy_luam_server_release.ps1",
         "Tools/luam_ai_gateway.py",
         "Tools/summarize_luam_ai_audit.py",
+        "Tools/luam_release_policy.json",
         "Tools/test_luam_ai_gateway.py",
         "Tools/validate_luam_feature_pack.py",
         "Tools/local_stack.md"

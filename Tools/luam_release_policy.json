@@ -1,0 +1,10 @@
+{
+  "remoteDeployFrozen": true,
+  "reason": "Do not upload, restart, or update the remote server until the server freeze is lifted.",
+  "lastReviewed": "2026-07-05",
+  "requiredChecksBeforeDeploy": [
+    "powershell -NoProfile -ExecutionPolicy Bypass -File Tools\\check_luam_release_ready.ps1 -RunTests -RunLocalSmoke",
+    "powershell -NoProfile -ExecutionPolicy Bypass -File Tools\\build_luam_server_release.ps1 -Json",
+    "powershell -NoProfile -ExecutionPolicy Bypass -File Tools\\audit_release_surface.ps1 -ReleaseDir release -Json"
+  ]
+}

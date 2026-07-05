@@ -90,10 +90,49 @@ function Invoke-RemoteBash {
 }
 
 function Get-RemoteFreezePolicy {
+    $policyPath = Join-Path $PSScriptRoot "luam_release_policy.json"
     $manifestPath = Join-Path $PSScriptRoot "luam_release_manifest.md"
+
+    if (Test-Path -LiteralPath $policyPath -PathType Leaf) {
+        try {
+            $policy = Get-Content -LiteralPath $policyPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            $active = [bool]$policy.remoteDeployFrozen
+            $reason = if ([string]::IsNullOrWhiteSpace($policy.reason)) {
+                if ($active) {
+                    "LuaM release policy freezes remote deployment."
+                } else {
+                    "LuaM release policy allows remote deployment."
+                }
+            } else {
+                [string]$policy.reason
+            }
+
+            return [pscustomobject]@{
+                active = $active
+                source = "json"
+                policy = $policyPath
+                manifest = $manifestPath
+                detail = $reason
+                last_reviewed = $policy.lastReviewed
+                required_checks = @($policy.requiredChecksBeforeDeploy)
+            }
+        }
+        catch {
+            return [pscustomobject]@{
+                active = $true
+                source = "json"
+                policy = $policyPath
+                manifest = $manifestPath
+                detail = "LuaM release policy is invalid; refusing remote deploy. $($_.Exception.Message)"
+            }
+        }
+    }
+
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
         return [pscustomobject]@{
             active = $true
+            source = "manifest"
+            policy = $policyPath
             manifest = $manifestPath
             detail = "LuaM release manifest is missing; refusing remote deploy."
         }
@@ -109,6 +148,8 @@ function Get-RemoteFreezePolicy {
 
     return [pscustomobject]@{
         active = $active
+        source = "manifest"
+        policy = $policyPath
         manifest = $manifestPath
         detail = $detail
     }
