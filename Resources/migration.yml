@@ -559,7 +559,7 @@ WeaponSubMachineGunVectorRubber: null
 # Magazine9x19mmPistolHighCapacityRubber: null # Frontier
 
 # 2025-04-14
-SellOnlyMothershipComputer: null # Mono
+SellOnlyMothershipComputer: SellOnlyCarrierComputer # Mono
 
 # 2025-06-12
 GunneryServer: GunneryServerMedium # Mono

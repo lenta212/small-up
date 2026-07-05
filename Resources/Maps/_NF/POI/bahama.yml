@@ -17396,7 +17396,7 @@ entities:
       parent: 2
     - type: DisableToolUse
       anchoring: True
-- proto: SellOnlyMothershipComputer
+- proto: SellOnlyCarrierComputer
   entities:
   - uid: 2447
     components:

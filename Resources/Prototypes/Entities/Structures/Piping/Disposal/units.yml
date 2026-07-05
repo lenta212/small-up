@@ -109,6 +109,7 @@
   - type: Construction
     graph: DisposalMachine
     node: disposal_unit
+  - type: Automated # Goobstation
   - type: DisposalUnit
   - type: ThrowInsertContainer
     containerId: disposals
