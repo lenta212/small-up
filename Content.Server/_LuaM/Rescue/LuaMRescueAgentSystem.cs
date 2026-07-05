@@ -1,11 +1,14 @@
 using System.Linq;
 using System.Numerics;
 using Content.Server.Administration;
+using Content.Server.Bed.Components;
+using Content.Server.Buckle.Systems;
 using Content.Server.Mind;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Systems;
 using Content.Server.Shuttles.Components;
+using Content.Shared.Buckle.Components;
 using Content.Shared.Chemistry.Components.SolutionManager;
 using Content.Shared.Damage;
 using Content.Shared.Mobs;
@@ -31,6 +34,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly EntityLookupSystem _lookup = default!;
     [Dependency] private readonly MedibotSystem _medibot = default!;
     [Dependency] private readonly PullingSystem _pulling = default!;
+    [Dependency] private readonly BuckleSystem _buckle = default!;
 
     public override void Update(float frameTime)
     {
@@ -183,16 +187,24 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (IsOnAssignedShuttle(target, rescue) ||
-            IsAtAssignedShuttleAnchor(target, rescue))
+        if (IsEvacuationComplete(target, rescue))
         {
-            StopPullingTarget(uid, target);
-            TryRouteShuttleHome(uid, rescue);
-            rescue.EvacuatingTarget = null;
-            rescue.AssignedTarget = null;
-            ClearFollowTarget(uid, rescue, htn);
-            Dirty(uid, rescue);
+            CompleteEvacuation(uid, rescue, htn, target);
             return false;
+        }
+
+        if (TryFindPatientDeliveryStrap(rescue, out var patientStrap, out _))
+        {
+            rescue.AssignedPatientStrap = patientStrap;
+            if (TryBucklePatientToStrap(uid, target, patientStrap, rescue))
+            {
+                CompleteEvacuation(uid, rescue, htn, target);
+                return false;
+            }
+        }
+        else
+        {
+            rescue.AssignedPatientStrap = null;
         }
 
         if (!IsPullingTarget(uid, target))
@@ -205,6 +217,20 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 SetFollowTarget(uid, rescue, htn, target);
                 return true;
             }
+        }
+
+        if (rescue.AssignedPatientStrap is { Valid: true } deliveryStrap &&
+            !Deleted(deliveryStrap) &&
+            TryBucklePatientToStrap(uid, target, deliveryStrap, rescue))
+        {
+            CompleteEvacuation(uid, rescue, htn, target);
+            return false;
+        }
+
+        if (rescue.AssignedPatientStrap is { Valid: true } assignedStrap &&
+            !Deleted(assignedStrap))
+        {
+            return SetFollowDeliveryStrap(uid, rescue, htn, assignedStrap);
         }
 
         return SetFollowShuttle(uid, rescue, htn);
@@ -220,7 +246,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
 
         if (rescue.EvacuatingTarget != target)
+        {
             rescue.ShuttleReturnRouted = false;
+            rescue.AssignedPatientStrap = null;
+        }
 
         rescue.EvacuatingTarget = target;
 
@@ -286,8 +315,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         if (!rescue.EvacuateTargetsToShuttle ||
             !CanUseAssignedShuttle(rescue) ||
-            IsOnAssignedShuttle(target, rescue) ||
-            IsAtAssignedShuttleAnchor(target, rescue) ||
+            IsEvacuationComplete(target, rescue) ||
             !TryComp<MobStateComponent>(target, out var mobState) ||
             !TryComp<DamageableComponent>(target, out var damage) ||
             !HasComp<PullableComponent>(target) ||
@@ -408,6 +436,155 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                distance <= range;
     }
 
+    private void CompleteEvacuation(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
+    {
+        StopPullingTarget(uid, target);
+        TryRouteShuttleHome(uid, rescue);
+        rescue.EvacuatingTarget = null;
+        rescue.AssignedTarget = null;
+        rescue.AssignedPatientStrap = null;
+        ClearFollowTarget(uid, rescue, htn);
+        Dirty(uid, rescue);
+    }
+
+    private bool IsEvacuationComplete(EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        if (IsBuckledToAssignedShuttlePatientStrap(target, rescue))
+            return true;
+
+        if (TryFindPatientDeliveryStrap(rescue, out _, out _))
+            return false;
+
+        return IsOnAssignedShuttle(target, rescue) ||
+               IsAtAssignedShuttleAnchor(target, rescue);
+    }
+
+    private bool TryFindPatientDeliveryStrap(
+        LuaMRescueAgentComponent rescue,
+        out EntityUid patientStrap,
+        out StrapComponent strap)
+    {
+        patientStrap = default;
+        strap = default!;
+
+        if (!rescue.BucklePatientsOnShuttle ||
+            rescue.AssignedShuttle is not { Valid: true } shuttle ||
+            Deleted(shuttle))
+        {
+            return false;
+        }
+
+        if (rescue.AssignedPatientStrap is { Valid: true } assigned &&
+            !Deleted(assigned) &&
+            TryComp<StrapComponent>(assigned, out var assignedStrap) &&
+            IsAvailablePatientDeliveryStrap(assigned, assignedStrap, rescue))
+        {
+            patientStrap = assigned;
+            strap = assignedStrap;
+            return true;
+        }
+
+        var bestScore = float.MinValue;
+        var query = EntityQueryEnumerator<StrapComponent, TransformComponent>();
+        while (query.MoveNext(out var uid, out var strapComp, out var xform))
+        {
+            if (xform.GridUid != shuttle ||
+                !IsAvailablePatientDeliveryStrap(uid, strapComp, rescue))
+            {
+                continue;
+            }
+
+            var score = GetPatientDeliveryStrapScore(uid, rescue);
+            if (score <= bestScore)
+                continue;
+
+            patientStrap = uid;
+            strap = strapComp;
+            bestScore = score;
+        }
+
+        return patientStrap != default;
+    }
+
+    private bool IsAvailablePatientDeliveryStrap(
+        EntityUid uid,
+        StrapComponent strap,
+        LuaMRescueAgentComponent rescue)
+    {
+        return strap.Enabled &&
+               strap.BuckledEntities.Count == 0 &&
+               IsAssignedShuttlePatientStrap(uid, rescue);
+    }
+
+    private bool IsAssignedShuttlePatientStrap(EntityUid uid, LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.AssignedShuttle is not { Valid: true } shuttle ||
+            Deleted(shuttle) ||
+            !HasComp<StrapComponent>(uid) ||
+            Transform(uid).GridUid != shuttle)
+        {
+            return false;
+        }
+
+        if (rescue.PreferStasisBedDelivery && HasComp<StasisBedComponent>(uid))
+            return true;
+
+        return HasComp<HealOnBuckleComponent>(uid);
+    }
+
+    private float GetPatientDeliveryStrapScore(EntityUid uid, LuaMRescueAgentComponent rescue)
+    {
+        var score = 0f;
+        if (HasComp<StasisBedComponent>(uid))
+            score += 1000f;
+        else if (HasComp<HealOnBuckleComponent>(uid))
+            score += 100f;
+
+        if (TryGetShuttleAnchorCoordinates(rescue, out var anchorCoordinates) &&
+            Transform(uid).Coordinates.TryDistance(EntityManager, anchorCoordinates, out var distance))
+        {
+            score -= distance;
+        }
+
+        return score;
+    }
+
+    private bool TryBucklePatientToStrap(
+        EntityUid uid,
+        EntityUid target,
+        EntityUid patientStrap,
+        LuaMRescueAgentComponent rescue)
+    {
+        if (!rescue.BucklePatientsOnShuttle ||
+            Deleted(target) ||
+            Deleted(patientStrap) ||
+            !IsAssignedShuttlePatientStrap(patientStrap, rescue) ||
+            !TryComp<BuckleComponent>(target, out var buckle) ||
+            !TryComp<StrapComponent>(patientStrap, out var strap))
+        {
+            return false;
+        }
+
+        if (buckle.BuckledTo == patientStrap)
+            return true;
+
+        if (strap.BuckledEntities.Count != 0)
+            return false;
+
+        if (!IsWithinRange(target, patientStrap, buckle.Range))
+            return false;
+
+        return _buckle.TryBuckle(target, uid, patientStrap, buckle, popup: false);
+    }
+
+    private bool IsBuckledToAssignedShuttlePatientStrap(EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        return TryComp<BuckleComponent>(target, out var buckle) &&
+               buckle.BuckledTo is { Valid: true } strap &&
+               !Deleted(strap) &&
+               IsAssignedShuttlePatientStrap(strap, rescue);
+    }
+
     private void SetFollowTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
     {
         rescue.AssignedTarget = target;
@@ -424,6 +601,19 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
 
         _npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, coordinates, htn);
+        _npc.SetBlackboard(uid, "FollowCloseRange", rescue.FollowCloseRange, htn);
+        _npc.SetBlackboard(uid, "FollowRange", rescue.FollowRange, htn);
+        _npc.WakeNPC(uid, htn);
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool SetFollowDeliveryStrap(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid patientStrap)
+    {
+        if (Deleted(patientStrap))
+            return SetFollowShuttle(uid, rescue, htn);
+
+        _npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, new EntityCoordinates(patientStrap, Vector2.Zero), htn);
         _npc.SetBlackboard(uid, "FollowCloseRange", rescue.FollowCloseRange, htn);
         _npc.SetBlackboard(uid, "FollowRange", rescue.FollowRange, htn);
         _npc.WakeNPC(uid, htn);

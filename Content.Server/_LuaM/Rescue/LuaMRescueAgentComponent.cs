@@ -13,6 +13,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public EntityUid? AssignedShuttleAnchor;
 
     [DataField]
+    public EntityUid? AssignedPatientStrap;
+
+    [DataField]
     public EntityUid? AssignedShuttleConsole;
 
     [DataField]
@@ -26,6 +29,12 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     [DataField]
     public bool EvacuateTargetsToShuttle = true;
+
+    [DataField]
+    public bool BucklePatientsOnShuttle = true;
+
+    [DataField]
+    public bool PreferStasisBedDelivery = true;
 
     [DataField]
     public bool AutoReturnShuttle = true;
