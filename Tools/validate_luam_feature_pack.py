@@ -2084,6 +2084,7 @@ def main() -> int:
         "luam_rescue_order",
         "luam_rescue_shuttle",
         "luam_rescue_status",
+        "store collected medical supplies",
         "inputSafetyFlags",
         "aiMemoryBrief",
         "safetyDirectives",
@@ -3212,6 +3213,8 @@ def main() -> int:
     assert_contains(rescue_agent_system, "TryAutoUnbucklePatientForEvacuation", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryFindPatientDeliveryStrap", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "SetFollowDeliveryStrap", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryAutoStoreCollectedMedicalSupply", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "kept collected supply", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryHandleStalledDeliveryTarget", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TemporarilySkipDeliveryTarget", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "IsDeliveryTargetTemporarilySkipped", "LuaMRescueAgentSystem")
@@ -3254,6 +3257,7 @@ def main() -> int:
     assert_contains(rescue_agent_component, "AutoAnalyzeBeforeTreatment = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoPickupNearbyMedicalSupplies = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoStowHeldItemsForTreatment = true", "LuaMRescueAgentComponent")
+    assert_contains(rescue_agent_component, "AutoStoreCollectedMedicalSupplies = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoResupplyFromVending = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "TemporarilySkipFailedSupplies = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "TemporarilySkipFailedDeliveryTargets = true", "LuaMRescueAgentComponent")

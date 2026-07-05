@@ -1178,6 +1178,62 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return false;
     }
 
+    private bool TryAutoStoreCollectedMedicalSupply(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient,
+        EntityUid supply,
+        out string status)
+    {
+        status = string.Empty;
+
+        if (!rescue.AutoStoreCollectedMedicalSupplies ||
+            Deleted(patient) ||
+            Deleted(supply) ||
+            GetTreatmentItemScore(supply, patient, itemSelector: null, includeDiagnosticItems: true) <= 0f)
+        {
+            return false;
+        }
+
+        if (!TryComp<HandsComponent>(uid, out var hands))
+        {
+            status = "agent has no hands for collected supply storage";
+            return false;
+        }
+
+        Hand? supplyHand = null;
+        foreach (var hand in hands.Hands.Values)
+        {
+            if (hand.HeldEntity != supply)
+                continue;
+
+            supplyHand = hand;
+            break;
+        }
+
+        if (supplyHand == null)
+        {
+            status = $"collected supply {FormatEntityRef(supply)} is not held";
+            return false;
+        }
+
+        foreach (var slot in TreatmentStorageSlotPriority)
+        {
+            if (!TryResolveStorageSlot(uid, slot, out var storageUid, out var storage, out _))
+                continue;
+
+            if (!TryStoreHeldItemInStorage(uid, hands, supplyHand, storageUid, storage, slot, out status))
+                continue;
+
+            rescue.LastPlayerActionStatus = status;
+            rescue.NextAutoTreatmentAttempt = _timing.CurTime;
+            return true;
+        }
+
+        status = $"kept collected supply {FormatEntityRef(supply)} in hand; no storage slot can hold it";
+        return false;
+    }
+
     private static IEnumerable<Hand> EnumerateHandsForAutoStow(HandsComponent hands)
     {
         if (hands.ActiveHand != null)
@@ -1840,6 +1896,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         var completedAction = rescue.PendingPlayerAction;
         var completedTarget = rescue.PendingPlayerActionTarget;
+        var completedDispensedItem = rescue.PendingVendingDispensedItem;
         var failed = status.StartsWith("failed", StringComparison.OrdinalIgnoreCase);
         var completedSupplyAction = completedAction is LuaMRescuePlayerActionKind.Pickup or LuaMRescuePlayerActionKind.Vend;
         ClearPendingPlayerAction(rescue, status);
@@ -1865,6 +1922,20 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             !Deleted(patient) &&
             !IsTargetTemporarilySkipped(patient, rescue))
         {
+            var collectedSupply = completedAction switch
+            {
+                LuaMRescuePlayerActionKind.Pickup => completedTarget,
+                LuaMRescuePlayerActionKind.Vend => completedDispensedItem,
+                _ => null,
+            };
+
+            if (!failed &&
+                collectedSupply is { Valid: true } collectedSupplyUid &&
+                TryAutoStoreCollectedMedicalSupply(uid, rescue, patient, collectedSupplyUid, out var storeStatus))
+            {
+                rescue.LastAutoSupplyStatus = storeStatus;
+            }
+
             rescue.TargetRefreshAccumulator = rescue.TargetRefreshInterval;
             SetRescueTask(
                 uid,

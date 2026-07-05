@@ -58,6 +58,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoStowHeldItemsForTreatment = true;
 
     [DataField]
+    public bool AutoStoreCollectedMedicalSupplies = true;
+
+    [DataField]
     public bool AutoResupplyFromVending = true;
 
     [DataField]
