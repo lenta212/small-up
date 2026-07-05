@@ -69,6 +69,7 @@ LuaM file groups that must be in the release/package snapshot:
 - `Tools/local_stack.md`
 - `Tools/audit_release_surface.ps1`
 - `Tools/deploy_luam_server_release.ps1`
+- `Tools/monolith-restart-when-empty.ps1`
 - `Tools/luam_admin_ranks.yml`
 - `Tools/generate_luam_admin_rank_sql.py`
 - `Tools/check_luam_release_ready.ps1`
@@ -177,6 +178,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File Tools\stop_local_stack.ps1 -
 ```
 
 Use `-SkipClient` with `test_local_stack.ps1` if only the gateway and content server need to be checked.
+
+## Live Read-Only Preflight
+
+For live status checks that must not restart or update the remote server:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\monolith-restart-when-empty.ps1 -VerifyOnly -SkipSsh
+```
+
+This checks `/status`, `/info`, the public hub entry, ACZ, manifest hash, expected tags, soft max players, panic bunker state, round age, and the 7-day round description. Use `-Strict` only when warnings such as an empty `/info.connect_address` should fail the check. Omit `-SkipSsh` only when read-only SSH journal/service metrics are intentionally needed.
 
 ## Admin Rank Ladder
 
