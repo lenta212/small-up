@@ -1,6 +1,6 @@
 ## Generic Congrats
 
-holiday-greet = Have a happy {$holidayName}!
+holiday-greet = Да пребудет с вами Бог!
 
 ## Holiday Names
 
@@ -82,4 +82,4 @@ holiday-custom-halloween = Have a spooky Halloween!
 holiday-custom-kindness-day = Go do some random acts of kindness for a stranger!
 holiday-custom-christmas = Have a merry Christmas!
 holiday-custom-festive-season = Have a nice festive season!
-holiday-custom-pride-month = Да пребудет с вами господь!
+holiday-custom-pride-month = Да пребудет с вами Бог!

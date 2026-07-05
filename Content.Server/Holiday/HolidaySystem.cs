@@ -11,6 +11,8 @@ namespace Content.Server.Holiday
 {
     public sealed partial class HolidaySystem : EntitySystem
     {
+        private const string FixedRoundStartHolidayGreeting = "Да пребудет с вами Бог!";
+
         [Dependency] private IConfigurationManager _configManager = default!;
         [Dependency] private IPrototypeManager _prototypeManager = default!;
         [Dependency] private IChatManager _chatManager = default!;
@@ -55,10 +57,10 @@ namespace Content.Server.Holiday
 
         public void DoGreet()
         {
-            foreach (var holiday in _currentHolidays)
-            {
-                _chatManager.DispatchServerAnnouncement(holiday.Greet());
-            }
+            if (_currentHolidays.Count == 0)
+                return;
+
+            _chatManager.DispatchServerAnnouncement(FixedRoundStartHolidayGreeting);
         }
 
         public void DoCelebrate()

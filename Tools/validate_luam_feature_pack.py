@@ -343,6 +343,18 @@ def main() -> int:
         "manifest.splashLogo",
     )
 
+    holiday_system = (ROOT / "Content.Server/Holiday/HolidaySystem.cs").read_text(encoding="utf-8")
+    assert_contains(
+        holiday_system,
+        'FixedRoundStartHolidayGreeting = "Да пребудет с вами Бог!"',
+        "HolidaySystem fixed round-start holiday greeting",
+    )
+    assert_not_contains(
+        holiday_system,
+        "_chatManager.DispatchServerAnnouncement(holiday.Greet())",
+        "HolidaySystem mutable holiday greeting dispatch",
+    )
+
     holidays = {
         proto.get("id"): proto
         for proto in load_yaml(ROOT / "Resources/Prototypes/holidays.yml")
@@ -360,8 +372,13 @@ def main() -> int:
         holiday_greet = (ROOT / f"Resources/Locale/{locale}/holiday/greet/holiday-greet.ftl").read_text(encoding="utf-8")
         assert_contains(
             holiday_greet,
-            "holiday-custom-pride-month = Да пребудет с вами господь!",
+            "holiday-custom-pride-month = Да пребудет с вами Бог!",
             f"{locale} holiday-custom-pride-month",
+        )
+        assert_contains(
+            holiday_greet,
+            "holiday-greet = Да пребудет с вами Бог!",
+            f"{locale} holiday-greet",
         )
         assert_not_contains(
             holiday_greet,
