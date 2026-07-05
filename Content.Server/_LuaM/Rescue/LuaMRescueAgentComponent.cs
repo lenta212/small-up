@@ -46,6 +46,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoTreatWithCarriedItems = true;
 
     [DataField]
+    public bool AutoAnalyzeBeforeTreatment = true;
+
+    [DataField]
     public bool AutoPickupNearbyMedicalSupplies = true;
 
     [DataField]
@@ -103,6 +106,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float AutoTreatCooldown = 6f;
 
     [DataField]
+    public float AutoAnalyzeCooldown = 45f;
+
+    [DataField]
     public float AutoPickupSupplyRange = 12f;
 
     [DataField]
@@ -112,7 +118,11 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     public readonly Dictionary<EntityUid, TimeSpan> SkippedTargets = new();
 
+    public readonly Dictionary<EntityUid, TimeSpan> AnalyzedTargets = new();
+
     public TimeSpan NextAutoTreatmentAttempt;
+
+    public TimeSpan NextAutoAnalyzeAttempt;
 
     public EntityUid? ProgressTarget;
 
@@ -147,6 +157,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     [DataField]
     public string LastAutoTreatmentStatus = "none";
+
+    [DataField]
+    public string LastAutoAnalyzeStatus = "none";
 
     [DataField]
     public string LastAutoSupplyStatus = "none";

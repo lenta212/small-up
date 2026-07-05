@@ -324,7 +324,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return $"{FormatEntityRef(uid)} phase={GetRescuePhase(uid, rescue)}; " +
                $"target={FormatEntityRef(target)}; shuttle={FormatEntityRef(rescue.AssignedShuttle)}; " +
                $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
-               $"skipped={rescue.SkippedTargets.Count}; autoTreat={rescue.LastAutoTreatmentStatus}; " +
+               $"skipped={rescue.SkippedTargets.Count}; autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
+               $"autoTreat={rescue.LastAutoTreatmentStatus}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
     }
@@ -1239,6 +1240,104 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                prototype.ToLowerInvariant().Contains(lowered);
     }
 
+    private bool TryFindHealthAnalyzerItem(
+        EntityUid uid,
+        out EntityUid item,
+        out string status)
+    {
+        item = default;
+        status = string.Empty;
+
+        if (!TryComp<HandsComponent>(uid, out var hands))
+        {
+            status = "agent has no hands";
+            return false;
+        }
+
+        foreach (var hand in hands.Hands.Values)
+        {
+            if (hand.HeldEntity is not { Valid: true } held ||
+                !HasComp<HealthAnalyzerComponent>(held))
+            {
+                continue;
+            }
+
+            item = held;
+            return true;
+        }
+
+        if (!_hands.TryGetEmptyHand(uid, out var emptyHand, hands))
+        {
+            status = "no empty hand for health analyzer";
+            return false;
+        }
+
+        foreach (var candidateSlot in TreatmentStorageSlotPriority)
+        {
+            if (TryTakeHealthAnalyzerFromSlot(uid, candidateSlot, emptyHand, hands, out item, out _))
+                return true;
+        }
+
+        status = "no health analyzer found in hands or storage";
+        return false;
+    }
+
+    private bool TryTakeHealthAnalyzerFromSlot(
+        EntityUid uid,
+        string slot,
+        Hand emptyHand,
+        HandsComponent hands,
+        out EntityUid item,
+        out string status)
+    {
+        item = default;
+
+        if (!TryResolveStorageSlot(uid, slot, out var storageUid, out var storage, out status))
+            return false;
+
+        if (!TrySelectHealthAnalyzerItem(storageUid, storage, out var storedItem, out status))
+            return false;
+
+        if (!_container.RemoveEntity(storageUid, storedItem))
+        {
+            status = $"could not remove {FormatEntityRef(storedItem)} from {FormatEntityRef(storageUid)}";
+            return false;
+        }
+
+        if (!_hands.TryPickup(uid, storedItem, emptyHand, handsComp: hands))
+        {
+            _storage.Insert(storageUid, storedItem, out _, user: uid, storageComp: storage);
+            status = $"could not take {FormatEntityRef(storedItem)} from {FormatEntityRef(storageUid)} into hand";
+            return false;
+        }
+
+        item = storedItem;
+        status = $"took analyzer {FormatEntityRef(storedItem)} from {FormatEntityRef(storageUid)}";
+        return true;
+    }
+
+    private bool TrySelectHealthAnalyzerItem(
+        EntityUid storageUid,
+        StorageComponent storage,
+        out EntityUid item,
+        out string status)
+    {
+        item = default;
+        status = string.Empty;
+
+        foreach (var contained in storage.Container.ContainedEntities)
+        {
+            if (!HasComp<HealthAnalyzerComponent>(contained))
+                continue;
+
+            item = contained;
+            return true;
+        }
+
+        status = $"no health analyzer in {FormatEntityRef(storageUid)}";
+        return false;
+    }
+
     private bool TryFindTreatmentItem(
         EntityUid uid,
         EntityUid target,
@@ -1534,6 +1633,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private void UpdateAssignedTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
     {
         PruneSkippedTargets(rescue);
+        PruneAnalyzedTargets(rescue);
 
         if (UpdateEvacuation(uid, rescue, htn))
             return;
@@ -1787,6 +1887,58 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return SetFollowShuttle(uid, rescue, htn);
     }
 
+    private bool TryAutoAnalyzeTarget(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target)
+    {
+        if (!rescue.AutoAnalyzeBeforeTreatment ||
+            rescue.AutoAnalyzeCooldown <= 0f ||
+            _timing.CurTime < rescue.NextAutoAnalyzeAttempt ||
+            WasTargetRecentlyAnalyzed(target, rescue))
+        {
+            return false;
+        }
+
+        rescue.NextAutoAnalyzeAttempt = _timing.CurTime + TimeSpan.FromSeconds(Math.Min(5f, rescue.AutoAnalyzeCooldown));
+
+        if (!TryFindHealthAnalyzerItem(uid, out var analyzer, out var status))
+        {
+            rescue.LastAutoAnalyzeStatus = status;
+            if (status.Equals("no empty hand for health analyzer", StringComparison.OrdinalIgnoreCase))
+            {
+                if (TryAutoStowHeldItemForTreatment(uid, rescue, out var stowStatus))
+                {
+                    rescue.LastAutoAnalyzeStatus = stowStatus;
+                    Dirty(uid, rescue);
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(stowStatus))
+                    rescue.LastAutoAnalyzeStatus = stowStatus;
+            }
+
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        var handled = _interaction.InteractUsing(uid, analyzer, target, Transform(target).Coordinates);
+        rescue.LastAutoAnalyzeStatus = handled
+            ? $"analyzed {FormatEntityRef(target)} using {FormatEntityRef(analyzer)}"
+            : $"analysis of {FormatEntityRef(target)} using {FormatEntityRef(analyzer)} was not handled";
+
+        if (handled)
+        {
+            rescue.AnalyzedTargets[target] = _timing.CurTime + TimeSpan.FromSeconds(rescue.AutoAnalyzeCooldown);
+            rescue.NextAutoAnalyzeAttempt = _timing.CurTime + TimeSpan.FromSeconds(0.1f);
+            SetFollowTarget(uid, rescue, htn, target);
+        }
+
+        Dirty(uid, rescue);
+        return handled;
+    }
+
     private bool TryAutoTreatTarget(
         EntityUid uid,
         LuaMRescueAgentComponent rescue,
@@ -1794,7 +1946,6 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         EntityUid target)
     {
         if (!rescue.AutoTreatWithCarriedItems ||
-            _timing.CurTime < rescue.NextAutoTreatmentAttempt ||
             Deleted(target) ||
             !TryComp<MobStateComponent>(target, out var mobState) ||
             mobState.CurrentState == MobState.Dead ||
@@ -1804,6 +1955,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         {
             return false;
         }
+
+        if (TryAutoAnalyzeTarget(uid, rescue, htn, target))
+            return true;
+
+        if (_timing.CurTime < rescue.NextAutoTreatmentAttempt)
+            return false;
 
         rescue.NextAutoTreatmentAttempt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoTreatCooldown));
 
@@ -2219,6 +2376,33 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         {
             rescue.SkippedTargets.Remove(target);
         }
+    }
+
+    private void PruneAnalyzedTargets(LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.AnalyzedTargets.Count == 0)
+            return;
+
+        var now = _timing.CurTime;
+        foreach (var target in rescue.AnalyzedTargets
+                     .Where(entry => Deleted(entry.Key) || entry.Value <= now)
+                     .Select(entry => entry.Key)
+                     .ToArray())
+        {
+            rescue.AnalyzedTargets.Remove(target);
+        }
+    }
+
+    private bool WasTargetRecentlyAnalyzed(EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        if (!rescue.AnalyzedTargets.TryGetValue(target, out var analyzeUntil))
+            return false;
+
+        if (_timing.CurTime < analyzeUntil)
+            return true;
+
+        rescue.AnalyzedTargets.Remove(target);
+        return false;
     }
 
     private bool IsTargetTemporarilySkipped(EntityUid target, LuaMRescueAgentComponent rescue)
