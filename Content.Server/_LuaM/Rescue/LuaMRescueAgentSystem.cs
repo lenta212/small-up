@@ -4,6 +4,7 @@ using System.Numerics;
 using Content.Server.Administration;
 using Content.Server.Bed.Components;
 using Content.Server.Buckle.Systems;
+using Content.Server.Chat.Systems;
 using Content.Server.Hands.Systems;
 using Content.Server.Interaction;
 using Content.Server.Medical;
@@ -13,12 +14,14 @@ using Content.Server.NPC;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Pathfinding;
 using Content.Server.NPC.Systems;
+using Content.Server.Radio.EntitySystems;
 using Content.Server.Shuttles.Components;
 using Content.Server.VendingMachines;
 using Content.Shared.ActionBlocker;
 using Content.Shared.Buckle.Components;
 using Content.Shared.Chemistry.Components;
 using Content.Shared.Chemistry.Components.SolutionManager;
+using Content.Shared.Chat;
 using Content.Shared.Damage;
 using Content.Shared.Hands.Components;
 using Content.Shared.Interaction;
@@ -29,6 +32,7 @@ using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Movement.Pulling.Components;
 using Content.Shared.Movement.Pulling.Systems;
+using Content.Shared.Radio;
 using Content.Shared.Silicons.Bots;
 using Content.Shared.Administration;
 using Content.Shared.Stacks;
@@ -49,6 +53,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 {
     private const string RescueAgentPrototype = "LuaMRescueAgent";
     private static readonly Vector2 SpawnOffset = new(1.25f, 0f);
+    private static readonly ProtoId<RadioChannelPrototype> MedicalRadioChannel = "Medical";
     private static readonly string[] TreatmentStorageSlotPriority =
     [
         "belt",
@@ -80,6 +85,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly HandsSystem _hands = default!;
     [Dependency] private readonly InventorySystem _inventory = default!;
     [Dependency] private readonly InteractionSystem _interaction = default!;
+    [Dependency] private readonly ChatSystem _chat = default!;
+    [Dependency] private readonly RadioSystem _radio = default!;
     [Dependency] private readonly DefibrillatorSystem _defibrillator = default!;
     [Dependency] private readonly SharedStorageSystem _storage = default!;
     [Dependency] private readonly ItemToggleSystem _itemToggle = default!;
@@ -90,6 +97,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly IPrototypeManager _prototype = default!;
     [Dependency] private readonly PathfindingSystem _pathfinding = default!;
     [Dependency] private readonly LuaMRescueTeamSystem _rescueTeam = default!;
+
+    public override void Initialize()
+    {
+        base.Initialize();
+
+        SubscribeLocalEvent<MobStateComponent, TargetDefibrillatedEvent>(OnTargetDefibrillated);
+    }
 
     public override void Update(float frameTime)
     {
@@ -365,8 +379,63 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoDefib={rescue.LastAutoDefibStatus}; " +
                $"autoEvac={rescue.LastAutoEvacuationStatus}; " +
+               $"autoComms={rescue.LastAutoCommsKey}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
+    }
+
+    private void OnTargetDefibrillated(EntityUid target, MobStateComponent mobState, ref TargetDefibrillatedEvent args)
+    {
+        if (!TryComp<LuaMRescueAgentComponent>(args.User, out var rescue))
+            return;
+
+        var targetName = Name(target);
+        if (mobState.CurrentState != MobState.Dead)
+        {
+            TrySendRescueStatusComms(
+                args.User,
+                rescue,
+                $"defib-success:{target}",
+                $"Пульс {targetName} восстановлен. Продолжаю стабилизацию.");
+            return;
+        }
+
+        TrySendRescueStatusComms(
+            args.User,
+            rescue,
+            $"defib-failed:{target}",
+            $"Дефибрилляция {targetName} не дала возврата. Держу пациента на борту.");
+    }
+
+    private void TrySendRescueStatusComms(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        string key,
+        string message,
+        bool radio = true)
+    {
+        if (Deleted(uid) ||
+            string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
+
+        var now = _timing.CurTime;
+        if (string.Equals(rescue.LastAutoCommsKey, key, StringComparison.Ordinal) &&
+            rescue.NextAutoCommsAt > now)
+        {
+            return;
+        }
+
+        rescue.LastAutoCommsKey = key;
+        rescue.NextAutoCommsAt = now + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoCommsCooldown));
+
+        _chat.TrySendInGameICMessage(uid, message, InGameICChatType.Speak, hideChat: false, hideLog: true);
+
+        if (radio)
+            _radio.SendRadioMessage(uid, message, MedicalRadioChannel, uid);
+
+        Dirty(uid, rescue);
     }
 
     private string GetRescuePhase(EntityUid uid, LuaMRescueAgentComponent rescue)
@@ -2900,6 +2969,11 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         rescue.LastAutoDefibStatus = $"started defibrillation of {FormatEntityRef(target)} with {FormatEntityRef(defib)}";
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"defib-start:{target}",
+            $"Дефибрилляция {Name(target)} начата. Не трогайте пациента.");
         Dirty(uid, rescue);
         return true;
     }
@@ -3758,6 +3832,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         StopPullingTarget(uid, target);
         ClearRescueTask(uid, rescue, $"completed evacuation of {FormatEntityRef(target)}");
+        if (TryComp<MobStateComponent>(target, out var mobState) &&
+            mobState.CurrentState == MobState.Dead)
+        {
+            TrySendRescueStatusComms(
+                uid,
+                rescue,
+                $"patient-onboard-dead:{target}",
+                $"Пациент {Name(target)} на борту. Начинаю реанимационный цикл.");
+        }
+
         rescue.ShuttleRoutedTarget = null;
         ResetTargetProgress(rescue);
         if (!HasPendingEvacuationTarget(uid, rescue, target))
@@ -3795,7 +3879,18 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryFindStabilizedShuttlePatient(rescue, out var patient, out var patientStrap, out var buckle, out var status))
         {
             if (!string.IsNullOrWhiteSpace(status))
+            {
                 rescue.LastAutoEvacuationStatus = status;
+
+                if (status.StartsWith("holding dead onboard patient", StringComparison.OrdinalIgnoreCase))
+                {
+                    TrySendRescueStatusComms(
+                        uid,
+                        rescue,
+                        $"patient-hold-dead:{rescue.AssignedShuttle}",
+                        "Пациент без пульса удерживается на борту. Продолжаю реанимационный цикл.");
+                }
+            }
 
             return false;
         }
@@ -3828,6 +3923,11 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 rescue.AssignedPatientStrap = null;
 
             ClearFollowTarget(uid, rescue, htn);
+            TrySendRescueStatusComms(
+                uid,
+                rescue,
+                $"patient-release:{patient}",
+                $"Пациент {Name(patient)} стабилен. Отпускаю с борта.");
         }
         else
         {

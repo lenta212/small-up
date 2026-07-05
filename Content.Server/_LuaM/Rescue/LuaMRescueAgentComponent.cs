@@ -145,6 +145,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float AutoDefibCooldown = 8f;
 
     [DataField]
+    public float AutoCommsCooldown = 10f;
+
+    [DataField]
     public float AutoAnalyzeCooldown = 45f;
 
     [DataField]
@@ -166,6 +169,8 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public TimeSpan NextAutoTreatmentAttempt;
 
     public TimeSpan NextAutoDefibAttempt;
+
+    public TimeSpan NextAutoCommsAt;
 
     public TimeSpan NextAutoAnalyzeAttempt;
 
@@ -217,6 +222,8 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     [DataField]
     public string LastAutoDefibStatus = "none";
+
+    public string LastAutoCommsKey = "none";
 
     [DataField]
     public string LastAutoAnalyzeStatus = "none";
