@@ -116,6 +116,18 @@ public sealed partial class LuaMRescueEscortComponent : Component
     public LuaMRescueEscortDuty CurrentDuty = LuaMRescueEscortDuty.Standby;
 
     [DataField]
+    public TimeSpan DutyUpdatedAt;
+
+    [DataField]
+    public LuaMRescueEscortDuty PendingDuty = LuaMRescueEscortDuty.Standby;
+
+    [DataField]
+    public TimeSpan PendingDutySince;
+
+    [DataField]
+    public int DutyTransitions;
+
+    [DataField]
     public LuaMRescueSortiePlan SortiePlan = LuaMRescueSortiePlan.Standby;
 
     [DataField]

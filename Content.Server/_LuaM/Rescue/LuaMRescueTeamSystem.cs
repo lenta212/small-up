@@ -31,6 +31,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double SceneMemoryLifetimeSeconds = 90;
     private const double SceneMemoryReinforceSeconds = 18;
     private const double SortiePlanHoldSeconds = 4;
+    private const double EscortDutyHoldSeconds = 2;
 
     private static readonly (LuaMRescueEscortRole Role, Vector2 Offset)[] EscortFormation =
     [
@@ -143,7 +144,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         {
             lines.Add(
                 $"escort={FormatEntityRef(uid)}; team={escort.TeamId}; role={FormatRole(escort.Role)}; " +
-                $"plan={FormatPlan(escort.SortiePlan)}; duty={FormatDuty(escort.CurrentDuty)}; follow={FormatEntityRef(escort.CurrentFollowTarget)}; " +
+                $"plan={FormatPlan(escort.SortiePlan)}; duty={FormatDuty(escort.CurrentDuty)}; " +
+                $"dutyAge={GetEscortDutyAgeSeconds(escort)}s; dutyTransitions={escort.DutyTransitions}; " +
+                $"follow={FormatEntityRef(escort.CurrentFollowTarget)}; " +
                 $"leader={FormatEntityRef(escort.Leader)}; patient={FormatEntityRef(escort.Patient)}; " +
                 $"threat={FormatEntityRef(escort.ThreatTarget)}; scene={escort.LastSceneStatus}; " +
                 $"memory={escort.LastMemoryDigest}; last={escort.LastDutyStatus}");
@@ -191,6 +194,10 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         escort.Shuttle = ValidOrNull(shuttle);
         escort.ShuttleAnchor = ValidOrNull(shuttleAnchor);
         escort.CurrentDuty = LuaMRescueEscortDuty.Standby;
+        escort.DutyUpdatedAt = _timing.CurTime;
+        escort.PendingDuty = escort.CurrentDuty;
+        escort.PendingDutySince = _timing.CurTime;
+        escort.DutyTransitions = 0;
         escort.SortiePlan = LuaMRescueSortiePlan.Standby;
         escort.LastDutyStatus = "deployed";
         escort.NextSpeechTime = _timing.CurTime;
@@ -276,16 +283,17 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     {
         SyncEscortContextFromLeader(escort);
 
-        var duty = GetEscortDuty(escort);
+        var candidateDuty = GetEscortDuty(escort);
+        var dutyChanged = UpdateEscortDutySelection(escort, candidateDuty, _timing.CurTime);
+        var duty = escort.CurrentDuty;
         var followTarget = GetEscortFollowTarget(escort, duty);
-        var changed = escort.CurrentDuty != duty || escort.CurrentFollowTarget != followTarget;
+        var followChanged = escort.CurrentFollowTarget != followTarget;
 
-        escort.CurrentDuty = duty;
         escort.CurrentFollowTarget = followTarget;
-        escort.LastDutyStatus = $"{FormatRole(escort.Role)} plan={FormatPlan(escort.SortiePlan)} duty={FormatDuty(duty)}; {escort.LastSceneStatus}; {escort.LastMemoryDigest}";
+        escort.LastDutyStatus = BuildEscortDutyStatus(escort, candidateDuty, followTarget, _timing.CurTime);
 
         SetEscortFollowTarget(uid, escort, htn, followTarget, duty);
-        if ((changed || forceSpeech) &&
+        if ((dutyChanged || followChanged || forceSpeech) &&
             _timing.CurTime >= escort.NextSpeechTime)
         {
             TrySayDutyLine(uid, escort, duty);
@@ -293,6 +301,95 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         Dirty(uid, escort);
+    }
+
+    private static bool UpdateEscortDutySelection(
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty candidateDuty,
+        TimeSpan now)
+    {
+        if (candidateDuty == escort.CurrentDuty)
+        {
+            if (escort.PendingDuty != candidateDuty)
+            {
+                escort.PendingDuty = candidateDuty;
+                escort.PendingDutySince = escort.DutyUpdatedAt;
+            }
+
+            return false;
+        }
+
+        if (escort.CurrentDuty == LuaMRescueEscortDuty.Standby ||
+            IsUrgentEscortDuty(candidateDuty))
+        {
+            return CommitEscortDuty(escort, candidateDuty, now);
+        }
+
+        if (escort.PendingDuty != candidateDuty)
+        {
+            escort.PendingDuty = candidateDuty;
+            escort.PendingDutySince = now;
+            return false;
+        }
+
+        if ((now - escort.PendingDutySince).TotalSeconds < EscortDutyHoldSeconds)
+            return false;
+
+        return CommitEscortDuty(escort, candidateDuty, now);
+    }
+
+    private static bool CommitEscortDuty(
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty duty,
+        TimeSpan now)
+    {
+        var changed = false;
+
+        if (escort.CurrentDuty != duty)
+        {
+            escort.CurrentDuty = duty;
+            escort.DutyUpdatedAt = now;
+            escort.DutyTransitions++;
+            changed = true;
+        }
+
+        if (escort.PendingDuty != duty)
+        {
+            escort.PendingDuty = duty;
+            changed = true;
+        }
+
+        if (escort.PendingDutySince != now)
+            escort.PendingDutySince = now;
+
+        return changed;
+    }
+
+    private static bool IsUrgentEscortDuty(LuaMRescueEscortDuty duty)
+    {
+        return duty is LuaMRescueEscortDuty.Standby
+            or LuaMRescueEscortDuty.ReturnToShuttle
+            or LuaMRescueEscortDuty.ThreatScreen
+            or LuaMRescueEscortDuty.ClearRoute;
+    }
+
+    private string BuildEscortDutyStatus(
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty candidateDuty,
+        EntityUid? followTarget,
+        TimeSpan now)
+    {
+        var dutyAge = GetEscortDutyAgeSeconds(escort);
+        var status = $"{FormatRole(escort.Role)} plan={FormatPlan(escort.SortiePlan)} duty={FormatDuty(escort.CurrentDuty)} " +
+            $"age={dutyAge}s transitions={escort.DutyTransitions} focus={FormatEntityRef(followTarget)}";
+
+        if (candidateDuty != escort.CurrentDuty)
+        {
+            var pendingAge = GetElapsedSeconds(escort.PendingDutySince, now);
+            status += $" holding candidate {FormatDuty(candidateDuty)} {pendingAge}s/{EscortDutyHoldSeconds:0}s";
+        }
+
+        return $"{status}; {escort.LastSceneStatus}; {escort.LastMemoryDigest}";
     }
 
     private bool UpdateSortiePlan(
@@ -417,6 +514,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private int GetSortiePlanAgeSeconds(LuaMRescueTeamComponent team)
     {
         return GetElapsedSeconds(team.SortiePlanUpdatedAt, _timing.CurTime);
+    }
+
+    private int GetEscortDutyAgeSeconds(LuaMRescueEscortComponent escort)
+    {
+        return GetElapsedSeconds(escort.DutyUpdatedAt, _timing.CurTime);
     }
 
     private static int GetElapsedSeconds(TimeSpan startedAt, TimeSpan now)
