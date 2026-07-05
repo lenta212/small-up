@@ -6,6 +6,7 @@ using Content.Server.Chat.Systems;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Systems;
+using Content.Shared.Buckle.Components;
 using Content.Shared.Chat;
 using Content.Shared.CombatMode;
 using Content.Shared.Mobs;
@@ -36,6 +37,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double EscortDutyHoldSeconds = 2;
     private const double EscortDutyActionIntervalSeconds = 2;
     private const float EscortDutyActionRange = 1.75f;
+    private const float EscortPatientAssistRange = 1.5f;
 
     private static readonly (LuaMRescueEscortRole Role, Vector2 Offset)[] EscortFormation =
     [
@@ -417,13 +419,19 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         escort.NextDutyActionAt = _timing.CurTime + TimeSpan.FromSeconds(EscortDutyActionIntervalSeconds);
 
-        if (duty != LuaMRescueEscortDuty.ClearRoute)
+        if (duty == LuaMRescueEscortDuty.ClearRoute)
         {
-            escort.LastDutyActionStatus = $"watch {FormatDuty(duty)}";
+            TryRunClearRouteAction(uid, escort, followTarget);
             return;
         }
 
-        TryRunClearRouteAction(uid, escort, followTarget);
+        if (ShouldEscortAssistPatientPull(escort, duty))
+        {
+            TryRunPatientAssistAction(uid, escort, followTarget);
+            return;
+        }
+
+        escort.LastDutyActionStatus = $"watch {FormatDuty(duty)}";
     }
 
     private void TryRunClearRouteAction(
@@ -464,6 +472,74 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         escort.LastDutyActionStatus = $"clear-route pull blocked {FormatEntityRef(blockerUid)}";
+    }
+
+    private static bool ShouldEscortAssistPatientPull(
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty duty)
+    {
+        return escort.Role == LuaMRescueEscortRole.Kostyl &&
+            duty == LuaMRescueEscortDuty.PatientSupport &&
+            escort.SortiePlan == LuaMRescueSortiePlan.EvacuatePatient;
+    }
+
+    private void TryRunPatientAssistAction(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        EntityUid? followTarget)
+    {
+        var patient = ValidOrNull(escort.Patient) ?? ValidOrNull(followTarget);
+        if (patient is not { Valid: true } patientUid)
+        {
+            escort.LastDutyActionStatus = "patient-assist no patient target";
+            return;
+        }
+
+        if (TryComp<BuckleComponent>(patientUid, out var buckle) &&
+            buckle.BuckledTo is { Valid: true })
+        {
+            escort.LastDutyActionStatus = $"patient-assist already buckled {FormatEntityRef(patientUid)}";
+            return;
+        }
+
+        if (!TryComp<PullableComponent>(patientUid, out var pullable))
+        {
+            escort.LastDutyActionStatus = $"patient-assist patient not pullable {FormatEntityRef(patientUid)}";
+            return;
+        }
+
+        if (pullable.Puller == uid)
+        {
+            escort.LastDutyActionStatus = $"patient-assist holding {FormatEntityRef(patientUid)}";
+            return;
+        }
+
+        if (pullable.Puller is { Valid: true } puller && !Deleted(puller))
+        {
+            escort.LastDutyActionStatus = $"patient-assist already pulled by {FormatEntityRef(puller)}";
+            return;
+        }
+
+        if (!TryComp<PullerComponent>(uid, out var pullerComp))
+        {
+            escort.LastDutyActionStatus = "patient-assist escort cannot pull";
+            return;
+        }
+
+        if (!IsWithinRange(uid, patientUid, EscortPatientAssistRange))
+        {
+            escort.LastDutyActionStatus = $"patient-assist moving to {FormatEntityRef(patientUid)}";
+            return;
+        }
+
+        if (_pulling.TryStartPull(uid, patientUid, pullerComp, pullable))
+        {
+            escort.DutyActions++;
+            escort.LastDutyActionStatus = $"patient-assist pulling {FormatEntityRef(patientUid)}";
+            return;
+        }
+
+        escort.LastDutyActionStatus = $"patient-assist pull blocked {FormatEntityRef(patientUid)}";
     }
 
     private bool UpdateSortiePlan(
