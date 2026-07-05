@@ -343,6 +343,8 @@ ALLOWED_ADMIN_COMMAND_NAMES: tuple[str, ...] = (
     "luam_sector_history",
     "luam_sector_resolve",
     "luam_sector_status",
+    "luam_rescue_order",
+    "luam_rescue_status",
 )
 FORBIDDEN_ADMIN_COMMAND_PREFIXES: tuple[str, ...] = (
     "admin",
@@ -473,6 +475,8 @@ enable_auto_ai, world pressure и максимальная опасность д
 If the admin asks to create pressure, conditions, danger, panic, or an event around themselves, near the selected player, or around a specific human target, prefer run_sector_command with sectorCommandId personal_pressure.
 If that request also asks for maximum danger, panic, administrator will, or anything-can-happen escalation, prefer sectorCommandId personal_max_danger.
 If the admin explicitly asks to create or spawn a Baeg, shuttle, ship, or named vessel near them, prefer run_sector_command with sectorCommandId spawn_ship when it is present in allowedSectorCommandIds. Keep the vessel name/ID in instruction. Do not map this request to spawn_entity.
+If the admin explicitly asks for LuaM rescue agent status, choose run_admin_command with "luam_rescue_status" when it is present in allowedAdminCommandNames.
+If the admin explicitly asks to order an existing LuaM rescue agent to help, follow, or rescue a target, choose run_admin_command with "luam_rescue_order target=<target>" or "luam_rescue_order clear" only when luam_rescue_order is present in allowedAdminCommandNames. Do not invent hidden coordinates or unsafe commands.
 Для clear_sector_condition используй conditionId из контекста activeConditionIds, если администратор не указал новый id.
 Для resolve_open_lead заполни resolutionNote короткой русской причиной закрытия.
 Для spawn_entity используй entityPrototypeId только из allowedEntityPrototypeIds, entityCount 1..5.
@@ -2011,6 +2015,16 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
                 return candidate
         return ""
 
+    def choose_allowed_admin_command(*candidates: str) -> str:
+        allowed_commands = context.get("allowedAdminCommandNames")
+        if not isinstance(allowed_commands, list):
+            return ""
+        allowed = {str(command).strip().lower() for command in allowed_commands}
+        for candidate in candidates:
+            if candidate.lower() in allowed:
+                return candidate
+        return ""
+
     wants_world_pressure = any(word in lowered for word in (
         "усиль",
         "влия",
@@ -2035,6 +2049,7 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
         any(word in lowered for word in ("baeg", "shuttle", " ship", "ship ", "shipyard", "vessel", "кораб", "шатл", "шаттл", "шип"))
         and any(word in lowered for word in ("spawn", "create", "summon", "call", "need", "want", "give", "near", "nearby", "next to", "beside", "создай", "создавай", "сделай", "заспавн", "вызови", "дай", "выдай", "нужен", "нужна", "нужно", "хочу", "доставь", "подгони", "рядом", "возле", "около"))
     )
+    wants_rescue = any(word in lowered for word in ("rescue", "luam_rescue", "rescuer"))
     wants_personal_pressure = any(word in lowered for word in (
         "рядом со мной",
         "рядом с мной",
@@ -2075,6 +2090,14 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
     if asks_capabilities:
         action = "none"
         reply = build_capability_reply()
+    elif wants_rescue and any(word in lowered for word in ("status", "state")) and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_status"):
+        action = "run_admin_command"
+        admin_command = "luam_rescue_status"
+        reply = "AI provider is temporarily unavailable. Showing local LuaM rescue agent status."
+    elif wants_rescue and any(word in lowered for word in ("clear", "standby", "stop order")) and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_order"):
+        action = "run_admin_command"
+        admin_command = "luam_rescue_order clear"
+        reply = "AI provider is temporarily unavailable. Clearing the current LuaM rescue agent order locally."
     elif any(word in lowered for word in ("статус", "состояние", "status")) and is_allowed("status"):
         action = "status"
         reply = "ИИ-провайдер временно не ответил. Показываю локальный статус сектора."

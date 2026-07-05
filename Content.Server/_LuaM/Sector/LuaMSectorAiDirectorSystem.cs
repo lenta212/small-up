@@ -183,6 +183,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         "luam_sector_history",
         "luam_sector_resolve",
         "luam_sector_status",
+        "luam_rescue_order",
+        "luam_rescue_status",
     ];
 
     private static readonly string[] ForbiddenAiAdminCommandPrefixes =

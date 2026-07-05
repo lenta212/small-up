@@ -181,6 +181,9 @@ public sealed class LuaMAiDirectorParsingTest
     [TestCase("help")]
     [TestCase("luam_sector_history 5")]
     [TestCase("luam_sector_status")]
+    [TestCase("luam_rescue_status")]
+    [TestCase("luam_rescue_order target=123")]
+    [TestCase("luam_rescue_order clear")]
     public void AiAdminConsoleGuardAllowsExpectedCommands(string command)
     {
         var (allowed, reason) = InvokePrivateStatic<bool, string>(

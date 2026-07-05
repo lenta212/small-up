@@ -736,6 +736,8 @@ def main() -> int:
         "run_admin_command",
         "RunAdminConsoleCommandAsync",
         "AllowedAiAdminCommandNames",
+        "luam_rescue_order",
+        "luam_rescue_status",
         "NormalizeAiAdminConsoleCommand",
         "IsSafeAiAdminConsoleCommand",
         "IsAllowedAiAdminCommandName",
@@ -2072,9 +2074,12 @@ def main() -> int:
         "FORBIDDEN_ADMIN_COMMAND_METACHARACTERS",
         "normalize_admin_command",
         "allowed_admin_command_names",
+        "choose_allowed_admin_command",
         "matches_forbidden_admin_command_prefix",
         "is_safe_admin_command",
         "allowedAdminCommandNames",
+        "luam_rescue_order",
+        "luam_rescue_status",
         "inputSafetyFlags",
         "aiMemoryBrief",
         "safetyDirectives",
@@ -2170,6 +2175,8 @@ def main() -> int:
         "safe-admin-command",
         "shutdown now",
         "luam_sector_status",
+        "luam_rescue_status",
+        "luam_rescue_order",
         "dangerChat",
         "safeChat",
         "len(requests) == 5",
@@ -3059,9 +3066,17 @@ def main() -> int:
 
     rescue_agent_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs").read_text(encoding="utf-8")
     assert_contains(rescue_agent_system, 'Command => "luam_rescue_agent"', "LuaMRescueAgentCommand")
+    assert_contains(rescue_agent_system, 'Command => "luam_rescue_order"', "LuaMRescueOrderCommand")
     assert_contains(rescue_agent_system, 'Command => "luam_rescue_status"', "LuaMRescueStatusCommand")
     assert_contains(rescue_agent_system, "MindSystem", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "ControlMob(controller.UserId, agent)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryOrderAgent", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "LuaMRescueOrderCommand", "LuaMRescueOrderCommand")
+    assert_contains(rescue_agent_system, "agent=<entity|", "LuaMRescueOrderCommand")
+    assert_contains(rescue_agent_system, "target=<entity|player>", "LuaMRescueOrderCommand")
+    assert_contains(rescue_agent_system, "ordered to rescue", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "ordered to follow", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "cleared current rescue order", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "BuildRescueStatusLines", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "BuildRescueStatusLine", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "GetRescuePhase", "LuaMRescueAgentSystem")

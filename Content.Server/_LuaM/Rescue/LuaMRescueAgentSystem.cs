@@ -90,6 +90,64 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return lines;
     }
 
+    public bool TryOrderAgent(EntityUid agent, EntityUid? target, out string status)
+    {
+        status = string.Empty;
+
+        if (!TryComp<LuaMRescueAgentComponent>(agent, out var rescue) ||
+            !TryComp<HTNComponent>(agent, out var htn))
+        {
+            status = $"{FormatEntityRef(agent)} is not a LuaM rescue agent.";
+            return false;
+        }
+
+        if (HasComp<ActorComponent>(agent))
+        {
+            status = $"{FormatEntityRef(agent)} is under manual player control.";
+            return false;
+        }
+
+        if (target is not { Valid: true } targetUid)
+        {
+            if (rescue.EvacuatingTarget is { Valid: true } previousTarget &&
+                !Deleted(previousTarget))
+            {
+                StopPullingTarget(agent, previousTarget);
+            }
+
+            ResetTargetProgress(rescue);
+            StandbyAtAssignedShuttle(agent, rescue, htn);
+            status = $"{FormatEntityRef(agent)} cleared current rescue order and is returning to standby.";
+            return true;
+        }
+
+        if (Deleted(targetUid))
+        {
+            status = $"Target {targetUid} is deleted.";
+            return false;
+        }
+
+        if (rescue.EvacuatingTarget is { Valid: true } previous &&
+            previous != targetUid &&
+            !Deleted(previous))
+        {
+            StopPullingTarget(agent, previous);
+        }
+
+        rescue.SkippedTargets.Remove(targetUid);
+        ResetTargetProgress(rescue);
+
+        if (TryStartOrContinueEvacuation(agent, rescue, htn, targetUid))
+        {
+            status = $"{FormatEntityRef(agent)} ordered to rescue {FormatEntityRef(targetUid)}.";
+            return true;
+        }
+
+        SetFollowTarget(agent, rescue, htn, targetUid);
+        status = $"{FormatEntityRef(agent)} ordered to follow {FormatEntityRef(targetUid)}.";
+        return true;
+    }
+
     private string BuildRescueStatusLine(EntityUid uid, LuaMRescueAgentComponent rescue)
     {
         var target = rescue.EvacuatingTarget ?? rescue.AssignedTarget;
@@ -1092,6 +1150,245 @@ public sealed class LuaMRescueAgentCommand : IConsoleCommand
             ? $"Target player name is ambiguous: {raw}."
             : $"Target not found or has no attached entity: {raw}.";
         return false;
+    }
+}
+
+[AdminCommand(AdminFlags.Server)]
+public sealed class LuaMRescueOrderCommand : IConsoleCommand
+{
+    private const string AgentKey = "agent";
+    private const string TargetKey = "target";
+    private const string AllAgentsValue = "all";
+    private const string NearestAgentValue = "nearest";
+    private const string ClearValue = "clear";
+
+    [Dependency] private readonly IEntityManager _entities = default!;
+    [Dependency] private readonly IPlayerManager _players = default!;
+
+    public string Command => "luam_rescue_order";
+    public string Description => "Orders active LuaM rescue agents to follow or rescue a target.";
+    public string Help =>
+        $"Usage: {Command} [agent=<entity|{NearestAgentValue}|{AllAgentsValue}>] [target=<entity|player>|{ClearValue}]";
+
+    public void Execute(IConsoleShell shell, string argStr, string[] args)
+    {
+        var clear = args.Any(arg => arg.Equals(ClearValue, StringComparison.OrdinalIgnoreCase) ||
+                                    arg.Equals($"{TargetKey}={ClearValue}", StringComparison.OrdinalIgnoreCase));
+        var agentArg = GetValue(args, AgentKey);
+        var targetArg = GetValue(args, TargetKey) ??
+                        args.FirstOrDefault(arg => !arg.Contains('=') &&
+                                                   !arg.StartsWith("--", StringComparison.Ordinal) &&
+                                                   !arg.Equals(ClearValue, StringComparison.OrdinalIgnoreCase));
+
+        if (!TryResolveAgents(shell, agentArg, out var agents, out var error))
+        {
+            shell.WriteError(error);
+            return;
+        }
+
+        EntityUid? target = null;
+        if (!clear)
+        {
+            if (string.IsNullOrWhiteSpace(targetArg))
+            {
+                shell.WriteError($"Pass {TargetKey}=<entity|player> or {ClearValue}.");
+                return;
+            }
+
+            if (!TryResolveTarget(targetArg, out target, out error))
+            {
+                shell.WriteError(error);
+                return;
+            }
+        }
+
+        var system = _entities.System<LuaMRescueAgentSystem>();
+        foreach (var agent in agents)
+        {
+            if (system.TryOrderAgent(agent, target, out var status))
+                shell.WriteLine(status);
+            else
+                shell.WriteError(status);
+        }
+    }
+
+    public CompletionResult GetCompletion(IConsoleShell shell, string[] args)
+    {
+        if (args.Length <= 1)
+        {
+            var names = _players.Sessions.Select(session => $"{TargetKey}={session.Name}");
+            return CompletionResult.FromHintOptions(
+                names.Concat([
+                    $"{AgentKey}={NearestAgentValue}",
+                    $"{AgentKey}={AllAgentsValue}",
+                    $"{TargetKey}=",
+                    ClearValue,
+                ]),
+                "rescue order option");
+        }
+
+        return CompletionResult.FromHintOptions([
+            $"{AgentKey}={NearestAgentValue}",
+            $"{AgentKey}={AllAgentsValue}",
+            $"{TargetKey}=",
+            ClearValue,
+        ], "rescue order option");
+    }
+
+    private bool TryResolveAgents(IConsoleShell shell, string? raw, out List<EntityUid> agents, out string error)
+    {
+        agents = [];
+        error = string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(raw))
+        {
+            if (raw.Equals(AllAgentsValue, StringComparison.OrdinalIgnoreCase))
+            {
+                agents.AddRange(GetActiveAgents());
+                if (agents.Count > 0)
+                    return true;
+
+                error = "No LuaM rescue agents are active.";
+                return false;
+            }
+
+            if (raw.Equals(NearestAgentValue, StringComparison.OrdinalIgnoreCase))
+                return TryResolveNearestAgent(shell, out agents, out error);
+
+            if (TryResolveEntity(raw, out var agent) &&
+                _entities.HasComponent<LuaMRescueAgentComponent>(agent))
+            {
+                agents.Add(agent);
+                return true;
+            }
+
+            error = $"LuaM rescue agent not found: {raw}.";
+            return false;
+        }
+
+        agents.AddRange(GetActiveAgents());
+        if (agents.Count == 1)
+            return true;
+
+        if (agents.Count > 1)
+            return TryResolveNearestAgent(shell, out agents, out error);
+
+        error = "No LuaM rescue agents are active.";
+        return false;
+    }
+
+    private bool TryResolveNearestAgent(IConsoleShell shell, out List<EntityUid> agents, out string error)
+    {
+        agents = [];
+        error = string.Empty;
+
+        if (shell.Player?.AttachedEntity is not { Valid: true } attached)
+        {
+            error = $"Could not infer nearest agent. Pass {AgentKey}=<entity|{AllAgentsValue}>.";
+            return false;
+        }
+
+        var attachedCoordinates = _entities.GetComponent<TransformComponent>(attached).Coordinates;
+        var bestDistance = float.PositiveInfinity;
+        EntityUid? bestAgent = null;
+
+        foreach (var agent in GetActiveAgents())
+        {
+            var coordinates = _entities.GetComponent<TransformComponent>(agent).Coordinates;
+            if (!attachedCoordinates.TryDistance(_entities, coordinates, out var distance) ||
+                distance >= bestDistance)
+            {
+                continue;
+            }
+
+            bestAgent = agent;
+            bestDistance = distance;
+        }
+
+        if (bestAgent is { Valid: true } nearest)
+        {
+            agents.Add(nearest);
+            return true;
+        }
+
+        error = "No reachable LuaM rescue agent found.";
+        return false;
+    }
+
+    private List<EntityUid> GetActiveAgents()
+    {
+        var agents = new List<EntityUid>();
+        var query = _entities.EntityQueryEnumerator<LuaMRescueAgentComponent>();
+        while (query.MoveNext(out var uid, out _))
+        {
+            agents.Add(uid);
+        }
+
+        return agents;
+    }
+
+    private bool TryResolveTarget(string raw, out EntityUid? target, out string error)
+    {
+        target = null;
+        error = string.Empty;
+
+        if (TryResolveEntity(raw, out var parsedTarget))
+        {
+            target = parsedTarget;
+            return true;
+        }
+
+        var matches = _players.Sessions
+            .Where(session => session.Name.Contains(raw, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        if (matches.Length == 1 && matches[0].AttachedEntity is { Valid: true } attached)
+        {
+            target = attached;
+            return true;
+        }
+
+        error = matches.Length > 1
+            ? $"Target player name is ambiguous: {raw}."
+            : $"Target not found or has no attached entity: {raw}.";
+        return false;
+    }
+
+    private bool TryResolveEntity(string raw, out EntityUid entity)
+    {
+        entity = default;
+
+        if (NetEntity.TryParse(raw, out var netEntity) &&
+            _entities.TryGetEntity(netEntity, out var parsed) &&
+            parsed is { Valid: true })
+        {
+            entity = parsed.Value;
+            return true;
+        }
+
+        if (!int.TryParse(raw, out var integerId))
+            return false;
+
+        if (_entities.TryGetEntity(new NetEntity(integerId), out parsed) &&
+            parsed is { Valid: true })
+        {
+            entity = parsed.Value;
+            return true;
+        }
+
+        var uid = new EntityUid(integerId);
+        if (!_entities.EntityExists(uid))
+            return false;
+
+        entity = uid;
+        return true;
+    }
+
+    private static string? GetValue(string[] args, string key)
+    {
+        var prefix = $"{key}=";
+        var match = args.FirstOrDefault(arg => arg.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        return match?.Substring(prefix.Length);
     }
 }
 
