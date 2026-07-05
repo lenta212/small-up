@@ -630,7 +630,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (NeedsEvacuation(patient, rescue) ||
+        if (NeedsEvacuation(uid, patient, rescue) ||
             IsRescueCandidate(uid, patient, medibot, requireRange: false, rescue.SearchRange, out _))
         {
             target = patient;
@@ -650,10 +650,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryGetRememberedPatientTarget(uid, rescue, medibot, out var patient))
             return false;
 
-        if (TryAutoTreatTarget(uid, rescue, htn, patient))
-            return true;
-
-        if (TryStartOrContinueEvacuation(uid, rescue, htn, patient))
+        if (TryTreatOrEvacuateTarget(uid, rescue, htn, patient))
             return true;
 
         SetRescueTask(
@@ -2350,8 +2347,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (rescue.AssignedTarget is { Valid: true } assigned &&
             !IsTargetTemporarilySkipped(assigned, rescue) &&
-            (TryAutoTreatTarget(uid, rescue, htn, assigned) ||
-             TryStartOrContinueEvacuation(uid, rescue, htn, assigned)))
+            TryTreatOrEvacuateTarget(uid, rescue, htn, assigned))
         {
             return;
         }
@@ -2369,10 +2365,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             !IsTargetTemporarilySkipped(current, rescue) &&
             IsRescueCandidate(uid, current, medibot, requireRange: false, rescue.SearchRange, out _))
         {
-            if (TryAutoTreatTarget(uid, rescue, htn, current))
-                return;
-
-            if (TryStartOrContinueEvacuation(uid, rescue, htn, current))
+            if (TryTreatOrEvacuateTarget(uid, rescue, htn, current))
                 return;
 
             SetRescueTask(
@@ -2388,10 +2381,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (TryFindRescueTarget(uid, rescue.SearchRange, rescue, medibot, out var target))
         {
-            if (TryAutoTreatTarget(uid, rescue, htn, target))
-                return;
-
-            if (TryStartOrContinueEvacuation(uid, rescue, htn, target))
+            if (TryTreatOrEvacuateTarget(uid, rescue, htn, target))
                 return;
 
             SetRescueTask(
@@ -2407,8 +2397,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (TryFindEvacuationTarget(uid, rescue.SearchRange, rescue, out var evacuationTarget) &&
             (TryAutoDefibTarget(uid, rescue, htn, evacuationTarget) ||
-             TryAutoTreatTarget(uid, rescue, htn, evacuationTarget) ||
-             TryStartOrContinueEvacuation(uid, rescue, htn, evacuationTarget)))
+             TryTreatOrEvacuateTarget(uid, rescue, htn, evacuationTarget)))
         {
             return;
         }
@@ -2420,6 +2409,30 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
 
         StandbyAtAssignedShuttle(uid, rescue, htn);
+    }
+
+    private bool TryTreatOrEvacuateTarget(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target)
+    {
+        if (ShouldEvacuateBeforeTreatment(uid, target, rescue))
+        {
+            return TryStartOrContinueEvacuation(uid, rescue, htn, target) ||
+                   TryAutoTreatTarget(uid, rescue, htn, target);
+        }
+
+        return TryAutoTreatTarget(uid, rescue, htn, target) ||
+               TryStartOrContinueEvacuation(uid, rescue, htn, target);
+    }
+
+    private bool ShouldEvacuateBeforeTreatment(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue)
+    {
+        return IsThreatenedEvacuationTarget(uid, target, rescue);
     }
 
     private bool TryFindRescueTarget(
@@ -2536,13 +2549,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        var unsafeSceneEvacuation = IsThreatenedEvacuationTarget(uid, target, rescue);
+
         if (!IsPullingTarget(uid, target) &&
             TryAutoDefibTarget(uid, rescue, htn, target))
         {
             return true;
         }
 
-        if (!IsPullingTarget(uid, target) &&
+        if (!unsafeSceneEvacuation &&
+            !IsPullingTarget(uid, target) &&
             TryAutoTreatTarget(uid, rescue, htn, target))
         {
             return true;
@@ -2642,7 +2658,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         HTNComponent htn,
         EntityUid target)
     {
-        if (!NeedsEvacuation(target, rescue))
+        var unsafeSceneEvacuation = IsThreatenedEvacuationTarget(uid, target, rescue);
+        if (!NeedsEvacuation(uid, target, rescue))
             return false;
 
         if (rescue.EvacuatingTarget != target)
@@ -2661,13 +2678,22 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             target,
             null,
             $"evacuating {FormatEntityRef(target)}");
+        if (unsafeSceneEvacuation &&
+            TryComp<LuaMRescueTeamComponent>(uid, out var team))
+        {
+            rescue.LastAutoEvacuationStatus = $"unsafe-scene evacuation of {FormatEntityRef(target)}; {team.LastSceneStatus}; {team.LastMemoryDigest}";
+        }
+
         TryRouteShuttleToTarget(uid, rescue, target);
 
         if (TryAutoDefibTarget(uid, rescue, htn, target))
             return true;
 
-        if (TryAutoTreatTarget(uid, rescue, htn, target))
+        if (!unsafeSceneEvacuation &&
+            TryAutoTreatTarget(uid, rescue, htn, target))
+        {
             return true;
+        }
 
         if (!IsPullingTarget(uid, target) &&
             TryAutoUnbucklePatientForEvacuation(uid, target, rescue, htn))
@@ -3317,7 +3343,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return true;
     }
 
-    private bool NeedsEvacuation(EntityUid target, LuaMRescueAgentComponent rescue)
+    private bool NeedsEvacuation(EntityUid uid, EntityUid target, LuaMRescueAgentComponent rescue)
     {
         if (!rescue.EvacuateTargetsToShuttle ||
             !CanUseAssignedShuttle(rescue) ||
@@ -3332,11 +3358,51 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (mobState.CurrentState == MobState.Dead)
             return IsDeadPatientRecoveryTarget(target, rescue, mobState);
 
+        if (IsThreatenedEvacuationTarget(uid, target, rescue))
+            return true;
+
         if (!TryComp<DamageableComponent>(target, out var damage))
             return false;
 
         return mobState.CurrentState == MobState.Critical ||
                damage.TotalDamage.Float() >= rescue.EvacuationMinDamage;
+    }
+
+    private bool IsThreatenedEvacuationTarget(EntityUid uid, EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        if (!rescue.EvacuateWhenSceneThreatened ||
+            !CanUseAssignedShuttle(rescue) ||
+            !TryComp<LuaMRescueTeamComponent>(uid, out var team) ||
+            !HasRescueTeamThreatPressure(team) ||
+            !HasComp<PullableComponent>(target) ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            mobState.CurrentState == MobState.Dead)
+        {
+            return false;
+        }
+
+        if (team.Patient is { Valid: true } patient &&
+            patient != target &&
+            rescue.AssignedTarget != target &&
+            rescue.EvacuatingTarget != target &&
+            rescue.TaskPatientTarget != target)
+        {
+            return false;
+        }
+
+        if (mobState.CurrentState == MobState.Critical)
+            return true;
+
+        return TryComp<DamageableComponent>(target, out var damage) &&
+               damage.TotalDamage.Float() >= rescue.ThreatEvacuationMinDamage;
+    }
+
+    private static bool HasRescueTeamThreatPressure(LuaMRescueTeamComponent team)
+    {
+        return team.ThreatTarget is { Valid: true } ||
+               team.NearbyHostiles > 0 ||
+               team.NearbyCombatants > 0 ||
+               team.RecentThreatMemories > 0;
     }
 
     private bool IsDeadPatientRecoveryTarget(EntityUid target, LuaMRescueAgentComponent rescue, MobStateComponent mobState)
@@ -3360,7 +3426,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (candidate == rescuer ||
             Deleted(candidate) ||
-            !NeedsEvacuation(candidate, rescue))
+            !NeedsEvacuation(rescuer, candidate, rescue))
         {
             return false;
         }
@@ -3384,6 +3450,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         score = 0f - distance - navPenalty;
         if (TryComp<DamageableComponent>(candidate, out var damage))
             score += damage.TotalDamage.Float();
+
+        if (IsThreatenedEvacuationTarget(rescuer, candidate, rescue))
+            score += 750f;
 
         if (mobState.CurrentState == MobState.Dead)
             score += 1500f;

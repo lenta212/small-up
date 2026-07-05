@@ -82,6 +82,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoReturnShuttle = true;
 
     [DataField]
+    public bool EvacuateWhenSceneThreatened = true;
+
+    [DataField]
     public bool TemporarilySkipStalledTargets = true;
 
     [DataField]
@@ -113,6 +116,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     [DataField]
     public float EvacuationMinDamage = 50f;
+
+    [DataField]
+    public float ThreatEvacuationMinDamage = 5f;
 
     [DataField]
     public float AutoReleaseMaxDamage = 5f;

@@ -82,6 +82,27 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAgentEvacuatesThreatenedPatientsBeforeOnSiteTreatment()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("EvacuateWhenSceneThreatened = true"));
+        Assert.That(component, Does.Contain("ThreatEvacuationMinDamage = 5f"));
+        Assert.That(source, Does.Contain("TryTreatOrEvacuateTarget"));
+        Assert.That(source, Does.Contain("ShouldEvacuateBeforeTreatment"));
+        Assert.That(source, Does.Contain("IsThreatenedEvacuationTarget"));
+        Assert.That(source, Does.Contain("HasRescueTeamThreatPressure"));
+        Assert.That(source, Does.Contain("TryComp<LuaMRescueTeamComponent>(uid, out var team)"));
+        Assert.That(source, Does.Contain("team.ThreatTarget is { Valid: true }"));
+        Assert.That(source, Does.Contain("team.RecentThreatMemories > 0"));
+        Assert.That(source, Does.Contain("rescue.ThreatEvacuationMinDamage"));
+        Assert.That(source, Does.Contain("unsafe-scene evacuation"));
+        Assert.That(source, Does.Contain("score += 750f"));
+        Assert.That(source, Does.Contain("!unsafeSceneEvacuation"));
+    }
+
+    [Test]
     public void RescueAgentAutoDefibsDeadPatientsWithStandardDefibrillatorSystem()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
