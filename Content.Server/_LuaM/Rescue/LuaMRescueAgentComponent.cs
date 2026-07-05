@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace Content.Server._LuaM.Rescue;
 
 [RegisterComponent]
@@ -46,6 +49,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoReturnShuttle = true;
 
     [DataField]
+    public bool TemporarilySkipStalledTargets = true;
+
+    [DataField]
     public bool ShuttleReturnRouted;
 
     [DataField]
@@ -69,7 +75,26 @@ public sealed partial class LuaMRescueAgentComponent : Component
     [DataField]
     public float EvacuationMinDamage = 50f;
 
+    [DataField]
+    public float TargetStallSeconds = 20f;
+
+    [DataField]
+    public float TargetSkipSeconds = 45f;
+
+    [DataField]
+    public float TargetProgressTolerance = 0.25f;
+
     public float TargetRefreshAccumulator;
+
+    public readonly Dictionary<EntityUid, TimeSpan> SkippedTargets = new();
+
+    public EntityUid? ProgressTarget;
+
+    public EntityUid? ProgressGoal;
+
+    public float LastProgressDistance = float.PositiveInfinity;
+
+    public float TargetStallAccumulator;
 
     [DataField]
     public string Role = "rescue";

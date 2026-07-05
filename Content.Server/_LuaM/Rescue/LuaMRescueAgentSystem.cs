@@ -21,6 +21,7 @@ using Robust.Server.Player;
 using Robust.Shared.Console;
 using Robust.Shared.Map;
 using Robust.Shared.Player;
+using Robust.Shared.Timing;
 
 namespace Content.Server._LuaM.Rescue;
 
@@ -35,6 +36,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly MedibotSystem _medibot = default!;
     [Dependency] private readonly PullingSystem _pulling = default!;
     [Dependency] private readonly BuckleSystem _buckle = default!;
+    [Dependency] private readonly IGameTiming _timing = default!;
 
     public override void Update(float frameTime)
     {
@@ -76,10 +78,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     private void UpdateAssignedTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
     {
+        PruneSkippedTargets(rescue);
+
         if (UpdateEvacuation(uid, rescue, htn))
             return;
 
         if (rescue.AssignedTarget is { Valid: true } assigned &&
+            !IsTargetTemporarilySkipped(assigned, rescue) &&
             TryStartOrContinueEvacuation(uid, rescue, htn, assigned))
         {
             return;
@@ -92,6 +97,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         if (rescue.AssignedTarget is { Valid: true } current &&
+            !IsTargetTemporarilySkipped(current, rescue) &&
             IsRescueCandidate(uid, current, medibot, requireRange: false, rescue.SearchRange, out _))
         {
             if (TryStartOrContinueEvacuation(uid, rescue, htn, current))
@@ -101,7 +107,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
-        if (TryFindRescueTarget(uid, rescue.SearchRange, medibot, out var target))
+        if (TryFindRescueTarget(uid, rescue.SearchRange, rescue, medibot, out var target))
         {
             if (TryStartOrContinueEvacuation(uid, rescue, htn, target))
                 return;
@@ -119,13 +125,21 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         ClearFollowTarget(uid, rescue, htn);
     }
 
-    private bool TryFindRescueTarget(EntityUid uid, float searchRange, MedibotComponent medibot, out EntityUid target)
+    private bool TryFindRescueTarget(
+        EntityUid uid,
+        float searchRange,
+        LuaMRescueAgentComponent rescue,
+        MedibotComponent medibot,
+        out EntityUid target)
     {
         target = default;
         var bestScore = float.MinValue;
 
         foreach (var candidate in _lookup.GetEntitiesInRange(uid, searchRange))
         {
+            if (IsTargetTemporarilySkipped(candidate, rescue))
+                continue;
+
             if (!IsRescueCandidate(uid, candidate, medibot, requireRange: true, searchRange, out var score))
                 continue;
 
@@ -154,6 +168,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (candidate == excludedTarget)
                 continue;
 
+            if (IsTargetTemporarilySkipped(candidate, rescue))
+                continue;
+
             if (!IsEvacuationCandidate(uid, candidate, rescue, searchRange, out var score))
                 continue;
 
@@ -178,7 +195,20 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (rescue.EvacuatingTarget is not { Valid: true } target ||
             Deleted(target))
         {
+            ResetTargetProgress(rescue);
             rescue.EvacuatingTarget = null;
+            return false;
+        }
+
+        if (IsTargetTemporarilySkipped(target, rescue))
+        {
+            StopPullingTarget(uid, target);
+            rescue.EvacuatingTarget = null;
+            rescue.AssignedTarget = null;
+            rescue.AssignedPatientStrap = null;
+            ResetTargetProgress(rescue);
+            ClearFollowTarget(uid, rescue, htn);
+            Dirty(uid, rescue);
             return false;
         }
 
@@ -187,6 +217,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         {
             StopPullingTarget(uid, target);
             rescue.EvacuatingTarget = null;
+            ResetTargetProgress(rescue);
             Dirty(uid, rescue);
             return false;
         }
@@ -194,6 +225,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (IsEvacuationComplete(target, rescue))
         {
             CompleteEvacuation(uid, rescue, htn, target);
+            return false;
+        }
+
+        if (UpdateTargetProgress(uid, target, rescue))
+        {
+            TemporarilySkipTarget(uid, rescue, htn, target);
             return false;
         }
 
@@ -254,6 +291,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue.ShuttleReturnRouted = false;
             rescue.ShuttleRoutedTarget = null;
             rescue.AssignedPatientStrap = null;
+            ResetTargetProgress(rescue);
         }
 
         rescue.EvacuatingTarget = target;
@@ -321,6 +359,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         if (!rescue.EvacuateTargetsToShuttle ||
             !CanUseAssignedShuttle(rescue) ||
+            IsTargetTemporarilySkipped(target, rescue) ||
             IsEvacuationComplete(target, rescue) ||
             !TryComp<MobStateComponent>(target, out var mobState) ||
             !TryComp<DamageableComponent>(target, out var damage) ||
@@ -467,10 +506,142 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                distance <= range;
     }
 
+    private void PruneSkippedTargets(LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.SkippedTargets.Count == 0)
+            return;
+
+        var now = _timing.CurTime;
+        foreach (var target in rescue.SkippedTargets
+                     .Where(entry => Deleted(entry.Key) || entry.Value <= now)
+                     .Select(entry => entry.Key)
+                     .ToArray())
+        {
+            rescue.SkippedTargets.Remove(target);
+        }
+    }
+
+    private bool IsTargetTemporarilySkipped(EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        if (!rescue.SkippedTargets.TryGetValue(target, out var skipUntil))
+            return false;
+
+        if (_timing.CurTime < skipUntil)
+            return true;
+
+        rescue.SkippedTargets.Remove(target);
+        return false;
+    }
+
+    private bool UpdateTargetProgress(EntityUid uid, EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        if (!rescue.TemporarilySkipStalledTargets ||
+            rescue.TargetStallSeconds <= 0f ||
+            rescue.TargetSkipSeconds <= 0f ||
+            !TryGetEvacuationProgressDistance(uid, target, rescue, out var progressGoal, out var distance))
+        {
+            return false;
+        }
+
+        if (rescue.ProgressTarget != target ||
+            rescue.ProgressGoal != progressGoal)
+        {
+            rescue.ProgressTarget = target;
+            rescue.ProgressGoal = progressGoal;
+            rescue.LastProgressDistance = distance;
+            rescue.TargetStallAccumulator = 0f;
+            return false;
+        }
+
+        if (distance + rescue.TargetProgressTolerance < rescue.LastProgressDistance)
+        {
+            rescue.LastProgressDistance = distance;
+            rescue.TargetStallAccumulator = 0f;
+            return false;
+        }
+
+        if (distance > rescue.LastProgressDistance + rescue.TargetProgressTolerance)
+            rescue.LastProgressDistance = distance;
+
+        rescue.TargetStallAccumulator += rescue.TargetRefreshInterval;
+        return rescue.TargetStallAccumulator >= rescue.TargetStallSeconds;
+    }
+
+    private bool TryGetEvacuationProgressDistance(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        out EntityUid? progressGoal,
+        out float distance)
+    {
+        if (IsPullingTarget(uid, target))
+        {
+            if (rescue.AssignedPatientStrap is { Valid: true } patientStrap &&
+                !Deleted(patientStrap))
+            {
+                progressGoal = patientStrap;
+                return TryGetDistance(target, patientStrap, out distance);
+            }
+
+            if (rescue.AssignedShuttleAnchor is { Valid: true } anchor &&
+                !Deleted(anchor))
+            {
+                progressGoal = anchor;
+                return TryGetDistance(target, anchor, out distance);
+            }
+
+            if (rescue.AssignedShuttle is { Valid: true } shuttle &&
+                !Deleted(shuttle))
+            {
+                progressGoal = shuttle;
+                return TryGetDistance(target, shuttle, out distance);
+            }
+        }
+
+        progressGoal = target;
+        return TryGetDistance(uid, target, out distance);
+    }
+
+    private bool TryGetDistance(EntityUid first, EntityUid second, out float distance)
+    {
+        var firstCoordinates = Transform(first).Coordinates;
+        var secondCoordinates = Transform(second).Coordinates;
+        return firstCoordinates.TryDistance(EntityManager, secondCoordinates, out distance);
+    }
+
+    private void TemporarilySkipTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
+    {
+        rescue.SkippedTargets[target] = _timing.CurTime + TimeSpan.FromSeconds(rescue.TargetSkipSeconds);
+
+        StopPullingTarget(uid, target);
+        rescue.EvacuatingTarget = null;
+        rescue.AssignedTarget = null;
+        rescue.AssignedPatientStrap = null;
+        rescue.ShuttleRoutedTarget = null;
+        ResetTargetProgress(rescue);
+
+        if (!HasPendingEvacuationTarget(uid, rescue, target))
+            TryRouteShuttleHome(uid, rescue);
+        else
+            rescue.ShuttleReturnRouted = false;
+
+        ClearFollowTarget(uid, rescue, htn);
+        Dirty(uid, rescue);
+    }
+
+    private void ResetTargetProgress(LuaMRescueAgentComponent rescue)
+    {
+        rescue.ProgressTarget = null;
+        rescue.ProgressGoal = null;
+        rescue.LastProgressDistance = float.PositiveInfinity;
+        rescue.TargetStallAccumulator = 0f;
+    }
+
     private void CompleteEvacuation(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
     {
         StopPullingTarget(uid, target);
         rescue.ShuttleRoutedTarget = null;
+        ResetTargetProgress(rescue);
         if (!HasPendingEvacuationTarget(uid, rescue, target))
             TryRouteShuttleHome(uid, rescue);
         else
