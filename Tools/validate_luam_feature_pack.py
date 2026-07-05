@@ -71,6 +71,7 @@ def relevant_prototype_paths() -> list[Path]:
     paths.append(ROOT / "Resources/Prototypes/_NF/bounty_contract_collections.yml")
     paths.append(ROOT / "Resources/Prototypes/_NF/Roles/Jobs/Civilian/contractor.yml")
     paths.append(ROOT / "Resources/Prototypes/_Mono/lobbyscreens.yml")
+    paths.append(ROOT / "Resources/Prototypes/_Mono/Shipyard/triage.yml")
     return sorted(set(paths))
 
 
@@ -255,6 +256,7 @@ def main() -> int:
         "Content.Server/_LuaM/Donation/LuaMDonationShopSystem.cs",
         "Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs",
         "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs",
+        "Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs",
         "Content.Server/_LuaM/Sector/LuaMSectorAiDirectorSystem.cs",
         "Content.Server/_LuaM/Sector/LuaMSectorCommands.cs",
         "Content.Server/_LuaM/Sector/LuaMDistressBeaconComponent.cs",
@@ -294,6 +296,8 @@ def main() -> int:
         "Resources/Prototypes/InventoryTemplates/corpse_inventory_template.yml",
         "Resources/Prototypes/InventoryTemplates/human_inventory_template.yml",
         "Resources/Prototypes/_NF/Entities/Mobs/NPCs/mob_hostile_rogue_ai.yml",
+        "Resources/Prototypes/_Mono/Shipyard/triage.yml",
+        "Resources/Maps/_Mono/Shuttles/triage.yml",
         "Resources/Prototypes/_LuaM/Entities/Mobs/rescue_agent.yml",
         "Resources/Prototypes/_LuaM/NPCs/rescue.yml",
     ]
@@ -3060,6 +3064,32 @@ def main() -> int:
     assert_contains(rescue_agent_system, "NPCBlackboard.FollowTarget", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "new EntityCoordinates(target, Vector2.Zero)", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "AdminFlags.Server", "LuaMRescueAgentCommand")
+
+    rescue_agent_component = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs").read_text(encoding="utf-8")
+    assert_contains(rescue_agent_component, "AssignedShuttle", "LuaMRescueAgentComponent")
+
+    rescue_shuttle_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs").read_text(encoding="utf-8")
+    assert_contains(rescue_shuttle_system, 'DefaultVessel = "Triage"', "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, 'Command => "luam_rescue_shuttle"', "LuaMRescueShuttleCommand")
+    assert_contains(rescue_shuttle_system, "TryPurchaseShuttle", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "VesselPrototype", "LuaMRescueShuttleCommand")
+    assert_contains(rescue_shuttle_system, "ShuttleConsoleComponent", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "rescue.AssignedShuttle = shuttle", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "LuaM Rescue", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "AdminFlags.Server", "LuaMRescueShuttleCommand")
+
+    triage_vessels = [
+        proto
+        for proto in all_prototypes
+        if proto.get("id") == "Triage" and proto.get("type") == "vessel"
+    ]
+    assert_equal(len(triage_vessels), 1, "Triage vessel prototype count")
+    triage_vessel = triage_vessels[0]
+    assert_equal(triage_vessel["type"], "vessel", "Triage.type")
+    assert_equal(triage_vessel["group"], "Medical", "Triage.group")
+    assert_equal(triage_vessel["shuttlePath"], "/Maps/_Mono/Shuttles/triage.yml", "Triage.shuttlePath")
+    if not (ROOT / "Resources/Maps/_Mono/Shuttles/triage.yml").exists():
+        raise AssertionError("Triage.shuttlePath: missing map file")
 
     rescue_agent = prototypes["LuaMRescueAgent"]
     assert_equal(rescue_agent["parent"], "MobHuman", "LuaMRescueAgent.parent")

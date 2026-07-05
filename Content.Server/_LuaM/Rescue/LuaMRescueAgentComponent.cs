@@ -7,5 +7,8 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public EntityUid? AssignedTarget;
 
     [DataField]
+    public EntityUid? AssignedShuttle;
+
+    [DataField]
     public string Role = "rescue";
 }
