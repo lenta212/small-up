@@ -55,6 +55,15 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("MedicalRadioChannel"));
     }
 
+    [Test]
+    public void RescueTeamThreatDetectionUsesObserverFaction()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("observerFaction.Factions.Any(faction => _factions.IsFactionHostile(faction, (candidate, candidateFaction)))"));
+        Assert.That(source, Does.Not.Contain("IsFactionHostile(\"NanoTrasen\""));
+    }
+
     private static void AssertLoadout(YamlSequenceNode entities, string prototypeId)
     {
         var entity = FindPrototype(entities, prototypeId);

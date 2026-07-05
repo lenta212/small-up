@@ -3482,6 +3482,7 @@ def main() -> int:
     assert_contains(rescue_team_system, "planStatus=", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "identities=withheld", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "coordinates=withheld", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "observerFaction.Factions.Any(faction => _factions.IsFactionHostile(faction, (candidate, candidateFaction)))", "LuaMRescueTeamSystem")
 
     assert_contains(rescue_agent_component, "AssignedShuttle", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AssignedShuttleAnchor", "LuaMRescueAgentComponent")

@@ -1201,7 +1201,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (_factions.IsEntityFriendly((observer, observerFaction), (candidate, candidateFaction)))
             return false;
 
-        return _factions.IsFactionHostile("NanoTrasen", (candidate, candidateFaction));
+        return observerFaction.Factions.Any(faction => _factions.IsFactionHostile(faction, (candidate, candidateFaction)));
     }
 
     private bool IsActiveCombatant(EntityUid observer, EntityUid candidate)
