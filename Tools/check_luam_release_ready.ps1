@@ -439,6 +439,31 @@ try {
         Add-Step "diff-check" "passed" "No whitespace errors in tracked release diff."
     }
 
+    $roundLengthFiles = @(
+        "Resources/ConfigPresets/_LuaM/deadSpaceLowPop.toml",
+        "server_config.remote.toml"
+    )
+    $roundLengthFailures = New-Object System.Collections.Generic.List[string]
+    foreach ($roundLengthFile in $roundLengthFiles) {
+        $roundLengthPath = Join-Path $root ($roundLengthFile.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+        if (-not (Test-Path -LiteralPath $roundLengthPath -PathType Leaf)) {
+            $roundLengthFailures.Add("$roundLengthFile missing") | Out-Null
+            continue
+        }
+
+        $roundLengthText = Get-Content -LiteralPath $roundLengthPath -Raw
+        if ($roundLengthText -notmatch "(?m)^\s*auto_call_time\s*=\s*10080\s*(#.*)?$") {
+            $roundLengthFailures.Add("$roundLengthFile must keep shuttle.auto_call_time = 10080 for 7-day rounds") | Out-Null
+        }
+    }
+
+    if ($roundLengthFailures.Count -gt 0) {
+        $issues.Add("LuaM 7-day round length check failed: $($roundLengthFailures -join '; ')") | Out-Null
+        Add-Step "round-length-seven-days" "failed" "$($roundLengthFailures.Count) config issue(s)."
+    } else {
+        Add-Step "round-length-seven-days" "passed" "LuaM preset and remote config keep shuttle.auto_call_time = 10080."
+    }
+
     $dependencyAudit = Invoke-Captured -FilePath "dotnet" -Arguments @(
         "list",
         "Content.Server.Database\Content.Server.Database.csproj",

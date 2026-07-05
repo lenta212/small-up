@@ -155,6 +155,7 @@ Last local verification:
 - `Tools\verify_luam_release_package.ps1` passed with `utf8-package-text`, `admin-rank-artifacts`, `luam-resource-artifacts`, recorded local smoke evidence, and `scope-audit`.
 - `Tools\audit_release_surface.ps1 -ReleaseDir release` passed after rebuilding `SS14.Client.zip` and `SS14.Server_linux-x64.zip`; the previous 15 `.pdb` entries were removed.
 - `dotnet list Content.Server.Database\Content.Server.Database.csproj package --vulnerable --include-transitive` passed with no vulnerable packages after pinning `System.Security.Cryptography.Xml` to a patched 10.0.x package.
+- `Tools\check_luam_release_ready.ps1` enforces 7-day rounds by requiring `shuttle.auto_call_time = 10080` in both `Resources\ConfigPresets\_LuaM\deadSpaceLowPop.toml` and `server_config.remote.toml`.
 - `dotnet test Content.Tests\Content.Tests.csproj --filter "FullyQualifiedName~LuaM" --no-restore` passed, 1/1.
 - `dotnet test Content.IntegrationTests\Content.IntegrationTests.csproj --filter "FullyQualifiedName~LuaM" --no-restore` passed, 80/80.
 - `dotnet test Content.IntegrationTests\Content.IntegrationTests.csproj --filter "FullyQualifiedName~LuaMBankAndPdaContractsTest" --no-restore` passed, 14/14.
