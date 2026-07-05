@@ -34,6 +34,8 @@ public sealed class LuaMAiDirectorEuiState : EuiStateBase
     public int AiBaseTradeCycles { get; init; }
     public string AiBaseSummary { get; init; } = string.Empty;
     public string AiBaseDiagnostics { get; init; } = string.Empty;
+    public string AiBaseAutofixSummary { get; init; } = string.Empty;
+    public string AiBaseDevelopmentPlan { get; init; } = string.Empty;
     public string RunLevel { get; init; } = string.Empty;
     public string AiOutcomeStatus { get; init; } = string.Empty;
     public string AiOutcomeGroup { get; init; } = string.Empty;
@@ -172,6 +174,12 @@ public static class LuaMAiDirectorEuiMsg
     public const string QuickGatewayShipHammerhead = "gateway-ship-hammerhead";
     public const string QuickGatewayShipTzipora = "gateway-ship-tzipora";
     public const string QuickGatewayShipTokarev = "gateway-ship-tokarev";
+    public const string QuickAiBaseDiagnostics = "ai-base-diagnostics";
+    public const string QuickAiBaseAutofix = "ai-base-autofix";
+    public const string QuickAiBasePlan = "ai-base-plan";
+    public const string QuickAiBaseMine = "ai-base-mine";
+    public const string QuickAiBaseBuild = "ai-base-build";
+    public const string QuickAiBaseDevelop = "ai-base-develop";
 
     [Serializable, NetSerializable]
     public sealed class Refresh : EuiMessageBase

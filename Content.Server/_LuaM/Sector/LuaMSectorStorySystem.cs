@@ -27,6 +27,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     public const int RecentHistoryLimit = 8;
     public const string RuntimeDistressStoryPrefix = "LuaMSectorRuntimeDistress";
     private const int AiBaseTradeLogLimit = 12;
+    private const int AiBaseAutofixLogLimit = 16;
 
     private static readonly ResPath PersistenceDirectory = new("/luam");
     private static readonly ResPath PersistencePath = PersistenceDirectory / "sector_memory.json";
@@ -378,6 +379,45 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         SaveMemory(memory);
 
         return $"AI base drone task updated: {summary}; stock {delivery.Resource} {resourceAmount}{targetText}; supply score {state.SupplyScore}/100.";
+    }
+
+    public string RecordAiBaseAutofixAttempt(
+        string actor,
+        string issue,
+        string commandId,
+        string beforeSummary,
+        string resultSummary,
+        string afterSummary,
+        bool success)
+    {
+        if (!TryGetMemory(out var memory))
+            return "AI base autofix memory is not available.";
+
+        memory.AiBase ??= new LuaMAiBaseState();
+        var state = memory.AiBase;
+        EnsureAiBaseDefaults(state);
+
+        state.AutofixLog.Add(new LuaMAiBaseAutofixEntry
+        {
+            Attempt = state.AutofixLog.Count == 0
+                ? 1
+                : state.AutofixLog.Max(entry => entry.Attempt) + 1,
+            Actor = Trim(actor, 64),
+            Issue = Trim(issue, 96),
+            CommandId = Trim(commandId, 64),
+            BeforeSummary = Trim(beforeSummary, 256),
+            ResultSummary = Trim(resultSummary, 256),
+            AfterSummary = Trim(afterSummary, 256),
+            Success = success,
+        });
+
+        if (state.AutofixLog.Count > AiBaseAutofixLogLimit)
+            state.AutofixLog.RemoveRange(0, state.AutofixLog.Count - AiBaseAutofixLogLimit);
+
+        SaveMemory(memory);
+
+        var status = success ? "recorded" : "recorded failed";
+        return $"AI base autofix memory {status}: #{state.AutofixLog[^1].Attempt} {state.AutofixLog[^1].Issue} via {state.AutofixLog[^1].CommandId}.";
     }
 
     public IReadOnlyList<LuaMSectorStoryRecord> GetActiveHazards()
@@ -1684,6 +1724,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         if (string.IsNullOrWhiteSpace(state.Location))
             state.Location = "hidden sector anchorage";
 
+        state.Inventory ??= new List<LuaMAiBaseInventoryEntry>();
+        state.Needs ??= new List<LuaMAiBaseNeedEntry>();
+        state.TradeLog ??= new List<LuaMAiBaseTradeEntry>();
+        state.AutofixLog ??= new List<LuaMAiBaseAutofixEntry>();
+
         foreach (var (resource, amount) in AiBaseInitialInventory)
         {
             if (state.Inventory.Any(entry => ResourceEquals(entry.Resource, resource)))
@@ -1779,6 +1824,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             .Take(3)
             .Select(entry => $"#{entry.Cycle} {entry.Summary}");
         output.AppendLine("Recent logistics: " + (state.TradeLog.Count == 0 ? "none." : string.Join(" | ", recent)));
+        var recentAutofix = state.AutofixLog
+            .OrderByDescending(entry => entry.Attempt)
+            .Take(3)
+            .Select(entry => $"#{entry.Attempt} {entry.CommandId} {(entry.Success ? "ok" : "failed")}: {entry.Issue}");
+        output.AppendLine("Recent autofix: " + (state.AutofixLog.Count == 0 ? "none." : string.Join(" | ", recentAutofix)));
         return output.ToString().TrimEnd();
     }
 
@@ -2293,6 +2343,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Inventory = state.Inventory.Select(CloneAiBaseInventoryEntry).ToList(),
             Needs = state.Needs.Select(CloneAiBaseNeedEntry).ToList(),
             TradeLog = state.TradeLog.Select(CloneAiBaseTradeEntry).ToList(),
+            AutofixLog = state.AutofixLog.Select(CloneAiBaseAutofixEntry).ToList(),
         };
     }
 
@@ -2326,6 +2377,21 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Amount = entry.Amount,
             Actor = entry.Actor,
             Summary = entry.Summary,
+        };
+    }
+
+    private static LuaMAiBaseAutofixEntry CloneAiBaseAutofixEntry(LuaMAiBaseAutofixEntry entry)
+    {
+        return new LuaMAiBaseAutofixEntry
+        {
+            Attempt = entry.Attempt,
+            Actor = entry.Actor,
+            Issue = entry.Issue,
+            CommandId = entry.CommandId,
+            BeforeSummary = entry.BeforeSummary,
+            ResultSummary = entry.ResultSummary,
+            AfterSummary = entry.AfterSummary,
+            Success = entry.Success,
         };
     }
 
@@ -2576,6 +2642,19 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
                     Summary = entry.Summary,
                 })
                 .ToList(),
+            AutofixLog = state.AutofixLog
+                .Select(entry => new LuaMAiBasePersistedAutofixEntry
+                {
+                    Attempt = entry.Attempt,
+                    Actor = entry.Actor,
+                    Issue = entry.Issue,
+                    CommandId = entry.CommandId,
+                    BeforeSummary = entry.BeforeSummary,
+                    ResultSummary = entry.ResultSummary,
+                    AfterSummary = entry.AfterSummary,
+                    Success = entry.Success,
+                })
+                .ToList(),
         };
     }
 
@@ -2617,6 +2696,19 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
                     Amount = entry.Amount,
                     Actor = entry.Actor,
                     Summary = entry.Summary,
+                })
+                .ToList(),
+            AutofixLog = state.AutofixLog
+                .Select(entry => new LuaMAiBaseAutofixEntry
+                {
+                    Attempt = entry.Attempt,
+                    Actor = entry.Actor,
+                    Issue = entry.Issue,
+                    CommandId = entry.CommandId,
+                    BeforeSummary = entry.BeforeSummary,
+                    ResultSummary = entry.ResultSummary,
+                    AfterSummary = entry.AfterSummary,
+                    Success = entry.Success,
                 })
                 .ToList(),
         };
@@ -2735,6 +2827,7 @@ public sealed class LuaMAiBasePersistedState
     public List<LuaMAiBasePersistedInventoryEntry> Inventory { get; set; } = new();
     public List<LuaMAiBasePersistedNeedEntry> Needs { get; set; } = new();
     public List<LuaMAiBasePersistedTradeEntry> TradeLog { get; set; } = new();
+    public List<LuaMAiBasePersistedAutofixEntry> AutofixLog { get; set; } = new();
 }
 
 public sealed class LuaMAiBasePersistedInventoryEntry
@@ -2759,6 +2852,18 @@ public sealed class LuaMAiBasePersistedTradeEntry
     public int Amount { get; set; }
     public string Actor { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
+}
+
+public sealed class LuaMAiBasePersistedAutofixEntry
+{
+    public int Attempt { get; set; }
+    public string Actor { get; set; } = string.Empty;
+    public string Issue { get; set; } = string.Empty;
+    public string CommandId { get; set; } = string.Empty;
+    public string BeforeSummary { get; set; } = string.Empty;
+    public string ResultSummary { get; set; } = string.Empty;
+    public string AfterSummary { get; set; } = string.Empty;
+    public bool Success { get; set; }
 }
 
 public sealed class LuaMAiBaseCompensationEntry

@@ -29,6 +29,15 @@ public sealed partial class LuaMAiDroneTaskComponent : Component
     public int BaseContributionCycles;
 
     [DataField]
+    public bool IsStuck;
+
+    [DataField]
+    public int StuckChecks;
+
+    [DataField]
+    public string StuckReport = string.Empty;
+
+    [DataField]
     public string LastReport = string.Empty;
 
     [DataField]
@@ -53,4 +62,8 @@ public sealed partial class LuaMAiDroneTaskComponent : Component
     public int CompensationSeverity;
 
     public MapCoordinates LastTargetCoordinates = MapCoordinates.Nullspace;
+
+    public MapCoordinates LastObservedCoordinates = MapCoordinates.Nullspace;
+
+    public TimeSpan NextStuckCheck = TimeSpan.Zero;
 }

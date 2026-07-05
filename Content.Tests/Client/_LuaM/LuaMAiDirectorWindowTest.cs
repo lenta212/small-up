@@ -293,11 +293,16 @@ public sealed class LuaMAiDirectorWindowTest : RobustUnitTest
         Assert.That(InvokeWorkflowAllowsQuickAction("review-only", LuaMAiDirectorEuiMsg.QuickStatus), Is.True);
         Assert.That(InvokeWorkflowAllowsQuickAction("review-only", LuaMAiDirectorEuiMsg.QuickRecommendations), Is.True);
         Assert.That(InvokeWorkflowAllowsQuickAction("review-only", LuaMAiDirectorEuiMsg.QuickHistory), Is.True);
+        Assert.That(InvokeWorkflowAllowsQuickAction("review-only", LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics), Is.True);
+        Assert.That(InvokeWorkflowAllowsQuickAction("review-only", LuaMAiDirectorEuiMsg.QuickAiBasePlan), Is.True);
+        Assert.That(InvokeWorkflowAllowsQuickAction("review-only", LuaMAiDirectorEuiMsg.QuickAiBaseAutofix), Is.False);
         Assert.That(InvokeWorkflowAllowsQuickAction("review-only", LuaMAiDirectorEuiMsg.QuickEvent), Is.False);
         Assert.That(InvokeWorkflowAllowsQuickAction("review-only", LuaMAiDirectorEuiMsg.QuickGatewayShip), Is.False);
         Assert.That(InvokeWorkflowAllowsQuickAction("review-only", LuaMAiDirectorEuiMsg.QuickAnnouncement), Is.False);
 
         Assert.That(InvokeWorkflowAllowsQuickAction("low-risk-local", LuaMAiDirectorEuiMsg.QuickHistory), Is.True);
+        Assert.That(InvokeWorkflowAllowsQuickAction("low-risk-local", LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics), Is.True);
+        Assert.That(InvokeWorkflowAllowsQuickAction("low-risk-local", LuaMAiDirectorEuiMsg.QuickAiBaseAutofix), Is.False);
         Assert.That(InvokeWorkflowAllowsQuickAction("low-risk-local", LuaMAiDirectorEuiMsg.QuickPersonalPressure), Is.False);
         Assert.That(InvokeWorkflowAllowsRecommendationAction("low-risk-local", false, "low"), Is.True);
         Assert.That(InvokeWorkflowAllowsRecommendationAction("low-risk-local", false, "medium"), Is.False);
@@ -305,6 +310,7 @@ public sealed class LuaMAiDirectorWindowTest : RobustUnitTest
 
         Assert.That(InvokeWorkflowAllowsQuickAction("gated-server-impact", LuaMAiDirectorEuiMsg.QuickGatewayShip), Is.True);
         Assert.That(InvokeWorkflowAllowsQuickAction("gated-server-impact", LuaMAiDirectorEuiMsg.QuickPersonalDanger), Is.True);
+        Assert.That(InvokeWorkflowAllowsQuickAction("gated-server-impact", LuaMAiDirectorEuiMsg.QuickAiBaseAutofix), Is.True);
         Assert.That(InvokeWorkflowAllowsRecommendationAction("gated-server-impact", true, "high"), Is.True);
     }
 

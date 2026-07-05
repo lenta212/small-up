@@ -166,6 +166,12 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
         QuickHistoryButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickHistory);
         QuickAiChatButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiChat);
         QuickAnnouncementButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAnnouncement);
+        QuickAiBaseDiagnosticsButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics);
+        QuickAiBasePlanButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBasePlan);
+        QuickAiBaseAutofixButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseAutofix);
+        QuickAiBaseMineButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseMine);
+        QuickAiBaseBuildButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseBuild);
+        QuickAiBaseDevelopButton.OnPressed += _ => SubmitQuickAction(LuaMAiDirectorEuiMsg.QuickAiBaseDevelop);
         QuickGatewayShipSelectedButton.OnPressed += _ => SubmitQuickAction(
             LuaMAiDirectorEuiMsg.QuickGatewayShipSelected,
             _selectedGatewayShipGameMap);
@@ -572,6 +578,16 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
         if (!string.IsNullOrWhiteSpace(state.AiBaseDiagnostics))
         {
             status += $"\nAI base diagnostics: {state.AiBaseDiagnostics}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(state.AiBaseDevelopmentPlan))
+        {
+            status += $"\nAI base plan: {state.AiBaseDevelopmentPlan}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(state.AiBaseAutofixSummary))
+        {
+            status += $"\nAI base autofix: {state.AiBaseAutofixSummary}";
         }
 
         if (!string.IsNullOrWhiteSpace(state.AiNextStepHint))
@@ -2197,7 +2213,9 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
     {
         return action is LuaMAiDirectorEuiMsg.QuickRecommendations
             or LuaMAiDirectorEuiMsg.QuickStatus
-            or LuaMAiDirectorEuiMsg.QuickHistory;
+            or LuaMAiDirectorEuiMsg.QuickHistory
+            or LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics
+            or LuaMAiDirectorEuiMsg.QuickAiBasePlan;
     }
 
     private static void AppendOperationsAuditLine(StringBuilder output, string area, string status, string detail)
@@ -3009,7 +3027,9 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
     {
         return action.Equals($"quick:{LuaMAiDirectorEuiMsg.QuickRecommendations}", StringComparison.OrdinalIgnoreCase) ||
                action.Equals($"quick:{LuaMAiDirectorEuiMsg.QuickStatus}", StringComparison.OrdinalIgnoreCase) ||
-               action.Equals($"quick:{LuaMAiDirectorEuiMsg.QuickHistory}", StringComparison.OrdinalIgnoreCase);
+               action.Equals($"quick:{LuaMAiDirectorEuiMsg.QuickHistory}", StringComparison.OrdinalIgnoreCase) ||
+               action.Equals($"quick:{LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics}", StringComparison.OrdinalIgnoreCase) ||
+               action.Equals($"quick:{LuaMAiDirectorEuiMsg.QuickAiBasePlan}", StringComparison.OrdinalIgnoreCase);
     }
 
     private static ActionHistoryEntry[] FilterActionHistoryEntries(ActionHistoryEntry[] entries, string filter)
@@ -3638,6 +3658,18 @@ public sealed partial class LuaMAiDirectorWindow : DefaultWindow
                                      !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiChat);
         QuickAnnouncementButton.Disabled = serverActionDisabled ||
                                            !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAnnouncement);
+        QuickAiBaseDiagnosticsButton.Disabled = chatDisabled ||
+                                                !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics);
+        QuickAiBasePlanButton.Disabled = chatDisabled ||
+                                          !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiBasePlan);
+        QuickAiBaseAutofixButton.Disabled = serverActionDisabled ||
+                                            !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiBaseAutofix);
+        QuickAiBaseMineButton.Disabled = serverActionDisabled ||
+                                         !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiBaseMine);
+        QuickAiBaseBuildButton.Disabled = serverActionDisabled ||
+                                          !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiBaseBuild);
+        QuickAiBaseDevelopButton.Disabled = serverActionDisabled ||
+                                            !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickAiBaseDevelop);
         var gatewayShipDisabled = serverActionDisabled ||
                                   !WorkflowAllowsQuickAction(_selectedWorkflowPreset, LuaMAiDirectorEuiMsg.QuickGatewayShip);
         GatewayShipOption.Disabled = gatewayShipDisabled || state.GatewayShipPresets.Length == 0;

@@ -19,6 +19,9 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
 
     private const float ZoneArrivalDistance = 1.35f;
     private const int WorkTicksPerCycle = 2;
+    private const double StuckCheckIntervalSeconds = 5;
+    private const float StuckMovementEpsilon = 0.2f;
+    private const int StuckChecksBeforeReport = 2;
 
     private static readonly (string ZoneType, string Label, Vector2 Offset)[] RequiredZones =
     {
@@ -109,6 +112,11 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
             task.TaskStage = "assigned";
             task.TargetZone = zoneUid;
             task.ProgressTicks = 0;
+            task.IsStuck = false;
+            task.StuckChecks = 0;
+            task.StuckReport = string.Empty;
+            task.LastObservedCoordinates = droneCoordinates;
+            task.NextStuckCheck = _timing.CurTime + TimeSpan.FromSeconds(StuckCheckIntervalSeconds);
             task.LastTargetCoordinates = _transform.ToMapCoordinates(Transform(zoneUid).Coordinates, logError: false);
             CopyZoneCompensationToTask(task, zoneUid);
             task.LastReport = string.IsNullOrWhiteSpace(task.Compensation)
@@ -145,15 +153,27 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
             if (distance > ZoneArrivalDistance)
             {
                 task.TaskStage = "moving";
+                UpdateDroneStuckState(drone, task, droneCoordinates, distance);
                 CopyZoneCompensationToTask(task, task.TargetZone);
-                task.LastReport = string.IsNullOrWhiteSpace(task.Compensation)
-                    ? $"moving to {task.ZoneType}"
-                    : $"moving to {task.ZoneType}; compensating {task.WeaknessTitle}";
+                if (task.IsStuck)
+                {
+                    task.TaskStage = "stuck";
+                    task.LastReport = task.StuckReport;
+                    drone.State = $"stuck_{task.ZoneType}";
+                }
+                else
+                {
+                    task.LastReport = string.IsNullOrWhiteSpace(task.Compensation)
+                        ? $"moving to {task.ZoneType}"
+                        : $"moving to {task.ZoneType}; compensating {task.WeaknessTitle}";
+                }
+
                 continue;
             }
 
             task.TaskStage = "working";
             task.ProgressTicks++;
+            ResetDroneStuckState(task, droneCoordinates);
             drone.State = $"working_{task.ZoneType}";
 
             if (task.ProgressTicks < WorkTicksPerCycle)
@@ -246,6 +266,53 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
         task.CompensationRole = zone.SuggestedRole;
         task.CompensationResource = zone.SuggestedResource;
         task.CompensationSeverity = zone.ActiveCompensationSeverity;
+    }
+
+    private void UpdateDroneStuckState(
+        LuaMAiMiningDroneComponent drone,
+        LuaMAiDroneTaskComponent task,
+        MapCoordinates droneCoordinates,
+        float distanceToZone)
+    {
+        if (_timing.CurTime < task.NextStuckCheck)
+            return;
+
+        task.NextStuckCheck = _timing.CurTime + TimeSpan.FromSeconds(StuckCheckIntervalSeconds);
+
+        if (task.LastObservedCoordinates == MapCoordinates.Nullspace ||
+            task.LastObservedCoordinates.MapId != droneCoordinates.MapId)
+        {
+            ResetDroneStuckState(task, droneCoordinates);
+            return;
+        }
+
+        var moved = Vector2.Distance(task.LastObservedCoordinates.Position, droneCoordinates.Position);
+        task.LastObservedCoordinates = droneCoordinates;
+        if (moved > StuckMovementEpsilon)
+        {
+            task.IsStuck = false;
+            task.StuckChecks = 0;
+            task.StuckReport = string.Empty;
+            return;
+        }
+
+        task.StuckChecks++;
+        if (task.StuckChecks < StuckChecksBeforeReport)
+            return;
+
+        task.IsStuck = true;
+        var droneId = string.IsNullOrWhiteSpace(drone.DroneId)
+            ? "unmarked-drone"
+            : drone.DroneId;
+        task.StuckReport = $"{droneId} stuck while moving to {task.ZoneType}; no movement for {task.StuckChecks} checks; distance {distanceToZone:0.0}";
+    }
+
+    private static void ResetDroneStuckState(LuaMAiDroneTaskComponent task, MapCoordinates coordinates)
+    {
+        task.IsStuck = false;
+        task.StuckChecks = 0;
+        task.StuckReport = string.Empty;
+        task.LastObservedCoordinates = coordinates;
     }
 
     private bool TryFindZone(string baseId, string zoneType, MapId mapId, out EntityUid zoneUid)

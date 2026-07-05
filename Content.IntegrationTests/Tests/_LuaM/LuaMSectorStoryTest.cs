@@ -206,11 +206,25 @@ public sealed class LuaMSectorStoryTest
             Assert.That(state.TradeLog, Has.Count.GreaterThanOrEqualTo(2));
             Assert.That(state.TradeCycles, Is.EqualTo(1));
 
+            var autofixMemory = storySystem.RecordAiBaseAutofixAttempt(
+                "integration-test",
+                "S4 mining deficit without miners",
+                "ai_base_mine",
+                "before miner deficit",
+                "dispatched miner ship",
+                "after miner dispatch",
+                success: true);
+            Assert.That(autofixMemory, Does.Contain("AI base autofix memory recorded"));
+            state = storySystem.GetAiBaseState();
+            Assert.That(state.AutofixLog, Has.Count.EqualTo(1));
+            Assert.That(state.AutofixLog[0].CommandId, Is.EqualTo("ai_base_mine"));
+
             var status = storySystem.BuildAiBaseStatusText();
             Assert.That(status, Does.Contain("LuaM autonomous supply base"));
             Assert.That(status, Does.Contain("Needs:"));
             Assert.That(status, Does.Contain("Compensation plan:"));
             Assert.That(status, Does.Contain("Recent logistics:"));
+            Assert.That(status, Does.Contain("Recent autofix:"));
 
             var compensationPlan = storySystem.BuildAiBaseCompensationPlan();
             Assert.That(compensationPlan, Is.Not.Empty);
@@ -226,13 +240,17 @@ public sealed class LuaMSectorStoryTest
             Assert.That(adminState.AiBaseSummary, Does.Contain("drones 1"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("supply drops 1"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("compensate"));
+            Assert.That(adminState.AiBaseSummary, Does.Contain("autofix"));
             Assert.That(adminState.AiBaseDiagnostics, Does.Contain("AI base diagnostics"));
             Assert.That(adminState.AiBaseDiagnostics, Does.Contain("Suggested command:"));
+            Assert.That(adminState.AiBaseAutofixSummary, Does.Contain("ai_base_mine"));
+            Assert.That(adminState.AiBaseDevelopmentPlan, Does.Contain("AI base development plan"));
 
             Assert.That(storySystem.TryExportMemoryJson(out var exportedJson), Is.True);
             Assert.That(exportedJson, Does.Contain("AiBase"));
             Assert.That(exportedJson, Does.Contain("fuel"));
             Assert.That(exportedJson, Does.Contain("TradeLog"));
+            Assert.That(exportedJson, Does.Contain("AutofixLog"));
 
             Assert.That(storySystem.TryExportMemorySnapshot(out snapshot), Is.True);
         });
@@ -251,6 +269,7 @@ public sealed class LuaMSectorStoryTest
             var restored = storySystem.GetAiBaseState();
             Assert.That(restored.Created, Is.True);
             Assert.That(restored.TradeCycles, Is.EqualTo(1));
+            Assert.That(restored.AutofixLog, Has.Count.EqualTo(1));
             Assert.That(restored.TradeLog.Any(entry => entry.Vessel.Contains("Baeg", StringComparison.OrdinalIgnoreCase)), Is.True);
             Assert.That(restored.TradeLog.Any(entry => entry.Vessel.Contains("Hammerhead", StringComparison.OrdinalIgnoreCase)), Is.False);
 

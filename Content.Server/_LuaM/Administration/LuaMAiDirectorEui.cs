@@ -602,6 +602,12 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             LuaMAiDirectorEuiMsg.QuickHistory => "sector history",
             LuaMAiDirectorEuiMsg.QuickAiChat => "ai_chat say in chat: LuaM AI Director confirms active sector monitoring channel.",
             LuaMAiDirectorEuiMsg.QuickAnnouncement => "ai_chat say in chat: LuaM AI Director reports a sector situation change.",
+            LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics => "ai base diagnostics: what is wrong and what can be improved",
+            LuaMAiDirectorEuiMsg.QuickAiBasePlan => "ai base development plan and next steps",
+            LuaMAiDirectorEuiMsg.QuickAiBaseAutofix => "ai base autofix: fix the top diagnostic issue now",
+            LuaMAiDirectorEuiMsg.QuickAiBaseMine => "ai base mine: dispatch AI mining robots to gather resources",
+            LuaMAiDirectorEuiMsg.QuickAiBaseBuild => "ai base build: dispatch AI builder robots to build and repair the base",
+            LuaMAiDirectorEuiMsg.QuickAiBaseDevelop => "open ai robots should mine resources and build the AI base",
             LuaMAiDirectorEuiMsg.QuickGatewayShip
                 or LuaMAiDirectorEuiMsg.QuickGatewayShipSelected
                 or LuaMAiDirectorEuiMsg.QuickGatewayShipTriage
@@ -616,7 +622,9 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
     {
         return action is LuaMAiDirectorEuiMsg.QuickRecommendations
             or LuaMAiDirectorEuiMsg.QuickStatus
-            or LuaMAiDirectorEuiMsg.QuickHistory;
+            or LuaMAiDirectorEuiMsg.QuickHistory
+            or LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics
+            or LuaMAiDirectorEuiMsg.QuickAiBasePlan;
     }
 
     private static LogImpact GetQuickActionImpact(string action)
@@ -630,6 +638,10 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             or LuaMAiDirectorEuiMsg.QuickSubspaceRoute
             or LuaMAiDirectorEuiMsg.QuickSyntheticControl
             or LuaMAiDirectorEuiMsg.QuickAnnouncement
+            or LuaMAiDirectorEuiMsg.QuickAiBaseAutofix
+            or LuaMAiDirectorEuiMsg.QuickAiBaseMine
+            or LuaMAiDirectorEuiMsg.QuickAiBaseBuild
+            or LuaMAiDirectorEuiMsg.QuickAiBaseDevelop
             ? LogImpact.High
             : LogImpact.Medium;
     }
@@ -799,6 +811,10 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             "create" => "Create AI supply base",
             "ship" => $"Dispatch AI {action.Role} {action.DisplayName}",
             "status" => "Show AI base status",
+            "diagnostics" => "Show AI base diagnostics",
+            "plan" => "Show AI base development plan",
+            "autofix" => "Autofix AI base",
+            "develop" => "Develop AI base",
             _ => "AI base action",
         };
     }
@@ -812,15 +828,19 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             "create" => "create or ensure the LuaM AI supply base runtime ledger",
             "ship" => $"spawn one AI logistics ship near the admin and update AI base stock after the spawn succeeds: {action.DisplayName}",
             "status" => "show the AI base stock, needs, supply score, and recent logistics",
+            "diagnostics" => "show AI base diagnostics, stuck drone status, improvements, and suggested commands",
+            "plan" => "show the staged AI base development plan and next command queue",
+            "autofix" => "run one local autofix for the highest-severity AI base diagnostic and record the attempt",
+            "develop" => "deploy the base and dispatch miner plus builder AI crews",
             _ => "run one AI base local action",
         };
-        var execution = action.Kind == "ship"
-            ? "local server action only; no external provider call; resolves a shipyard vessel or shuttle gameMap, loads its grid, then records a supply/trade cycle"
-            : "local memory action only; no external provider call";
+        var execution = action.Kind is "ship" or "autofix" or "develop"
+            ? "local server action only; no external provider call; may resolve a shipyard vessel or shuttle gameMap, load a grid, and record AI-base memory"
+            : "local memory/read-only action only; no external provider call";
         var risk = action.RequiresConfirmation
             ? "high; can mutate sector memory and may spawn a ship/grid in the current map"
             : "low; read-only status result";
-        var duration = action.Kind == "ship"
+        var duration = action.Kind is "ship" or "autofix" or "develop"
             ? "spawned ship persists by normal game rules; AI base stock persists in LuaM sector memory"
             : "AI base ledger persists in LuaM sector memory until reset/import";
 
@@ -942,6 +962,12 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             LuaMAiDirectorEuiMsg.QuickPaperPack => "spawn a paper/report pack for the selected player",
             LuaMAiDirectorEuiMsg.QuickAiChat => "send one AI Director chat message",
             LuaMAiDirectorEuiMsg.QuickAnnouncement => "send one player-visible AI Director announcement",
+            LuaMAiDirectorEuiMsg.QuickAiBaseDiagnostics => "show AI-base diagnostics without spawning anything",
+            LuaMAiDirectorEuiMsg.QuickAiBasePlan => "show AI-base development plan and next-step queue",
+            LuaMAiDirectorEuiMsg.QuickAiBaseAutofix => "run one AI-base autofix for the top diagnostic issue",
+            LuaMAiDirectorEuiMsg.QuickAiBaseMine => "dispatch AI-base mining robots to gather resources",
+            LuaMAiDirectorEuiMsg.QuickAiBaseBuild => "dispatch AI-base builder robots to construct and repair",
+            LuaMAiDirectorEuiMsg.QuickAiBaseDevelop => "deploy the AI base and dispatch miner plus builder crews",
             LuaMAiDirectorEuiMsg.QuickGatewayShip
                 or LuaMAiDirectorEuiMsg.QuickGatewayShipSelected
                 or LuaMAiDirectorEuiMsg.QuickGatewayShipTriage
@@ -964,6 +990,11 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
         {
             LuaMAiDirectorEuiMsg.QuickAiChat or LuaMAiDirectorEuiMsg.QuickAnnouncement =>
                 "AI chat command may create one player-visible message after local policy parsing",
+            LuaMAiDirectorEuiMsg.QuickAiBaseAutofix
+                or LuaMAiDirectorEuiMsg.QuickAiBaseMine
+                or LuaMAiDirectorEuiMsg.QuickAiBaseBuild
+                or LuaMAiDirectorEuiMsg.QuickAiBaseDevelop =>
+                "local AI-base server action; no external provider call; may spawn a ship/grid, assign drones, and update AI-base memory",
             _ when IsSafeQuickAction(action) =>
                 "read-only local result; no server-side world mutation expected",
             _ =>
@@ -983,7 +1014,11 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
                 or LuaMAiDirectorEuiMsg.QuickSubspaceRift
                 or LuaMAiDirectorEuiMsg.QuickSubspaceRoute
                 or LuaMAiDirectorEuiMsg.QuickSyntheticControl
-                or LuaMAiDirectorEuiMsg.QuickAnnouncement => "high; player-visible or round-affecting action",
+                or LuaMAiDirectorEuiMsg.QuickAnnouncement
+                or LuaMAiDirectorEuiMsg.QuickAiBaseAutofix
+                or LuaMAiDirectorEuiMsg.QuickAiBaseMine
+                or LuaMAiDirectorEuiMsg.QuickAiBaseBuild
+                or LuaMAiDirectorEuiMsg.QuickAiBaseDevelop => "high; player-visible or round-affecting action",
             _ when IsSafeQuickAction(action) => "low; advice/status/history only",
             _ => "medium; creates or changes local sector state",
         };
@@ -1030,6 +1065,10 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
                 or LuaMAiDirectorEuiMsg.QuickCleanupMarkers => "one cleanup/resolve operation",
             LuaMAiDirectorEuiMsg.QuickAiChat
                 or LuaMAiDirectorEuiMsg.QuickAnnouncement => "one player-visible message",
+            LuaMAiDirectorEuiMsg.QuickAiBaseAutofix => "single autofix attempt; attempt memory persists in LuaM sector memory",
+            LuaMAiDirectorEuiMsg.QuickAiBaseMine
+                or LuaMAiDirectorEuiMsg.QuickAiBaseBuild
+                or LuaMAiDirectorEuiMsg.QuickAiBaseDevelop => "single dispatch; spawned ships/drones persist by normal game rules",
             LuaMAiDirectorEuiMsg.QuickGatewayShip
                 or LuaMAiDirectorEuiMsg.QuickGatewayShipSelected
                 or LuaMAiDirectorEuiMsg.QuickGatewayShipTriage

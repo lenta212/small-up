@@ -393,6 +393,26 @@ public sealed class LuaMAiDirectorAdminChatTest
 
             Assert.That(
                 director.TryResolveAiBaseAdminRequest(
+                    "show ai base development plan",
+                    out var planAction,
+                    out var planError),
+                Is.True);
+            Assert.That(planError, Is.EqualTo(string.Empty));
+            Assert.That(planAction.Kind, Is.EqualTo("plan"));
+            Assert.That(planAction.RequiresConfirmation, Is.False);
+
+            Assert.That(
+                director.TryResolveAiBaseAdminRequest(
+                    "ai base autofix now",
+                    out var autofixAction,
+                    out var autofixError),
+                Is.True);
+            Assert.That(autofixError, Is.EqualTo(string.Empty));
+            Assert.That(autofixAction.Kind, Is.EqualTo("autofix"));
+            Assert.That(autofixAction.RequiresConfirmation, Is.True);
+
+            Assert.That(
+                director.TryResolveAiBaseAdminRequest(
                     "dispatch AI miner Hammerhead",
                     out var minerAction,
                     out var minerError),
@@ -433,6 +453,24 @@ public sealed class LuaMAiDirectorAdminChatTest
                 string.Empty,
                 LuaMAiDirectorEuiMsg.AutoTemplateId,
                 allowServerActions: false);
+            var plan = await director.AdminChatAsync(
+                admin,
+                "ai base plan and next steps",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId,
+                allowServerActions: false);
+            var blockedAutofix = await director.AdminChatAsync(
+                admin,
+                "ai base autofix now",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId,
+                allowServerActions: false);
+            var autofix = await director.AdminChatAsync(
+                admin,
+                "ai base autofix now",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId,
+                allowServerActions: true);
 
             Assert.That(blockedCreate, Does.Contain("Action not executed"));
             Assert.That(blockedCreate, Does.Contain("AI base request"));
@@ -441,6 +479,11 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(diagnostics, Does.Contain("AI base diagnostics"));
             Assert.That(diagnostics, Does.Contain("AI base not deployed"));
             Assert.That(diagnostics, Does.Not.Contain("Action not executed"));
+            Assert.That(plan, Does.Contain("AI base development plan"));
+            Assert.That(plan, Does.Contain("command=ai_base_create"));
+            Assert.That(blockedAutofix, Does.Contain("Action not executed"));
+            Assert.That(autofix, Does.Contain("AI base autofix"));
+            Assert.That(autofix, Does.Contain("AI base autofix memory recorded"));
 
             var autonomous = string.Empty;
             var aiBaseCreated = false;
@@ -476,7 +519,10 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(state.AiBaseSupplyScore, Is.GreaterThan(0));
             Assert.That(state.AiBaseSummary, Does.Contain("score"));
             Assert.That(state.AiBaseSummary, Does.Contain("diagnostics"));
+            Assert.That(state.AiBaseSummary, Does.Contain("autofix"));
             Assert.That(state.AiBaseDiagnostics, Does.Contain("AI base diagnostics"));
+            Assert.That(state.AiBaseAutofixSummary, Does.Contain("ai_base_create"));
+            Assert.That(state.AiBaseDevelopmentPlan, Does.Contain("AI base development plan"));
             Assert.That(state.AiBaseSummary, Does.Contain("physical beacons"));
             Assert.That(state.AiBaseSummary, Does.Contain("logistics ships"));
         }
@@ -660,6 +706,8 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(json, Does.Contain("[redacted-id]"));
             Assert.That(json, Does.Contain("ai_base_create"));
             Assert.That(json, Does.Contain("ai_base_diagnostics"));
+            Assert.That(json, Does.Contain("ai_base_plan"));
+            Assert.That(json, Does.Contain("ai_base_autofix"));
             Assert.That(json, Does.Contain("ai_base_mine"));
             Assert.That(json, Does.Contain("ai_base_build"));
             Assert.That(json, Does.Contain("ai_base_develop"));

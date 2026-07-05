@@ -236,6 +236,12 @@
                                 <Button Name="QuickPaperPackButton" Text="{Loc luam-ai-director-quick-paper-pack}" HorizontalExpand="True" />
                                 <Button Name="QuickAiChatButton" Text="{Loc luam-ai-director-quick-ai-chat}" HorizontalExpand="True" />
                                 <Button Name="QuickAnnouncementButton" Text="{Loc luam-ai-director-quick-announcement}" HorizontalExpand="True" />
+                                <Button Name="QuickAiBaseDiagnosticsButton" Text="{Loc luam-ai-director-quick-ai-base-diagnostics}" HorizontalExpand="True" />
+                                <Button Name="QuickAiBasePlanButton" Text="{Loc luam-ai-director-quick-ai-base-plan}" HorizontalExpand="True" />
+                                <Button Name="QuickAiBaseAutofixButton" Text="{Loc luam-ai-director-quick-ai-base-autofix}" HorizontalExpand="True" />
+                                <Button Name="QuickAiBaseMineButton" Text="{Loc luam-ai-director-quick-ai-base-mine}" HorizontalExpand="True" />
+                                <Button Name="QuickAiBaseBuildButton" Text="{Loc luam-ai-director-quick-ai-base-build}" HorizontalExpand="True" />
+                                <Button Name="QuickAiBaseDevelopButton" Text="{Loc luam-ai-director-quick-ai-base-develop}" HorizontalExpand="True" />
                                 <Button Name="QuickGatewayShipButton" Text="{Loc luam-ai-director-quick-gateway-ship}" HorizontalExpand="True" />
                                 <Button Name="QuickGatewayShipTriageButton" Text="{Loc luam-ai-director-quick-gateway-ship-triage}" HorizontalExpand="True" />
                                 <Button Name="QuickGatewayShipHammerheadButton" Text="{Loc luam-ai-director-quick-gateway-ship-hammerhead}" HorizontalExpand="True" />

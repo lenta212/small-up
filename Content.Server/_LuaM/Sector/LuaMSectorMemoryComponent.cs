@@ -319,6 +319,9 @@ public sealed partial class LuaMAiBaseState
 
     [DataField]
     public List<LuaMAiBaseTradeEntry> TradeLog = new();
+
+    [DataField]
+    public List<LuaMAiBaseAutofixEntry> AutofixLog = new();
 }
 
 [DataDefinition]
@@ -367,4 +370,32 @@ public sealed partial class LuaMAiBaseTradeEntry
 
     [DataField]
     public string Summary = string.Empty;
+}
+
+[DataDefinition]
+public sealed partial class LuaMAiBaseAutofixEntry
+{
+    [DataField]
+    public int Attempt;
+
+    [DataField]
+    public string Actor = string.Empty;
+
+    [DataField]
+    public string Issue = string.Empty;
+
+    [DataField]
+    public string CommandId = string.Empty;
+
+    [DataField]
+    public string BeforeSummary = string.Empty;
+
+    [DataField]
+    public string ResultSummary = string.Empty;
+
+    [DataField]
+    public string AfterSummary = string.Empty;
+
+    [DataField]
+    public bool Success;
 }
