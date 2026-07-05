@@ -3135,6 +3135,10 @@ def main() -> int:
     assert_contains(rescue_agent_system, "UpdatePendingVendingAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryStartVendingProduct", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TrySelectVendingProduct", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryRetrieveDispensedVendingProduct", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryFindDispensedVendingProduct", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "PendingVendingDispensedItem", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "moving to vended", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "AuthorizedVend", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "GetAvailableInventory", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryEquip", "LuaMRescueAgentSystem")
@@ -3252,6 +3256,7 @@ def main() -> int:
     assert_contains(rescue_agent_component, "LastAutoSupplyStatus", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "PendingVendingStarted", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "PendingVendingProduct", "LuaMRescueAgentComponent")
+    assert_contains(rescue_agent_component, "PendingVendingDispensedItem", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "SkippedTargets", "LuaMRescueAgentComponent")
 
     rescue_shuttle_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs").read_text(encoding="utf-8")

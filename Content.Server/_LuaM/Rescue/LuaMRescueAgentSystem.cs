@@ -304,6 +304,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.PendingPlayerActionTarget = actionTarget;
         rescue.PendingPlayerActionSlot = normalizedSlot;
         rescue.PendingPlayerActionItem = normalizedItemSelector;
+        rescue.PendingVendingStarted = false;
+        rescue.PendingVendingProduct = null;
+        rescue.PendingVendingDispensedItem = null;
         rescue.PlayerActionAccumulator = 0f;
         rescue.LastPlayerActionStatus = $"pending {FormatPlayerAction(action)} {FormatEntityRef(actionTarget)}";
         SetFollowTarget(agent, rescue, htn, actionTarget);
@@ -441,7 +444,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
-        if (target is { Valid: true } targetUid)
+        var canLeaveActionTargetForVendedItem =
+            action == LuaMRescuePlayerActionKind.Vend &&
+            rescue.PendingVendingStarted &&
+            rescue.PendingVendingDispensedItem is { Valid: true } dispensedItem &&
+            !Deleted(dispensedItem);
+
+        if (target is { Valid: true } targetUid && !canLeaveActionTargetForVendedItem)
         {
             if (Deleted(targetUid))
             {
@@ -1074,7 +1083,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var pickupStatus = product == null
             ? $"waiting for dispensed item near {FormatEntityRef(vendingUid)}"
             : $"waiting for dispensed {product} near {FormatEntityRef(vendingUid)}";
-        if (product != null && TryPickupDispensedVendingProduct(uid, vendingUid, product, out pickupStatus))
+        if (product != null && TryRetrieveDispensedVendingProduct(uid, vendingUid, product, rescue, htn, out pickupStatus))
         {
             FinishPendingPlayerAction(uid, rescue, htn, pickupStatus);
             return;
@@ -1117,6 +1126,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.PendingVendingStarted = true;
         rescue.PendingVendingProduct = product.ID;
+        rescue.PendingVendingDispensedItem = null;
         status = $"buying {product.ID} from {FormatEntityRef(vendingUid)}";
         return true;
     }
@@ -1205,34 +1215,90 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return 0;
     }
 
-    private bool TryPickupDispensedVendingProduct(
+    private bool TryRetrieveDispensedVendingProduct(
         EntityUid uid,
         EntityUid vendingUid,
         string productId,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
         out string status)
     {
-        foreach (var candidate in _lookup.GetEntitiesInRange(vendingUid, 2.5f))
+        var candidate = rescue.PendingVendingDispensedItem;
+        if (candidate is not { Valid: true } candidateUid ||
+            Deleted(candidateUid) ||
+            !EntityPrototypeMatches(candidateUid, productId))
+        {
+            rescue.PendingVendingDispensedItem = null;
+            if (!TryFindDispensedVendingProduct(uid, vendingUid, productId, rescue, out candidateUid))
+            {
+                status = $"no dispensed {productId} found near {FormatEntityRef(vendingUid)}";
+                return false;
+            }
+
+            rescue.PendingVendingDispensedItem = candidateUid;
+        }
+
+        if (!IsWithinRange(uid, candidateUid, rescue.PlayerActionRange))
+        {
+            status = $"moving to vended {FormatEntityRef(candidateUid)} from {FormatEntityRef(vendingUid)}";
+            SetFollowTarget(uid, rescue, htn, candidateUid);
+            return false;
+        }
+
+        if (_hands.TryPickupAnyHand(uid, candidateUid))
+        {
+            status = $"picked up vended {FormatEntityRef(candidateUid)} from {FormatEntityRef(vendingUid)}";
+            return true;
+        }
+
+        if (!TryComp<HandsComponent>(uid, out var hands) ||
+            !_hands.TryGetEmptyHand(uid, out _, hands))
+        {
+            if (TryAutoStowHeldItemForTreatment(uid, rescue, out var stowStatus))
+            {
+                status = stowStatus;
+                return false;
+            }
+
+            status = string.IsNullOrWhiteSpace(stowStatus)
+                ? $"dispensed {FormatEntityRef(candidateUid)} from {FormatEntityRef(vendingUid)} but no hand is free"
+                : stowStatus;
+            return false;
+        }
+
+        status = $"dispensed {FormatEntityRef(candidateUid)} from {FormatEntityRef(vendingUid)} but could not pick it up";
+        return false;
+    }
+
+    private bool TryFindDispensedVendingProduct(
+        EntityUid uid,
+        EntityUid vendingUid,
+        string productId,
+        LuaMRescueAgentComponent rescue,
+        out EntityUid productUid)
+    {
+        productUid = default;
+        var bestDistance = float.PositiveInfinity;
+        var searchRange = Math.Max(2.5f, rescue.AutoPickupSupplyRange);
+
+        foreach (var candidate in _lookup.GetEntitiesInRange(vendingUid, searchRange))
         {
             if (candidate == uid ||
                 candidate == vendingUid ||
                 Deleted(candidate) ||
-                !EntityPrototypeMatches(candidate, productId))
+                _container.IsEntityOrParentInContainer(candidate) ||
+                !EntityPrototypeMatches(candidate, productId) ||
+                !TryGetDistance(vendingUid, candidate, out var distance) ||
+                distance >= bestDistance)
             {
                 continue;
             }
 
-            if (_hands.TryPickupAnyHand(uid, candidate))
-            {
-                status = $"picked up vended {FormatEntityRef(candidate)} from {FormatEntityRef(vendingUid)}";
-                return true;
-            }
-
-            status = $"dispensed {FormatEntityRef(candidate)} from {FormatEntityRef(vendingUid)} but could not pick it up";
-            return false;
+            productUid = candidate;
+            bestDistance = distance;
         }
 
-        status = $"no dispensed {productId} found near {FormatEntityRef(vendingUid)}";
-        return false;
+        return productUid is { Valid: true };
     }
 
     private bool EntityPrototypeMatches(EntityUid entity, string prototypeId)
@@ -1684,6 +1750,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.PendingPlayerActionItem = null;
         rescue.PendingVendingStarted = false;
         rescue.PendingVendingProduct = null;
+        rescue.PendingVendingDispensedItem = null;
         rescue.PlayerActionAccumulator = 0f;
 
         if (lastStatus != null)
@@ -2155,6 +2222,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.PendingPlayerActionItem = null;
         rescue.PendingVendingStarted = false;
         rescue.PendingVendingProduct = null;
+        rescue.PendingVendingDispensedItem = null;
         rescue.PlayerActionAccumulator = 0f;
         rescue.LastPlayerActionStatus = $"pending pickup {FormatEntityRef(supplyUid)}";
         SetFollowTarget(uid, rescue, htn, supplyUid);
@@ -2229,6 +2297,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.PendingPlayerActionItem = productId;
         rescue.PendingVendingStarted = false;
         rescue.PendingVendingProduct = null;
+        rescue.PendingVendingDispensedItem = null;
         rescue.PlayerActionAccumulator = 0f;
         rescue.LastPlayerActionStatus = $"pending vend {productId} from {FormatEntityRef(vendingUid)}";
         SetFollowTarget(uid, rescue, htn, vendingUid);

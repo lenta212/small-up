@@ -174,6 +174,8 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     public string? PendingVendingProduct;
 
+    public EntityUid? PendingVendingDispensedItem;
+
     [DataField]
     public string Role = "rescue";
 }
