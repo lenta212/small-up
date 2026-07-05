@@ -125,7 +125,19 @@ def component(proto: dict[str, Any], component_type: str) -> dict[str, Any]:
     raise AssertionError(f"{proto.get('id')}: missing component {component_type}")
 
 
+def comparable_value(value: Any) -> Any:
+    if isinstance(value, dict) and value.get("__tag__") == "!type:Bool":
+        raw = str(value.get("value", "")).strip().lower()
+        if raw in {"true", "1", "yes"}:
+            return True
+        if raw in {"false", "0", "no"}:
+            return False
+    return value
+
+
 def assert_equal(actual: Any, expected: Any, label: str) -> None:
+    actual = comparable_value(actual)
+    expected = comparable_value(expected)
     if actual != expected:
         raise AssertionError(f"{label}: expected {expected!r}, got {actual!r}")
 
