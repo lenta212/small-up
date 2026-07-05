@@ -1743,9 +1743,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var score = 0f;
 
         if (TryComp<HealingComponent>(item, out var healing) &&
-            CanHealingItemHelpTarget(healing, target))
+            TryGetHealingItemTargetScore(healing, target, out var healingScore))
         {
-            score = Math.Max(score, 120f);
+            score = Math.Max(score, healingScore);
         }
 
         if (HasComp<HyposprayComponent>(item) || HasComp<InjectorComponent>(item))
@@ -1770,8 +1770,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return 0f;
     }
 
-    private bool CanHealingItemHelpTarget(HealingComponent healing, EntityUid target)
+    private bool TryGetHealingItemTargetScore(HealingComponent healing, EntityUid target, out float score)
     {
+        score = 0f;
+
         if (!TryComp<DamageableComponent>(target, out var damageable))
             return false;
 
@@ -1782,17 +1784,36 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        foreach (var type in healing.Damage.DamageDict)
+        var matchedDamage = 0f;
+        var matchedHealing = 0f;
+        var matchedTypes = 0;
+
+        foreach (var (type, healingValue) in healing.Damage.DamageDict)
         {
-            if (damageable.Damage.DamageDict.TryGetValue(type.Key, out var value) &&
-                value > 0)
-            {
-                return true;
-            }
+            if (healingValue >= 0 ||
+                !damageable.Damage.DamageDict.TryGetValue(type, out var damageValue) ||
+                damageValue <= 0)
+                continue;
+
+            matchedDamage += damageValue.Float();
+            matchedHealing += Math.Min(damageValue.Float(), Math.Abs(healingValue.Float()));
+            matchedTypes++;
         }
 
-        return healing.BloodlossModifier != 0 ||
-               healing.ModifyBloodLevel > 0;
+        if (matchedTypes > 0)
+        {
+            score = 120f + matchedHealing * 2f + matchedDamage + matchedTypes * 5f;
+            return true;
+        }
+
+        if (healing.BloodlossModifier != 0 ||
+            healing.ModifyBloodLevel > 0)
+        {
+            score = 105f;
+            return true;
+        }
+
+        return false;
     }
 
     private void FinishPendingPlayerAction(
