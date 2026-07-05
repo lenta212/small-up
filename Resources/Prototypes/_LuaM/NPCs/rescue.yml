@@ -1,0 +1,17 @@
+- type: htnCompound
+  id: LuaMRescueCompound
+  branches:
+  - tasks:
+    - !type:HTNCompoundTask
+      task: InjectNearbyCompound
+
+  - preconditions:
+    - !type:KeyExistsPrecondition
+      key: FollowTarget
+    tasks:
+    - !type:HTNCompoundTask
+      task: FollowCompound
+
+  - tasks:
+    - !type:HTNCompoundTask
+      task: IdleCompound

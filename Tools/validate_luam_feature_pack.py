@@ -295,6 +295,7 @@ def main() -> int:
         "Resources/Prototypes/InventoryTemplates/human_inventory_template.yml",
         "Resources/Prototypes/_NF/Entities/Mobs/NPCs/mob_hostile_rogue_ai.yml",
         "Resources/Prototypes/_LuaM/Entities/Mobs/rescue_agent.yml",
+        "Resources/Prototypes/_LuaM/NPCs/rescue.yml",
     ]
 
     guide_xmls = [
@@ -3067,8 +3068,22 @@ def main() -> int:
     assert_equal(component(rescue_agent, "NpcFactionMember")["factions"], ["NanoTrasen"], "LuaMRescueAgent.faction")
     component(rescue_agent, "InputMover")
     component(rescue_agent, "MobMover")
+    medibot = component(rescue_agent, "Medibot")
+    assert_equal(medibot["treatments"]["Alive"]["reagent"], "Tricordrazine", "LuaMRescueAgent.medibot.alive.reagent")
+    assert_equal(medibot["treatments"]["Critical"]["reagent"], "Inaprovaline", "LuaMRescueAgent.medibot.critical.reagent")
     htn = component(rescue_agent, "HTN")
-    assert_equal(htn["rootTask"]["task"], "FollowCompound", "LuaMRescueAgent.htn.rootTask")
+    assert_equal(htn["rootTask"]["task"], "LuaMRescueCompound", "LuaMRescueAgent.htn.rootTask")
+    assert_equal(htn["blackboard"]["NavInteract"], True, "LuaMRescueAgent.htn.NavInteract")
+    assert_contains(htn["blackboard"], "MedibotInjectRange", "LuaMRescueAgent.htn.blackboard")
+
+    rescue_compound = prototypes["LuaMRescueCompound"]
+    assert_equal(rescue_compound["type"], "htnCompound", "LuaMRescueCompound.type")
+    rescue_branches = rescue_compound["branches"]
+    assert_equal(len(rescue_branches), 3, "LuaMRescueCompound.branchCount")
+    assert_equal(rescue_branches[0]["tasks"][0]["task"], "InjectNearbyCompound", "LuaMRescueCompound.injectBranch")
+    assert_equal(rescue_branches[1]["preconditions"][0]["key"], "FollowTarget", "LuaMRescueCompound.followPrecondition")
+    assert_equal(rescue_branches[1]["tasks"][0]["task"], "FollowCompound", "LuaMRescueCompound.followBranch")
+    assert_equal(rescue_branches[2]["tasks"][0]["task"], "IdleCompound", "LuaMRescueCompound.idleBranch")
 
     allowed_low_pop_pois = {"CargoDepot", "CargoDepotAlt", "TradeMall", "Medical", "Edison", "Tinnia"}
     actual_low_pop_pois: set[str] = set()

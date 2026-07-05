@@ -16,15 +16,30 @@
   - type: InputMover
   - type: MobMover
   - type: LuaMRescueAgent
+  - type: Medibot
+    treatments:
+      Alive:
+        reagent: Tricordrazine
+        quantity: 10
+        minDamage: 0
+        maxDamage: 50
+      Critical:
+        reagent: Inaprovaline
+        quantity: 15
   - type: HTN
     rootTask:
-      task: FollowCompound
+      task: LuaMRescueCompound
     blackboard:
       FollowCloseRange: !type:Single
         1.25
       FollowRange: !type:Single
         4.0
+      IdleRange: !type:Single
+        4.0
+      MedibotInjectRange: !type:Single
+        6.0
       MinimumIdleTime: !type:Single
         0.5
       MaximumIdleTime: !type:Single
         1.5
+      NavInteract: true
