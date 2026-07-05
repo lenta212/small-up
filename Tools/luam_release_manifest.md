@@ -70,6 +70,7 @@ LuaM file groups that must be in the release/package snapshot:
 - `Tools/audit_release_surface.ps1`
 - `Tools/deploy_luam_server_release.ps1`
 - `Tools/monolith-restart-when-empty.ps1`
+- `Tools/monolith_release_runbook.md`
 - `Tools/luam_admin_ranks.yml`
 - `Tools/generate_luam_admin_rank_sql.py`
 - `Tools/check_luam_release_ready.ps1`

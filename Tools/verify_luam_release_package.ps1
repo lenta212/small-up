@@ -275,6 +275,7 @@ try {
         "Tools/audit_release_surface.ps1",
         "Tools/deploy_luam_server_release.ps1",
         "Tools/monolith-restart-when-empty.ps1",
+        "Tools/monolith_release_runbook.md",
         "Tools/luam_ai_gateway.py",
         "Tools/summarize_luam_ai_audit.py",
         "Tools/luam_release_policy.json",
