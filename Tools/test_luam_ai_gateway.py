@@ -661,6 +661,8 @@ def run_anthropic_mock_test() -> dict[str, object]:
                 assert "crowd control" in body["system"]
                 assert "threat screen" in body["system"]
                 assert "route blockers" in body["system"]
+                assert "short sortie memory digest" in body["system"]
+                assert "recent threat pressure" in body["system"]
                 assert "auto-analyze" in body["system"]
                 assert "accessible nearby storage" in body["system"]
                 assert "stow held items" in body["system"]

@@ -2111,6 +2111,8 @@ def main() -> int:
         "crowd control",
         "threat screen",
         "route blockers",
+        "short sortie memory digest",
+        "recent threat pressure",
         "take medical supplies from accessible nearby storage",
         "take-target-storage",
         "store collected medical supplies",
@@ -3345,6 +3347,13 @@ def main() -> int:
     assert_contains(rescue_team_component, "NearbyHostiles", "LuaMRescueTeamComponent")
     assert_contains(rescue_team_component, "NearbyCrowd", "LuaMRescueTeamComponent")
     assert_contains(rescue_team_component, "NearbyBlockers", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "LastMemoryDigest", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "RecentThreatMemories", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "RecentCrowdMemories", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "RecentRouteMemories", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "SceneMemory", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "LuaMRescueSceneMemoryEntry", "LuaMRescueSceneMemoryEntry")
+    assert_contains(rescue_team_component, "LuaMRescueScenePressure", "LuaMRescueScenePressure")
     assert_contains(rescue_team_component, "ThreatScreen", "LuaMRescueEscortDuty")
     assert_contains(rescue_team_component, "CrowdControl", "LuaMRescueEscortDuty")
     assert_contains(rescue_team_component, "ClearRoute", "LuaMRescueEscortDuty")
@@ -3361,10 +3370,24 @@ def main() -> int:
     assert_contains(rescue_team_system, "IsHostileToObserver", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "IsActiveCombatant", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "IsRouteBlocker", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "RememberScenePressure", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "PruneSceneMemory", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "RefreshSceneMemoryDigest", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "FindSceneMemoryToReinforce", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "BuildSceneMemoryDigest", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "SceneMemoryLimit", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "SceneMemoryLifetimeSeconds", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "SceneMemoryReinforceSeconds", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "HasThreatPressure", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "HasCrowdPressure", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "HasRoutePressure", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "BuildSceneSummary", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "CrowdPressureThreshold", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "RouteBlockerThreshold", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "scene=", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "memory=", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "memory clear", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "recent threat=", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "threat-screen", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "crowd-control", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "clear-route", "LuaMRescueTeamSystem")

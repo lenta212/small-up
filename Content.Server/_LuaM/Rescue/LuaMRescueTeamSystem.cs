@@ -26,6 +26,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const float SceneScanRange = 6f;
     private const int CrowdPressureThreshold = 4;
     private const int RouteBlockerThreshold = 2;
+    private const int SceneMemoryLimit = 8;
+    private const double SceneMemoryLifetimeSeconds = 90;
+    private const double SceneMemoryReinforceSeconds = 18;
 
     private static readonly (LuaMRescueEscortRole Role, Vector2 Offset)[] EscortFormation =
     [
@@ -88,8 +91,13 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             ? LuaMRescueTeamPhase.Dispatch
             : LuaMRescueTeamPhase.Idle;
         team.LastStatus = "autonomous rescue team deployed";
+        team.LastMemoryDigest = "memory clear";
+        team.RecentThreatMemories = 0;
+        team.RecentCrowdMemories = 0;
+        team.RecentRouteMemories = 0;
         team.SceneScanAccumulator = team.SceneScanInterval;
         team.Escorts.Clear();
+        team.SceneMemory.Clear();
 
         var anchorCoordinates = Transform(anchor).Coordinates;
         foreach (var (role, offset) in EscortFormation)
@@ -116,7 +124,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"patient={FormatEntityRef(team.Patient)}; shuttle={FormatEntityRef(team.Shuttle)}; " +
                 $"escorts={team.Escorts.Count}; scene={team.LastSceneStatus}; " +
                 $"threat={FormatEntityRef(team.ThreatTarget)}; crowd={team.NearbyCrowd}; " +
-                $"blockers={team.NearbyBlockers}; last={team.LastStatus}");
+                $"blockers={team.NearbyBlockers}; memory={team.LastMemoryDigest}; last={team.LastStatus}");
         }
 
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
@@ -127,7 +135,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"duty={FormatDuty(escort.CurrentDuty)}; follow={FormatEntityRef(escort.CurrentFollowTarget)}; " +
                 $"leader={FormatEntityRef(escort.Leader)}; patient={FormatEntityRef(escort.Patient)}; " +
                 $"threat={FormatEntityRef(escort.ThreatTarget)}; scene={escort.LastSceneStatus}; " +
-                $"last={escort.LastDutyStatus}");
+                $"memory={escort.LastMemoryDigest}; last={escort.LastDutyStatus}");
         }
 
         return lines;
@@ -217,6 +225,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             team.SceneScanAccumulator = 0f;
             var scene = ScanRescueScene(uid, team.TeamId, uid, patient, shuttle, shuttleAnchor);
             changed |= UpdateTeamScene(team, scene);
+            changed |= RememberScenePressure(team, scene);
+        }
+        else
+        {
+            changed |= PruneSceneMemory(team);
         }
 
         if (changed)
@@ -233,7 +246,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         escort.CurrentDuty = duty;
         escort.CurrentFollowTarget = followTarget;
-        escort.LastDutyStatus = $"{FormatRole(escort.Role)} {FormatDuty(duty)}; {escort.LastSceneStatus}";
+        escort.LastDutyStatus = $"{FormatRole(escort.Role)} {FormatDuty(duty)}; {escort.LastSceneStatus}; {escort.LastMemoryDigest}";
 
         SetEscortFollowTarget(uid, escort, htn, followTarget, duty);
         if ((changed || forceSpeech) &&
@@ -253,6 +266,17 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         {
             escort.Leader = null;
             escort.Patient = null;
+            escort.SceneAnchor = null;
+            escort.ThreatTarget = null;
+            escort.NearbyHostiles = 0;
+            escort.NearbyCombatants = 0;
+            escort.NearbyCrowd = 0;
+            escort.NearbyBlockers = 0;
+            escort.LastSceneStatus = "scene clear";
+            escort.LastMemoryDigest = "memory clear";
+            escort.RecentThreatMemories = 0;
+            escort.RecentCrowdMemories = 0;
+            escort.RecentRouteMemories = 0;
             return;
         }
 
@@ -269,6 +293,10 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.NearbyCrowd = team.NearbyCrowd;
             escort.NearbyBlockers = team.NearbyBlockers;
             escort.LastSceneStatus = team.LastSceneStatus;
+            escort.LastMemoryDigest = team.LastMemoryDigest;
+            escort.RecentThreatMemories = team.RecentThreatMemories;
+            escort.RecentCrowdMemories = team.RecentCrowdMemories;
+            escort.RecentRouteMemories = team.RecentRouteMemories;
             return;
         }
 
@@ -421,6 +449,204 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         escort.NearbyCrowd = scene.CrowdCount;
         escort.NearbyBlockers = scene.BlockerCount;
         escort.LastSceneStatus = scene.Status;
+        escort.LastMemoryDigest = BuildSceneSnapshotMemoryDigest(scene);
+        escort.RecentThreatMemories = scene.HostileCount > 0 || scene.CombatantCount > 0 ? 1 : 0;
+        escort.RecentCrowdMemories = scene.CrowdCount >= CrowdPressureThreshold ? 1 : 0;
+        escort.RecentRouteMemories = scene.BlockerCount >= RouteBlockerThreshold ? 1 : 0;
+    }
+
+    private bool RememberScenePressure(LuaMRescueTeamComponent team, LuaMRescueSceneSnapshot scene)
+    {
+        var changed = PruneSceneMemory(team);
+        var pressure = GetScenePressure(scene);
+        if (pressure == LuaMRescueScenePressure.None)
+            return RefreshSceneMemoryDigest(team) || changed;
+
+        var now = _timing.CurTime;
+        var memory = FindSceneMemoryToReinforce(team, scene, pressure, now);
+        if (memory == null)
+        {
+            if (team.SceneMemory.Count >= SceneMemoryLimit)
+                team.SceneMemory.RemoveAt(0);
+
+            memory = new LuaMRescueSceneMemoryEntry
+            {
+                Pressure = pressure,
+                Anchor = scene.Anchor,
+                ThreatTarget = scene.ThreatTarget,
+                FirstSeen = now,
+            };
+            team.SceneMemory.Add(memory);
+        }
+        else
+        {
+            memory.Observations++;
+        }
+
+        memory.ThreatTarget = scene.ThreatTarget ?? memory.ThreatTarget;
+        memory.HostileCount = Math.Max(memory.HostileCount, scene.HostileCount);
+        memory.CombatantCount = Math.Max(memory.CombatantCount, scene.CombatantCount);
+        memory.CrowdCount = Math.Max(memory.CrowdCount, scene.CrowdCount);
+        memory.BlockerCount = Math.Max(memory.BlockerCount, scene.BlockerCount);
+        memory.LastSeen = now;
+        memory.ExpiresAt = now + TimeSpan.FromSeconds(SceneMemoryLifetimeSeconds);
+        memory.Status = scene.Status;
+
+        changed = true;
+        changed |= RefreshSceneMemoryDigest(team);
+        return changed;
+    }
+
+    private bool PruneSceneMemory(LuaMRescueTeamComponent team)
+    {
+        var now = _timing.CurTime;
+        var changed = team.SceneMemory.RemoveAll(memory => memory.ExpiresAt <= now) > 0;
+        return RefreshSceneMemoryDigest(team) || changed;
+    }
+
+    private bool RefreshSceneMemoryDigest(LuaMRescueTeamComponent team)
+    {
+        var threat = 0;
+        var crowd = 0;
+        var route = 0;
+        LuaMRescueSceneMemoryEntry? last = null;
+
+        foreach (var memory in team.SceneMemory)
+        {
+            switch (memory.Pressure)
+            {
+                case LuaMRescueScenePressure.Threat:
+                case LuaMRescueScenePressure.Armed:
+                    threat++;
+                    break;
+                case LuaMRescueScenePressure.Crowd:
+                    crowd++;
+                    break;
+                case LuaMRescueScenePressure.Route:
+                    route++;
+                    break;
+            }
+
+            if (last == null || memory.LastSeen > last.LastSeen)
+                last = memory;
+        }
+
+        var digest = BuildSceneMemoryDigest(threat, crowd, route, last);
+        var changed = false;
+
+        if (team.RecentThreatMemories != threat)
+        {
+            team.RecentThreatMemories = threat;
+            changed = true;
+        }
+
+        if (team.RecentCrowdMemories != crowd)
+        {
+            team.RecentCrowdMemories = crowd;
+            changed = true;
+        }
+
+        if (team.RecentRouteMemories != route)
+        {
+            team.RecentRouteMemories = route;
+            changed = true;
+        }
+
+        if (!string.Equals(team.LastMemoryDigest, digest, StringComparison.Ordinal))
+        {
+            team.LastMemoryDigest = digest;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private LuaMRescueSceneMemoryEntry? FindSceneMemoryToReinforce(
+        LuaMRescueTeamComponent team,
+        LuaMRescueSceneSnapshot scene,
+        LuaMRescueScenePressure pressure,
+        TimeSpan now)
+    {
+        LuaMRescueSceneMemoryEntry? best = null;
+        foreach (var memory in team.SceneMemory)
+        {
+            if (memory.Pressure != pressure ||
+                now - memory.LastSeen > TimeSpan.FromSeconds(SceneMemoryReinforceSeconds))
+            {
+                continue;
+            }
+
+            if (scene.ThreatTarget is { Valid: true } threat &&
+                memory.ThreatTarget == threat)
+            {
+                return memory;
+            }
+
+            if (scene.Anchor is { Valid: true } anchor &&
+                memory.Anchor == anchor)
+            {
+                best = memory;
+            }
+        }
+
+        return best;
+    }
+
+    private static LuaMRescueScenePressure GetScenePressure(LuaMRescueSceneSnapshot scene)
+    {
+        if (scene.HostileCount > 0)
+            return LuaMRescueScenePressure.Threat;
+
+        if (scene.CombatantCount > 0)
+            return LuaMRescueScenePressure.Armed;
+
+        if (scene.BlockerCount >= RouteBlockerThreshold)
+            return LuaMRescueScenePressure.Route;
+
+        if (scene.CrowdCount >= CrowdPressureThreshold)
+            return LuaMRescueScenePressure.Crowd;
+
+        return LuaMRescueScenePressure.None;
+    }
+
+    private string BuildSceneMemoryDigest(
+        int threat,
+        int crowd,
+        int route,
+        LuaMRescueSceneMemoryEntry? last)
+    {
+        if (threat == 0 && crowd == 0 && route == 0)
+            return "memory clear";
+
+        var lastPressure = last != null
+            ? $"{FormatPressure(last.Pressure)} {GetMemoryAgeSeconds(last.LastSeen)}s ago x{last.Observations}"
+            : "none";
+
+        return $"recent threat={threat} crowd={crowd} route={route}; last={lastPressure}";
+    }
+
+    private static string BuildSceneSnapshotMemoryDigest(LuaMRescueSceneSnapshot scene)
+    {
+        return GetScenePressure(scene) == LuaMRescueScenePressure.None
+            ? "memory clear"
+            : $"snapshot {scene.Status}";
+    }
+
+    private int GetMemoryAgeSeconds(TimeSpan lastSeen)
+    {
+        return Math.Max(0, (int) (_timing.CurTime - lastSeen).TotalSeconds);
+    }
+
+    private static string FormatPressure(LuaMRescueScenePressure pressure)
+    {
+        return pressure switch
+        {
+            LuaMRescueScenePressure.Threat => "threat",
+            LuaMRescueScenePressure.Armed => "armed",
+            LuaMRescueScenePressure.Route => "route",
+            LuaMRescueScenePressure.Crowd => "crowd",
+            _ => "none",
+        };
     }
 
     private bool ShouldIgnoreSceneEntity(
@@ -507,6 +733,21 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.NearbyCombatants > 0;
     }
 
+    private static bool HasThreatPressure(LuaMRescueEscortComponent escort)
+    {
+        return HasSceneThreat(escort) || escort.RecentThreatMemories > 0;
+    }
+
+    private static bool HasCrowdPressure(LuaMRescueEscortComponent escort)
+    {
+        return escort.NearbyCrowd >= CrowdPressureThreshold || escort.RecentCrowdMemories > 0;
+    }
+
+    private static bool HasRoutePressure(LuaMRescueEscortComponent escort)
+    {
+        return escort.NearbyBlockers >= RouteBlockerThreshold || escort.RecentRouteMemories > 0;
+    }
+
     private static string BuildSceneSummary(int hostiles, int combatants, int crowd, int blockers)
     {
         if (hostiles > 0)
@@ -541,20 +782,20 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             var evacuating = rescue.TaskStage is LuaMRescueTaskStage.EvacuatingPatient or LuaMRescueTaskStage.DeliveringPatient ||
                 rescue.EvacuatingTarget is { Valid: true };
 
-            if (HasSceneThreat(escort) &&
+            if (HasThreatPressure(escort) &&
                 escort.Role == LuaMRescueEscortRole.Zaslon)
             {
                 return LuaMRescueEscortDuty.ThreatScreen;
             }
 
             if (evacuating &&
-                escort.NearbyBlockers >= RouteBlockerThreshold &&
+                HasRoutePressure(escort) &&
                 escort.Role != LuaMRescueEscortRole.Kostyl)
             {
                 return LuaMRescueEscortDuty.ClearRoute;
             }
 
-            if (escort.NearbyCrowd >= CrowdPressureThreshold &&
+            if (HasCrowdPressure(escort) &&
                 escort.Role == LuaMRescueEscortRole.Tourniquet)
             {
                 return LuaMRescueEscortDuty.CrowdControl;
@@ -573,7 +814,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
             if (rescue.TaskStage == LuaMRescueTaskStage.TreatingPatient)
             {
-                if (escort.NearbyCrowd >= CrowdPressureThreshold &&
+                if (HasCrowdPressure(escort) &&
                     escort.Role == LuaMRescueEscortRole.Tourniquet)
                 {
                     return LuaMRescueEscortDuty.CrowdControl;
@@ -585,13 +826,13 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             }
         }
 
-        if (HasSceneThreat(escort) &&
+        if (HasThreatPressure(escort) &&
             escort.Role == LuaMRescueEscortRole.Zaslon)
         {
             return LuaMRescueEscortDuty.ThreatScreen;
         }
 
-        if (escort.NearbyCrowd >= CrowdPressureThreshold &&
+        if (HasCrowdPressure(escort) &&
             escort.Role == LuaMRescueEscortRole.Tourniquet)
         {
             return LuaMRescueEscortDuty.CrowdControl;
@@ -619,12 +860,15 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var threat = escort.ThreatTarget is { Valid: true } threatUid && !Deleted(threatUid)
             ? threatUid
             : (EntityUid?) null;
+        var sceneAnchor = escort.SceneAnchor is { Valid: true } sceneAnchorUid && !Deleted(sceneAnchorUid)
+            ? sceneAnchorUid
+            : (EntityUid?) null;
 
         return duty switch
         {
-            LuaMRescueEscortDuty.ThreatScreen => threat ?? patient ?? leader ?? shuttleAnchor ?? shuttle,
-            LuaMRescueEscortDuty.CrowdControl => patient ?? leader ?? shuttleAnchor ?? shuttle,
-            LuaMRescueEscortDuty.ClearRoute => leader ?? shuttleAnchor ?? patient ?? shuttle,
+            LuaMRescueEscortDuty.ThreatScreen => threat ?? sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle,
+            LuaMRescueEscortDuty.CrowdControl => sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle,
+            LuaMRescueEscortDuty.ClearRoute => sceneAnchor ?? leader ?? shuttleAnchor ?? patient ?? shuttle,
             LuaMRescueEscortDuty.SecureScene => escort.Role == LuaMRescueEscortRole.Zaslon
                 ? threat ?? patient ?? leader ?? shuttleAnchor ?? shuttle
                 : leader ?? patient ?? shuttleAnchor ?? shuttle,

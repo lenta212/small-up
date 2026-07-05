@@ -49,11 +49,25 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public string LastSceneStatus = "scene clear";
 
     [DataField]
+    public string LastMemoryDigest = "memory clear";
+
+    [DataField]
+    public int RecentThreatMemories;
+
+    [DataField]
+    public int RecentCrowdMemories;
+
+    [DataField]
+    public int RecentRouteMemories;
+
+    [DataField]
     public float SceneScanInterval = 1f;
 
     public float SceneScanAccumulator;
 
     public readonly List<EntityUid> Escorts = new();
+
+    public readonly List<LuaMRescueSceneMemoryEntry> SceneMemory = new();
 }
 
 [RegisterComponent]
@@ -108,6 +122,18 @@ public sealed partial class LuaMRescueEscortComponent : Component
     public string LastSceneStatus = "scene clear";
 
     [DataField]
+    public string LastMemoryDigest = "memory clear";
+
+    [DataField]
+    public int RecentThreatMemories;
+
+    [DataField]
+    public int RecentCrowdMemories;
+
+    [DataField]
+    public int RecentRouteMemories;
+
+    [DataField]
     public float FollowCloseRange = 1.75f;
 
     [DataField]
@@ -152,4 +178,29 @@ public enum LuaMRescueTeamPhase : byte
     EvacuateToShuttle,
     Handoff,
     ReturnOrExtract,
+}
+
+public sealed class LuaMRescueSceneMemoryEntry
+{
+    public LuaMRescueScenePressure Pressure = LuaMRescueScenePressure.None;
+    public EntityUid? Anchor;
+    public EntityUid? ThreatTarget;
+    public int HostileCount;
+    public int CombatantCount;
+    public int CrowdCount;
+    public int BlockerCount;
+    public int Observations = 1;
+    public TimeSpan FirstSeen;
+    public TimeSpan LastSeen;
+    public TimeSpan ExpiresAt;
+    public string Status = string.Empty;
+}
+
+public enum LuaMRescueScenePressure : byte
+{
+    None,
+    Threat,
+    Armed,
+    Route,
+    Crowd,
 }
