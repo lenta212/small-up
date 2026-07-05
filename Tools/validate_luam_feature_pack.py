@@ -252,6 +252,7 @@ def main() -> int:
         "Resources/Locale/ru-RU/administration/ui/tabs/admin-tab/player-actions-window.ftl",
         "Resources/ServerInfo/Intro.txt",
         "Tools/luam_ai_gateway.py",
+        "Tools/luam_openai_mcp_server.py",
         "Tools/summarize_luam_ai_audit.py",
         "Tools/deploy_luam_server_release.ps1",
         "Tools/build_luam_server_release.ps1",
@@ -799,16 +800,25 @@ def main() -> int:
         "AllowedSectorCommandIds",
         "ai_base_create",
         "ai_base_diagnostics",
+        "ai_base_plan",
+        "ai_base_autofix",
         "ai_base_mine",
         "ai_base_build",
         "ai_base_develop",
         "BuildAiBaseDiagnosticsReport",
         "BuildAiBaseDiagnostics",
+        "BuildAiBaseDevelopmentPlanReport",
+        "BuildAiBaseDevelopmentPlan",
+        "BuildAiBaseAutofixSummary",
         "AiBaseDiagnosticEntry",
         "AiBasePhysicalSnapshot",
+        "AiBaseDevelopmentPlanStep",
+        "DispatchAiBaseAutofixAsync",
         "DispatchAiBaseRoleShipAsync",
         "DispatchAiBaseDevelopmentAsync",
         "IsAiBaseRobotDevelopmentRequest",
+        "IsAiBasePlanRequest",
+        "IsAiBaseAutofixRequest",
         "IsAiBaseDiagnosticsRequest",
         "AdminModeEnabled",
         "SpawnChatEntityAsync",
@@ -1066,6 +1076,14 @@ def main() -> int:
         "QuickGatewayShipHammerhead",
         "QuickGatewayShipTzipora",
         "QuickGatewayShipTokarev",
+        "QuickAiBaseDiagnostics",
+        "QuickAiBaseAutofix",
+        "QuickAiBasePlan",
+        "QuickAiBaseMine",
+        "QuickAiBaseBuild",
+        "QuickAiBaseDevelop",
+        "AiBaseAutofixSummary",
+        "AiBaseDevelopmentPlan",
         "GatewayShipPresets",
         "LuaMAiDirectorGatewayShipEntry",
         "GatewayShipGameMapId",
@@ -1228,13 +1246,49 @@ def main() -> int:
     assert_contains(ai_director, "ai_base_build", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "ai_base_develop", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "ai_base_diagnostics", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "ai_base_plan", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "ai_base_autofix", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "DispatchAiBaseDevelopmentAsync", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "DispatchAiBaseAutofixAsync", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "DispatchAiBaseRoleShipAsync", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "IsAiBaseRobotDevelopmentRequest", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "IsAiBasePlanRequest", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "IsAiBaseAutofixRequest", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "IsAiBaseDiagnosticsRequest", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "BuildAiBaseDiagnosticsReport", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "BuildAiBaseDevelopmentPlanReport", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "HasAiBaseMiningIntent", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "HasAiBaseBuildIntent", "LuaMSectorAiDirectorSystem")
+
+    ai_base_ecology = (ROOT / "Content.Server/_LuaM/Sector/LuaMAiBaseEcologySystem.cs").read_text(encoding="utf-8")
+    for required_ecology_marker in [
+        "StuckCheckIntervalSeconds",
+        "StuckMovementEpsilon",
+        "UpdateDroneStuckState",
+        "ResetDroneStuckState",
+        "stuck_",
+    ]:
+        assert_contains(ai_base_ecology, required_ecology_marker, "LuaMAiBaseEcologySystem")
+
+    ai_drone_task = (ROOT / "Content.Server/_LuaM/Sector/LuaMAiDroneTaskComponent.cs").read_text(encoding="utf-8")
+    for required_task_marker in [
+        "IsStuck",
+        "StuckChecks",
+        "StuckReport",
+        "LastObservedCoordinates",
+        "NextStuckCheck",
+    ]:
+        assert_contains(ai_drone_task, required_task_marker, "LuaMAiDroneTaskComponent")
+
+    sector_memory = (ROOT / "Content.Server/_LuaM/Sector/LuaMSectorMemoryComponent.cs").read_text(encoding="utf-8")
+    for required_memory_marker in [
+        "AutofixLog",
+        "LuaMAiBaseAutofixEntry",
+        "BeforeSummary",
+        "AfterSummary",
+        "Success",
+    ]:
+        assert_contains(sector_memory, required_memory_marker, "LuaMSectorMemoryComponent")
 
     ai_admin_chat_test = (ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMAiDirectorAdminChatTest.cs").read_text(encoding="utf-8")
     for required_test_marker in [
@@ -1246,8 +1300,12 @@ def main() -> int:
         "LuaMAiDirectorGameMasterMode",
         "GameMasterModeEnabled",
         "AiBaseDiagnostics",
+        "AiBaseAutofixSummary",
+        "AiBaseDevelopmentPlan",
         "LuaMAiDirectorRecommendationSourceClass.AiBase",
         "ai_base_diagnostics",
+        "ai_base_plan",
+        "ai_base_autofix",
         "ai_base_mine",
         "ai_base_build",
         "ai_base_develop",
@@ -1719,6 +1777,9 @@ def main() -> int:
     ai_admin_xaml = (ROOT / "Content.Client/_LuaM/Administration/LuaMAiDirectorWindow.xaml").read_text(encoding="utf-8")
     assert_contains(ai_admin_xaml, "QuickGatewayShipButton", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "luam-ai-director-quick-gateway-ship", "LuaMAiDirectorWindow.xaml")
+    assert_contains(ai_admin_xaml, "QuickAiBaseDiagnosticsButton", "LuaMAiDirectorWindow.xaml")
+    assert_contains(ai_admin_xaml, "QuickAiBaseAutofixButton", "LuaMAiDirectorWindow.xaml")
+    assert_contains(ai_admin_xaml, "QuickAiBasePlanButton", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "PrivacyLabel", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "luam-ai-director-privacy", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "WorkflowPresetOption", "LuaMAiDirectorWindow.xaml")
@@ -2181,7 +2242,10 @@ def main() -> int:
         "inputSafetyFlags",
         "aiMemoryBrief",
         "safetyDirectives",
-        "DEFAULT_MODEL = \"5.5\"",
+        "DEFAULT_OPENAI_MODEL = \"gpt-5.5\"",
+        "DEFAULT_OPENAI_COMPATIBLE_MODEL = \"5.5\"",
+        "OPENAI_MODEL_ALIASES",
+        "DEFAULT_MCP_SERVER_ID",
         "call_anthropic_messages_api",
         "call_anthropic_command_messages_api",
         "call_ai_command_provider",
@@ -2197,9 +2261,13 @@ def main() -> int:
         "run_sector_command",
         "ai_base_create",
         "ai_base_diagnostics",
+        "ai_base_plan",
+        "ai_base_autofix",
         "ai_base_mine",
         "ai_base_build",
         "ai_base_develop",
+        "wants_ai_base_plan",
+        "wants_ai_base_autofix",
         "wants_ai_base_diagnostics",
         "wants_ai_base_mining",
         "wants_ai_base_building",
@@ -2227,6 +2295,14 @@ def main() -> int:
         "rewardMax",
         "call_ai_provider",
         "validate_proposal",
+        "codex-mcp",
+        "openclav",
+        "hermes",
+        "call_mcp_tool",
+        "LUAM_MCP_SERVER",
+        "LUAM_MCP_COMMAND",
+        "LUAM_MCP_TOOL",
+        "OPENAI_OFFICIAL_API_KEY",
     ]:
         assert_contains(ai_gateway, required_api, "Tools/luam_ai_gateway.py")
     for manual_only_ai_command in [
@@ -2239,9 +2315,29 @@ def main() -> int:
         assert_not_contains(ai_gateway, manual_only_ai_command, "Tools/luam_ai_gateway.py raw admin command allowlist")
     assert_not_contains(ai_gateway, "sk-", "Tools/luam_ai_gateway.py")
 
+    openai_mcp_server = (ROOT / "Tools/luam_openai_mcp_server.py").read_text(encoding="utf-8")
+    for required_mcp_marker in [
+        "TOOL_OPENAI_RESPONSES",
+        "tools/list",
+        "tools/call",
+        "openai_responses_json",
+        "OPENAI_OFFICIAL_API_KEY",
+        "LUAM_MCP_RESPONSES_URL",
+        "https://api.openai.com/v1",
+    ]:
+        assert_contains(openai_mcp_server, required_mcp_marker, "Tools/luam_openai_mcp_server.py")
+    assert_not_contains(openai_mcp_server, "sk-", "Tools/luam_openai_mcp_server.py")
+
     ai_gateway_test = (ROOT / "Tools/test_luam_ai_gateway.py").read_text(encoding="utf-8")
     for required_test_marker in [
         "AnthropicMockHandler",
+        "OpenAiMockHandler",
+        "run_openai_mock_test",
+        "test-openai-key",
+        "LUAM_MCP_SERVER",
+        "LUAM_MCP_RESPONSES_URL",
+        "custom-provider-key",
+        "openaiMock",
         "ANTHROPIC_MESSAGES_URL",
         "test-anthropic-key",
         "x-api-key",
@@ -2293,7 +2389,11 @@ def main() -> int:
         "take-storage",
         "take-target-storage",
         "ai_base_diagnostics",
+        "ai_base_plan",
+        "ai_base_autofix",
         "ai_base_develop",
+        "aiBasePlanChat",
+        "aiBaseAutofixChat",
         "aiBaseDiagnosticsChat",
         "aiBaseDevelopChat",
         "slot=<slot>",
@@ -2337,12 +2437,29 @@ def main() -> int:
         "gw-audit.jsonl",
         "LUAM_AI_AUDIT_LOG",
         "gateway_audit",
+        "OfficialOpenAI",
+        "OPENAI_OFFICIAL_API_KEY is required when -OfficialOpenAI is used.",
+        "LUAM_MCP_SERVER",
+        "LUAM_MCP_TOOL",
+        "luam_openai_mcp_server.py",
+        "OPENAI_BASE_URL",
+        "LUAM_COMPAT_API_KEY",
     ]:
         assert_contains(local_stack, required_local_stack_marker, "Tools/start_local_stack.ps1")
 
     local_stack_docs = (ROOT / "Tools/local_stack.md").read_text(encoding="utf-8")
     for required_local_stack_doc_marker in [
         "## AI audit",
+        "## OpenAI GPT-5.5 through MCP",
+        "-OfficialOpenAI",
+        "OPENAI_OFFICIAL_API_KEY",
+        "LUAM_AI_PROVIDER=mcp",
+        "mcp://luam-openai",
+        "## External MCP provider",
+        "LUAM_MCP_COMMAND",
+        "LUAM_MCP_TOOL",
+        "## Custom OpenAI-compatible provider",
+        "LUAM_COMPAT_API_KEY",
         "Tools\\summarize_luam_ai_audit.py",
         "C:\\MonolithTemp\\gw-audit.jsonl",
         "1667 / 103 / 0 / 0",

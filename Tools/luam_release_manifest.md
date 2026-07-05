@@ -65,6 +65,7 @@ LuaM file groups that must be in the release/package snapshot:
 - `Resources/Maps/_Mono/Shuttles/triage.yml`
 - LuaM-linked admin tab, Bounty Contracts, Bank/Payroll locale, LateJoin, cartridge, research, role-time, pinpointer, synthetic-control, clothing/underwear slot, rogue AI, character profile, and test-harness files listed in `Tools\check_luam_release_ready.ps1`.
 - `Tools/luam_ai_gateway.py`
+- `Tools/luam_openai_mcp_server.py`
 - `Tools/summarize_luam_ai_audit.py`
 - `Tools/test_luam_ai_gateway.py`
 - `Tools/validate_luam_feature_pack.py`
@@ -152,7 +153,7 @@ Last local verification:
 - Latest package `scopeAudit` must have 0 unexpected changed files outside package.
 - `python Tools\validate_luam_feature_pack.py` passed.
 - `python Tools\generate_luam_admin_rank_sql.py --check-only --json` passed, 6 ranks / 90 flags.
-- `python Tools\test_luam_ai_gateway.py` passed with local Anthropic Haiku 4.5 no-key fallback, mock Anthropic `/messages`, `/review` structured remarks, audit token/cache/cost fields, and filtered audit-summary reader coverage.
+- `python Tools\test_luam_ai_gateway.py` passed with local Anthropic Haiku 4.5 no-key fallback, mock OpenAI MCP `/responses`, mock Anthropic `/messages`, `/review` structured remarks, audit token/cache/cost fields, and filtered audit-summary reader coverage.
 - `dotnet test Content.IntegrationTests\Content.IntegrationTests.csproj --filter "FullyQualifiedName~LuaMDonationShopTest" --no-restore` passed; it covers locked balance without access, one-month manual access, duplicate permanent reward blocking, balance spend, ledger actions, and certificate printing.
 - `dotnet test Content.IntegrationTests\Content.IntegrationTests.csproj --filter "FullyQualifiedName~LuaMDynamicEventDebrisTest" --no-restore` passed; it covers five generated debris sites, GPS marker/site-note clarity, cleanup, and hostile contact only on the fifth site.
 - `Tools\check_luam_release_ready.ps1 -RunTests -RunLocalSmoke` passed with `utf8-release-text`, zero untracked release-scope files, LuaM dotnet test filters, and full local gateway/server/client smoke.

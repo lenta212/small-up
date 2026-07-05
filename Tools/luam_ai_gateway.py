@@ -8,11 +8,21 @@ event proposal, validates the basic shape, and returns JSON that the game server
 validates again.
 
 Useful environment variables:
-  LUAM_AI_PROVIDER          openai or anthropic, defaults to openai unless only Anthropic key is set
-  OPENAI_API_KEY            provider API key
-  OPENAI_BASE_URL           provider base URL, for example https://api.apiprovider.pro/v1
-  OPENAI_MODEL              model name, defaults to DEFAULT_MODEL below
-  OPENAI_API_MODE           openai-compatible/chat, responses, or auto
+  LUAM_AI_PROVIDER          mcp, openai, openai-compatible, or anthropic; defaults to mcp
+  LUAM_MCP_COMMAND          optional full stdio MCP server command, Codex-style
+  LUAM_MCP_SERVER           optional MCP server script path; defaults to Tools/luam_openai_mcp_server.py
+  LUAM_MCP_TOOL             MCP tool name, defaults to openai_responses_json
+  LUAM_MCP_SERVER_ID        audit label for the MCP server, defaults to luam-openai
+  LUAM_MCP_TIMEOUT          optional MCP tool-call timeout in seconds
+  OPENAI_OFFICIAL_API_KEY   official OpenAI API key used only by the default LuaM OpenAI MCP adapter
+  OPENAI_MODEL              official OpenAI model, defaults to DEFAULT_OPENAI_MODEL below
+  LUAM_OPENAI_MCP_*         legacy aliases for the default OpenAI MCP adapter
+  OPENAI_API_KEY            legacy direct OpenAI API key for LUAM_AI_PROVIDER=openai only
+  OPENAI_API_MODE           legacy direct OpenAI API mode, defaults to responses
+  LUAM_COMPAT_API_KEY       custom OpenAI-compatible provider API key
+  LUAM_COMPAT_BASE_URL      custom OpenAI-compatible provider base URL, for example https://api.apiprovider.pro/v1
+  LUAM_COMPAT_MODEL         custom OpenAI-compatible model name, defaults to DEFAULT_OPENAI_COMPATIBLE_MODEL below
+  LUAM_COMPAT_API_MODE      custom OpenAI-compatible API mode, defaults to auto
   ANTHROPIC_API_KEY         Anthropic API key for Claude
   ANTHROPIC_BASE_URL        Anthropic base URL, defaults to https://api.anthropic.com/v1
   ANTHROPIC_MODEL           Claude model, defaults to Claude Haiku 4.5 pinned snapshot
@@ -33,6 +43,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
+import subprocess
 import sys
 import threading
 import time
@@ -49,9 +61,16 @@ from urllib.parse import urlsplit, urlunsplit
 
 
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_MCP_SERVER_ID = "luam-openai"
+DEFAULT_MCP_TOOL = "openai_responses_json"
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
 ANTHROPIC_DEFAULT_VERSION = "2023-06-01"
-DEFAULT_MODEL = "5.5"
+DEFAULT_OPENAI_MODEL = "gpt-5.5"
+DEFAULT_OPENAI_COMPATIBLE_MODEL = "5.5"
+OPENAI_MODEL_ALIASES = {
+    "gpt5.5": DEFAULT_OPENAI_MODEL,
+    "gpt-5.5-latest": DEFAULT_OPENAI_MODEL,
+}
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 ANTHROPIC_MODEL_ALIASES = {
     "claude-haiku-4.5": DEFAULT_ANTHROPIC_MODEL,
@@ -826,8 +845,27 @@ def normalize_provider(value: str) -> str:
     provider = value.strip().lower()
     if provider in {"anthropic", "claude", "claude-api"}:
         return "anthropic"
-    if provider in {"openai", "openai-compatible", "openai_compatible", "chat", "responses"}:
+    if provider in {
+        "mcp",
+        "openai-mcp",
+        "openai_mcp",
+        "official-mcp",
+        "official_mcp",
+        "codex",
+        "codex-mcp",
+        "codex_mcp",
+        "openclav",
+        "openclave",
+        "openclav-mcp",
+        "openclave-mcp",
+        "hermes",
+        "hermes-mcp",
+    }:
+        return "mcp"
+    if provider in {"openai", "official-openai", "official_openai", "responses"}:
         return "openai"
+    if provider in {"openai-compatible", "openai_compatible", "compatible", "compat", "chat"}:
+        return "openai-compatible"
     return provider
 
 
@@ -839,22 +877,47 @@ def get_provider() -> str:
     )
     if explicit:
         provider = normalize_provider(explicit)
-        if provider in {"openai", "anthropic"}:
+        if provider in {"mcp", "openai", "openai-compatible", "anthropic"}:
             return provider
 
-    mode = normalize_provider(os.environ.get("OPENAI_API_MODE", ""))
+    mode = normalize_provider(os.environ.get("LUAM_COMPAT_API_MODE", "") or os.environ.get("OPENAI_API_MODE", ""))
     if mode == "anthropic":
         return "anthropic"
+    if mode == "mcp":
+        return "mcp"
+    if mode == "openai-compatible":
+        return "openai-compatible"
 
+    if os.environ.get("OPENAI_OFFICIAL_API_KEY", "").strip():
+        return "mcp"
+    if os.environ.get("LUAM_COMPAT_API_KEY", "").strip():
+        return "openai-compatible"
     if os.environ.get("ANTHROPIC_API_KEY", "").strip() and not os.environ.get("OPENAI_API_KEY", "").strip():
         return "anthropic"
 
-    return "openai"
+    return "mcp"
 
 
 def normalize_anthropic_model(model: str) -> str:
     stripped = model.strip()
     return ANTHROPIC_MODEL_ALIASES.get(stripped.lower(), stripped)
+
+
+def normalize_openai_model(model: str) -> str:
+    stripped = model.strip()
+    return OPENAI_MODEL_ALIASES.get(stripped.lower(), stripped)
+
+
+def get_official_openai_api_key() -> str:
+    return os.environ.get("OPENAI_OFFICIAL_API_KEY", "").strip()
+
+
+def get_legacy_openai_api_key() -> str:
+    return os.environ.get("OPENAI_API_KEY", "").strip()
+
+
+def get_compatible_openai_api_key() -> str:
+    return os.environ.get("LUAM_COMPAT_API_KEY", "").strip()
 
 
 def get_model() -> str:
@@ -867,7 +930,14 @@ def get_model() -> str:
         )
         return normalize_anthropic_model(model) or DEFAULT_ANTHROPIC_MODEL
 
-    return os.environ.get("OPENAI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    if get_provider() == "openai-compatible":
+        return os.environ.get("LUAM_COMPAT_MODEL", DEFAULT_OPENAI_COMPATIBLE_MODEL).strip() or DEFAULT_OPENAI_COMPATIBLE_MODEL
+
+    model = os.environ.get("OPENAI_MODEL", "").strip()
+    if model:
+        return normalize_openai_model(model)
+
+    return DEFAULT_OPENAI_MODEL
 
 
 def get_base_url() -> str:
@@ -878,20 +948,35 @@ def get_base_url() -> str:
             or ANTHROPIC_DEFAULT_BASE_URL
         ).rstrip("/")
 
+    if get_provider() == "mcp":
+        return get_mcp_base_url()
+
+    if get_provider() == "openai-compatible":
+        return os.environ.get("LUAM_COMPAT_BASE_URL", "").strip().rstrip("/")
+
+    # Official OpenAI deliberately ignores OPENAI_BASE_URL/OPENAI_API_BASE so a
+    # custom provider key cannot be accidentally sent to api.openai.com or vice versa.
     return (
-        os.environ.get("OPENAI_BASE_URL", "")
-        or os.environ.get("OPENAI_API_BASE", "")
+        os.environ.get("OPENAI_OFFICIAL_BASE_URL", "")
         or OPENAI_DEFAULT_BASE_URL
     ).rstrip("/")
 
 
 def build_api_url(path: str) -> str:
     if path == "/responses":
-        explicit = os.environ.get("OPENAI_RESPONSES_URL", "").strip()
+        explicit = (
+            os.environ.get("LUAM_COMPAT_RESPONSES_URL", "").strip()
+            if get_provider() == "openai-compatible"
+            else os.environ.get("LUAM_OPENAI_RESPONSES_URL", "").strip()
+        )
         if explicit:
             return explicit
     if path == "/chat/completions":
-        explicit = os.environ.get("OPENAI_CHAT_COMPLETIONS_URL", "").strip()
+        explicit = (
+            os.environ.get("LUAM_COMPAT_CHAT_COMPLETIONS_URL", "").strip()
+            if get_provider() == "openai-compatible"
+            else os.environ.get("LUAM_OPENAI_CHAT_COMPLETIONS_URL", "").strip()
+        )
         if explicit:
             return explicit
 
@@ -910,8 +995,12 @@ def build_anthropic_url(path: str) -> str:
 def has_provider_api_key() -> bool:
     if get_provider() == "anthropic":
         return bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    if get_provider() == "mcp":
+        return bool(get_official_openai_api_key() or get_mcp_command_env() or get_mcp_server_env())
+    if get_provider() == "openai-compatible":
+        return bool(get_compatible_openai_api_key())
 
-    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+    return bool(get_legacy_openai_api_key())
 
 
 def utc_now_iso() -> str:
@@ -992,7 +1081,12 @@ def extract_token_usage(response: dict[str, Any]) -> dict[str, int]:
     cache_read_tokens = token_usage_value(usage, "cache_read_input_tokens")
     total_tokens = token_usage_value(usage, "total_tokens")
     prompt_details = usage.get("prompt_tokens_details")
-    cached_input_tokens = token_usage_value(prompt_details, "cached_tokens") if isinstance(prompt_details, dict) else None
+    input_details = usage.get("input_tokens_details")
+    cached_input_tokens = None
+    if isinstance(prompt_details, dict):
+        cached_input_tokens = token_usage_value(prompt_details, "cached_tokens")
+    if cached_input_tokens is None and isinstance(input_details, dict):
+        cached_input_tokens = token_usage_value(input_details, "cached_tokens")
 
     if input_tokens is not None:
         tokens["inputTokens"] = input_tokens
@@ -1427,12 +1521,265 @@ def parse_proposal_text(output: str) -> dict[str, Any]:
     return proposal
 
 
+def get_mcp_command_env() -> str:
+    return (
+        os.environ.get("LUAM_MCP_COMMAND", "")
+        or os.environ.get("LUAM_OPENAI_MCP_COMMAND", "")
+    ).strip()
+
+
+def get_mcp_server_env() -> str:
+    return (
+        os.environ.get("LUAM_MCP_SERVER", "")
+        or os.environ.get("LUAM_OPENAI_MCP_SERVER", "")
+    ).strip()
+
+
+def get_mcp_tool_name() -> str:
+    return (
+        os.environ.get("LUAM_MCP_TOOL", "")
+        or os.environ.get("LUAM_OPENAI_MCP_TOOL", "")
+        or DEFAULT_MCP_TOOL
+    ).strip() or DEFAULT_MCP_TOOL
+
+
+def get_mcp_server_id() -> str:
+    server_id = (
+        os.environ.get("LUAM_MCP_SERVER_ID", "")
+        or os.environ.get("LUAM_OPENAI_MCP_SERVER_ID", "")
+        or DEFAULT_MCP_SERVER_ID
+    ).strip()
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", server_id).strip("-") or DEFAULT_MCP_SERVER_ID
+
+
+def get_mcp_base_url() -> str:
+    return f"mcp://{get_mcp_server_id()}"
+
+
+def get_mcp_command() -> list[str]:
+    command = get_mcp_command_env()
+    if command:
+        return shlex.split(command, posix=os.name != "nt")
+
+    server = get_mcp_server_env()
+    if not server:
+        server = os.path.join(os.path.dirname(os.path.abspath(__file__)), "luam_openai_mcp_server.py")
+    return [sys.executable, server]
+
+
+def mcp_jsonrpc_message(message_id: int | None, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    message: dict[str, Any] = {
+        "jsonrpc": "2.0",
+        "method": method,
+    }
+    if message_id is not None:
+        message["id"] = message_id
+    if params is not None:
+        message["params"] = params
+    return message
+
+
+def parse_mcp_jsonrpc_response(stdout: str, message_id: int) -> dict[str, Any]:
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(message, dict) and message.get("id") == message_id:
+            return message
+
+    raise RuntimeError(f"MCP server returned no response for request {message_id}")
+
+
+def mcp_error_text(message: dict[str, Any]) -> str:
+    error = message.get("error")
+    if not isinstance(error, dict):
+        return "MCP server returned an unknown error"
+    text = str(error.get("message") or "MCP server error")
+    data = error.get("data")
+    if data is not None:
+        text = f"{text}: {truncate_for_audit(data, 600)}"
+    return text
+
+
+def extract_mcp_tool_json(message: dict[str, Any]) -> dict[str, Any]:
+    if "error" in message:
+        raise RuntimeError(mcp_error_text(message))
+
+    result = message.get("result")
+    if not isinstance(result, dict):
+        raise RuntimeError("MCP server result is not an object")
+    if result.get("isError") is True:
+        content = result.get("content")
+        if isinstance(content, list):
+            text = "\n".join(
+                str(item.get("text"))
+                for item in content
+                if isinstance(item, dict) and item.get("type") == "text"
+            ).strip()
+            if text:
+                raise RuntimeError(text)
+        raise RuntimeError("MCP tool returned an error")
+
+    content = result.get("content")
+    if not isinstance(content, list):
+        raise RuntimeError("MCP tool returned no content")
+
+    text_chunks = [
+        item.get("text")
+        for item in content
+        if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str)
+    ]
+    if not text_chunks:
+        raise RuntimeError("MCP tool returned no text content")
+
+    data = json.loads("\n".join(text_chunks))
+    if not isinstance(data, dict):
+        raise RuntimeError("MCP tool text is not a JSON object")
+    return data
+
+
+def call_mcp_tool(body: dict[str, Any], endpoint: str) -> dict[str, Any]:
+    started = time.monotonic()
+    tool_name = get_mcp_tool_name()
+    tool_url = f"{get_mcp_base_url()}/tools/{tool_name}"
+
+    messages = [
+        mcp_jsonrpc_message(
+            1,
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "luam-ai-gateway",
+                    "version": "1.0.0",
+                },
+            },
+        ),
+        mcp_jsonrpc_message(None, "notifications/initialized", {}),
+        mcp_jsonrpc_message(
+            3,
+            "tools/call",
+            {
+                "name": tool_name,
+                "arguments": {
+                    "request": body,
+                    "endpoint": endpoint,
+                    "model": get_model(),
+                },
+            },
+        ),
+    ]
+    payload = "\n".join(json.dumps(message, ensure_ascii=False, separators=(",", ":")) for message in messages) + "\n"
+    timeout = float(
+        os.environ.get(
+            "LUAM_MCP_TIMEOUT",
+            os.environ.get("LUAM_OPENAI_MCP_TIMEOUT", os.environ.get("OPENAI_TIMEOUT", "25")),
+        )
+    )
+    mcp_env = os.environ.copy()
+    mcp_env["PYTHONIOENCODING"] = "utf-8"
+
+    try:
+        completed = subprocess.run(
+            get_mcp_command(),
+            input=payload,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=mcp_env,
+            timeout=timeout,
+            check=False,
+        )
+        tool_message = parse_mcp_jsonrpc_response(completed.stdout, 3)
+        wrapper = extract_mcp_tool_json(tool_message)
+    except subprocess.TimeoutExpired as exc:
+        audit_provider_request("mcp", tool_url, None, started, "MCP server timed out")
+        raise RuntimeError("MCP server timed out") from exc
+    except Exception as exc:
+        audit_provider_request("mcp", tool_url, None, started, f"{type(exc).__name__}: {exc}")
+        raise
+
+    response = wrapper.get("response") if isinstance(wrapper.get("response"), dict) else wrapper
+    audit_provider_request("mcp", tool_url, 200, started, usage=extract_token_usage(response))
+    return response
+
+
+def parse_mcp_response_payload(response: dict[str, Any], direct_keys: set[str]) -> dict[str, Any]:
+    output = extract_output_text(response)
+    if output:
+        return parse_proposal_text(output)
+
+    for key in ("proposal", "command", "review", "result"):
+        value = response.get(key)
+        if isinstance(value, dict):
+            return value
+
+    if direct_keys & set(response.keys()):
+        return response
+
+    raise RuntimeError("MCP provider returned neither output_text nor a LuaM response object")
+
+
+def call_mcp_event_api(context: dict[str, Any]) -> dict[str, Any]:
+    response = call_mcp_tool(build_responses_request(context), "event")
+    return parse_mcp_response_payload(response, {"templateId", "title", "briefing"})
+
+
+def call_mcp_command_api(context: dict[str, Any]) -> dict[str, Any]:
+    response = call_mcp_tool(build_command_responses_request(context), "chat")
+    return parse_mcp_response_payload(response, {"reply", "action"})
+
+
+def call_mcp_review_api(context: dict[str, Any]) -> dict[str, Any]:
+    response = call_mcp_tool(build_review_responses_request(context), "review")
+    return parse_mcp_response_payload(response, {"summary", "recommendedActions"})
+
+
+def call_openai_mcp_responses(body: dict[str, Any]) -> dict[str, Any]:
+    return call_mcp_tool(body, "responses")
+
+
+def call_openai_mcp_event_api(context: dict[str, Any]) -> dict[str, Any]:
+    response = call_openai_mcp_responses(build_responses_request(context))
+    output = extract_output_text(response)
+    if not output:
+        raise RuntimeError("AI provider returned no output_text")
+
+    return parse_proposal_text(output)
+
+
+def call_openai_mcp_command_api(context: dict[str, Any]) -> dict[str, Any]:
+    response = call_openai_mcp_responses(build_command_responses_request(context))
+    output = extract_output_text(response)
+    if not output:
+        raise RuntimeError("AI provider returned no output_text")
+
+    return parse_proposal_text(output)
+
+
+def call_openai_mcp_review_api(context: dict[str, Any]) -> dict[str, Any]:
+    response = call_openai_mcp_responses(build_review_responses_request(context))
+    output = extract_output_text(response)
+    if not output:
+        raise RuntimeError("AI provider returned no output_text")
+
+    return parse_proposal_text(output)
+
+
 def post_json(url: str, body: dict[str, Any]) -> dict[str, Any]:
     started = time.monotonic()
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    provider_name = "openai-compatible" if get_provider() == "openai-compatible" else "openai"
+    api_key = get_compatible_openai_api_key() if provider_name == "openai-compatible" else get_legacy_openai_api_key()
+    missing_key = "LUAM_COMPAT_API_KEY" if provider_name == "openai-compatible" else "OPENAI_API_KEY"
     if not api_key:
-        audit_provider_request("openai", url, None, started, "OPENAI_API_KEY is not set")
-        raise RuntimeError("OPENAI_API_KEY is not set")
+        audit_provider_request(provider_name, url, None, started, f"{missing_key} is not set")
+        raise RuntimeError(f"{missing_key} is not set")
 
     # Some OpenAI-compatible proxy providers mishandle raw UTF-8 in nested
     # prompts. Escaped JSON keeps Russian prompts stable across those proxies.
@@ -1455,21 +1802,21 @@ def post_json(url: str, body: dict[str, Any]) -> dict[str, Any]:
             status_code = response.status
     except urllib.error.HTTPError as exc:
         body_text = exc.read().decode("utf-8", errors="replace")
-        audit_provider_request("openai", url, exc.code, started, exc.reason)
+        audit_provider_request(provider_name, url, exc.code, started, exc.reason)
         raise AiProviderHttpError(exc.code, body_text, url) from exc
     except Exception as exc:
-        audit_provider_request("openai", url, None, started, f"{type(exc).__name__}: {exc}")
+        audit_provider_request(provider_name, url, None, started, f"{type(exc).__name__}: {exc}")
         raise
 
     try:
         data = json.loads(raw)
     except Exception as exc:
-        audit_provider_request("openai", url, status_code, started, f"{type(exc).__name__}: {exc}")
+        audit_provider_request(provider_name, url, status_code, started, f"{type(exc).__name__}: {exc}")
         raise
     if not isinstance(data, dict):
-        audit_provider_request("openai", url, status_code, started, "AI provider response is not a JSON object")
+        audit_provider_request(provider_name, url, status_code, started, "AI provider response is not a JSON object")
         raise RuntimeError("AI provider response is not a JSON object")
-    audit_provider_request("openai", url, status_code, started, usage=extract_token_usage(data))
+    audit_provider_request(provider_name, url, status_code, started, usage=extract_token_usage(data))
     return data
 
 
@@ -1562,12 +1909,21 @@ def call_anthropic_messages_api(context: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_api_mode() -> str:
-    return os.environ.get("OPENAI_API_MODE", "auto").strip().lower()
+    provider = get_provider()
+    if provider == "anthropic":
+        return "anthropic"
+    if provider == "mcp":
+        return "mcp"
+    if provider == "openai-compatible":
+        return os.environ.get("LUAM_COMPAT_API_MODE", "auto").strip().lower()
+    return os.environ.get("OPENAI_API_MODE", "responses").strip().lower()
 
 
 def get_api_protocol(mode: str) -> str:
     if get_provider() == "anthropic" or normalize_provider(mode) == "anthropic":
         return "anthropic-messages"
+    if get_provider() == "mcp" or normalize_provider(mode) == "mcp":
+        return "mcp"
     if mode in {"chat", "chat_completions", "chat-completions", "openai-compatible", "openai_compatible"}:
         return "openai-compatible"
     if mode in {"responses", "response"}:
@@ -1581,6 +1937,8 @@ def call_ai_provider(context: dict[str, Any]) -> dict[str, Any]:
     provider_context = build_provider_context(context, "event")
     if get_provider() == "anthropic":
         return call_anthropic_messages_api(provider_context)
+    if get_provider() == "mcp":
+        return call_mcp_event_api(provider_context)
 
     mode = get_api_mode()
     if mode in {"responses", "response"}:
@@ -1640,6 +1998,8 @@ def call_ai_command_provider(context: dict[str, Any]) -> dict[str, Any]:
     provider_context = build_provider_context(context, "chat")
     if get_provider() == "anthropic":
         return call_anthropic_command_messages_api(provider_context)
+    if get_provider() == "mcp":
+        return call_mcp_command_api(provider_context)
 
     mode = get_api_mode()
     if mode in {"responses", "response"}:
@@ -1699,6 +2059,8 @@ def call_ai_review_provider(context: dict[str, Any]) -> dict[str, Any]:
     provider_context = build_provider_context(context, "review")
     if get_provider() == "anthropic":
         return call_anthropic_review_messages_api(provider_context)
+    if get_provider() == "mcp":
+        return call_mcp_review_api(provider_context)
 
     mode = get_api_mode()
     if mode in {"responses", "response"}:

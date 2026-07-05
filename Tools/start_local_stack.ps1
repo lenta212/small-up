@@ -3,6 +3,8 @@ param(
     [string]$TempRoot = "C:\MonolithTemp",
     [string]$GatewayPort = "8787",
     [string]$ServerPort = "1213",
+    [switch]$OfficialOpenAI,
+    [string]$OpenAIModel = "gpt-5.5",
     [switch]$SkipClient,
     [switch]$Reset
 )
@@ -15,6 +17,7 @@ $serverConfig = Join-Path $TempRoot ("server_config_local-" + [DateTime]::UtcNow
 $serverData = Join-Path $TempRoot "server-data"
 $serverLogDir = Join-Path $TempRoot ("server-logs-" + [DateTime]::UtcNow.ToString("yyyyMMddHHmmssfff"))
 $gatewaySource = Join-Path $Root "Tools\luam_ai_gateway.py"
+$mcpServerSource = Join-Path $Root "Tools\luam_openai_mcp_server.py"
 $gatewayCopy = Join-Path $TempRoot ("luam_ai_gateway-" + [DateTime]::UtcNow.ToString("yyyyMMddHHmmssfff") + ".py")
 $gatewayOut = Join-Path $TempRoot "gw-out.txt"
 $gatewayErr = Join-Path $TempRoot "gw-err.txt"
@@ -91,6 +94,29 @@ function Wait-FilePattern {
     return $false
 }
 
+function Save-ProcessEnv {
+    param([string[]]$Names)
+
+    $snapshot = @{}
+    foreach ($name in $Names) {
+        $snapshot[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    }
+    return $snapshot
+}
+
+function Restore-ProcessEnv {
+    param([hashtable]$Snapshot)
+
+    foreach ($name in $Snapshot.Keys) {
+        $value = $Snapshot[$name]
+        if ([string]::IsNullOrEmpty($value)) {
+            Remove-Item -Path ("Env:{0}" -f $name) -ErrorAction SilentlyContinue
+        } else {
+            Set-Item -Path ("Env:{0}" -f $name) -Value $value
+        }
+    }
+}
+
 if ($Reset) {
     Stop-Process -Name "Content.Server" -Force -ErrorAction SilentlyContinue
     Stop-Process -Name "Robust.Server" -Force -ErrorAction SilentlyContinue
@@ -105,16 +131,76 @@ $server = $null
 $client = $null
 
 try {
-    $previousGatewayAudit = $env:LUAM_AI_AUDIT_LOG
+    $gatewayEnvNames = @(
+        "LUAM_AI_AUDIT_LOG",
+        "LUAM_AI_PROVIDER",
+        "LUAM_MCP_COMMAND",
+        "LUAM_MCP_SERVER",
+        "LUAM_MCP_TOOL",
+        "LUAM_MCP_SERVER_ID",
+        "LUAM_MCP_TIMEOUT",
+        "LUAM_OPENAI_MCP_SERVER",
+        "LUAM_OPENAI_MCP_COMMAND",
+        "LUAM_OPENAI_MCP_TOOL",
+        "LUAM_OPENAI_MCP_SERVER_ID",
+        "LUAM_OPENAI_MCP_TIMEOUT",
+        "OPENAI_OFFICIAL_API_KEY",
+        "OPENAI_OFFICIAL_BASE_URL",
+        "OPENAI_API_MODE",
+        "OPENAI_MODEL",
+        "OPENAI_BASE_URL",
+        "OPENAI_API_BASE",
+        "LUAM_OPENAI_RESPONSES_URL",
+        "LUAM_OPENAI_CHAT_COMPLETIONS_URL",
+        "LUAM_OPENAI_MCP_RESPONSES_URL",
+        "OPENAI_RESPONSES_URL",
+        "OPENAI_CHAT_COMPLETIONS_URL",
+        "LUAM_COMPAT_API_KEY",
+        "LUAM_COMPAT_BASE_URL",
+        "LUAM_COMPAT_MODEL",
+        "LUAM_COMPAT_API_MODE",
+        "LUAM_COMPAT_RESPONSES_URL",
+        "LUAM_COMPAT_CHAT_COMPLETIONS_URL"
+    )
+    $previousGatewayEnv = Save-ProcessEnv -Names $gatewayEnvNames
     $env:LUAM_AI_AUDIT_LOG = $gatewayAudit
+    if ($OfficialOpenAI) {
+        if ([string]::IsNullOrWhiteSpace($env:OPENAI_OFFICIAL_API_KEY)) {
+            throw "OPENAI_OFFICIAL_API_KEY is required when -OfficialOpenAI is used. Do not reuse a custom-provider OPENAI_API_KEY for the official OpenAI MCP server."
+        }
+
+        if (-not (Test-Path -LiteralPath $mcpServerSource)) {
+            throw "LuaM OpenAI MCP server is missing: $mcpServerSource"
+        }
+
+        Remove-Item Env:LUAM_MCP_COMMAND -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_OPENAI_MCP_COMMAND -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_OPENAI_MCP_SERVER -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_OPENAI_MCP_TOOL -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_OPENAI_MCP_SERVER_ID -ErrorAction SilentlyContinue
+        $env:LUAM_AI_PROVIDER = "mcp"
+        $env:LUAM_MCP_SERVER = $mcpServerSource
+        $env:LUAM_MCP_TOOL = "openai_responses_json"
+        $env:LUAM_MCP_SERVER_ID = "luam-openai"
+        $env:OPENAI_MODEL = $OpenAIModel
+        Remove-Item Env:OPENAI_API_MODE -ErrorAction SilentlyContinue
+        Remove-Item Env:OPENAI_BASE_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:OPENAI_API_BASE -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_OPENAI_RESPONSES_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_OPENAI_CHAT_COMPLETIONS_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:OPENAI_RESPONSES_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:OPENAI_CHAT_COMPLETIONS_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_COMPAT_API_KEY -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_COMPAT_BASE_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_COMPAT_MODEL -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_COMPAT_API_MODE -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_COMPAT_RESPONSES_URL -ErrorAction SilentlyContinue
+        Remove-Item Env:LUAM_COMPAT_CHAT_COMPLETIONS_URL -ErrorAction SilentlyContinue
+    }
     try {
         $gateway = Start-Process -FilePath $python -ArgumentList @($gatewayCopy) -WindowStyle Hidden -PassThru -RedirectStandardOutput $gatewayOut -RedirectStandardError $gatewayErr
     } finally {
-        if ([string]::IsNullOrEmpty($previousGatewayAudit)) {
-            Remove-Item Env:LUAM_AI_AUDIT_LOG -ErrorAction SilentlyContinue
-        } else {
-            $env:LUAM_AI_AUDIT_LOG = $previousGatewayAudit
-        }
+        Restore-ProcessEnv -Snapshot $previousGatewayEnv
     }
 
     if (-not (Wait-HttpHealth -Url "http://127.0.0.1:$GatewayPort/health" -TimeoutSeconds 20)) {

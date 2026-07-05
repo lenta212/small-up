@@ -14,6 +14,87 @@ This starts:
 - Content server on `127.0.0.1:1213`
 - Content client connected to the local server
 
+## OpenAI GPT-5.5 through MCP
+
+To run the local LuaM gateway through the LuaM OpenAI MCP server, set an
+official OpenAI key in a separate variable before starting the stack. Do not
+commit or paste the key into config files.
+
+```powershell
+$env:OPENAI_OFFICIAL_API_KEY = "<your official OpenAI API key>"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\start_local_stack.ps1 -Reset -OfficialOpenAI
+```
+
+`-OfficialOpenAI` starts the gateway with `LUAM_AI_PROVIDER=mcp`,
+`OPENAI_MODEL=gpt-5.5`, and `Tools\luam_openai_mcp_server.py` as a local MCP
+stdio server. The game server still talks only to the local LuaM gateway; the
+gateway calls the MCP tool, and the MCP server owns official OpenAI
+authorization.
+
+`OPENAI_API_KEY` is intentionally not used by this official MCP path. Keep a
+custom provider key out of the official route and use the `LUAM_COMPAT_*`
+variables below for that separate provider.
+
+During the gateway process startup, `-OfficialOpenAI` temporarily clears custom
+provider/proxy variables such as `OPENAI_BASE_URL`, `OPENAI_API_BASE`,
+`LUAM_COMPAT_API_KEY`, `LUAM_COMPAT_BASE_URL`, and old direct OpenAI URL
+overrides.
+
+Verify the gateway connection without exposing the key:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8787/health
+```
+
+Expected OpenAI fields:
+
+- `provider`: `mcp`
+- `api`: `mcp`
+- `model`: `gpt-5.5`
+- `baseUrl`: `mcp://luam-openai`
+- `hasApiKey`: `true`
+
+## Custom OpenAI-compatible provider
+
+For an OpenAI-compatible proxy instead of official OpenAI MCP, use the separate
+custom-provider variables:
+
+```powershell
+$env:LUAM_AI_PROVIDER = "openai-compatible"
+$env:LUAM_COMPAT_API_KEY = "<your custom provider key>"
+$env:LUAM_COMPAT_BASE_URL = "https://api.apiprovider.pro/v1"
+$env:LUAM_COMPAT_MODEL = "5.5"
+$env:LUAM_COMPAT_API_MODE = "auto"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\start_local_stack.ps1 -Reset
+```
+
+Do not put this custom key into `OPENAI_OFFICIAL_API_KEY`.
+
+## External MCP provider
+
+To connect a Codex-style, OpenClav/OpenClave, Hermes, or other stdio MCP
+provider, point LuaM at that MCP command and tool. The gateway sends a sanitized
+LuaM request as the `request` argument and also includes `endpoint` and `model`.
+
+```powershell
+$env:LUAM_AI_PROVIDER = "mcp"
+$env:LUAM_MCP_COMMAND = "npx -y your-mcp-server"
+$env:LUAM_MCP_TOOL = "openai_responses_json"
+$env:LUAM_MCP_SERVER_ID = "hermes"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\start_local_stack.ps1 -Reset
+```
+
+Compatible MCP tool outputs:
+
+- `{"response": <OpenAI Responses-style JSON with output_text>}`
+- direct OpenAI Responses-style JSON with `output_text`
+- direct LuaM response objects for event/chat/review, such as `templateId`,
+  `reply/action`, or `summary/recommendedActions`
+
+If a provider uses a different tool contract, keep the gateway unchanged and add
+a small MCP adapter script that translates that provider into one of these
+shapes.
+
 ## Claude Haiku 4.5
 
 To run the local gateway through Anthropic Claude Haiku 4.5 instead of the
