@@ -135,6 +135,18 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     public TimeSpan NextAutoAnalyzeAttempt;
 
+    [DataField]
+    public LuaMRescueTaskStage TaskStage = LuaMRescueTaskStage.None;
+
+    [DataField]
+    public EntityUid? TaskPatientTarget;
+
+    [DataField]
+    public EntityUid? TaskSupplyTarget;
+
+    [DataField]
+    public string LastTaskStatus = "none";
+
     public EntityUid? ProgressTarget;
 
     public EntityUid? ProgressGoal;
@@ -206,4 +218,17 @@ public enum LuaMRescuePlayerActionKind : byte
     TakeStorage,
     Treat,
     Vend,
+}
+
+public enum LuaMRescueTaskStage : byte
+{
+    None,
+    Standby,
+    FollowingPatient,
+    TreatingPatient,
+    PickingUpSupply,
+    VendingSupply,
+    EvacuatingPatient,
+    DeliveringPatient,
+    ManualAction,
 }

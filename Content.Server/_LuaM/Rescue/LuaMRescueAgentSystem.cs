@@ -169,6 +169,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             }
 
             ClearPendingPlayerAction(rescue);
+            ClearRescueTask(agent, rescue, "order cleared");
             ResetTargetProgress(rescue);
             StandbyAtAssignedShuttle(agent, rescue, htn);
             status = $"{FormatEntityRef(agent)} cleared current rescue order and is returning to standby.";
@@ -190,6 +191,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.SkippedTargets.Remove(targetUid);
         ClearPendingPlayerAction(rescue);
+        SetRescueTask(
+            agent,
+            rescue,
+            LuaMRescueTaskStage.FollowingPatient,
+            targetUid,
+            null,
+            $"ordered to rescue {FormatEntityRef(targetUid)}");
         ResetTargetProgress(rescue);
 
         if (TryStartOrContinueEvacuation(agent, rescue, htn, targetUid))
@@ -250,6 +258,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (action == LuaMRescuePlayerActionKind.None)
         {
             ClearPendingPlayerAction(rescue, "cleared");
+            ClearRescueTask(agent, rescue, "manual action cleared");
             ResetTargetProgress(rescue);
             StandbyAtAssignedShuttle(agent, rescue, htn);
             status = $"{FormatEntityRef(agent)} cleared pending player action and is returning to standby.";
@@ -312,6 +321,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.PendingVendingDispensedItem = null;
         rescue.PlayerActionAccumulator = 0f;
         rescue.LastPlayerActionStatus = $"pending {FormatPlayerAction(action)} {FormatEntityRef(actionTarget)}";
+        SetRescueTask(
+            agent,
+            rescue,
+            LuaMRescueTaskStage.ManualAction,
+            null,
+            actionTarget,
+            $"manual {FormatPlayerAction(action)} {FormatEntityRef(actionTarget)}");
         SetFollowTarget(agent, rescue, htn, actionTarget);
 
         status = $"{FormatEntityRef(agent)} ordered to {FormatPlayerAction(action)} {FormatEntityRef(actionTarget)}.";
@@ -330,6 +346,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return $"{FormatEntityRef(uid)} phase={GetRescuePhase(uid, rescue)}; " +
                $"target={FormatEntityRef(target)}; shuttle={FormatEntityRef(rescue.AssignedShuttle)}; " +
                $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
+               $"taskStage={FormatRescueTaskStage(rescue.TaskStage)}; " +
+               $"taskPatient={FormatEntityRef(rescue.TaskPatientTarget)}; taskSupply={FormatEntityRef(rescue.TaskSupplyTarget)}; " +
+               $"taskLast={rescue.LastTaskStatus}; " +
                $"skipped={rescue.SkippedTargets.Count}; skippedSupply={rescue.SkippedSupplyTargets.Count}; " +
                $"autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoEvac={rescue.LastAutoEvacuationStatus}; " +
@@ -426,6 +445,130 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"actionItem={rescue.PendingPlayerActionItem ?? "none"}; " +
                $"actionTime={rescue.PlayerActionAccumulator:0.0}/{rescue.PlayerActionTimeout:0.0}s; " +
                $"lastAction={rescue.LastPlayerActionStatus}";
+    }
+
+    private static string FormatRescueTaskStage(LuaMRescueTaskStage stage)
+    {
+        return stage switch
+        {
+            LuaMRescueTaskStage.Standby => "standby",
+            LuaMRescueTaskStage.FollowingPatient => "following-patient",
+            LuaMRescueTaskStage.TreatingPatient => "treating-patient",
+            LuaMRescueTaskStage.PickingUpSupply => "picking-up-supply",
+            LuaMRescueTaskStage.VendingSupply => "vending-supply",
+            LuaMRescueTaskStage.EvacuatingPatient => "evacuating-patient",
+            LuaMRescueTaskStage.DeliveringPatient => "delivering-patient",
+            LuaMRescueTaskStage.ManualAction => "manual-action",
+            _ => "none",
+        };
+    }
+
+    private void SetRescueTask(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        LuaMRescueTaskStage stage,
+        EntityUid? patientTarget,
+        EntityUid? supplyTarget,
+        string status)
+    {
+        patientTarget = patientTarget is { Valid: true } patient ? patient : null;
+        supplyTarget = supplyTarget is { Valid: true } supply ? supply : null;
+        status = string.IsNullOrWhiteSpace(status) ? FormatRescueTaskStage(stage) : status;
+
+        if (rescue.TaskStage == stage &&
+            rescue.TaskPatientTarget == patientTarget &&
+            rescue.TaskSupplyTarget == supplyTarget &&
+            string.Equals(rescue.LastTaskStatus, status, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        rescue.TaskStage = stage;
+        rescue.TaskPatientTarget = patientTarget;
+        rescue.TaskSupplyTarget = supplyTarget;
+        rescue.LastTaskStatus = status;
+        Dirty(uid, rescue);
+    }
+
+    private void ClearRescueTask(EntityUid uid, LuaMRescueAgentComponent rescue, string status)
+    {
+        SetRescueTask(uid, rescue, LuaMRescueTaskStage.None, null, null, status);
+    }
+
+    private void PruneRescueTaskMemory(EntityUid uid, LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.TaskPatientTarget is { Valid: true } patient &&
+            (Deleted(patient) || IsTargetTemporarilySkipped(patient, rescue)))
+        {
+            ClearRescueTask(uid, rescue, $"forgot unavailable patient {FormatEntityRef(patient)}");
+            return;
+        }
+
+        if (rescue.TaskSupplyTarget is { Valid: true } supply &&
+            (Deleted(supply) || IsSupplyTemporarilySkipped(supply, rescue)))
+        {
+            SetRescueTask(
+                uid,
+                rescue,
+                rescue.TaskPatientTarget is { Valid: true }
+                    ? LuaMRescueTaskStage.FollowingPatient
+                    : LuaMRescueTaskStage.None,
+                rescue.TaskPatientTarget,
+                null,
+                $"forgot unavailable supply {FormatEntityRef(supply)}");
+        }
+    }
+
+    private bool TryGetRememberedPatientTarget(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        MedibotComponent medibot,
+        out EntityUid target)
+    {
+        target = default;
+
+        if (rescue.TaskPatientTarget is not { Valid: true } patient ||
+            Deleted(patient) ||
+            IsTargetTemporarilySkipped(patient, rescue))
+        {
+            return false;
+        }
+
+        if (NeedsEvacuation(patient, rescue) ||
+            IsRescueCandidate(uid, patient, medibot, requireRange: false, rescue.SearchRange, out _))
+        {
+            target = patient;
+            return true;
+        }
+
+        ClearRescueTask(uid, rescue, $"patient {FormatEntityRef(patient)} no longer needs rescue");
+        return false;
+    }
+
+    private bool TryResumeRememberedPatientTask(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        MedibotComponent medibot)
+    {
+        if (!TryGetRememberedPatientTarget(uid, rescue, medibot, out var patient))
+            return false;
+
+        if (TryAutoTreatTarget(uid, rescue, htn, patient))
+            return true;
+
+        if (TryStartOrContinueEvacuation(uid, rescue, htn, patient))
+            return true;
+
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.FollowingPatient,
+            patient,
+            null,
+            $"returning to remembered patient {FormatEntityRef(patient)}");
+        SetFollowTarget(uid, rescue, htn, patient);
+        return true;
     }
 
     private void UpdatePendingPlayerAction(
@@ -1661,6 +1804,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var completedAction = rescue.PendingPlayerAction;
         var completedTarget = rescue.PendingPlayerActionTarget;
         var failed = status.StartsWith("failed", StringComparison.OrdinalIgnoreCase);
+        var completedSupplyAction = completedAction is LuaMRescuePlayerActionKind.Pickup or LuaMRescuePlayerActionKind.Vend;
         ClearPendingPlayerAction(rescue, status);
 
         if (!failed &&
@@ -1677,6 +1821,26 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             completedAction is LuaMRescuePlayerActionKind.Pickup or LuaMRescuePlayerActionKind.Vend)
         {
             TemporarilySkipSupplyTarget(rescue, failedSupply, status);
+        }
+
+        if (completedSupplyAction &&
+            rescue.TaskPatientTarget is { Valid: true } patient &&
+            !Deleted(patient) &&
+            !IsTargetTemporarilySkipped(patient, rescue))
+        {
+            rescue.TargetRefreshAccumulator = rescue.TargetRefreshInterval;
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.FollowingPatient,
+                patient,
+                null,
+                failed
+                    ? $"returning to patient {FormatEntityRef(patient)} after supply failure"
+                    : $"returning to patient {FormatEntityRef(patient)} with supply");
+            SetFollowTarget(uid, rescue, htn, patient);
+            Dirty(uid, rescue);
+            return;
         }
 
         StandbyAtAssignedShuttle(uid, rescue, htn);
@@ -1776,6 +1940,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         PruneSkippedTargets(rescue);
         PruneSkippedSupplyTargets(rescue);
         PruneAnalyzedTargets(rescue);
+        PruneRescueTaskMemory(uid, rescue);
 
         if (UpdateEvacuation(uid, rescue, htn))
             return;
@@ -1794,6 +1959,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
+        if (TryResumeRememberedPatientTask(uid, rescue, htn, medibot))
+            return;
+
         if (rescue.AssignedTarget is { Valid: true } current &&
             !IsTargetTemporarilySkipped(current, rescue) &&
             IsRescueCandidate(uid, current, medibot, requireRange: false, rescue.SearchRange, out _))
@@ -1804,6 +1972,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (TryStartOrContinueEvacuation(uid, rescue, htn, current))
                 return;
 
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.FollowingPatient,
+                current,
+                null,
+                $"following current patient {FormatEntityRef(current)}");
             SetFollowTarget(uid, rescue, htn, current);
             return;
         }
@@ -1816,6 +1991,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (TryStartOrContinueEvacuation(uid, rescue, htn, target))
                 return;
 
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.FollowingPatient,
+                target,
+                null,
+                $"following selected patient {FormatEntityRef(target)}");
             SetFollowTarget(uid, rescue, htn, target);
             return;
         }
@@ -1973,6 +2155,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
             if (!IsPullingTarget(uid, target))
             {
+                SetRescueTask(
+                    uid,
+                    rescue,
+                    LuaMRescueTaskStage.EvacuatingPatient,
+                    target,
+                    null,
+                    $"approaching evacuation patient {FormatEntityRef(target)}");
                 SetFollowTarget(uid, rescue, htn, target);
                 return true;
             }
@@ -1989,9 +2178,23 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (rescue.AssignedPatientStrap is { Valid: true } assignedStrap &&
             !Deleted(assignedStrap))
         {
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.DeliveringPatient,
+                target,
+                assignedStrap,
+                $"delivering {FormatEntityRef(target)} to {FormatEntityRef(assignedStrap)}");
             return SetFollowDeliveryStrap(uid, rescue, htn, assignedStrap);
         }
 
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.DeliveringPatient,
+            target,
+            rescue.AssignedShuttleAnchor ?? rescue.AssignedShuttle,
+            $"returning {FormatEntityRef(target)} to shuttle");
         return SetFollowShuttle(uid, rescue, htn);
     }
 
@@ -2013,6 +2216,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         rescue.EvacuatingTarget = target;
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.EvacuatingPatient,
+            target,
+            null,
+            $"evacuating {FormatEntityRef(target)}");
         TryRouteShuttleToTarget(uid, rescue, target);
 
         if (TryAutoTreatTarget(uid, rescue, htn, target))
@@ -2026,6 +2236,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (!IsWithinRange(uid, target, rescue.EvacuationStartRange))
         {
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.EvacuatingPatient,
+                target,
+                null,
+                $"approaching evacuation patient {FormatEntityRef(target)}");
             SetFollowTarget(uid, rescue, htn, target);
             return true;
         }
@@ -2034,10 +2251,24 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (!IsPullingTarget(uid, target))
         {
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.EvacuatingPatient,
+                target,
+                null,
+                $"retrying pull on {FormatEntityRef(target)}");
             SetFollowTarget(uid, rescue, htn, target);
             return true;
         }
 
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.DeliveringPatient,
+            target,
+            rescue.AssignedShuttleAnchor ?? rescue.AssignedShuttle,
+            $"returning {FormatEntityRef(target)} to shuttle");
         return SetFollowShuttle(uid, rescue, htn);
     }
 
@@ -2145,6 +2376,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.TreatingPatient,
+            target,
+            null,
+            $"treating {FormatEntityRef(target)}");
+
         if (TryAutoAnalyzeTarget(uid, rescue, htn, target))
             return true;
 
@@ -2177,7 +2416,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                     return true;
                 }
 
-                if (TryStartAutoResupplyFromVending(uid, rescue, htn, out supplyStatus))
+                if (TryStartAutoResupplyFromVending(uid, rescue, htn, target, out supplyStatus))
                 {
                     rescue.LastAutoSupplyStatus = supplyStatus;
                     Dirty(uid, rescue);
@@ -2240,6 +2479,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.PendingVendingDispensedItem = null;
         rescue.PlayerActionAccumulator = 0f;
         rescue.LastPlayerActionStatus = $"pending pickup {FormatEntityRef(supplyUid)}";
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.PickingUpSupply,
+            target,
+            supplyUid,
+            $"collecting supply {FormatEntityRef(supplyUid)} for {FormatEntityRef(target)}");
         SetFollowTarget(uid, rescue, htn, supplyUid);
 
         status = $"collecting nearby {FormatEntityRef(supplyUid)}";
@@ -2296,6 +2542,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         EntityUid uid,
         LuaMRescueAgentComponent rescue,
         HTNComponent htn,
+        EntityUid target,
         out string status)
     {
         status = string.Empty;
@@ -2318,6 +2565,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.PendingVendingDispensedItem = null;
         rescue.PlayerActionAccumulator = 0f;
         rescue.LastPlayerActionStatus = $"pending vend {productId} from {FormatEntityRef(vendingUid)}";
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.VendingSupply,
+            target,
+            vendingUid,
+            $"vending {productId} for {FormatEntityRef(target)}");
         SetFollowTarget(uid, rescue, htn, vendingUid);
 
         status = $"resupplying {productId} from {FormatEntityRef(vendingUid)}";
@@ -2759,6 +3013,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.SkippedTargets[target] = _timing.CurTime + TimeSpan.FromSeconds(rescue.TargetSkipSeconds);
 
         StopPullingTarget(uid, target);
+        ClearRescueTask(uid, rescue, $"skipped stalled target {FormatEntityRef(target)}");
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
@@ -2799,6 +3054,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private void CompleteEvacuation(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
     {
         StopPullingTarget(uid, target);
+        ClearRescueTask(uid, rescue, $"completed evacuation of {FormatEntityRef(target)}");
         rescue.ShuttleRoutedTarget = null;
         ResetTargetProgress(rescue);
         if (!HasPendingEvacuationTarget(uid, rescue, target))
@@ -2994,6 +3250,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     private void StandbyAtAssignedShuttle(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
     {
+        ClearRescueTask(uid, rescue, "standby");
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
