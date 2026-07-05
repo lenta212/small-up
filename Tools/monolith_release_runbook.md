@@ -19,6 +19,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File Tools\monolith-restart-when-
 
 Expected result: `ok=true`. `strict_ok=false` is acceptable when the only warning is an empty `/info.connect_address` and the hub entry is present for `ss14://188.127.225.57:1212/`.
 
+If `/info.connect_address` is empty, confirm the live config has `connectaddress = "udp://188.127.225.57:1212"` under `[status]`. Apply that config only during an approved maintenance window; it requires the server process to reload/restart before `/info` changes.
+
 ## Local readiness
 
 ```powershell
