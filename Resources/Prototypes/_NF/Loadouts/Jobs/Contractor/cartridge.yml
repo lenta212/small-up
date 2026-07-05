@@ -38,3 +38,33 @@
   storage:
     back:
     - LogProbeCartridge
+
+- type: loadout
+  id: ContractorBountyContractsCartridge
+  effects:
+  - !type:GroupLoadoutEffect
+    proto: ContractorT1
+  price: 0 # LuaM: solo-first contract loop
+  storage:
+    back:
+    - BountyContractsCartridge
+
+- type: loadout
+  id: ContractorNewsReaderCartridge
+  effects:
+  - !type:GroupLoadoutEffect
+    proto: ContractorT1
+  price: 0 # LuaM: solo-first sector memory
+  storage:
+    back:
+    - NewsReaderCartridge
+
+- type: loadout
+  id: ContractorNotekeeperCartridge
+  effects:
+  - !type:GroupLoadoutEffect
+    proto: ContractorT1
+  price: 0 # LuaM: solo-first notes and reports
+  storage:
+    back:
+    - NotekeeperCartridge

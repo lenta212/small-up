@@ -37,3 +37,27 @@ public sealed class PdaRequestUpdateInterfaceMessage : BoundUserInterfaceMessage
 {
     public PdaRequestUpdateInterfaceMessage() { }
 }
+
+[Serializable, NetSerializable]
+public sealed class PdaBankTransferMessage : BoundUserInterfaceMessage
+{
+    public string RecipientBankId { get; }
+    public int Amount { get; }
+
+    public PdaBankTransferMessage(string recipientBankId, int amount)
+    {
+        RecipientBankId = recipientBankId;
+        Amount = amount;
+    }
+}
+
+[Serializable, NetSerializable]
+public sealed class PdaDonationShopPurchaseMessage : BoundUserInterfaceMessage
+{
+    public string ListingId { get; }
+
+    public PdaDonationShopPurchaseMessage(string listingId)
+    {
+        ListingId = listingId;
+    }
+}

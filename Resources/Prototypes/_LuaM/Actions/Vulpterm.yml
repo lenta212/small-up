@@ -1,8 +1,8 @@
 - type: entity
   id: PulseVulpkaninThermalVision
   parent: ToggleThermalVision
-  name: Pulse Thermal Vision
-  description: Activate thermal vision temporarily.
+  name: Импульсное тепловое зрение
+  description: Временно активировать тепловое зрение.
   categories: [ HideSpawnMenu ]
   components:
   - type: InstantAction

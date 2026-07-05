@@ -1,0 +1,144 @@
+# LuaM admin rank ladder.
+#
+# Sources used for the shape of this ladder:
+# - SS14/Robust uses bitflag-based admin permissions.
+# - Space Wizards docs warn that HOST is dangerous and should only be given to people
+#   who already have server/computer access.
+# - Common SS14 server practice is a ladder similar to Trial Admin -> Game Admin ->
+#   Senior Admin -> Host, with Permissions reserved for senior staff.
+#
+# These ranks are meant to be imported through Tools\generate_luam_admin_rank_sql.ps1
+# or recreated manually in the in-game Permissions Panel.
+
+ranks:
+  - key: trainee
+    order: 10
+    name: "LuaM Стажер"
+    shortName: "СТЖ"
+    purpose: "Наблюдение, AHelp, adminwho, базовый админ-чат без силового влияния на раунд."
+    flags:
+      - ADMINHELP
+      - ADMINWHO
+      - ADMINCHAT
+      - VIEWNOTES
+
+  - key: moderator
+    order: 20
+    name: "LuaM Модератор"
+    shortName: "МОД"
+    purpose: "Разбор нарушений, AHelp, notes, точечные модераторские действия без серверных и event-флагов."
+    flags:
+      - MODERATOR
+      - ADMINHELP
+      - ADMINWHO
+      - ADMINCHAT
+      - VIEWNOTES
+      - EDITNOTES
+      - BAN
+      - LOGS
+
+  - key: game-admin
+    order: 30
+    name: "LuaM Игровой админ"
+    shortName: "АДМ"
+    purpose: "Полный игровой админ-цикл: разбор, вмешательство, события, спавн, round tools без прав на выдачу админок."
+    flags:
+      - MODERATOR
+      - ADMIN
+      - ADMINHELP
+      - ADMINWHO
+      - ADMINCHAT
+      - VIEWNOTES
+      - EDITNOTES
+      - BAN
+      - LOGS
+      - FUN
+      - SPAWN
+      - ROUND
+      - MAPPING
+
+  - key: senior-admin
+    order: 40
+    name: "LuaM Старший админ"
+    shortName: "СТ.А"
+    purpose: "Старшая смена: управление раундом, серверные операции, VV/Query/Debug для расследований, без HOST."
+    flags:
+      - MODERATOR
+      - ADMIN
+      - ADMINHELP
+      - ADMINWHO
+      - ADMINCHAT
+      - VIEWNOTES
+      - EDITNOTES
+      - BAN
+      - LOGS
+      - FUN
+      - SPAWN
+      - ROUND
+      - MAPPING
+      - SERVER
+      - VAREDIT
+      - QUERY
+      - DEBUG
+      - NAMECOLOR
+      - WHITELIST
+
+  - key: head-admin
+    order: 50
+    name: "LuaM Главный админ"
+    shortName: "ГЛ.А"
+    purpose: "Административное управление составом: может редактировать права и ранги, но не получает HOST."
+    flags:
+      - MODERATOR
+      - ADMIN
+      - ADMINHELP
+      - ADMINWHO
+      - ADMINCHAT
+      - VIEWNOTES
+      - EDITNOTES
+      - BAN
+      - LOGS
+      - FUN
+      - SPAWN
+      - ROUND
+      - MAPPING
+      - SERVER
+      - VAREDIT
+      - QUERY
+      - DEBUG
+      - NAMECOLOR
+      - WHITELIST
+      - PERMISSIONS
+      - STEALTH
+      - MASSBAN
+
+  - key: owner
+    order: 60
+    name: "LuaM Владелец"
+    shortName: "HOST"
+    purpose: "Только владелец/технический доверенный доступ. HOST позволяет полностью захватить сервер, использовать крайне осторожно."
+    flags:
+      - MODERATOR
+      - ADMIN
+      - ADMINHELP
+      - ADMINWHO
+      - ADMINCHAT
+      - VIEWNOTES
+      - EDITNOTES
+      - BAN
+      - LOGS
+      - FUN
+      - SPAWN
+      - ROUND
+      - MAPPING
+      - SERVER
+      - VAREDIT
+      - QUERY
+      - DEBUG
+      - NAMECOLOR
+      - WHITELIST
+      - PERMISSIONS
+      - STEALTH
+      - MASSBAN
+      - PII
+      - HOST

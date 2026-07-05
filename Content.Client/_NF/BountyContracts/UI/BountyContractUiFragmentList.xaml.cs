@@ -12,6 +12,7 @@ public sealed partial class BountyContractUiFragmentList : Control
     public event Action? OnRefreshButtonPressed;
     public event Action? OnToggleNotificationPressed;
     public event Action<BountyContract>? OnRemoveButtonPressed;
+    public event Action<BountyContract, bool>? OnSetAcceptedButtonPressed;
     public BountyContractUiFragmentList()
     {
         RobustXamlLoader.Load(this);
@@ -34,8 +35,9 @@ public sealed partial class BountyContractUiFragmentList : Control
         listStateContracts.Reverse();
         foreach (var contract in listStateContracts)
         {
-            var entry = new BountyContractUiFragmentListEntry(contract, canRemove || contract.AuthorUid == authorUid);
+            var entry = new BountyContractUiFragmentListEntry(contract, canRemove || contract.AuthorUid == authorUid, authorUid);
             entry.OnRemoveButtonPressed += c => OnRemoveButtonPressed?.Invoke(c);
+            entry.OnSetAcceptedButtonPressed += (c, accepted) => OnSetAcceptedButtonPressed?.Invoke(c, accepted);
             BountiesContainer.AddChild(entry);
         }
     }

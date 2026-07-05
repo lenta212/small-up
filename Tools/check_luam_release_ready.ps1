@@ -1,0 +1,548 @@
+param(
+    [switch]$AllowUntracked,
+    [switch]$RunTests,
+    [switch]$RunLocalSmoke,
+    [switch]$Json
+)
+
+$ErrorActionPreference = "Stop"
+
+$root = Split-Path -Parent $PSScriptRoot
+$issues = New-Object System.Collections.Generic.List[string]
+$warnings = New-Object System.Collections.Generic.List[string]
+$steps = New-Object System.Collections.Generic.List[object]
+
+$requiredFiles = @(
+    "Content.Client/PDA/PdaBoundUserInterface.cs",
+    "Content.Client/PDA/PdaMenu.xaml",
+    "Content.Client/PDA/PdaMenu.xaml.cs",
+    "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml",
+    "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml.cs",
+    "Content.Client/Clothing/ClientClothingSystem.cs",
+    "Content.Client/Research/UI/ResearchConsoleMenu.xaml",
+    "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleItem.xaml",
+    "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleItem.xaml.cs",
+    "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleMenu.xaml",
+    "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleMenu.xaml.cs",
+    "Content.Client/_NF/BountyContracts/UI/BountyContractUi.cs",
+    "Content.Client/_NF/BountyContracts/UI/BountyContractUiFragmentCreate.xaml.cs",
+    "Content.Client/_NF/BountyContracts/UI/BountyContractUiFragmentList.xaml.cs",
+    "Content.Client/_NF/BountyContracts/UI/BountyContractUiFragmentListEntry.xaml",
+    "Content.Client/_NF/BountyContracts/UI/BountyContractUiFragmentListEntry.xaml.cs",
+    "Content.Client/_NF/LateJoin/Controls/CrewPickerControl.xaml.cs",
+    "Content.Client/_NF/LateJoin/Extensions/StationJobInformationExtensions.cs",
+    "Content.Client/_NF/LateJoin/Windows/PickerWindow.xaml.cs",
+    "Content.Server/Cargo/Systems/CargoSystem.Bounty.cs",
+    "Content.Server/CartridgeLoader/CartridgeLoaderSystem.cs",
+    "Content.Server/PDA/PdaSystem.cs",
+    "Content.Server/Pinpointer/NavMapSystem.cs",
+    "Content.Server/Players/PlayTimeTracking/PlayTimeTrackingSystem.cs",
+    "Content.Server/Shuttles/Systems/ShuttleSystem.FasterThanLight.cs",
+    "Content.Server/Station/Systems/StationJobsSystem.cs",
+    "Content.Server/_CorvaxNext/Silicons/Borgs/AiRemoteControlSystem.cs",
+    "Content.Server/_NF/Bank/BankSystem.cs",
+    "Content.Server/_NF/BountyContracts/BountyContractSystem.Ui.cs",
+    "Content.Server/_NF/BountyContracts/BountyContractSystem.cs",
+    "Content.IntegrationTests/Pair/TestPair.cs",
+    "Content.IntegrationTests/Tests/Lobby/CharacterCreationTest.cs",
+    "Content.IntegrationTests/Utility/GameDataScrounger.Files.cs",
+    "Content.Tests/Server/_LuaM/LuaMSectorPlayerBriefingTest.cs",
+    "Content.Shared/CCVar/CCVars.LuaM.cs",
+    "Content.Shared/Inventory/SlotFlags.cs",
+    "Content.Shared/PDA/PdaComponent.cs",
+    "Content.Shared/PDA/PdaMessagesUi.cs",
+    "Content.Shared/PDA/PdaUpdateState.cs",
+    "Content.Shared/Preferences/HumanoidCharacterProfile.cs",
+    "Content.Shared/_CorvaxNext/Silicons/Borgs/Components/SharedAiRemoteControllerComponent.cs",
+    "Content.Shared/_NF/BountyContracts/SharedBountyContractSystem.cs",
+    "Resources/Locale/en-US/_Goobstation/research/ui.ftl",
+    "Resources/Locale/en-US/_Mono/gamerules/gamemodes.ftl",
+    "Resources/Locale/en-US/_NF/bank/bank-ATM-component.ftl",
+    "Resources/Locale/en-US/_NF/bounty-contracts/bounty-contracts.ftl",
+    "Resources/Locale/en-US/_NF/cartridge-loader/cartridges.ftl",
+    "Resources/Locale/en-US/_NF/pda/pda-component.ftl",
+    "Resources/Locale/en-US/administration/ui/tabs/admin-tab/player-actions-window.ftl",
+    "Resources/Locale/en-US/cargo/cargo-bounty-console.ftl",
+    "Resources/Locale/en-US/holiday/greet/holiday-greet.ftl",
+    "Resources/Locale/ru-RU/_Goobstation/research/ui.ftl",
+    "Resources/Locale/ru-RU/_Mono/gamerules/gamemodes.ftl",
+    "Resources/Locale/ru-RU/_NF/bank/bank-ATM-component.ftl",
+    "Resources/Locale/ru-RU/_NF/bounty-contracts/bounty-contracts.ftl",
+    "Resources/Locale/ru-RU/_NF/cartridge-loader/cartridges.ftl",
+    "Resources/Locale/ru-RU/_NF/pda/pda-component.ftl",
+    "Resources/Locale/ru-RU/administration/ui/tabs/admin-tab/player-actions-window.ftl",
+    "Resources/Locale/ru-RU/cargo/cargo-bounty-console.ftl",
+    "Resources/Locale/ru-RU/holiday/greet/holiday-greet.ftl",
+    "Resources/Prototypes/Entities/Mobs/Species/arachnid.yml",
+    "Resources/Prototypes/Entities/Mobs/Species/base.yml",
+    "Resources/Prototypes/InventoryTemplates/arachnid_inventory_template.yml",
+    "Resources/Prototypes/InventoryTemplates/corpse_inventory_template.yml",
+    "Resources/Prototypes/InventoryTemplates/human_inventory_template.yml",
+    "Resources/Prototypes/_NF/Entities/Mobs/NPCs/mob_hostile_rogue_ai.yml",
+    "Resources/Prototypes/_NF/Loadouts/Jobs/Contractor/cartridge.yml",
+    "Resources/Prototypes/_NF/Loadouts/contractor_loadout_groups.yml",
+    "Resources/Prototypes/_NF/bounty_contract_collections.yml",
+    "Resources/Prototypes/_Mono/Entities/Markers/Spawners/shuttles.yml",
+    "Resources/Prototypes/_Mono/lobbyscreens.yml",
+    "Resources/Prototypes/holidays.yml",
+    "Resources/manifest.yml",
+    "Resources/ServerInfo/Intro.txt",
+    "server_config.remote.toml",
+    "Content.Packaging/ClientPackaging.cs",
+    "Content.Packaging/ServerPackaging.cs",
+    "Content.Packaging/ReleaseSurfacePolicy.cs",
+    ".github/workflows/publish.yml",
+    ".github/workflows/publish-testing.yml",
+    ".github/workflows/test-packaging.yml",
+    "Tools/local_stack.md",
+    "Tools/luam_admin_ranks.yml",
+    "Tools/generate_luam_admin_rank_sql.py",
+    "Tools/audit_release_surface.ps1",
+    "Tools/deploy_luam_server_release.ps1",
+    "Tools/build_luam_release_package.ps1",
+    "Tools/build_luam_server_release.ps1",
+    "Tools/verify_luam_release_package.ps1",
+    "Tools/luam_ai_gateway.py",
+    "Tools/summarize_luam_ai_audit.py",
+    "Tools/luam_release_manifest.md",
+    "Tools/start_local_stack.ps1",
+    "Tools/stop_local_stack.ps1",
+    "Tools/test_local_frontier.ps1",
+    "Tools/test_local_stack.ps1",
+    "Tools/test_luam_ai_gateway.py",
+    "Tools/validate_luam_feature_pack.py"
+)
+
+$requiredDirectories = @(
+    "Content.Client/_LuaM",
+    "Content.Server/_LuaM",
+    "Content.Shared/_LuaM",
+    "Content.IntegrationTests/Tests/_LuaM",
+    "Content.IntegrationTests/Tests/_NF/BountyContracts",
+    "Content.Tests/Client/_LuaM",
+    "Content.Tests/Server/_LuaM",
+    "Content.Tests/Shared/_NF/BountyContracts",
+    "Resources/ConfigPresets/_LuaM",
+    "Resources/Locale/en-US/_LuaM",
+    "Resources/Locale/ru-RU/_LuaM",
+    "Resources/Prototypes/_LuaM",
+    "Resources/ServerInfo/_LuaM",
+    "Resources/Textures/_LuaM"
+)
+
+$releaseScopes = @(
+    "Content.Client/_LuaM",
+    "Content.Server/_LuaM",
+    "Content.Shared/_LuaM",
+    "Content.IntegrationTests/Tests/_LuaM",
+    "Content.IntegrationTests/Tests/_NF/BountyContracts",
+    "Content.IntegrationTests/Pair/TestPair.cs",
+    "Content.IntegrationTests/Tests/Lobby/CharacterCreationTest.cs",
+    "Content.IntegrationTests/Utility/GameDataScrounger.Files.cs",
+    "Content.Tests/Client/_LuaM",
+    "Content.Tests/Server/_LuaM",
+    "Content.Tests/Shared/_NF/BountyContracts",
+    "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml",
+    "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml.cs",
+    "Content.Client/Clothing/ClientClothingSystem.cs",
+    "Content.Client/PDA",
+    "Content.Client/Research/UI/ResearchConsoleMenu.xaml",
+    "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleItem.xaml",
+    "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleItem.xaml.cs",
+    "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleMenu.xaml",
+    "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleMenu.xaml.cs",
+    "Content.Client/_NF/BountyContracts",
+    "Content.Client/_NF/LateJoin",
+    "Content.Server/Cargo/Systems/CargoSystem.Bounty.cs",
+    "Content.Server/CartridgeLoader/CartridgeLoaderSystem.cs",
+    "Content.Server/PDA",
+    "Content.Server/Pinpointer/NavMapSystem.cs",
+    "Content.Server/Players/PlayTimeTracking/PlayTimeTrackingSystem.cs",
+    "Content.Server/Shuttles/Systems/ShuttleSystem.FasterThanLight.cs",
+    "Content.Server/Station/Systems/StationJobsSystem.cs",
+    "Content.Server/_CorvaxNext/Silicons/Borgs/AiRemoteControlSystem.cs",
+    "Content.Shared/PDA",
+    "Content.Shared/CCVar/CCVars.LuaM.cs",
+    "Content.Shared/Inventory/SlotFlags.cs",
+    "Content.Shared/Preferences/HumanoidCharacterProfile.cs",
+    "Content.Shared/_CorvaxNext/Silicons/Borgs/Components/SharedAiRemoteControllerComponent.cs",
+    "Content.Server/_NF/Bank",
+    "Content.Server/_NF/BountyContracts",
+    "Content.Shared/_NF/Bank",
+    "Content.Shared/_NF/BountyContracts",
+    "Resources/ConfigPresets/_LuaM",
+    "Resources/Locale/en-US/_Goobstation/research/ui.ftl",
+    "Resources/Locale/en-US/_LuaM",
+    "Resources/Locale/en-US/_Mono/gamerules/gamemodes.ftl",
+    "Resources/Locale/en-US/_NF/bank/bank-ATM-component.ftl",
+    "Resources/Locale/en-US/_NF/bounty-contracts/bounty-contracts.ftl",
+    "Resources/Locale/en-US/_NF/cartridge-loader/cartridges.ftl",
+    "Resources/Locale/en-US/_NF/pda/pda-component.ftl",
+    "Resources/Locale/en-US/administration/ui/tabs/admin-tab/player-actions-window.ftl",
+    "Resources/Locale/en-US/cargo/cargo-bounty-console.ftl",
+    "Resources/Locale/en-US/holiday/greet/holiday-greet.ftl",
+    "Resources/Locale/ru-RU/_Goobstation/research/ui.ftl",
+    "Resources/Locale/ru-RU/_LuaM",
+    "Resources/Locale/ru-RU/_Mono/gamerules/gamemodes.ftl",
+    "Resources/Locale/ru-RU/_NF/bank/bank-ATM-component.ftl",
+    "Resources/Locale/ru-RU/_NF/bounty-contracts/bounty-contracts.ftl",
+    "Resources/Locale/ru-RU/_NF/cartridge-loader/cartridges.ftl",
+    "Resources/Locale/ru-RU/_NF/pda/pda-component.ftl",
+    "Resources/Locale/ru-RU/administration/ui/tabs/admin-tab/player-actions-window.ftl",
+    "Resources/Locale/ru-RU/cargo/cargo-bounty-console.ftl",
+    "Resources/Locale/ru-RU/holiday/greet/holiday-greet.ftl",
+    "Resources/Prototypes/Entities/Mobs/Species/arachnid.yml",
+    "Resources/Prototypes/Entities/Mobs/Species/base.yml",
+    "Resources/Prototypes/InventoryTemplates/arachnid_inventory_template.yml",
+    "Resources/Prototypes/InventoryTemplates/corpse_inventory_template.yml",
+    "Resources/Prototypes/InventoryTemplates/human_inventory_template.yml",
+    "Resources/Prototypes/_LuaM",
+    "Resources/Prototypes/_NF/Entities/Mobs/NPCs/mob_hostile_rogue_ai.yml",
+    "Resources/Prototypes/_NF/Loadouts",
+    "Resources/Prototypes/_NF/PointsOfInterest",
+    "Resources/Prototypes/_NF/Roles/Jobs",
+    "Resources/Prototypes/_NF/bounty_contract_collections.yml",
+    "Resources/Prototypes/_Mono/Entities/Markers/Spawners/shuttles.yml",
+    "Resources/Prototypes/_Mono/Roles/Jobs",
+    "Resources/Prototypes/_Mono/lobbyscreens.yml",
+    "Resources/Prototypes/holidays.yml",
+    "Resources/ServerInfo/Intro.txt",
+    "Resources/ServerInfo/_LuaM",
+    "Resources/Textures/_LuaM",
+    "Resources/manifest.yml",
+    "server_config.remote.toml",
+    "Content.Packaging/ClientPackaging.cs",
+    "Content.Packaging/ServerPackaging.cs",
+    "Content.Packaging/ReleaseSurfacePolicy.cs",
+    ".github/workflows/publish.yml",
+    ".github/workflows/publish-testing.yml",
+    ".github/workflows/test-packaging.yml",
+    "Tools/local_stack.md",
+    "Tools/luam_admin_ranks.yml",
+    "Tools/generate_luam_admin_rank_sql.py",
+    "Tools/audit_release_surface.ps1",
+    "Tools/deploy_luam_server_release.ps1",
+    "Tools/build_luam_release_package.ps1",
+    "Tools/build_luam_server_release.ps1",
+    "Tools/verify_luam_release_package.ps1",
+    "Tools/luam_ai_gateway.py",
+    "Tools/summarize_luam_ai_audit.py",
+    "Tools/luam_release_manifest.md",
+    "Tools/start_local_stack.ps1",
+    "Tools/stop_local_stack.ps1",
+    "Tools/test_local_frontier.ps1",
+    "Tools/test_local_stack.ps1",
+    "Tools/test_luam_ai_gateway.py",
+    "Tools/validate_luam_feature_pack.py"
+)
+
+function Add-Step {
+    param(
+        [string]$Name,
+        [string]$Status,
+        [string]$Detail = ""
+    )
+
+    $steps.Add([pscustomobject]@{
+        name = $Name
+        status = $Status
+        detail = $Detail
+    }) | Out-Null
+}
+
+function Invoke-Captured {
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments
+    )
+
+    $oldErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = & $FilePath @Arguments 2>&1
+        $exitCode = $LASTEXITCODE
+        return [pscustomobject]@{
+            ExitCode = $exitCode
+            Output = @($output)
+        }
+    }
+    finally {
+        $ErrorActionPreference = $oldErrorActionPreference
+    }
+}
+
+function Format-CapturedTail {
+    param(
+        [pscustomobject]$Result,
+        [int]$MaxLines = 80
+    )
+
+    $lines = @(
+        $Result.Output |
+            ForEach-Object { [string] $_ } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+
+    if ($lines.Count -eq 0) {
+        return "no output captured"
+    }
+
+    if ($lines.Count -gt $MaxLines) {
+        $lines = @($lines | Select-Object -Last $MaxLines)
+    }
+
+    return $lines -join "; "
+}
+
+function Convert-ToRepoPath {
+    param([string]$Path)
+
+    return $Path.Replace('\', '/').TrimStart('/')
+}
+
+function Get-RelativePath {
+    param(
+        [string]$BasePath,
+        [string]$FullPath
+    )
+
+    $baseUri = [Uri] (($BasePath.TrimEnd('\') + '\').Replace('\', '/'))
+    $fileUri = [Uri] ($FullPath.Replace('\', '/'))
+    return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($fileUri).ToString())
+}
+
+Push-Location $root
+try {
+    foreach ($file in $requiredFiles) {
+        if (-not (Test-Path -LiteralPath (Join-Path $root $file))) {
+            $issues.Add("Missing required release file: $file") | Out-Null
+        }
+    }
+
+    foreach ($directory in $requiredDirectories) {
+        $path = Join-Path $root $directory
+        if (-not (Test-Path -LiteralPath $path)) {
+            $issues.Add("Missing required release directory: $directory") | Out-Null
+            continue
+        }
+
+        $fileCount = @(Get-ChildItem -LiteralPath $path -Recurse -File -ErrorAction Stop).Count
+        if ($fileCount -le 0) {
+            $issues.Add("Required release directory is empty: $directory") | Out-Null
+        }
+    }
+    Add-Step "required-files" "checked" "Required files and directories exist."
+
+    $untracked = @(& git ls-files --others --exclude-standard -- @releaseScopes)
+    if ($untracked.Count -gt 0) {
+        $message = "Release scope contains $($untracked.Count) untracked file(s). Add/package them before a git-based release."
+        if ($AllowUntracked) {
+            $warnings.Add($message) | Out-Null
+            Add-Step "untracked-release-files" "warning" $message
+        } else {
+            $issues.Add($message) | Out-Null
+            Add-Step "untracked-release-files" "failed" $message
+        }
+    } else {
+        Add-Step "untracked-release-files" "passed" "No untracked files in release scope."
+    }
+
+    $junk = @(& git ls-files --others --exclude-standard | rg "(^|/)(bin|obj|\.vs|\.idea|\.vscode|node_modules|__pycache__|\.pytest_cache|logs?|tmp|temp)(/|$)|\.(log|tmp|bak|cache|db|sqlite|sqlite3)$")
+    if ($LASTEXITCODE -eq 1) {
+        $junk = @()
+    }
+
+    if ($junk.Count -gt 0) {
+        $issues.Add("Untracked local junk detected: $($junk -join ', ')") | Out-Null
+        Add-Step "local-junk" "failed" "$($junk.Count) junk path(s) detected."
+    } else {
+        Add-Step "local-junk" "passed" "No untracked bin/obj/log/tmp/cache/db paths detected."
+    }
+
+    $textExtensions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($extension in @(".cs", ".xaml", ".yml", ".yaml", ".ftl", ".toml", ".md", ".py", ".ps1", ".txt", ".xml", ".json", ".jsonc", ".cfg", ".config")) {
+        $textExtensions.Add($extension) | Out-Null
+    }
+
+    $utf8Candidates = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($file in $requiredFiles) {
+        $utf8Candidates.Add((Convert-ToRepoPath $file)) | Out-Null
+    }
+
+    foreach ($directory in $requiredDirectories) {
+        $path = Join-Path $root $directory
+        if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+            continue
+        }
+
+        foreach ($file in Get-ChildItem -LiteralPath $path -Recurse -File) {
+            $utf8Candidates.Add((Get-RelativePath -BasePath $root -FullPath $file.FullName)) | Out-Null
+        }
+    }
+
+    foreach ($file in @(& git ls-files --modified --others --exclude-standard -- @releaseScopes)) {
+        $utf8Candidates.Add((Convert-ToRepoPath $file)) | Out-Null
+    }
+
+    $strictUtf8 = [System.Text.UTF8Encoding]::new($false, $true)
+    $invalidUtf8 = New-Object System.Collections.Generic.List[string]
+    foreach ($relative in @($utf8Candidates) | Sort-Object) {
+        $fullPath = Join-Path $root ($relative.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+        if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+            continue
+        }
+
+        if (-not $textExtensions.Contains([System.IO.Path]::GetExtension($fullPath))) {
+            continue
+        }
+
+        try {
+            [void] $strictUtf8.GetString([System.IO.File]::ReadAllBytes($fullPath))
+        }
+        catch {
+            $invalidUtf8.Add($relative) | Out-Null
+        }
+    }
+
+    if ($invalidUtf8.Count -gt 0) {
+        $issues.Add("Release text files are not strict UTF-8: $($invalidUtf8 -join ', ')") | Out-Null
+        Add-Step "utf8-release-text" "failed" "$($invalidUtf8.Count) invalid UTF-8 file(s)."
+    } else {
+        Add-Step "utf8-release-text" "passed" "Release text files are strict UTF-8."
+    }
+
+    $staleInputSearch = Invoke-Captured -FilePath "rg" -Arguments @(
+        "-n",
+        "LuaMSectorStatusCartridgeMessages|luam-sector-status-ai",
+        "Content.Server/_LuaM",
+        "Content.Client/_LuaM",
+        "Content.Shared/_LuaM",
+        "Resources/Locale"
+    )
+    if ($staleInputSearch.ExitCode -eq 0) {
+        $issues.Add("Stale PDA AI message input symbols remain: $($staleInputSearch.Output -join '; ')") | Out-Null
+        Add-Step "pda-ai-input-removed" "failed" "Stale symbols found."
+    } elseif ($staleInputSearch.ExitCode -eq 1) {
+        Add-Step "pda-ai-input-removed" "passed" "No stale PDA AI input symbols found."
+    } else {
+        $issues.Add("Failed to search for stale PDA AI input symbols.") | Out-Null
+        Add-Step "pda-ai-input-removed" "failed" "rg returned exit code $($staleInputSearch.ExitCode)."
+    }
+
+    $diffCheck = Invoke-Captured -FilePath "git" -Arguments @("diff", "--check", "--") + $releaseScopes
+    if ($diffCheck.ExitCode -ne 0) {
+        $issues.Add("git diff --check failed: $($diffCheck.Output -join '; ')") | Out-Null
+        Add-Step "diff-check" "failed" "git diff --check returned $($diffCheck.ExitCode)."
+    } else {
+        Add-Step "diff-check" "passed" "No whitespace errors in tracked release diff."
+    }
+
+    $validator = Invoke-Captured -FilePath "python" -Arguments @("Tools\validate_luam_feature_pack.py")
+    if ($validator.ExitCode -ne 0) {
+        $issues.Add("LuaM feature validator failed: $($validator.Output -join '; ')") | Out-Null
+        Add-Step "feature-validator" "failed" "Validator returned $($validator.ExitCode)."
+    } else {
+        Add-Step "feature-validator" "passed" "LuaM feature validator passed."
+    }
+
+    $adminRankCheck = Invoke-Captured -FilePath "python" -Arguments @("Tools\generate_luam_admin_rank_sql.py", "--check-only", "--json")
+    if ($adminRankCheck.ExitCode -ne 0) {
+        $issues.Add("LuaM admin rank ladder check failed: $($adminRankCheck.Output -join '; ')") | Out-Null
+        Add-Step "admin-rank-ladder" "failed" "Rank generator returned $($adminRankCheck.ExitCode)."
+    } else {
+        Add-Step "admin-rank-ladder" "passed" "LuaM admin rank ladder validated."
+    }
+
+    $gatewayTest = Invoke-Captured -FilePath "python" -Arguments @("Tools\test_luam_ai_gateway.py")
+    if ($gatewayTest.ExitCode -ne 0) {
+        $issues.Add("LuaM AI gateway test failed: $($gatewayTest.Output -join '; ')") | Out-Null
+        Add-Step "gateway-test" "failed" "Gateway test returned $($gatewayTest.ExitCode)."
+    } else {
+        Add-Step "gateway-test" "passed" "LuaM AI gateway smoke test passed."
+    }
+
+    if ($RunTests) {
+        $clientTests = Invoke-Captured -FilePath "dotnet" -Arguments @(
+            "test",
+            "Content.Tests\Content.Tests.csproj",
+            "--filter",
+            "FullyQualifiedName~LuaM",
+            "--no-restore"
+        )
+        if ($clientTests.ExitCode -ne 0) {
+            $issues.Add("Content.Tests LuaM filter failed: $(Format-CapturedTail $clientTests)") | Out-Null
+            Add-Step "content-tests-luam" "failed" "dotnet test returned $($clientTests.ExitCode)."
+        } else {
+            Add-Step "content-tests-luam" "passed" "Content.Tests LuaM filter passed."
+        }
+
+        $integrationTests = Invoke-Captured -FilePath "dotnet" -Arguments @(
+            "test",
+            "Content.IntegrationTests\Content.IntegrationTests.csproj",
+            "--filter",
+            "FullyQualifiedName~LuaM",
+            "--no-restore"
+        )
+        if ($integrationTests.ExitCode -ne 0) {
+            $issues.Add("Content.IntegrationTests LuaM filter failed: $(Format-CapturedTail $integrationTests)") | Out-Null
+            Add-Step "integration-tests-luam" "failed" "dotnet test returned $($integrationTests.ExitCode)."
+        } else {
+            Add-Step "integration-tests-luam" "passed" "Content.IntegrationTests LuaM filter passed."
+        }
+    } else {
+        Add-Step "dotnet-tests" "skipped" "Use -RunTests to run LuaM dotnet test filters."
+    }
+
+    if ($RunLocalSmoke) {
+        $smoke = Invoke-Captured -FilePath "powershell" -Arguments @(
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            "Tools\test_local_stack.ps1"
+        )
+        if ($smoke.ExitCode -ne 0) {
+            $issues.Add("Local stack smoke test failed: $($smoke.Output -join '; ')") | Out-Null
+            Add-Step "local-stack-smoke" "failed" "Smoke test returned $($smoke.ExitCode)."
+        } else {
+            Add-Step "local-stack-smoke" "passed" "Local stack smoke test passed."
+        }
+    } else {
+        Add-Step "local-stack-smoke" "skipped" "Use -RunLocalSmoke to launch local gateway/server/client."
+    }
+}
+finally {
+    Pop-Location
+}
+
+$result = [pscustomobject]@{
+    ok = $issues.Count -eq 0
+    allowUntracked = [bool] $AllowUntracked
+    runTests = [bool] $RunTests
+    runLocalSmoke = [bool] $RunLocalSmoke
+    issues = @($issues.ToArray())
+    warnings = @($warnings.ToArray())
+    steps = @($steps.ToArray())
+}
+
+if ($Json) {
+    $result | ConvertTo-Json -Depth 6
+} else {
+    $status = if ($result.ok) { "OK" } else { "FAILED" }
+    Write-Host "LuaM release readiness: $status"
+    foreach ($step in $steps) {
+        Write-Host ("[{0}] {1}: {2}" -f $step.status, $step.name, $step.detail)
+    }
+
+    foreach ($warning in $warnings) {
+        Write-Warning $warning
+    }
+
+    foreach ($issue in $issues) {
+        Write-Error $issue -ErrorAction Continue
+    }
+}
+
+if (-not $result.ok) {
+    exit 1
+}

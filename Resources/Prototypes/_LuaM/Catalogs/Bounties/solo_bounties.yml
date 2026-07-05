@@ -1,0 +1,72 @@
+- type: cargoBounty
+  id: LuaMBountyDistressClosure
+  reward: 59000
+  description: luam-bounty-desc-distress-closure
+  idPrefix: DS
+  entries:
+  - name: luam-bounty-name-distress-beacon
+    amount: 1
+    whitelist:
+      tags:
+      - LuaMDistressBeaconBounty
+  - name: luam-bounty-name-solo-report
+    amount: 1
+    whitelist:
+      tags:
+      - LuaMSoloReportBounty
+
+- type: cargoBounty
+  id: LuaMBountyBlackBoxRecovery
+  reward: 62000
+  description: luam-bounty-desc-black-box
+  idPrefix: DS
+  entries:
+  - name: luam-bounty-name-black-box
+    amount: 1
+    whitelist:
+      tags:
+      - LuaMBlackBoxBounty
+  - name: luam-bounty-name-solo-report
+    amount: 1
+    whitelist:
+      tags:
+      - LuaMSoloReportBounty
+
+- type: cargoBounty
+  id: LuaMBountyFieldRepair
+  reward: 60000
+  description: luam-bounty-desc-field-repair
+  idPrefix: DS
+  entries:
+  - name: luam-bounty-name-repair-tool
+    amount: 2
+    whitelist:
+      components:
+      - Tool
+  - name: luam-bounty-name-solo-report
+    amount: 1
+    whitelist:
+      tags:
+      - LuaMSoloReportBounty
+
+- type: cargoBounty
+  id: LuaMBountyNavigationPacket
+  reward: 58000
+  description: luam-bounty-desc-navigation
+  idPrefix: DS
+  entries:
+  - name: luam-bounty-name-navigation-gps
+    amount: 1
+    whitelist:
+      tags:
+      - GPS
+  - name: luam-bounty-name-navigation-comms
+    amount: 1
+    whitelist:
+      tags:
+      - HandicommsBounty
+  - name: luam-bounty-name-solo-report
+    amount: 1
+    whitelist:
+      tags:
+      - LuaMSoloReportBounty

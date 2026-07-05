@@ -266,7 +266,7 @@ public sealed partial class ShuttleSystem
         }
 
         // Check if the shuttle is in an expedition
-        if (TryComp<TransformComponent>(shuttleUid, out var xform) &&
+        if (TryComp(shuttleUid, out TransformComponent? xform) &&
             xform.MapUid != null &&
             HasComp<SalvageExpeditionComponent>(xform.MapUid))
         {
@@ -959,6 +959,9 @@ public sealed partial class ShuttleSystem
                     break;
                 case FTLState.Cooldown:
                     UpdateFTLCooldown(entity);
+                    break;
+                case FTLState.Available:
+                    RemCompDeferred<FTLComponent>(uid);
                     break;
                 default:
                     Log.Error($"Found invalid FTL state {comp.State} for {uid}");

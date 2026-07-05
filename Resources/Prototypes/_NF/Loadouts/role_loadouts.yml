@@ -22,6 +22,9 @@
   - ContractorHead
   - ContractorNeck
   - ContractorJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - ContractorGloves
   - ContractorBackpack
   - ContractorOuterClothing
@@ -53,6 +56,9 @@
   - PilotHead
   - PilotNeck
   - PilotJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - PilotGloves
   - PilotBackpack
   - PilotOuterClothing
@@ -84,6 +90,9 @@
   - MercenaryHead
   - ContractorNeck
   - MercenaryJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - MercenaryGloves
   - MercenaryBackpack
   - MercenaryOuterClothing
@@ -116,6 +125,9 @@
   groups:
   - ContractorNeck
   - ValetJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - ContractorBackpack
   - ValetOuterClothing
   - ContractorShoes
@@ -142,6 +154,9 @@
   groups:
   - JanitorNFHead
   - JanitorNFJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - JanitorNFGloves
   - ContractorBackpack
   - JanitorNFOuterClothing
@@ -166,6 +181,9 @@
   groups:
   - ContractorNeck
   - MailCarrierJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - ContractorGloves
   - MailCarrierBackpack
   - MailCarrierOuterClothing
@@ -192,6 +210,9 @@
   - StcHead
   - ContractorNeck
   - StcJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - ContractorGloves
   - ContractorBackpack
   - ContractorOuterClothing
@@ -232,6 +253,9 @@
   - MonoSecurityGuardShoes
   - HeadofSecurityHead
   - HeadofSecurityJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - HeadofSecurityNeck
   - ColonialLiaisonFirearm # Mono
   - ContractorBoxSurvival
@@ -256,6 +280,9 @@
   - MonoSecurityGuardHud
   - MonoSecurityGuardShoes
   - MonoSecurityGuardJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - MonoSecurityGuardBack
   - SecurityGuardFirearm
   - SecurityGuardPistol
@@ -283,6 +310,9 @@
   - DocHead
   - DocNeck
   - DocJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - DocGloves
   - MdMedicBackpack
   - ContractorOuterClothing
@@ -314,6 +344,9 @@
   - NFDetectiveHead
   - NFDetectiveNeck
   - NFDetectiveJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - NFDetectiveGloves
   - NfsdBackpackBrown
   - NFDetectiveOuterClothing
@@ -338,6 +371,9 @@
   - ContractorHead
   - PalNeck
   - PalJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   - PalGloves
   - NfsdBackpackBrown
   - NfsdShoesBrown
@@ -365,6 +401,9 @@
   #  - PrisonerHead
   #  - PrisonerNeck
   - PrisonerJumpsuit
+  - LuaMUnderwearBottom
+  - LuaMUnderwearSocks
+  - LuaMUnderwearTop
   #  - PrisonerGloves
   #  - PrisonerBackpack
   #  - PrisonerShoes

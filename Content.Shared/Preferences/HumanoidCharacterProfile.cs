@@ -35,7 +35,8 @@ namespace Content.Shared.Preferences
         public const int MaxLoadoutNameLength = 32;
         public const int MaxDescLength = 512;
 
-        public const int DefaultBalance = 75000;
+        public const int SectorPioneerGrant = 75000;
+        public const int DefaultBalance = SectorPioneerGrant;
 
         //private readonly Dictionary<string, JobPriority> _jobPriorities; // Frontier: commented out during merge.
         //private readonly List<string> _antagPreferences; // Frontier: commented out during merge.
@@ -611,7 +612,7 @@ namespace Content.Shared.Preferences
 
             if (configManager.GetCVar(CCVars.RestrictedNames) && Species != "IPC")
             {
-                name = Regex.Replace(name, @"[^\u0400-\u04FF0-9' \-]", string.Empty); // LuaM: added \u0400-\u04FF0-9' \-. Removed u0041-\u005A,\u0061-\u007A,\u00C0-\u00D6,\u00D8-\u00F6,\u00F8-\u00FF,\u0100-\u017F
+                name = RestrictedNameRegex.Replace(name, string.Empty).Trim(); // LuaM: Cyrillic/digits/apostrophe/space/hyphen only.
                 /*
                  * 0041-005A  Basic Latin: Uppercase Latin Alphabet
                  * 0061-007A  Basic Latin: Lowercase Latin Alphabet
@@ -634,7 +635,9 @@ namespace Content.Shared.Preferences
 
             if (string.IsNullOrEmpty(name))
             {
-                name = GetName(Species, gender);
+                name = configManager.GetCVar(CCVars.RestrictedNames) && Species != "IPC"
+                    ? "Безымянный"
+                    : GetName(Species, gender);
             }
 
             string flavortext;

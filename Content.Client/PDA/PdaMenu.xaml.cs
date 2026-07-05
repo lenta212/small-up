@@ -35,13 +35,18 @@ namespace Content.Client.PDA
         private string _instructions = Loc.GetString("comp-pda-ui-unknown");
 
         private string _balance = Loc.GetString("comp-pda-ui-unknown"); // Frontier
+        private string _bankAccountId = Loc.GetString("comp-pda-ui-unknown"); // Frontier
         private string _shuttleDeed = Loc.GetString("comp-pda-ui-unknown"); // Frontier
+        private string _donationShopInfo = Loc.GetString("comp-pda-ui-unknown"); // LuaM
+        private const string DonationCurrencyCode = "LC"; // LuaM
 
         private int _currentView;
 
         public event Action<EntityUid>? OnProgramItemPressed;
         public event Action<EntityUid>? OnUninstallButtonPressed;
         public event Action<EntityUid>? OnInstallButtonPressed;
+        public event Action<string, int>? OnBankTransferPressed; // Frontier
+        public event Action<string>? OnDonationShopPurchasePressed; // LuaM
         public PdaMenu()
         {
             IoCManager.InjectDependencies(this);
@@ -122,6 +127,16 @@ namespace Content.Client.PDA
             {
                 _clipboard.SetText(_balance);
             };
+            BankIdButton.OnPressed += _ =>
+            {
+                _clipboard.SetText(_bankAccountId);
+                BankTransferStatusLabel.SetMarkup(Loc.GetString("comp-pda-ui-bank-id-copied", ("id", _bankAccountId)));
+            };
+            BankTransferButton.OnPressed += _ => SubmitBankTransfer();
+            DonationShopInfoButton.OnPressed += _ =>
+            {
+                _clipboard.SetText(_donationShopInfo);
+            };
             ShuttleDeedButton.OnPressed += _ =>
             {
                 _clipboard.SetText(_shuttleDeed);
@@ -193,7 +208,21 @@ namespace Content.Client.PDA
                 ("station", _stationName)));
 
             _balance = BankSystemExtensions.ToSpesoString(state.Balance); // Frontier
-            BalanceLabel.SetMarkup(Loc.GetString("comp-pda-ui-balance", ("balance", _balance))); // Frontier
+            if (state.PayrollHourly > 0)
+            {
+                BalanceLabel.SetMarkup(Loc.GetString("comp-pda-ui-balance-payroll",
+                    ("balance", _balance),
+                    ("hourly", BankSystemExtensions.ToSpesoString(state.PayrollHourly)),
+                    ("minutes", FormatPayrollMinutes(state.PayrollNextSeconds))));
+            }
+            else
+            {
+                BalanceLabel.SetMarkup(Loc.GetString("comp-pda-ui-balance", ("balance", _balance))); // Frontier
+            }
+            _bankAccountId = state.BankAccountId ?? Loc.GetString("comp-pda-ui-unknown"); // Frontier
+            BankIdLabel.SetMarkup(Loc.GetString("comp-pda-ui-bank-id", ("id", _bankAccountId))); // Frontier
+            BankTransferStatusLabel.SetMarkup(state.BankTransferStatus ?? string.Empty); // Frontier
+            UpdateDonationShop(state); // LuaM
 
             _shuttleDeed = state.OwnedShipName ?? ""; // Frontier
             ShuttleDeedLabel.SetMarkup(Loc.GetString("comp-pda-ui-shuttle-deed", ("shipname", _shuttleDeed))); // Frontier
@@ -228,6 +257,107 @@ namespace Content.Client.PDA
             ActivateMusicButton.Visible = state.CanPlayMusic;
             ShowUplinkButton.Visible = state.HasUplink;
             LockUplinkButton.Visible = state.HasUplink;
+        }
+
+        private void SubmitBankTransfer()
+        {
+            var recipientId = BankTransferRecipientEdit.Text.Trim();
+            if (string.IsNullOrWhiteSpace(recipientId))
+            {
+                BankTransferStatusLabel.SetMarkup(Loc.GetString("comp-pda-ui-bank-transfer-missing-recipient"));
+                return;
+            }
+
+            if (!int.TryParse(BankTransferAmountEdit.Text.Trim(), out var amount) || amount <= 0)
+            {
+                BankTransferStatusLabel.SetMarkup(Loc.GetString("comp-pda-ui-bank-transfer-invalid-amount"));
+                return;
+            }
+
+            OnBankTransferPressed?.Invoke(recipientId, amount);
+        }
+
+        private static int FormatPayrollMinutes(int nextSeconds)
+        {
+            if (nextSeconds <= 0)
+                return 0;
+
+            return Math.Max(1, (int) Math.Ceiling(nextSeconds / 60f));
+        }
+
+        private void UpdateDonationShop(PdaUpdateState state)
+        {
+            var accessUntil = string.IsNullOrWhiteSpace(state.DonationShopAccessUntil)
+                ? Loc.GetString("comp-pda-ui-donation-shop-no-access-until")
+                : state.DonationShopAccessUntil;
+
+            _donationShopInfo = Loc.GetString("comp-pda-ui-donation-shop-copy",
+                ("balance", state.DonationBalance),
+                ("currency", DonationCurrencyCode),
+                ("until", accessUntil));
+
+            DonationShopInfoLabel.SetMarkup(Loc.GetString(
+                state.DonationShopAccess
+                    ? "comp-pda-ui-donation-shop-access"
+                    : "comp-pda-ui-donation-shop-locked",
+                ("balance", state.DonationBalance),
+                ("currency", DonationCurrencyCode),
+                ("until", accessUntil)));
+
+            DonationShopStatusLabel.SetMarkup(state.DonationShopStatus ?? string.Empty);
+            DonationShopListings.RemoveAllChildren();
+
+            foreach (var listing in state.DonationShopListings)
+            {
+                var name = Loc.GetString(listing.NameLocId);
+                var description = Loc.GetString(listing.DescriptionLocId);
+                var buttonText = GetDonationShopButtonText(state, listing);
+                var disabled = !state.DonationShopAccess || listing.Owned || state.DonationBalance < listing.Price;
+
+                var box = new BoxContainer
+                {
+                    Orientation = BoxContainer.LayoutOrientation.Vertical,
+                    HorizontalExpand = true,
+                    MinWidth = 250,
+                };
+
+                var label = new RichTextLabel();
+                label.SetMarkup(Loc.GetString("comp-pda-ui-donation-shop-entry",
+                    ("name", name),
+                    ("description", description),
+                    ("price", listing.Price),
+                    ("currency", DonationCurrencyCode)));
+
+                var button = new Button
+                {
+                    Text = buttonText,
+                    Disabled = disabled,
+                    HorizontalExpand = true,
+                };
+                button.OnPressed += _ => OnDonationShopPurchasePressed?.Invoke(listing.Id);
+
+                box.AddChild(label);
+                box.AddChild(button);
+                DonationShopListings.AddChild(box);
+            }
+        }
+
+        private static string GetDonationShopButtonText(PdaUpdateState state, PdaDonationShopListing listing)
+        {
+            if (listing.Owned)
+                return Loc.GetString("comp-pda-ui-donation-shop-owned");
+
+            if (!state.DonationShopAccess)
+                return Loc.GetString("comp-pda-ui-donation-shop-locked-button");
+
+            if (state.DonationBalance < listing.Price)
+            {
+                return Loc.GetString("comp-pda-ui-donation-shop-insufficient",
+                    ("price", listing.Price),
+                    ("currency", DonationCurrencyCode));
+            }
+
+            return Loc.GetString("comp-pda-ui-donation-shop-buy");
         }
 
         public void UpdateAvailablePrograms(List<(EntityUid, CartridgeComponent)> programs)

@@ -1,0 +1,21 @@
+- type: entity
+  name: Z-22 Baeg Shuttle Spawner
+  description: Loads a Z-22 Baeg shuttle grid at the selected position.
+  id: SpawnShuttleBaeg
+  parent: MarkerBasePlaceFree
+  suffix: Shuttle, Baeg
+  categories: [Spawner]
+  components:
+  - type: Sprite
+    layers:
+    - state: green
+    - sprite: Structures/Shuttles/thruster.rsi
+      state: base
+  - type: GridSpawner
+    path: /Maps/_Mono/Shuttles/baeg.yml
+    addComponents:
+    - type: IFF
+      color: '#FFFFFFFF'
+      flags: [IsPlayerShuttle]
+  - type: TimedDespawn
+    lifetime: 0.5

@@ -6,9 +6,9 @@
   requirements:
   - !type:DepartmentTimeRequirement
     department: UnionOfSovietSocialistPlanets
-    time: 14400 # 4 hours
+    time: 18000 # 5 hours
   - !type:OverallPlaytimeRequirement
-    time: 14400 # 4 hrs
+    time: 36000 # 10 hours
   startingGear: USSPCorporalGear
   alwaysUseSpawner: true
   hideConsoleVisibility: true

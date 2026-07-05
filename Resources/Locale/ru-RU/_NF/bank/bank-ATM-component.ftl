@@ -21,6 +21,7 @@ bank-atm-reason-label = Причина:{ " " }
 bank-atm-description-label = Описание:{ " " }
 vending-machine-menu-cash-slot-label = Наличные:{" "}
 station-bank-payroll = Заработная плата
+bank-payroll-received = Получена зарплата: { $amount }. Баланс: { $balance }. Почасовая ставка: { $hourly }.
 station-bank-workorder = Рабочий заказ
 station-bank-supplies = Ресурсы станции
 station-bank-bounty = Контракт

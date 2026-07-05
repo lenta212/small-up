@@ -18,3 +18,6 @@ mono-chimera-description = Native PDV imperials threaten TSF colonial expansion 
 
 mono-allatonce-title = Apocalypse (ALL, 3hr)
 mono-allatonce-description = A battleground between PDV, and TSF forces alike, with ancient ADS systems and Chimera bioweapons seeping in.
+
+luam-dead-space-low-pop-title = Dead Space: Low Pop
+luam-dead-space-low-pop-description = A quieter frontier preset for one to a few players: salvage, paperwork, distress signals, and slow sector threats instead of constant heavy pressure.

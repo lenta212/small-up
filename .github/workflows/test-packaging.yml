@@ -68,3 +68,6 @@ jobs:
 
       - name: Package client
         run: dotnet run --project Content.Packaging client --no-wipe-release
+
+      - name: Audit release surface
+        run: pwsh -NoProfile -File Tools/audit_release_surface.ps1

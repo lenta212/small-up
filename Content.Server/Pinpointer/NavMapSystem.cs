@@ -370,6 +370,8 @@ public sealed partial class NavMapSystem : SharedNavMapSystem
 
         comp.Enabled = enabled;
         UpdateBeaconEnabledVisuals((uid, comp));
+        Dirty(uid, comp);
+        UpdateNavMapBeaconData(uid, comp);
     }
 
     /// <summary>
@@ -381,6 +383,32 @@ public sealed partial class NavMapSystem : SharedNavMapSystem
             return;
 
         SetBeaconEnabled(uid, !comp.Enabled, comp);
+    }
+
+    /// <summary>
+    /// Sets the beacon's label and refreshes the grid nav-map data.
+    /// </summary>
+    public void SetBeaconText(EntityUid uid, string text, NavMapBeaconComponent? comp = null)
+    {
+        if (!Resolve(uid, ref comp) || comp.Text == text)
+            return;
+
+        comp.Text = text;
+        Dirty(uid, comp);
+        UpdateNavMapBeaconData(uid, comp);
+    }
+
+    /// <summary>
+    /// Sets the beacon's color and refreshes the grid nav-map data.
+    /// </summary>
+    public void SetBeaconColor(EntityUid uid, Color color, NavMapBeaconComponent? comp = null)
+    {
+        if (!Resolve(uid, ref comp) || comp.Color == color)
+            return;
+
+        comp.Color = color;
+        Dirty(uid, comp);
+        UpdateNavMapBeaconData(uid, comp);
     }
 
     /// <summary>

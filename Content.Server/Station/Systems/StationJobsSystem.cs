@@ -520,9 +520,6 @@ public sealed partial class StationJobsSystem : EntitySystem
             StationDisplayInformation? stationDisplay = null;
             if (TryComp<ExtraShuttleInformationComponent>(station, out var extraVesselInfo))
             {
-                if (extraVesselInfo.HiddenWithoutOpenJobs && !list.Any(x => x.Value != 0))
-                    continue;
-
                 vesselDisplay = new VesselDisplayInformation(
                     vesselAdvertisement: extraVesselInfo.Advertisement,
                     vessel: extraVesselInfo.Vessel,

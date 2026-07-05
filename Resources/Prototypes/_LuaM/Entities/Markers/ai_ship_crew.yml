@@ -1,0 +1,11 @@
+- type: entity
+  parent: MarkerBase
+  id: LuaMAiShipCrewMarker
+  name: luam-ai-ship-crew-marker-name
+  description: luam-ai-ship-crew-marker-description
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    state: green
+  - type: LuaMAiShipCrewMarker
+    role: any

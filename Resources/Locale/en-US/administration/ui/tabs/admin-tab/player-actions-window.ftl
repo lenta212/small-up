@@ -8,3 +8,6 @@ admin-player-actions-window-shuttle = (Re)call Shuttle
 admin-player-actions-window-admin-logs = Admin Logs
 admin-player-actions-window-admin-notes = Admin Notes
 admin-player-actions-window-admin-fax = Admin Fax
+admin-player-actions-window-luam-ai-director = AI Director
+admin-player-actions-window-luam-ai-director-tooltip = Open the LuaM AI Director panel.
+admin-player-actions-window-luam-ai-director-disabled-tooltip = Requires active admin permissions.

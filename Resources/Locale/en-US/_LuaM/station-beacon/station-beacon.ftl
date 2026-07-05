@@ -1,0 +1,9 @@
+station-beacon-luam-distress = Distress signal
+station-beacon-luam-dynamic-event = Dynamic sector lead
+station-beacon-luam-dynamic-distress = Dynamic distress lead
+station-beacon-luam-dynamic-repair = Dynamic repair lead
+station-beacon-luam-dynamic-salvage = Dynamic salvage lead
+station-beacon-luam-dynamic-monolith = Dynamic Monolith lead
+station-beacon-luam-dynamic-navigation = Dynamic navigation lead
+station-beacon-luam-dynamic-trade = Dynamic trade lead
+station-beacon-luam-dynamic-records = Dynamic records lead

@@ -67,7 +67,13 @@ public static class ClientPackaging
         };
         dropSvgPass.AddDependency(graph.Input).AddBefore(graph.PresetPasses);
 
-        AssetGraph.CalculateGraph([pass, dropSvgPass, ..graph.AllPasses], logger);
+        var dropPrivateBuildArtifactsPass = new AssetPassFilterDrop(ReleaseSurfacePolicy.IsPrivateBuildArtifact)
+        {
+            Name = "DropPrivateBuildArtifactsPass",
+        };
+        dropPrivateBuildArtifactsPass.AddDependency(graph.Input).AddBefore(graph.PresetPasses);
+
+        AssetGraph.CalculateGraph([pass, dropSvgPass, dropPrivateBuildArtifactsPass, ..graph.AllPasses], logger);
 
         var inputPass = graph.Input;
 

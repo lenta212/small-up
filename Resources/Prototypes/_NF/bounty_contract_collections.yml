@@ -29,3 +29,18 @@
   - Construction
   - Service
   - Other
+
+- type: bountyContractCollection
+  id: Distress
+  order: 3
+  notificationType: PDA
+  name: bounty-contract-collection-name-distress
+  deleteAccess:
+  - HeadOfPersonnel
+  - HeadOfSecurity
+  - Bailiff
+  categories:
+  - Vacancy
+  - Construction
+  - Service
+  - Other

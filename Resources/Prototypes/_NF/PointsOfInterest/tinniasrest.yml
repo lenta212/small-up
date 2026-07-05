@@ -14,6 +14,7 @@
   name: "Ресторан Тиннии" # LuaM: "Tinnia's Rest" > "Ресторан Тиннии"
   minimumDistance: 3400
   maximumDistance: 5800
+  spawnGamePreset: [ NFAdventure, NFPirate, MonoStandard, MonoRogueTSF, MonoRogueUSSP, MonoTSFUSSP, MonoADS, MonoChimera, MonoMixed, MonoAllAtOnce, LuaMDeadSpaceLowPop ]
   spawnGroup: RestStop
   gridPath: /Maps/_NF/POI/tinnia.yml
   addComponents:

@@ -5,6 +5,7 @@ using Robust.Client.GameObjects;
 using Robust.Client.UserInterface.Controls;
 using Robust.Client.UserInterface.XAML;
 using Robust.Shared.Prototypes;
+using System.Numerics;
 
 namespace Content.Client._Goobstation.Research.UI;
 
@@ -108,6 +109,17 @@ public sealed partial class FancyResearchConsoleItem : LayoutContainer
 
         Panel.PanelOverride = roundedStyle;
         UpdateColor();
+    }
+
+    public void SetZoom(float zoom)
+    {
+        var cardSize = 64f * zoom;
+        var displaySize = 56f * zoom;
+        var displayScale = 1.75f * zoom;
+
+        CardContainer.SetSize = new Vector2(cardSize, cardSize);
+        ResearchDisplay.SetSize = new Vector2(displaySize, displaySize);
+        ResearchDisplay.Scale = new Vector2(displayScale, displayScale);
     }
 
     private void UpdateColor()

@@ -1,0 +1,195 @@
+- type: luamSectorStory
+  id: LuaMSectorStorySilentTow
+  title: "Тихий буксир"
+  author: "Доска слухов LuaM"
+  news: "На краю сектора появился буксир без голоса. Транспондер меняет имя каждые пять минут, а последний открытый пакет просит не спасать судно без письменного акта."
+  contractCollection: Distress
+  contractCategory: Service
+  contractName: "Проверить тихий буксир"
+  contractVessel: "Край сектора"
+  contractDescription: "Добраться до буксира, поставить маяк, описать состояние корпуса и оставить отчёт. Зачёт одиночным пилотом."
+  contractReward: 57500
+  hazard: "Нестабильный транспондер, возможная ложная метка маршрута."
+  hazardSeverity: 2
+  hazardRewardBonus: 1000
+  reputationTarget: "Solo Operators"
+  reputationDelta: 1
+  insurance: "Компенсация только за подтверждённый маяк и отчёт."
+  blackBox: "Если найден регистратор, передать копию записи вместе с координатами."
+  companyRecord: "Запрос пришёл без зарегистрированной компании."
+  shipRecord: "Судно отмечено как буксир без действующей записи в реестре."
+
+- type: luamSectorStory
+  id: LuaMSectorStoryLastOxygen
+  title: "Последний кислород"
+  author: "Доска слухов LuaM"
+  news: "Шахтёрский модуль передал нормальную телеметрию, но в голосовом канале слышен только аварийный маяк. Один шлюз заблокирован изнутри."
+  contractCollection: Distress
+  contractCategory: Construction
+  contractName: "Восстановить модуль"
+  contractVessel: "Шахтёрская метка"
+  contractDescription: "Проверить питание, шлюз и воздух. Итогом считается ремонт, маяк или письменное предупреждение для следующего пилота."
+  contractReward: 59000
+  hazard: "Риск разгерметизации и ложной телеметрии воздуха."
+  hazardSeverity: 3
+  hazardRewardBonus: 1500
+  reputationTarget: "Frontier"
+  reputationDelta: 1
+  insurance: "Разрешён вынос аварийного груза после фиксации состояния модуля."
+  blackBox: "Журнал доступа повреждён; ценны любые последние записи."
+  companyRecord: "Работа может повысить доверие к независимым ремонтникам."
+  shipRecord: "Модуль требует отметки о состоянии шлюза."
+
+- type: luamSectorStory
+  id: LuaMSectorStorySealedCargo
+  title: "Чужой груз"
+  author: "Доска слухов LuaM"
+  news: "Торговец оплатил сопровождение опечатанного контейнера. Пломбу нельзя вскрывать до прибытия, но маршрут проходит через закрытую зону."
+  contractCollection: Public
+  contractCategory: Service
+  contractName: "Доставить контейнер"
+  contractVessel: "Торговый маршрут"
+  contractDescription: "Сопроводить контейнер, не вскрывая пломбу. При угрозе оставить акт потери или координаты безопасного хранения."
+  contractReward: 56500
+  hazard: "Закрытая зона маршрута и спорная пломба."
+  hazardSeverity: 2
+  hazardRewardBonus: 750
+  reputationTarget: "Trade"
+  reputationDelta: 1
+  insurance: "Страховка не действует при вскрытии пломбы без акта угрозы."
+  blackBox: "Не требуется, если груз доставлен или оставлена координата хранения."
+  companyRecord: "Торговец просит занести исполнителя в список надёжных курьеров."
+  shipRecord: "Маршрут привязан к судну сопровождения, если оно указано в отчёте."
+
+- type: luamSectorStory
+  id: LuaMSectorStoryFalseQuiet
+  title: "Ложная тишина"
+  author: "Доска слухов LuaM"
+  news: "Аванпост отвечает одинаковыми сообщениями, подписанными разными именами. Связь есть, но живого оператора никто не слышал."
+  contractCollection: Distress
+  contractCategory: Other
+  contractName: "Проверить аванпост"
+  contractVessel: "Безымянный аванпост"
+  contractDescription: "Проверить источник сообщений, не отключая питание без отчёта. Успех: заметка, маяк или новый контракт."
+  contractReward: 58000
+  hazard: "Автоматические ответы могут скрывать опасность внутри."
+  hazardSeverity: 2
+  hazardRewardBonus: 1000
+  reputationTarget: "Station Records"
+  reputationDelta: 1
+  insurance: "Компенсация спасработ допускается только после записи состояния аванпоста."
+  blackBox: "Любой локальный журнал связи считается заменой чёрного ящика."
+  companyRecord: "В сообщениях есть разные подписи, но нет подтверждённой компании."
+  shipRecord: "Аванпост не числится активным судном."
+
+- type: luamSectorStory
+  id: LuaMSectorStoryBlackBoxPaid
+  title: "Оплаченный ящик"
+  author: "Доска слухов LuaM"
+  news: "Капитан пропавшего судна заранее оплатил поиск причины аварии. В контракте сказано: вернуть отчёт, а не обязательно сам регистратор."
+  contractCollection: Distress
+  contractCategory: Other
+  contractName: "Расшифровать ящик"
+  contractVessel: "Пропавшее судно"
+  contractDescription: "Найти регистратор или следы аварии, заполнить отчёт и указать вероятную причину. Подходит для одиночного поиска."
+  contractReward: 60000
+  hazard: "Возможны обломки с активными системами и неверные координаты."
+  hazardSeverity: 4
+  hazardRewardBonus: 2500
+  reputationTarget: "Salvage"
+  reputationDelta: 2
+  insurance: "Выплата делится между поиском причины и безопасной постановкой маяка."
+  blackBox: "Отчёт чёрного ящика является основным доказательством выполнения."
+  companyRecord: "Капитан указал частную компанию, но запись требует подтверждения."
+  shipRecord: "Пропавшее судно должно получить отметку о вероятной причине аварии."
+- type: luamSectorStory
+  id: LuaMSectorStoryTrustedSalvageCache
+  title: "Доверенный спасательный схрон"
+  author: "Р”РѕСЃРєР° СЃР»СѓС…РѕРІ LuaM"
+  news: "Частный спасательный контакт передал метку схрона только экипажам с подтвержденной историей возврата черных ящиков."
+  contractCollection: Distress
+  contractCategory: Other
+  contractName: "Открыть доверенный схрон"
+  contractVessel: "Зашифрованная метка схрона"
+  contractDescription: "Добраться до зашифрованной метки, убедиться, что схрон не является активной ловушкой, и оставить короткую записку о восстановлении перед перемещением груза."
+  contractReward: 59000
+  hazard: "Зашифрованная метка может быть устаревшей, приманкой или привязанной к активному полю обломков."
+  hazardSeverity: 3
+  hazardRewardBonus: 2000
+  reputationTarget: "Salvage"
+  reputationDelta: 1
+  requiredReputationTarget: "Salvage"
+  requiredReputation: 2
+  insurance: "Выплата за схрон одобряется только операторам с ранее подтвержденными спасательными возвратами."
+  blackBox: "Любой найденный манифест схрона нужно приложить к доверенной спасательной записи."
+  companyRecord: "Доверенный спасательный контакт разрешает ограниченную повторную работу после подтвержденной обработки схрона."
+  shipRecord: "Координаты схрона привязаны к судну-исполнителю для проверки на мошенничество."
+
+- type: luamSectorStory
+  id: LuaMSectorStoryPreferredCourierRoute
+  title: "Приоритетный курьерский маршрут"
+  author: "Р”РѕСЃРєР° СЃР»СѓС…РѕРІ LuaM"
+  news: "Торговый стол открыл приоритетную курьерскую метку после того, как одна доставка опечатанного груза подтвердила надежность маршрута."
+  contractCollection: Distress
+  contractCategory: Service
+  contractName: "Проверить курьерский маршрут"
+  contractVessel: "Метка приоритетного маршрута"
+  contractDescription: "Проследовать по частной маршрутной метке, подтвердить безопасность точки передачи и оформить курьерскую квитанцию до приема повторного груза."
+  contractReward: 57000
+  hazard: "Приоритетная метка может вывести курьера к засаде, ложным сборам или устаревшим координатам."
+  hazardSeverity: 2
+  hazardRewardBonus: 1250
+  reputationTarget: "Trade"
+  reputationDelta: 1
+  requiredReputationTarget: "Trade"
+  requiredReputation: 1
+  insurance: "Выплата за приоритетную доставку одобряется только при наличии записи о доставке опечатанного груза."
+  blackBox: "Маршрутные квитанции и заметки о передаче нужно приложить к торговой доверенной записи."
+  companyRecord: "Торговый стол отмечает оператора как допущенного к ограниченной повторной курьерской работе."
+  shipRecord: "Доступ к приоритетному маршруту привязан к судну-исполнителю для аудита передачи."
+
+- type: luamSectorStory
+  id: LuaMSectorStoryGhostStationLedger
+  title: "Реестр станции-призрака"
+  author: "Р”РѕСЃРєР° СЃР»СѓС…РѕРІ LuaM"
+  news: "Станционный клерк выдал фрагмент реестра операторам, которые уже доказали, что могут описать тихий аванпост без порчи записи."
+  contractCollection: Distress
+  contractCategory: Other
+  contractName: "Проверить реестр станции"
+  contractVessel: "Запись тихой станции"
+  contractDescription: "Изучить фрагмент реестра, подтвердить, устарела запись станции или подделана, и оформить выписку без перезаписи локальных журналов."
+  contractReward: 58000
+  hazard: "Координаты реестра могут вести к тихой станции с устаревшим владельцем, дубликатами регистрационных меток или активными автоответами."
+  hazardSeverity: 3
+  hazardRewardBonus: 1500
+  reputationTarget: "Station Records"
+  reputationDelta: 1
+  requiredReputationTarget: "Station Records"
+  requiredReputation: 1
+  insurance: "Выплата за аудит станции одобряется только после одного ранее чисто закрытого отчета по аванпосту."
+  blackBox: "Выписка реестра должна сохранить исходные подписи станции и все повторяющиеся автоответы."
+  companyRecord: "Отдел станционных записей отмечает оператора как допущенного к ограниченным аудитам реестра."
+  shipRecord: "Судно-исполнитель привязано к выписке реестра для проверки цепочки хранения."
+
+- type: luamSectorStory
+  id: LuaMSectorStoryPriorityRescueLane
+  title: "Приоритетный спасательный коридор"
+  author: "Доска сектора LuaM"
+  news: "Спасательный стол открыл приоритетный коридор после закрытия одного переносного аварийного маяка полевым отчетом."
+  contractCollection: Distress
+  contractCategory: Service
+  contractName: "Проверить спасательный коридор"
+  contractVessel: "Приоритетная спасательная метка"
+  contractDescription: "Проследовать по приоритетной спасательной метке, убедиться, что маршрут безопасен для следующих спасателей, и оформить квитанцию коридора до допуска повторного спасательного трафика."
+  contractReward: 57600
+  hazard: "Приоритетная метка может притянуть ложные спасательные вызовы, повторы старых маяков или попытки засады рядом с маршрутом."
+  hazardSeverity: 3
+  hazardRewardBonus: 1400
+  reputationTarget: "Distress"
+  reputationDelta: 1
+  requiredReputationTarget: "Distress"
+  requiredReputation: 1
+  insurance: "Выплата за приоритетное спасение одобряется только после чистого закрытия предыдущего аварийного полевого отчета."
+  blackBox: "Любой найденный маршрутный регистратор нужно приложить к квитанции спасательного коридора."
+  companyRecord: "Спасательный стол отмечает оператора как допущенного к повторной приоритетной реакции."
+  shipRecord: "Доступ к приоритетному коридору привязан к судну-исполнителю для аудита маршрута."

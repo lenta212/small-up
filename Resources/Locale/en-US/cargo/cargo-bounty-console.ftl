@@ -24,3 +24,5 @@ bounty-console-tab-history-label = History
 bounty-console-history-empty-label = No bounty history found
 bounty-console-history-notice-completed-label = [color=limegreen]Completed[/color]
 bounty-console-history-notice-skipped-label = [color=red]Skipped[/color] by {$id}
+bounty-manifest-description = Description: { $description }
+bounty-manifest-route-hint = Where to look: check the description, active GPS beacons, the sector map, and the LuaM terminal. If no point is listed, attach your own coordinate or route note to the closure report.

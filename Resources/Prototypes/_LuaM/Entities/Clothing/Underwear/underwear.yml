@@ -1,0 +1,369 @@
+- type: entity
+  abstract: true
+  parent: Clothing
+  id: LuaMClothingUnderwearBase
+  components:
+  - type: Sprite
+    state: icon
+  - type: Item
+    size: Tiny
+  - type: StaticPrice
+    price: 25
+    vendPrice: 100
+
+- type: entity
+  abstract: true
+  parent: LuaMClothingUnderwearBase
+  id: LuaMClothingUnderwearBottomBase
+  components:
+  - type: Clothing
+    slots:
+    - underwearb
+
+- type: entity
+  abstract: true
+  parent: LuaMClothingUnderwearBase
+  id: LuaMClothingUnderwearTopBase
+  components:
+  - type: Clothing
+    slots:
+    - underweart
+
+- type: entity
+  abstract: true
+  parent: LuaMClothingUnderwearBase
+  id: LuaMClothingUnderwearSocksBase
+  components:
+  - type: Clothing
+    slots:
+    - socks
+
+- type: entity
+  parent: LuaMClothingUnderwearBottomBase
+  id: ClothingUnderwearBottomBoxersAcorp
+  name: боксеры acorp
+  description: Простые черно-белые боксеры из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/bottom/acorp.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/bottom/acorp.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearBottomBase
+  id: ClothingUnderwearBottomBoxersAcorp2
+  name: боксеры acorp
+  description: Второй крой черно-белых боксеров из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/bottom/boxxacorp.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/bottom/boxxacorp.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearBottomBase
+  id: ClothingUnderwearBottomRadiantBoxersBlack
+  name: черные боксеры
+  description: Простые черные боксеры.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/bottom/Black.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/bottom/Black.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearBottomBase
+  id: ClothingUnderwearBottomPantiesAcorp
+  name: трусы acorp
+  description: Простые черно-белые трусы из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/bottom/acorpw.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/bottom/acorpw.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearBottomBase
+  id: ClothingUnderwearBottomRadiantPantiesTrusikiblack
+  name: черные трусы с подвязками
+  description: Черные трусы с ремешками для подвязок.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/bottom/trusikiblack.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/bottom/trusikiblack.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearBottomBase
+  id: ClothingUnderwearBottomRadiantPantiesRed
+  name: красные трусы
+  description: Красное белье из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/bottom/red.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/bottom/red.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearBottomBase
+  id: ClothingUnderwearBottomRadiantPantiesPink
+  name: розовые трусы
+  description: Розовое белье из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/bottom/pink.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/bottom/pink.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearBottomBase
+  id: ClothingUnderwearBottomPantiesWhite
+  name: белые трусы
+  description: Стандартное белое белье.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/bottom/panties.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/bottom/panties.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearBottomBase
+  id: ClothingUnderwearBottomPantiesNeko
+  name: нэко-трусы
+  description: Белье в нэко-стиле.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/bottom/nekopanties.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/bottom/nekopanties.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksAcorpStriped
+  name: полосатые носки acorp
+  description: Полосатые носки из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/acorp-polos.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/acorp-polos.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksRich
+  name: темные высокие носки
+  description: Темные высокие носки с аккуратным видом.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/richsocksthigh.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/richsocksthigh.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksRadiantBlackPolosatie
+  name: черные полосатые чулки
+  description: Черные полосатые чулки.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/polosatie.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/polosatie.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksRadiantBlack
+  name: черные чулки
+  description: Простые черные чулки.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/blackchelochki.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/blackchelochki.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksGarters
+  name: чулки с подвязками
+  description: Чулки с ремешками для подвязок.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/garters.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/garters.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksHigh
+  name: высокие носки
+  description: Стандартные высокие носки.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/socksknee.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/socksknee.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksRadiantThighblue
+  name: синие высокие носки
+  description: Синие высокие носки.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/siniichyljchki.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/siniichyljchki.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksRadiantSocksBlack
+  name: черные носки
+  description: Простые черные носки.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/blacksossss.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/blacksossss.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksRadiantStriped
+  name: полосатые чулки
+  description: Полосатые чулки из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/chylocki.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/chylocki.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksShort
+  name: короткие носки
+  description: Короткие повседневные носки.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/socksshort.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/socksshort.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksRadiantPink
+  name: розовые чулки
+  description: Розовые чулки из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/pinka.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/pinka.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearSocksBase
+  id: ClothingUnderwearSocksRadiantMeee
+  name: носки с узором
+  description: Темные носки с небольшим узорным акцентом.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/socks/meee.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/socks/meee.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearTopBase
+  id: ClothingUnderwearTopBraAcorp
+  name: бра acorp
+  description: Черно-белый бра из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/top/acorp.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/top/acorp.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearTopBase
+  id: ClothingUnderwearTopBraAcorp2
+  name: бра acorp
+  description: Второй крой черно-белого бра из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/top/acorp1.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/top/acorp1.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearTopBase
+  id: ClothingUnderwearTopRadiantPink
+  name: розовый топ
+  description: Розовый верх белья.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/top/pink.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/top/pink.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearTopBase
+  id: ClothingUnderwearTopRadiantRed
+  name: красный бра
+  description: Красный бра из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/top/red.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/top/red.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearTopBase
+  id: ClothingUnderwearTopRadiantBlack
+  name: черный бра
+  description: Простой черный бра.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/top/black.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/top/black.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearTopBase
+  id: ClothingUnderwearTopNekoBra
+  name: нэко-бра
+  description: Белье в нэко-стиле.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/top/nekobra.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/top/nekobra.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearTopBase
+  id: ClothingUnderwearTopRadiantSeeeexsi
+  name: темный кружевной бра
+  description: Темный кружевной бра из сектора Radiant.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/top/seeeexsi.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/top/seeeexsi.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearTopBase
+  id: ClothingUnderwearTopRadiantNeeeekoUwU
+  name: бра в стиле горничной
+  description: Темный бра в стиле горничной.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/top/neeeekoUwU.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/top/neeeekoUwU.rsi
+
+- type: entity
+  parent: LuaMClothingUnderwearTopBase
+  id: ClothingUnderwearTopBraWhite
+  name: белый бра
+  description: Стандартное белое белье.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Clothing/Underwear/top/bra.rsi
+  - type: Clothing
+    sprite: _LuaM/Clothing/Underwear/top/bra.rsi

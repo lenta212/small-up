@@ -5,7 +5,7 @@
   playTimeTracker: JobTsfEngineer
   requirements:
     - !type:OverallPlaytimeRequirement
-      time: 21600 # 6 hours # mono
+      time: 28800 # 8 hours
   startingGear: TsfEngiGear
   icon: JobIconTSFEngi
   supervisors: job-supervisors-sergeant

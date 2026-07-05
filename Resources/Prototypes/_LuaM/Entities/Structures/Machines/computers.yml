@@ -1,0 +1,68 @@
+- type: entity
+  parent: ComputerMassMedia
+  id: ComputerLuaMSectorRumorBoard
+  name: доска слухов сектора
+  description: Публичный терминал для слухов сектора, аварийных заметок, контрактов и последующих задач.
+  components:
+  - type: LuaMSectorLeadReport
+  - type: LuaMSectorInsuranceTerminal
+  - type: LuaMSectorRegistryTerminal
+  - type: ActivatableUI
+    singleUser: true
+    key: enum.LuaMSectorTerminalUiKey.Key
+  - type: UserInterface
+    interfaces:
+      enum.LuaMSectorTerminalUiKey.Key:
+        type: LuaMSectorTerminalBoundUserInterface
+  - type: Sprite
+    layers:
+    - map: ["computerLayerBody"]
+      state: computer
+    - map: ["computerLayerKeyboard"]
+      state: generic_keyboard
+    - map: ["computerLayerScreen"]
+      state: service
+    - map: ["computerLayerKeys"]
+      state: service_keys
+    - map: [ "enum.WiresVisualLayers.MaintenancePanel" ]
+      state: generic_panel_open
+
+- type: entity
+  parent: ComputerMassMedia
+  id: ComputerLuaMSectorInsuranceTerminal
+  name: страховой терминал сектора
+  description: Терминал LuaM для печати страховых реестров спасения и талонов заявок.
+  components:
+  - type: LuaMSectorInsuranceTerminal
+  - type: Sprite
+    layers:
+    - map: ["computerLayerBody"]
+      state: computer
+    - map: ["computerLayerKeyboard"]
+      state: generic_keyboard
+    - map: ["computerLayerScreen"]
+      state: comm_syndie
+    - map: ["computerLayerKeys"]
+      state: syndie_key
+    - map: [ "enum.WiresVisualLayers.MaintenancePanel" ]
+      state: generic_panel_open
+
+- type: entity
+  parent: ComputerMassMedia
+  id: ComputerLuaMSectorRegistryTerminal
+  name: регистрационный терминал сектора
+  description: Терминал LuaM для печати реестров компаний, судов и чартерных талонов.
+  components:
+  - type: LuaMSectorRegistryTerminal
+  - type: Sprite
+    layers:
+    - map: ["computerLayerBody"]
+      state: computer
+    - map: ["computerLayerKeyboard"]
+      state: generic_keyboard
+    - map: ["computerLayerScreen"]
+      state: id
+    - map: ["computerLayerKeys"]
+      state: id_key
+    - map: [ "enum.WiresVisualLayers.MaintenancePanel" ]
+      state: generic_panel_open

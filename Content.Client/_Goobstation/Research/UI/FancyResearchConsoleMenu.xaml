@@ -4,6 +4,7 @@
                       xmlns:customControls="clr-namespace:Content.Client.Administration.UI.CustomControls;assembly=Content.Client"
                       xmlns:goob="clr-namespace:Content.Client._Goobstation.Research.UI"
                       Title="{Loc 'research-console-menu-title'}"
+                      Resizable="True"
                       SetSize="1260 850"
                       MinSize="600 400"> <!-- Frontier: add MinSize-->
     <BoxContainer Orientation="Vertical"
@@ -21,6 +22,11 @@
                 <!-- This is where we put all of the little graphics that display discipline tiers!-->
             </BoxContainer>
             <BoxContainer Orientation="Vertical" VerticalExpand="True" HorizontalAlignment="Right">
+                <BoxContainer Orientation="Horizontal" HorizontalExpand="True" Margin="0 0 0 4">
+                    <Button Name="ZoomOutButton" Text="-" MinSize="34 28" ToolTip="{Loc 'research-console-menu-zoom-out-tooltip'}"/>
+                    <Button Name="ZoomResetButton" Text="100%" MinSize="58 28" ToolTip="{Loc 'research-console-menu-zoom-reset-tooltip'}" Margin="4 0"/>
+                    <Button Name="ZoomInButton" Text="+" MinSize="34 28" ToolTip="{Loc 'research-console-menu-zoom-in-tooltip'}"/>
+                </BoxContainer>
                 <Button Name="ServerButton" Text="{Loc 'research-console-menu-server-selection-button'}" MinHeight="40"/>
             </BoxContainer>
         </BoxContainer>

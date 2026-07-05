@@ -1,0 +1,251 @@
+<DefaultWindow
+    xmlns="https://spacestation14.io"
+    Title="{Loc luam-ai-director-title}"
+    MinWidth="520"
+    MinHeight="420">
+    <ScrollContainer HorizontalExpand="True" VerticalExpand="True" HScrollEnabled="False">
+        <BoxContainer Orientation="Vertical" HorizontalExpand="True" Margin="4">
+            <PanelContainer StyleClasses="AngleRect" HorizontalExpand="True">
+                <BoxContainer Orientation="Vertical" Margin="8 6 8 6" HorizontalExpand="True">
+                    <BoxContainer Orientation="Horizontal" HorizontalExpand="True" Margin="0 0 0 4">
+                        <RichTextLabel Name="StatusLabel" HorizontalExpand="True"/>
+                        <Button Name="RefreshButton" Text="{Loc luam-ai-director-refresh}" Margin="6 0 0 0" />
+                        <Button Name="ToggleButton" Text="{Loc luam-ai-director-toggle}" Margin="6 0 0 0" />
+                    </BoxContainer>
+                    <RichTextLabel Name="ModeLabel" />
+                </BoxContainer>
+            </PanelContainer>
+
+            <PanelContainer Name="ConfirmationPanel" Visible="False" StyleClasses="AngleRect" HorizontalExpand="True" Margin="0 6 0 0">
+                <BoxContainer Orientation="Vertical" Margin="8 6 8 6">
+                    <RichTextLabel Name="ConfirmationLabel" />
+                    <BoxContainer Orientation="Horizontal" Margin="0 4 0 0">
+                        <Control HorizontalExpand="True" />
+                        <Button Name="ConfirmActionButton" Text="{Loc luam-ai-director-confirm}" />
+                        <Button Name="CancelActionButton" Text="{Loc luam-ai-director-cancel}" Margin="6 0 0 0" />
+                    </BoxContainer>
+                </BoxContainer>
+            </PanelContainer>
+
+            <PanelContainer StyleClasses="AngleRect" MinHeight="168" HorizontalExpand="True" Margin="0 6 0 0">
+                <BoxContainer Orientation="Vertical" Margin="8" HorizontalExpand="True">
+                    <Label Text="{Loc luam-ai-director-chat}" Margin="0 0 0 4"/>
+                    <PanelContainer MinHeight="96" HorizontalExpand="True">
+                        <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                            <RichTextLabel Name="ChatLabel" />
+                        </ScrollContainer>
+                    </PanelContainer>
+                    <BoxContainer Orientation="Horizontal" Margin="0 6 0 0">
+                        <LineEdit Name="ChatInput" PlaceHolder="{Loc luam-ai-director-chat-placeholder}" HorizontalExpand="True" />
+                        <Button Name="ChatButton" Text="{Loc luam-ai-director-chat-send}" Margin="6 0 0 0"/>
+                    </BoxContainer>
+                </BoxContainer>
+            </PanelContainer>
+
+            <Label Text="{Loc luam-ai-director-quick-commands}" Margin="0 8 0 2"/>
+            <GridContainer Columns="4" HorizontalExpand="True">
+                <Button Name="QuickRecommendationsButton" Text="{Loc luam-ai-director-quick-recommendations}" HorizontalExpand="True" />
+                <Button Name="QuickStatusButton" Text="{Loc luam-ai-director-quick-status}" HorizontalExpand="True" />
+                <Button Name="QuickEventButton" Text="{Loc luam-ai-director-quick-event}" HorizontalExpand="True" />
+                <Button Name="QuickHistoryButton" Text="{Loc luam-ai-director-quick-history}" HorizontalExpand="True" />
+            </GridContainer>
+
+            <BoxContainer Orientation="Horizontal" Margin="0 6 0 0">
+                <Button Name="ReviewButton" Text="{Loc luam-ai-director-review}" />
+                <Button Name="CapabilityButton" Text="{Loc luam-ai-director-capabilities}" Margin="6 0 0 0" />
+                <Control HorizontalExpand="True" />
+                <Button Name="CopyOutcomeButton" Text="{Loc luam-ai-director-copy-outcome}" />
+            </BoxContainer>
+
+            <PanelContainer StyleClasses="AngleRect" MinHeight="56" HorizontalExpand="True" Margin="0 6 0 0">
+                <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                    <RichTextLabel Name="ResultLabel" />
+                </ScrollContainer>
+            </PanelContainer>
+
+            <PanelContainer HorizontalExpand="True" Margin="0 6 0 0">
+                <Collapsible Name="AdvancedDetails" HorizontalExpand="True">
+                    <CollapsibleHeading Title="{Loc luam-ai-director-details}" MinHeight="28"/>
+                    <CollapsibleBody Margin="8 4 0 0">
+                        <BoxContainer Orientation="Vertical" HorizontalExpand="True">
+                            <GridContainer Columns="3" HorizontalExpand="True" Margin="0 0 0 4">
+                                <Label Text="{Loc luam-ai-director-workflow-preset}" />
+                                <OptionButton Name="WorkflowPresetOption" HorizontalExpand="True" MinWidth="220" />
+                                <Button Name="CopyWorkflowSummaryButton" Text="{Loc luam-ai-director-copy-workflow-summary}" />
+                            </GridContainer>
+                            <RichTextLabel Name="WorkflowPresetLabel" Margin="0 0 0 6"/>
+                            <Label Text="{Loc luam-ai-director-workflow-transition}" Margin="0 0 0 2"/>
+                            <RichTextLabel Name="WorkflowTransitionLabel" Margin="0 0 0 6"/>
+                            <Label Text="{Loc luam-ai-director-safe-mode-summary}" Margin="0 0 0 2"/>
+                            <RichTextLabel Name="SafeModeSummaryLabel" Margin="0 0 0 6"/>
+
+                            <Label Text="{Loc luam-ai-director-readiness}" Margin="0 4 0 2"/>
+                            <PanelContainer MinHeight="74" HorizontalExpand="True" Margin="0 0 0 6">
+                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                                    <RichTextLabel Name="ReadinessLabel" />
+                                </ScrollContainer>
+                            </PanelContainer>
+
+                            <Label Text="{Loc luam-ai-director-conditions}" Margin="0 0 0 2"/>
+                            <PanelContainer MinHeight="56" HorizontalExpand="True" Margin="0 0 0 6">
+                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                                    <RichTextLabel Name="ConditionsLabel" />
+                                </ScrollContainer>
+                            </PanelContainer>
+
+                            <BoxContainer Orientation="Horizontal" Margin="0 4 0 2">
+                                <Label Text="{Loc luam-ai-director-recommendations}" />
+                                <Control HorizontalExpand="True" />
+                                <Button Name="CopyRecommendationsButton" Text="{Loc luam-ai-director-copy-recommendations}" />
+                            </BoxContainer>
+                            <RichTextLabel Name="RecommendationSourceSummaryLabel" Margin="0 0 0 4"/>
+                            <PanelContainer MinHeight="86" HorizontalExpand="True" Margin="0 0 0 6">
+                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                                    <RichTextLabel Name="RecommendationsLabel" />
+                                </ScrollContainer>
+                            </PanelContainer>
+
+                            <GridContainer Columns="4" HorizontalExpand="True" Margin="0 0 0 6">
+                                <Label Text="{Loc luam-ai-director-recommendation-filter}" />
+                                <OptionButton Name="RecommendationFilterOption" HorizontalExpand="True" MinWidth="160" />
+                                <Label Text="{Loc luam-ai-director-recommendation-sort}" Margin="6 0 0 0" />
+                                <OptionButton Name="RecommendationSortOption" HorizontalExpand="True" MinWidth="170" />
+                            </GridContainer>
+
+                            <GridContainer Columns="4" HorizontalExpand="True" Margin="0 0 0 6">
+                                <Label Text="{Loc luam-ai-director-recommendation-action}" />
+                                <OptionButton Name="RecommendationOption" HorizontalExpand="True" />
+                                <Button Name="ApplyRecommendationButton" Text="{Loc luam-ai-director-recommendation-apply}" />
+                                <Button Name="CopyAuditBundleButton" Text="{Loc luam-ai-director-copy-audit-bundle}" />
+                            </GridContainer>
+                            <RichTextLabel Name="RecommendationApplyStateLabel" Margin="0 0 0 6"/>
+                            <RichTextLabel Name="RecommendationReviewSummaryLabel" Margin="0 0 0 6"/>
+                            <PanelContainer HorizontalExpand="True" Margin="0 0 0 6">
+                                <Collapsible Name="RecommendationReviewDetails">
+                                    <CollapsibleHeading Title="{Loc luam-ai-director-recommendation-review-details}" MinHeight="28"/>
+                                    <CollapsibleBody Margin="8 2 0 0">
+                                        <BoxContainer Orientation="Vertical" HorizontalExpand="True">
+                                            <Label Text="{Loc luam-ai-director-recommendation-explanation}" Margin="0 0 0 2"/>
+                                            <RichTextLabel Name="RecommendationExplanationLabel" Margin="0 0 0 6"/>
+                                            <Label Text="{Loc luam-ai-director-recommendation-command-preview}" Margin="0 0 0 2"/>
+                                            <RichTextLabel Name="RecommendationCommandPreviewLabel" Margin="0 0 0 6"/>
+                                            <Label Text="{Loc luam-ai-director-recommendation-operator-checklist}" Margin="0 0 0 2"/>
+                                            <RichTextLabel Name="RecommendationOperatorChecklistLabel" Margin="0 0 0 6"/>
+                                            <Label Text="{Loc luam-ai-director-recommendation-provenance}" Margin="0 0 0 2"/>
+                                            <RichTextLabel Name="RecommendationProvenanceLabel" Margin="0 0 0 6"/>
+                                        </BoxContainer>
+                                    </CollapsibleBody>
+                                </Collapsible>
+                            </PanelContainer>
+
+                            <GridContainer Columns="2" HorizontalExpand="True">
+                                <Label Text="{Loc luam-ai-director-target}" />
+                                <OptionButton Name="TargetOption" HorizontalExpand="True" />
+
+                                <Label Text="{Loc luam-ai-director-template}" />
+                                <OptionButton Name="TemplateOption" HorizontalExpand="True" />
+                            </GridContainer>
+
+                            <BoxContainer Orientation="Horizontal" Margin="0 8 0 4">
+                                <CheckBox Name="UseGatewayCheck" Text="{Loc luam-ai-director-use-gateway}" Pressed="True" />
+                                <CheckBox Name="IgnoreOpenLeadCheck" Text="{Loc luam-ai-director-ignore-open-lead}" />
+                            </BoxContainer>
+                            <Label Text="{Loc luam-ai-director-gateway-exposure}" Margin="0 0 0 2"/>
+                            <RichTextLabel Name="GatewayExposureLabel" Margin="0 0 0 6"/>
+
+                            <Label Text="{Loc luam-ai-director-instruction}" Margin="0 2 0 2"/>
+                            <TextEdit Name="InstructionEdit" MinHeight="72" HorizontalExpand="True" />
+
+                            <BoxContainer Orientation="Horizontal" Margin="0 8 0 6">
+                                <RichTextLabel Name="GenerateStateLabel" HorizontalExpand="True" />
+                                <Button Name="GenerateButton" Text="{Loc luam-ai-director-generate}" Margin="6 0 0 0" />
+                            </BoxContainer>
+
+                            <BoxContainer Orientation="Horizontal" Margin="0 6 0 4">
+                                <Label Text="{Loc luam-ai-director-review-history}" />
+                                <Control HorizontalExpand="True" />
+                                <Button Name="CopyReviewButton" Text="{Loc luam-ai-director-copy-review}" />
+                                <Button Name="LogReviewButton" Text="{Loc luam-ai-director-log-review}" Margin="6 0 0 0" />
+                            </BoxContainer>
+                            <PanelContainer MinHeight="92" HorizontalExpand="True">
+                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                                    <RichTextLabel Name="ReviewHistoryLabel" />
+                                </ScrollContainer>
+                            </PanelContainer>
+
+                            <BoxContainer Orientation="Horizontal" Margin="0 6 0 2">
+                                <Label Text="{Loc luam-ai-director-action-history}" />
+                                <Control HorizontalExpand="True" />
+                                <Button Name="CopyActionHistoryButton" Text="{Loc luam-ai-director-copy-action-history}" Margin="0 0 6 0" />
+                                <Label Text="{Loc luam-ai-director-action-history-filter}" Margin="0 0 6 0" />
+                                <OptionButton Name="ActionHistoryFilterOption" MinWidth="180" />
+                            </BoxContainer>
+                            <PanelContainer MinHeight="82" HorizontalExpand="True">
+                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                                    <RichTextLabel Name="ActionHistoryLabel" />
+                                </ScrollContainer>
+                            </PanelContainer>
+
+                            <Label Text="{Loc luam-ai-director-round-audit-footer}" Margin="0 6 0 2"/>
+                            <PanelContainer MinHeight="48" HorizontalExpand="True">
+                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                                    <RichTextLabel Name="RoundAuditFooterLabel" />
+                                </ScrollContainer>
+                            </PanelContainer>
+
+                            <Label Text="{Loc luam-ai-director-privacy}" Margin="0 8 0 2"/>
+                            <PanelContainer MinHeight="82" HorizontalExpand="True" Margin="0 0 0 6">
+                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                                    <RichTextLabel Name="PrivacyLabel" />
+                                </ScrollContainer>
+                            </PanelContainer>
+
+                            <BoxContainer Orientation="Horizontal" Margin="0 0 0 2">
+                                <Label Text="{Loc luam-ai-director-operations-audit}" />
+                                <Control HorizontalExpand="True" />
+                            </BoxContainer>
+                            <PanelContainer MinHeight="82" HorizontalExpand="True" Margin="0 0 0 6">
+                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                                    <RichTextLabel Name="OperationsAuditLabel" />
+                                </ScrollContainer>
+                            </PanelContainer>
+
+                            <GridContainer Columns="3" HorizontalExpand="True" Margin="0 8 0 2">
+                                <Label Text="{Loc luam-ai-director-gateway-ship}" />
+                                <OptionButton Name="GatewayShipOption" HorizontalExpand="True" />
+                                <Button Name="QuickGatewayShipSelectedButton" Text="{Loc luam-ai-director-quick-gateway-ship-selected}" />
+                            </GridContainer>
+
+                            <GridContainer Columns="3" HorizontalExpand="True" Margin="0 8 0 0">
+                                <Button Name="QuickPersonalPressureButton" Text="{Loc luam-ai-director-quick-personal-pressure}" HorizontalExpand="True" />
+                                <Button Name="QuickPersonalDangerButton" Text="{Loc luam-ai-director-quick-personal-danger}" HorizontalExpand="True" />
+                                <Button Name="QuickAiPressureButton" Text="{Loc luam-ai-director-quick-ai-pressure}" HorizontalExpand="True" />
+                                <Button Name="QuickSyntheticControlButton" Text="{Loc luam-ai-director-quick-synthetic-control}" HorizontalExpand="True" />
+                                <Button Name="QuickSubspaceRiftButton" Text="{Loc luam-ai-director-quick-subspace-rift}" HorizontalExpand="True" />
+                                <Button Name="QuickSubspaceRouteButton" Text="{Loc luam-ai-director-quick-subspace-route}" HorizontalExpand="True" />
+                                <Button Name="QuickRadiationButton" Text="{Loc luam-ai-director-quick-radiation}" HorizontalExpand="True" />
+                                <Button Name="QuickSensorDriftButton" Text="{Loc luam-ai-director-quick-sensor-drift}" HorizontalExpand="True" />
+                                <Button Name="QuickCommsButton" Text="{Loc luam-ai-director-quick-comms}" HorizontalExpand="True" />
+                                <Button Name="QuickMonolithButton" Text="{Loc luam-ai-director-quick-monolith}" HorizontalExpand="True" />
+                                <Button Name="QuickClearConditionButton" Text="{Loc luam-ai-director-quick-clear-condition}" HorizontalExpand="True" />
+                                <Button Name="QuickResolveLeadButton" Text="{Loc luam-ai-director-quick-resolve-lead}" HorizontalExpand="True" />
+                                <Button Name="QuickCleanupMarkersButton" Text="{Loc luam-ai-director-quick-cleanup-markers}" HorizontalExpand="True" />
+                                <Button Name="QuickSpawnBeaconButton" Text="{Loc luam-ai-director-quick-spawn-beacon}" HorizontalExpand="True" />
+                                <Button Name="QuickSpawnScannerButton" Text="{Loc luam-ai-director-quick-spawn-scanner}" HorizontalExpand="True" />
+                                <Button Name="QuickMonolithKitButton" Text="{Loc luam-ai-director-quick-monolith-kit}" HorizontalExpand="True" />
+                                <Button Name="QuickPaperPackButton" Text="{Loc luam-ai-director-quick-paper-pack}" HorizontalExpand="True" />
+                                <Button Name="QuickAiChatButton" Text="{Loc luam-ai-director-quick-ai-chat}" HorizontalExpand="True" />
+                                <Button Name="QuickAnnouncementButton" Text="{Loc luam-ai-director-quick-announcement}" HorizontalExpand="True" />
+                                <Button Name="QuickGatewayShipButton" Text="{Loc luam-ai-director-quick-gateway-ship}" HorizontalExpand="True" />
+                                <Button Name="QuickGatewayShipTriageButton" Text="{Loc luam-ai-director-quick-gateway-ship-triage}" HorizontalExpand="True" />
+                                <Button Name="QuickGatewayShipHammerheadButton" Text="{Loc luam-ai-director-quick-gateway-ship-hammerhead}" HorizontalExpand="True" />
+                                <Button Name="QuickGatewayShipTziporaButton" Text="{Loc luam-ai-director-quick-gateway-ship-tzipora}" HorizontalExpand="True" />
+                                <Button Name="QuickGatewayShipTokarevButton" Text="{Loc luam-ai-director-quick-gateway-ship-tokarev}" HorizontalExpand="True" />
+                            </GridContainer>
+                        </BoxContainer>
+                    </CollapsibleBody>
+                </Collapsible>
+            </PanelContainer>
+        </BoxContainer>
+    </ScrollContainer>
+</DefaultWindow>

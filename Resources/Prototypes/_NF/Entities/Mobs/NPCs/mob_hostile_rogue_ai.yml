@@ -59,6 +59,7 @@
     - SiliconsExpeditionNF
   - type: NameIdentifier
     group: Silicon
+  - type: AiRemoteController
   - type: Bloodstream
     bloodReagent: WeldingFuel
     bloodMaxVolume: 60

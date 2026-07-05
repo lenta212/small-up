@@ -14,6 +14,7 @@
   name: 'Медицинский Центр' # LuaM: 'Medical Dispatch' > 'Медицинский Центр'
   minimumDistance: 1650
   maximumDistance: 2700
+  spawnGamePreset: [ NFAdventure, NFPirate, MonoStandard, MonoRogueTSF, MonoRogueUSSP, MonoTSFUSSP, MonoADS, MonoChimera, MonoMixed, MonoAllAtOnce, LuaMDeadSpaceLowPop ]
   spawnGroup: Required
   gridPath: /Maps/_NF/POI/medical.yml
   addComponents:

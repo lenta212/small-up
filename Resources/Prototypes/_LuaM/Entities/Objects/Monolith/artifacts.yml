@@ -1,0 +1,111 @@
+- type: entity
+  parent: BaseItem
+  id: LuaMMonolithShard
+  name: осколок Монолита
+  description: Рваный черный фрагмент, пересеченный фиолетовыми разломами. Он гудит так, будто отвечает на сигнал, которого никто не посылал.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/monolith_shard.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/monolith_shard.rsi
+    state: icon
+  - type: PointLight
+    enabled: true
+    color: "#7b2cff"
+    radius: 1.2
+    energy: 0.6
+    netsync: false
+  - type: StaticPrice
+    price: 750
+
+- type: entity
+  parent: BaseItem
+  id: LuaMArtifactContainmentCase
+  name: контейнер артефакта
+  description: Усиленный транспортный контейнер с фиолетовым смотровым окном и яркой аварийной разметкой.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/artifact_container.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/artifact_container.rsi
+    state: icon
+  - type: Item
+    size: Normal
+  - type: StaticPrice
+    price: 450
+
+- type: entity
+  parent: BaseItem
+  id: LuaMAnomalyScanner
+  name: сканер аномалий
+  description: Прочный ручной сканер, настроенный на эхо Монолита, дрейф маршрутов и слабые сигнатуры артефактов.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/anomaly_scanner.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/anomaly_scanner.rsi
+    state: icon
+  - type: StaticPrice
+    price: 350
+
+- type: entity
+  parent: BaseItem
+  id: LuaMMonolithResonator
+  name: резонатор Монолита
+  description: Импульсная катушка на треноге для стабилизации или провокации аномального фрагмента Монолита.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/monolith_resonator.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/monolith_resonator.rsi
+    state: icon
+  - type: Item
+    size: Normal
+  - type: PointLight
+    enabled: true
+    color: "#8c35ff"
+    radius: 1.5
+    energy: 0.8
+    netsync: false
+  - type: StaticPrice
+    price: 600
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMMonolithResearchReport
+  name: исследовательский отчет LuaM по Монолиту
+  description: Полевой бланк для записи воздействия фрагмента Монолита, резонансных тестов и доказательств закрытия.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/research_report.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/research_report.rsi
+    state: icon
+  - type: Paper
+    content: |2
+      # Исследовательский отчет LuaM по Монолиту
+
+      Ссылка на артефакт:
+      Координаты точки:
+      Результат сканера:
+      Настройка резонатора:
+      Состояние контейнера:
+
+      ## Проверки воздействия
+      [ ] визуальный рисунок разлома записан
+      [ ] дрейф маршрута проверен
+      [ ] радиация и давление проверены
+      [ ] симптомы экипажа проверены
+      [ ] контейнер запечатан
+
+      ## Закрытие
+      Результат:
+      Последующий процесс:
+      Оформил:
+  - type: StaticPrice
+    price: 80

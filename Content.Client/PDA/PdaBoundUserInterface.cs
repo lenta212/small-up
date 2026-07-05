@@ -72,6 +72,16 @@ namespace Content.Client.PDA
                 SendMessage(new PdaLockUplinkMessage());
             };
 
+            _menu.OnBankTransferPressed += (recipientId, amount) =>
+            {
+                SendMessage(new PdaBankTransferMessage(recipientId, amount));
+            };
+
+            _menu.OnDonationShopPurchasePressed += listingId =>
+            {
+                SendMessage(new PdaDonationShopPurchaseMessage(listingId));
+            };
+
             _menu.OnProgramItemPressed += ActivateCartridge;
             _menu.OnInstallButtonPressed += InstallCartridge;
             _menu.OnUninstallButtonPressed += UninstallCartridge;

@@ -1,0 +1,48 @@
+- type: entityTable
+  id: LuaMSoloCalmEventsTable
+  table: !type:AllSelector
+    children:
+    - id: CockroachMigration
+    - id: MouseMigration
+    - id: SnailMigrationLowPop
+    - id: GasLeak
+    - id: IonStorm
+    - id: SolarFlare
+    - id: BluespaceCargoCrate
+    - id: BluespaceMcCargoCrate
+
+- type: entity
+  id: LuaMSoloStationEventScheduler
+  parent: BaseGameRule
+  components:
+  - type: BasicStationEventScheduler
+    scheduledGameRules: !type:NestedSelector
+      tableId: LuaMSoloCalmEventsTable
+    minimumTimeUntilFirstEvent: 900 # 15 minutes
+    minMaxEventTiming:
+      min: 1800 # 30 minutes
+      max: 3600 # 60 minutes
+
+- type: entity
+  id: LuaMSoloBluespaceSalvageEventScheduler
+  parent: BaseGameRule
+  components:
+  - type: BasicStationEventScheduler
+    scheduledGameRules: !type:NestedSelector
+      tableId: SalvageBluespaceEventsTable
+    minimumTimeUntilFirstEvent: 3600 # 60 minutes
+    minMaxEventTiming:
+      min: 5400 # 90 minutes
+      max: 7200 # 120 minutes
+
+- type: entity
+  id: LuaMSoloSmugglingEventScheduler
+  parent: BaseGameRule
+  components:
+  - type: BasicStationEventScheduler
+    scheduledGameRules: !type:NestedSelector
+      tableId: MajorSmugglingEventsTable
+    minimumTimeUntilFirstEvent: 5400 # 90 minutes
+    minMaxEventTiming:
+      min: 28800 # 8 hours
+      max: 43200 # 12 hours

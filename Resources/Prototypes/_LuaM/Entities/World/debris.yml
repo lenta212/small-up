@@ -1,0 +1,46 @@
+- type: entity
+  id: LuaMDynamicQuestDebrisSmall
+  parent: BaseDebris
+  name: изолированный контрактный обломок LuaM
+  description: Малое поле обломков, созданное LuaM для маршрутного задания.
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: MapGrid
+  - type: BlobFloorPlanBuilder
+    floorTileset:
+    - Plating
+    - Plating
+    - FloorSteel
+    - Lattice
+    blobDrawProb: 0.45
+    radius: 5
+    floorPlacements: 10
+  - type: SimpleFloorPlanPopulator
+    entries:
+      Plating:
+      - prob: 5
+      - id: SalvageMaterialCrateSpawner
+        prob: 0.4
+      - id: SalvageCanisterSpawner
+        prob: 0.1
+      - id: Grille
+        prob: 0.2
+      Lattice:
+      - prob: 5
+      - id: Grille
+        prob: 0.2
+      FloorSteel:
+      - prob: 5
+      - id: SalvageMaterialCrateSpawner
+        prob: 0.25
+      - id: SalvageCanisterSpawner
+        prob: 0.1
+  - type: IFF
+    flags: HideLabel
+    color: "#6ec7ff"
+  - type: GridCleanupGrid
+    cleanupAcceleration: 2
+    ignorePowered: true
+    ignoreIFF: true
+    ignorePrice: true
+    distanceOverride: 4096

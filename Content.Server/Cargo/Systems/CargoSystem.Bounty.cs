@@ -117,6 +117,14 @@ public sealed partial class CargoSystem
         var msg = new FormattedMessage();
         msg.AddText(Loc.GetString("bounty-manifest-header", ("id", bounty.Id)));
         msg.PushNewline();
+        if (prototype.Description != string.Empty)
+        {
+            msg.AddText(Loc.GetString("bounty-manifest-description",
+                ("description", Loc.GetString(prototype.Description))));
+            msg.PushNewline();
+        }
+        msg.AddText(Loc.GetString("bounty-manifest-route-hint"));
+        msg.PushNewline();
         msg.AddText(Loc.GetString("bounty-manifest-list-start"));
         msg.PushNewline();
         foreach (var entry in prototype.Entries)

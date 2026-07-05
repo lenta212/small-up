@@ -1,0 +1,183 @@
+# LuaM low-pop role unlock ladder. Times are seconds.
+# Goal: starter roles are open, practical solo roles unlock quickly, armed line
+# roles need a few real rounds, and leadership stays gated without demanding
+# old-server grind.
+- type: jobRequirementOverride
+  id: LuaMRoleLadder
+  jobs:
+    Contractor:
+    - !type:OverallPlaytimeRequirement
+      time: 0
+
+    NFJanitor:
+    - !type:OverallPlaytimeRequirement
+      time: 0
+
+    CCServiceWorker:
+    - !type:OverallPlaytimeRequirement
+      time: 0
+
+    MailCarrier:
+    - !type:OverallPlaytimeRequirement
+      time: 0
+
+    USSPRifleman:
+    - !type:OverallPlaytimeRequirement
+      time: 0
+
+    Pilot:
+    - !type:OverallPlaytimeRequirement
+      time: 3600 # 1 hour
+
+    MdMedic:
+    - !type:OverallPlaytimeRequirement
+      time: 3600 # 1 hour
+
+    Mercenary:
+    - !type:OverallPlaytimeRequirement
+      time: 10800 # 3 hours
+
+    SecurityGuard:
+    - !type:OverallPlaytimeRequirement
+      time: 10800 # 3 hours
+
+    USSPMedic:
+    - !type:OverallPlaytimeRequirement
+      time: 10800 # 3 hours
+
+    USSPCorporal:
+    - !type:OverallPlaytimeRequirement
+      time: 21600 # 6 hours
+    - !type:RoleTimeRequirement
+      role: JobUSSPRifleman
+      time: 3600 # 1 hour as USSP rifleman
+
+    Deputy:
+    - !type:OverallPlaytimeRequirement
+      time: 21600 # 6 hours
+    - !type:RoleTimeRequirement
+      role: JobSecurityGuard
+      time: 3600 # 1 hour as security guard
+
+    Pirate:
+    - !type:OverallPlaytimeRequirement
+      time: 21600 # 6 hours
+    - !type:RoleTimeRequirement
+      role: JobMercenary
+      time: 3600 # 1 hour as mercenary
+
+    TsfEngineer:
+    - !type:OverallPlaytimeRequirement
+      time: 36000 # 10 hours
+    - !type:RoleTimeRequirement
+      role: JobPilot
+      time: 7200 # 2 hours as pilot
+
+    Brigmedic:
+    - !type:OverallPlaytimeRequirement
+      time: 36000 # 10 hours
+    - !type:RoleTimeRequirement
+      role: JobSecurityOfficer
+      time: 7200 # 2 hours as deputy/security officer
+
+    USSPSergeant:
+    - !type:OverallPlaytimeRequirement
+      time: 50400 # 14 hours
+    - !type:RoleTimeRequirement
+      role: JobUSSPCorporal
+      time: 7200 # 2 hours as USSP corporal
+
+    Borg:
+    - !type:OverallPlaytimeRequirement
+      time: 43200 # 12 hours
+
+    Bailiff:
+    - !type:OverallPlaytimeRequirement
+      time: 50400 # 14 hours
+    - !type:RoleTimeRequirement
+      role: JobSecurityOfficer
+      time: 7200 # 2 hours as deputy/security officer
+
+    SeniorOfficer:
+    - !type:OverallPlaytimeRequirement
+      time: 64800 # 18 hours
+    - !type:RoleTimeRequirement
+      role: JobSecurityOfficer
+      time: 10800 # 3 hours as deputy/security officer
+
+    StationTrafficController:
+    - !type:OverallPlaytimeRequirement
+      time: 64800 # 18 hours
+    - !type:RoleTimeRequirement
+      role: JobPilot
+      time: 10800 # 3 hours as pilot
+
+    PirateFirstMate:
+    - !type:OverallPlaytimeRequirement
+      time: 79200 # 22 hours
+    - !type:RoleTimeRequirement
+      role: JobPirate
+      time: 14400 # 4 hours as pirate
+
+    PDVInfiltrator:
+    - !type:OverallPlaytimeRequirement
+      time: 79200 # 22 hours
+    - !type:RoleTimeRequirement
+      role: JobPirate
+      time: 14400 # 4 hours as pirate
+
+    PdvBorg:
+    - !type:OverallPlaytimeRequirement
+      time: 79200 # 22 hours
+    - !type:RoleTimeRequirement
+      role: JobPirate
+      time: 14400 # 4 hours as pirate
+
+    TsfBorg:
+    - !type:OverallPlaytimeRequirement
+      time: 79200 # 22 hours
+    - !type:RoleTimeRequirement
+      role: JobTsfEngineer
+      time: 14400 # 4 hours as TSF engineer
+
+    StationRepresentative:
+    - !type:OverallPlaytimeRequirement
+      time: 93600 # 26 hours
+    - !type:RoleTimeRequirement
+      role: JobStc
+      time: 14400 # 4 hours as station traffic controller
+
+    PDVDenasvar:
+    - !type:OverallPlaytimeRequirement
+      time: 108000 # 30 hours
+    - !type:RoleTimeRequirement
+      role: JobPirate
+      time: 21600 # 6 hours as pirate
+
+    USSPCommissar:
+    - !type:OverallPlaytimeRequirement
+      time: 108000 # 30 hours
+    - !type:RoleTimeRequirement
+      role: JobUSSPSergeant
+      time: 14400 # 4 hours as USSP sergeant
+
+    DirectorOfCare:
+    - !type:OverallPlaytimeRequirement
+      time: 126000 # 35 hours
+    - !type:RoleTimeRequirement
+      role: MdMedic
+      time: 21600 # 6 hours as medic
+
+    Sheriff:
+    - !type:OverallPlaytimeRequirement
+      time: 144000 # 40 hours
+    - !type:RoleTimeRequirement
+      role: JobSeniorOfficer
+      time: 21600 # 6 hours as senior officer
+
+    PirateCaptain:
+    - !type:OverallPlaytimeRequirement
+      time: 144000 # 40 hours
+    - !type:RoleTimeRequirement
+      role: JobPirateFirstMate
+      time: 21600 # 6 hours as pirate first mate

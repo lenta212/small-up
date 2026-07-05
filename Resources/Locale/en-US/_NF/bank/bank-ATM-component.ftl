@@ -23,6 +23,7 @@ bank-atm-menu-wrong-cash = Wrong Currency Type
 station-bank-atm-menu-title = Station Administration
 # Withdrawal reasons
 station-bank-payroll = Payroll
+bank-payroll-received = Payroll received: { $amount }. Balance: { $balance }. Hourly rate: { $hourly }.
 station-bank-work-order = Work Order
 station-bank-supplies = Station Supplies
 station-bank-bounty = Bounty

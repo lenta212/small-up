@@ -1,0 +1,3 @@
+- type: lobbyBackground
+  id: LuaMFrontierMonolithLoadingScreen
+  background: /Textures/_LuaM/LobbyScreens/frontier_monolith_loading.png

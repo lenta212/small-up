@@ -5,7 +5,7 @@
   playTimeTracker: JobPirate
   requirements:
     - !type:OverallPlaytimeRequirement
-      time: 36000 # 10 hrs - mono
+      time: 36000 # 10 hours
   startingGear: PirateNFGear
   alwaysUseSpawner: true
   hideConsoleVisibility: true

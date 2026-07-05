@@ -1,0 +1,9 @@
+station-beacon-luam-distress = аварийный сигнал
+station-beacon-luam-dynamic-event = динамическая зацепка сектора
+station-beacon-luam-dynamic-distress = динамический аварийный сигнал
+station-beacon-luam-dynamic-repair = динамическая ремонтная заявка
+station-beacon-luam-dynamic-salvage = динамическая salvage-заявка
+station-beacon-luam-dynamic-monolith = динамическая зацепка Монолита
+station-beacon-luam-dynamic-navigation = динамическая навигационная метка
+station-beacon-luam-dynamic-trade = динамическая торговая метка
+station-beacon-luam-dynamic-records = динамическая архивная зацепка

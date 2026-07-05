@@ -7,15 +7,19 @@
                        HorizontalAlignment="Right"/>
             </BoxContainer>
             <PanelContainer StyleClasses="HighDivider" />
-            <GridContainer Columns="2" HorizontalExpand="True">
-                <BoxContainer Orientation="Vertical" HorizontalExpand="True">
-                    <Label Name="BountyCategory" StyleClasses="LabelSubText" FontColorOverride="#A9A9A9"/>
-                    <Label Name="BountyAuthor" StyleClasses="LabelSubText" FontColorOverride="#A9A9A9"/>
-                    <Label Name="BountyVessel" StyleClasses="LabelSubText" FontColorOverride="#A9A9A9"/>
+            <BoxContainer Orientation="Vertical" HorizontalExpand="True" Margin="0 4 0 0">
+                <Label Name="BountyCategory" StyleClasses="LabelSubText" FontColorOverride="#A9A9A9"/>
+                <Label Name="BountyAuthor" StyleClasses="LabelSubText" FontColorOverride="#A9A9A9"/>
+                <Label Name="BountyAccepted" StyleClasses="LabelSubText" FontColorOverride="#A9A9A9"/>
+                <Label Name="BountyVessel" StyleClasses="LabelSubText" FontColorOverride="#A9A9A9"/>
+                <Label Name="BountyRouteHint" StyleClasses="LabelSubText" FontColorOverride="#D7D7BE"/>
+                <BoxContainer Orientation="Horizontal" HorizontalExpand="True" Margin="0 5 0 0">
+                    <Button Name="AcceptButton" HorizontalExpand="True" MinHeight="30" Margin="0 0 4 0"/>
+                    <Button Name="RemoveButton" Text="{Loc 'bounty-contracts-ui-list-remove'}"
+                            HorizontalExpand="True"
+                            MinHeight="30"/>
                 </BoxContainer>
-                <Button Name="RemoveButton" Text="{Loc 'bounty-contracts-ui-list-remove'}"
-                        HorizontalAlignment="Right" VerticalAlignment="Top"/>
-            </GridContainer>
+            </BoxContainer>
             <BoxContainer HorizontalExpand="True">
                 <RichTextLabel Name="BountyDescription" StyleClasses="LabelSubText"/>
             </BoxContainer>

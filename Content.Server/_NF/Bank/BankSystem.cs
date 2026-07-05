@@ -1,11 +1,17 @@
+using System.Linq;
 using System.Threading;
+using Content.Server._NF.CryoSleep;
 using Content.Server._Mono.MonoCoins;
+using Content.Server.Chat.Managers;
 using Content.Server.Database;
 using Content.Server.Preferences.Managers;
 using Content.Server.GameTicking;
 using Content.Shared._NF.Bank;
 using Content.Shared._NF.Bank.Components;
+using Content.Shared.Chat;
 using Content.Shared.Preferences;
+using Content.Shared.Roles;
+using Content.Shared.Roles.Jobs;
 using Robust.Shared.Player;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
@@ -13,18 +19,95 @@ using Content.Shared._Mono.CCVar; // Mono
 using Content.Shared._Mono.Traits.Physical;
 using Content.Shared._NF.Bank.Events;
 using Content.Shared.GameTicking;
+using Content.Shared.Mobs;
+using Content.Shared.Mobs.Components;
+using Content.Shared.Players;
+using Robust.Server.Player;
 using Robust.Shared.Network;
 
 namespace Content.Server._NF.Bank;
 
 public sealed partial class BankSystem : SharedBankSystem
 {
+    public const float PayrollIntervalSeconds = 3600f;
+    public const int PayrollMinimumHourly = 75000;
+    public const int PayrollSpecialistHourly = 100000;
+    public const int PayrollHazardHourly = 125000;
+    public const int PayrollOfficerHourly = 150000;
+    public const int PayrollCommandHourly = 200000;
+    public const int PayrollCentralCommandHourly = 250000;
+
+    private static readonly Dictionary<string, int> PayrollByJob = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Passenger"] = PayrollMinimumHourly,
+        ["Contractor"] = PayrollMinimumHourly,
+        ["Janitor"] = PayrollMinimumHourly,
+        ["Bartender"] = PayrollMinimumHourly,
+        ["Botanist"] = PayrollMinimumHourly,
+        ["Chef"] = PayrollMinimumHourly,
+        ["Reporter"] = PayrollMinimumHourly,
+        ["Psychologist"] = PayrollMinimumHourly,
+        ["Boxer"] = PayrollMinimumHourly,
+        ["Zookeeper"] = PayrollMinimumHourly,
+        ["Pilot"] = PayrollSpecialistHourly,
+        ["CargoTechnician"] = PayrollSpecialistHourly,
+        ["StationEngineer"] = PayrollSpecialistHourly,
+        ["AtmosphericTechnician"] = PayrollSpecialistHourly,
+        ["TechnicalAssistant"] = PayrollMinimumHourly,
+        ["Scientist"] = PayrollSpecialistHourly,
+        ["MedicalDoctor"] = PayrollSpecialistHourly,
+        ["Chemist"] = PayrollSpecialistHourly,
+        ["Paramedic"] = PayrollSpecialistHourly,
+        ["MdMedic"] = PayrollHazardHourly,
+        ["SalvageSpecialist"] = PayrollHazardHourly,
+        ["Mercenary"] = PayrollHazardHourly,
+        ["SecurityGuard"] = PayrollHazardHourly,
+        ["Deputy"] = PayrollHazardHourly,
+        ["NFDetective"] = PayrollHazardHourly,
+        ["Brigmedic"] = PayrollHazardHourly,
+        ["Cadet"] = PayrollSpecialistHourly,
+        ["Bailiff"] = PayrollOfficerHourly,
+        ["SeniorOfficer"] = PayrollOfficerHourly,
+        ["Sergeant"] = PayrollOfficerHourly,
+        ["Sheriff"] = PayrollCommandHourly,
+        ["StationRepresentative"] = PayrollOfficerHourly,
+        ["Stc"] = PayrollOfficerHourly,
+        ["Quartermaster"] = PayrollCommandHourly,
+        ["ChiefEngineer"] = PayrollCommandHourly,
+        ["ChiefMedicalOfficer"] = PayrollCommandHourly,
+        ["ResearchDirector"] = PayrollCommandHourly,
+        ["HeadOfPersonnel"] = PayrollCommandHourly,
+        ["Captain"] = PayrollCentralCommandHourly,
+        ["CentralCommandOfficial"] = PayrollCentralCommandHourly,
+        ["ERTLeader"] = PayrollCentralCommandHourly,
+        ["ERTSecurity"] = PayrollCentralCommandHourly,
+        ["ERTMedical"] = PayrollCentralCommandHourly,
+        ["ERTEngineer"] = PayrollCentralCommandHourly,
+        ["USSPRifleman"] = PayrollHazardHourly,
+        ["USSPMedic"] = PayrollHazardHourly,
+        ["USSPCorporal"] = PayrollOfficerHourly,
+        ["USSPSergeant"] = PayrollOfficerHourly,
+        ["USSPCommissar"] = PayrollCommandHourly,
+        ["TsfEngineer"] = PayrollHazardHourly,
+        ["TsfBorg"] = PayrollHazardHourly,
+        ["PdvBorg"] = PayrollHazardHourly,
+        ["Pirate"] = PayrollHazardHourly,
+        ["PirateFirstMate"] = PayrollOfficerHourly,
+        ["PirateCaptain"] = PayrollCommandHourly,
+        ["Prisoner"] = 0,
+    };
+
     [Dependency] private IServerPreferencesManager _prefsManager = default!;
-    [Dependency] private ISharedPlayerManager _playerManager = default!;
+    [Dependency] private IPlayerManager _playerManager = default!;
     [Dependency] private IServerDbManager _db = default!;
     [Dependency] private MonoCoinsManager _coins = default!;
+    [Dependency] private SharedJobSystem _job = default!;
+    [Dependency] private IChatManager _chatManager = default!;
+    [Dependency] private GameTicker _gameTicker = default!;
 
     private ISawmill _log = default!;
+    private readonly Dictionary<NetUserId, float> _payrollTimers = new();
+    private readonly HashSet<NetUserId> _payrollMissingJobWarnings = new();
 
     public override void Initialize()
     {
@@ -47,11 +130,170 @@ public sealed partial class BankSystem : SharedBankSystem
     {
         base.Update(frameTime);
         UpdateSectorBanks(frameTime);
+        UpdatePayroll(frameTime);
     }
 
     public void OnCleanup(RoundRestartCleanupEvent _)
     {
         CleanupLedger();
+        _payrollTimers.Clear();
+        _payrollMissingJobWarnings.Clear();
+    }
+
+    private void UpdatePayroll(float frameTime)
+    {
+        var activePlayers = new HashSet<NetUserId>();
+        var query = EntityQueryEnumerator<BankAccountComponent, ActorComponent, MobStateComponent>();
+        while (query.MoveNext(out var uid, out _, out var actor, out var mobState))
+        {
+            var session = actor.PlayerSession;
+            activePlayers.Add(session.UserId);
+
+            if (mobState.CurrentState is not (MobState.Alive or MobState.Critical) ||
+                !TryGetPayrollHourly(uid, session, out var hourly) ||
+                hourly <= 0)
+            {
+                continue;
+            }
+
+            _payrollMissingJobWarnings.Remove(session.UserId);
+
+            EnsurePayrollTimerStarted(session);
+            var elapsed = _payrollTimers.GetValueOrDefault(session.UserId) + frameTime;
+            if (elapsed < PayrollIntervalSeconds)
+            {
+                _payrollTimers[session.UserId] = elapsed;
+                continue;
+            }
+
+            var payoutCount = (int) MathF.Floor(elapsed / PayrollIntervalSeconds);
+            _payrollTimers[session.UserId] = elapsed - payoutCount * PayrollIntervalSeconds;
+            var payout = (int) Math.Min((long) hourly * payoutCount, int.MaxValue);
+
+            if (TryPayrollDeposit(uid, payout, out var newBalance))
+            {
+                NotifyPayrollReceived(session, payout, newBalance, hourly);
+                _log.Info($"{uid} received payroll {payout}; new balance {newBalance}");
+            }
+        }
+
+        foreach (var userId in _payrollTimers.Keys.Where(userId => !activePlayers.Contains(userId)).ToArray())
+        {
+            _payrollTimers.Remove(userId);
+            _payrollMissingJobWarnings.Remove(userId);
+        }
+    }
+
+    private void EnsurePayrollTimerStarted(ICommonSession session)
+    {
+        if (_payrollTimers.ContainsKey(session.UserId))
+            return;
+
+        if (_gameTicker.RunLevel == GameRunLevel.InRound)
+        {
+            var roundSeconds = Math.Max(0f, (float) _gameTicker.RoundDuration().TotalSeconds);
+            _payrollTimers[session.UserId] = roundSeconds % PayrollIntervalSeconds;
+            return;
+        }
+
+        _payrollTimers[session.UserId] = 0f;
+    }
+
+    public bool TryGetPayrollStatus(EntityUid mobUid, ICommonSession session, out int hourly, out int nextSeconds)
+    {
+        hourly = 0;
+        nextSeconds = 0;
+
+        if (TryComp<MobStateComponent>(mobUid, out var mobState) &&
+            mobState.CurrentState is not (MobState.Alive or MobState.Critical))
+        {
+            return false;
+        }
+
+        if (!TryGetPayrollHourly(mobUid, session, out hourly) || hourly <= 0)
+            return false;
+
+        EnsurePayrollTimerStarted(session);
+        var elapsed = _payrollTimers.GetValueOrDefault(session.UserId);
+        nextSeconds = (int) MathF.Ceiling(Math.Max(0f, PayrollIntervalSeconds - elapsed));
+        return true;
+    }
+
+    private bool TryGetPayrollHourly(EntityUid mobUid, ICommonSession session, out int hourly)
+    {
+        hourly = 0;
+        var contentData = _playerManager.GetPlayerData(session.UserId).ContentData();
+        string? jobId = null;
+
+        if (contentData?.Mind != null &&
+            _job.MindTryGetJobId(contentData.Mind.Value, out var mindJobId) &&
+            mindJobId is { } resolvedMindJob)
+        {
+            jobId = resolvedMindJob.Id;
+        }
+        else if (TryComp<PlayerJobComponent>(mobUid, out var playerJob) &&
+                 playerJob.JobPrototype is { } resolvedPlayerJob)
+        {
+            jobId = resolvedPlayerJob.Id;
+        }
+
+        if (string.IsNullOrWhiteSpace(jobId))
+        {
+            if (_payrollMissingJobWarnings.Add(session.UserId))
+                _log.Warning($"Payroll skipped for {session.UserId}: no job id found on mind or player entity {mobUid}.");
+            return false;
+        }
+
+        hourly = GetPayrollHourly(jobId);
+        return hourly > 0;
+    }
+
+    private void NotifyPayrollReceived(ICommonSession session, int payout, int newBalance, int hourly)
+    {
+        var message = Loc.GetString(
+            "bank-payroll-received",
+            ("amount", BankSystemExtensions.ToSpesoString(payout)),
+            ("balance", BankSystemExtensions.ToSpesoString(newBalance)),
+            ("hourly", BankSystemExtensions.ToSpesoString(hourly)));
+
+        _chatManager.ChatMessageToOne(
+            ChatChannel.Notifications,
+            message,
+            message,
+            EntityUid.Invalid,
+            false,
+            session.Channel);
+    }
+
+    private static int GetPayrollHourly(string jobId)
+    {
+        if (PayrollByJob.TryGetValue(jobId, out var payroll))
+            return payroll;
+
+        if (ContainsAny(jobId, "Captain", "CentralCommand", "ERT", "DeathSquad"))
+            return PayrollCentralCommandHourly;
+
+        if (ContainsAny(jobId, "Chief", "Head", "Director", "Quartermaster", "Sheriff", "Commissar", "Commander"))
+            return PayrollCommandHourly;
+
+        if (ContainsAny(jobId, "Senior", "Sergeant", "Bailiff", "Warden", "FirstMate", "Corporal"))
+            return PayrollOfficerHourly;
+
+        if (ContainsAny(jobId, "Security", "Deputy", "Detective", "Mercenary", "Salvage", "Pirate", "Rifleman", "Medic", "Brigmedic", "Engineer"))
+            return PayrollHazardHourly;
+
+        if (ContainsAny(jobId, "Doctor", "Medical", "Scientist", "Chemist", "Paramedic", "Atmospheric", "Cargo", "Pilot", "StationRepresentative", "Stc"))
+            return PayrollSpecialistHourly;
+
+        if (ContainsAny(jobId, "Prisoner", "Borg"))
+            return 0;
+
+        return PayrollMinimumHourly;
+    }
+
+    private static bool ContainsAny(string text, params string[] needles)
+    {
+        return needles.Any(needle => text.Contains(needle, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -175,6 +417,153 @@ public sealed partial class BankSystem : SharedBankSystem
         }
 
         return false;
+    }
+
+    private bool TryPayrollDeposit(EntityUid mobUid, int amount, out int newBalance)
+    {
+        newBalance = 0;
+        if (amount <= 0)
+            return false;
+
+        if (!TryComp<BankAccountComponent>(mobUid, out var bank))
+            return false;
+
+        if (HasComp<IronmanComponent>(mobUid))
+            return false;
+
+        if (!_playerManager.TryGetSessionByEntity(mobUid, out var session) ||
+            !_prefsManager.TryGetCachedPreferences(session.UserId, out var prefs) ||
+            prefs.SelectedCharacter is not HumanoidCharacterProfile profile)
+        {
+            return false;
+        }
+
+        if (profile.BankBalance > int.MaxValue - amount)
+            return false;
+
+        var index = prefs.IndexOfCharacter(profile);
+        if (index == -1)
+            return false;
+
+        newBalance = profile.BankBalance + amount;
+        _prefsManager.SetProfile(session.UserId, index, profile.WithBankBalance(newBalance));
+        bank.Balance = newBalance;
+        Dirty(mobUid, bank);
+        RaiseLocalEvent(new BalanceChangedEvent(session, newBalance));
+        return true;
+    }
+
+    /// <summary>
+    /// Transfers money between two online character bank accounts.
+    /// This bypasses deposit tax and updates both saved profiles together.
+    /// </summary>
+    public bool TryBankTransfer(
+        EntityUid fromUid,
+        EntityUid toUid,
+        int amount,
+        out int fromBalance,
+        out int toBalance,
+        out string error)
+    {
+        fromBalance = 0;
+        toBalance = 0;
+        error = string.Empty;
+
+        if (amount <= 0)
+        {
+            error = "amount-invalid";
+            _log.Info($"TryBankTransfer: {amount} is invalid from Uid {fromUid} to Uid {toUid}");
+            return false;
+        }
+
+        if (fromUid == toUid)
+        {
+            error = "same-account";
+            return false;
+        }
+
+        if (!TryComp<BankAccountComponent>(fromUid, out var fromBank))
+        {
+            error = "sender-no-account";
+            _log.Info($"TryBankTransfer: {fromUid} has no bank account");
+            return false;
+        }
+
+        if (!TryComp<BankAccountComponent>(toUid, out var toBank))
+        {
+            error = "recipient-no-account";
+            _log.Info($"TryBankTransfer: {toUid} has no bank account");
+            return false;
+        }
+
+        if (HasComp<IronmanComponent>(fromUid) || HasComp<IronmanComponent>(toUid))
+        {
+            error = "ironman-blocked";
+            _log.Info($"TryBankTransfer: transfer blocked by Ironman component ({fromUid} -> {toUid})");
+            return false;
+        }
+
+        if (!_playerManager.TryGetSessionByEntity(fromUid, out var fromSession) ||
+            !_playerManager.TryGetSessionByEntity(toUid, out var toSession))
+        {
+            error = "not-online";
+            _log.Info($"TryBankTransfer: missing attached session ({fromUid} -> {toUid})");
+            return false;
+        }
+
+        if (!_prefsManager.TryGetCachedPreferences(fromSession.UserId, out var fromPrefs) ||
+            !_prefsManager.TryGetCachedPreferences(toSession.UserId, out var toPrefs))
+        {
+            error = "prefs-missing";
+            _log.Info($"TryBankTransfer: missing cached prefs ({fromSession.UserId} -> {toSession.UserId})");
+            return false;
+        }
+
+        if (fromPrefs.SelectedCharacter is not HumanoidCharacterProfile fromProfile ||
+            toPrefs.SelectedCharacter is not HumanoidCharacterProfile toProfile)
+        {
+            error = "profile-invalid";
+            _log.Info($"TryBankTransfer: invalid selected character profile ({fromSession.UserId} -> {toSession.UserId})");
+            return false;
+        }
+
+        if (fromProfile.BankBalance < amount)
+        {
+            error = "insufficient-funds";
+            fromBalance = fromProfile.BankBalance;
+            return false;
+        }
+
+        if (toProfile.BankBalance > int.MaxValue - amount)
+        {
+            error = "recipient-overflow";
+            return false;
+        }
+
+        var fromIndex = fromPrefs.IndexOfCharacter(fromProfile);
+        var toIndex = toPrefs.IndexOfCharacter(toProfile);
+        if (fromIndex == -1 || toIndex == -1)
+        {
+            error = "profile-index-missing";
+            _log.Info($"TryBankTransfer: selected character index missing ({fromSession.UserId} -> {toSession.UserId})");
+            return false;
+        }
+
+        fromBalance = fromProfile.BankBalance - amount;
+        toBalance = toProfile.BankBalance + amount;
+
+        _prefsManager.SetProfile(fromSession.UserId, fromIndex, fromProfile.WithBankBalance(fromBalance));
+        _prefsManager.SetProfile(toSession.UserId, toIndex, toProfile.WithBankBalance(toBalance));
+
+        fromBank.Balance = fromBalance;
+        toBank.Balance = toBalance;
+        Dirty(fromUid, fromBank);
+        Dirty(toUid, toBank);
+
+        RaiseLocalEvent(new BalanceChangedEvent(fromSession, fromBalance));
+        RaiseLocalEvent(new BalanceChangedEvent(toSession, toBalance));
+        _log.Info($"{fromUid} transferred {amount} to {toUid}");
+        return true;
     }
 
     /// <summary>
@@ -431,6 +820,12 @@ public sealed partial class BankSystem : SharedBankSystem
     /// <summary>
     /// Update the bank balance to the character's current account balance.
     /// </summary>
+    public void SyncBankBalance(EntityUid mobUid)
+    {
+        if (TryComp<BankAccountComponent>(mobUid, out var bank))
+            UpdateBankBalance(mobUid, bank);
+    }
+
     private void UpdateBankBalance(EntityUid mobUid, BankAccountComponent comp)
     {
         if (TryGetBalance(mobUid, out var balance))
@@ -460,9 +855,10 @@ public sealed partial class BankSystem : SharedBankSystem
     /// <summary>
     /// Player attached, make sure the bank account is up-to-date.
     /// </summary>
-    public void OnPlayerAttached(EntityUid mobUid, BankAccountComponent comp, PlayerAttachedEvent _)
+    public void OnPlayerAttached(EntityUid mobUid, BankAccountComponent comp, PlayerAttachedEvent args)
     {
         UpdateBankBalance(mobUid, comp);
+        EnsurePayrollTimerStarted(args.Player);
     }
 
     /// <summary>

@@ -166,7 +166,7 @@ public sealed partial class BountyContractUiFragmentCreate : Control
     {
         // check if reward is valid
         var reward = GetReward();
-        if (reward == null || reward < 0)
+        if (reward == null || !SharedBountyContractSystem.IsRewardValid(reward.Value))
         {
             var err = Loc.GetString("bounty-contracts-ui-create-error-invalid-price");
             DisclaimerLabel.SetMessage(err);
@@ -194,7 +194,7 @@ public sealed partial class BountyContractUiFragmentCreate : Control
 
         if (VesselEdit.Text.Length > SharedBountyContractSystem.MaxVesselLength)
         {
-            var err = Loc.GetString("bounty-contracts-ui-create-error-vessel-name-too-long");
+            var err = Loc.GetString("bounty-contracts-ui-create-error-vessel-too-long");
             DisclaimerLabel.SetMessage(err);
             CreateButton.Disabled = true;
             return;

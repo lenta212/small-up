@@ -1,8 +1,8 @@
 - type: entity
   id: OrganVulpkaninEyes
   parent: [ OrganHumanEyes ]
-  name: vulpkanin eyes
-  description: They reflect off the darkness.
+  name: глаза вульпканина
+  description: Они отражают тьму.
   components:
   - type: Organ
     onAdd:

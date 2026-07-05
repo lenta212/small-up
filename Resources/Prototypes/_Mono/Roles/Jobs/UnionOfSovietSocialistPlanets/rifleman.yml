@@ -5,7 +5,7 @@
   playTimeTracker: JobUSSPRifleman
   requirements:
   - !type:OverallPlaytimeRequirement
-    time: 32400 # 9 hrs
+    time: 18000 # 5 hours
   startingGear: USSPRiflemanGear
   alwaysUseSpawner: true
   hideConsoleVisibility: true

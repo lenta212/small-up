@@ -1,0 +1,21 @@
+- type: entity
+  parent: NFBasePDACartridge
+  id: LuaMSectorStatusCartridge
+  name: картридж статуса сектора LuaM
+  description: Программа только для чтения, отслеживающая опасности сектора LuaM, поданные документы, репутацию и реестры.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/sector_dispatch_cartridge.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/sector_dispatch_cartridge.rsi
+    state: icon
+  - type: UIFragment
+    ui: !type:LuaMSectorStatusUi
+  - type: Cartridge
+    programName: luam-sector-status-program-name
+    icon:
+      sprite: Interface/Misc/program_icons.rsi
+      state: crew_manifest
+    readonly: true
+  - type: LuaMSectorStatusCartridge

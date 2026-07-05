@@ -14,6 +14,7 @@
   name: Торговый Аванпост # LuaM: Cargo Depot > Торговый Аванпост
   minimumDistance: 8000
   maximumDistance: 10000
+  spawnGamePreset: [ NFAdventure, NFPirate, MonoStandard, MonoRogueTSF, MonoRogueUSSP, MonoTSFUSSP, MonoADS, MonoChimera, MonoMixed, MonoAllAtOnce, LuaMDeadSpaceLowPop ]
   spawnGroup: CargoDepot
   gridPath: /Maps/_NF/POI/cargodepot.yml
   addComponents: &cargoComponents
@@ -38,6 +39,7 @@
   name: Торговый Аванпост # LuaM: Cargo Depot > Торговый Аванпост
   minimumDistance: 8000
   maximumDistance: 10000
+  spawnGamePreset: [ NFAdventure, NFPirate, MonoStandard, MonoRogueTSF, MonoRogueUSSP, MonoTSFUSSP, MonoADS, MonoChimera, MonoMixed, MonoAllAtOnce, LuaMDeadSpaceLowPop ]
   spawnGroup: CargoDepot
   gridPath: /Maps/_NF/POI/cargodepotalt.yml
   addComponents: *cargoComponents

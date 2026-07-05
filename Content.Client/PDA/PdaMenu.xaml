@@ -23,38 +23,58 @@
         <pda:PdaNavigationButton Name="EjectPaiButton" Access="Public" SetWidth="32"/>
     </BoxContainer>
     <BoxContainer Name="ViewContainer" HorizontalExpand="True" VerticalExpand="True" Access="Public">
-        <BoxContainer Orientation="Vertical"
-                      VerticalExpand="True"
-                      HorizontalExpand="True"
-                      MinSize="50 50"
-                      Margin="8">
-            <ContainerButton Name="PdaOwnerButton">
-                <RichTextLabel Name="PdaOwnerLabel" Access="Public"/>
-            </ContainerButton>
-            <ContainerButton Name="IdInfoButton">
-                <RichTextLabel Name="IdInfoLabel" Access="Public"/>
-            </ContainerButton>
-            <ContainerButton Name="StationNameButton">
-                <RichTextLabel Name="StationNameLabel" Access="Public"/>
-            </ContainerButton>
-            <ContainerButton Name="StationAlertLevelButton">
-                <RichTextLabel Name="StationAlertLevelLabel" Access="Public"/>
-            </ContainerButton>
-            <ContainerButton Name="StationTimeButton">
-                <RichTextLabel Name="StationTimeLabel" Access="Public"/>
-            </ContainerButton>
-            <ContainerButton Name="StationAlertLevelInstructionsButton">
-                <RichTextLabel Name="StationAlertLevelInstructions" Access="Public"/>
-            </ContainerButton>
-            <!-- Frontier -->
-            <ContainerButton Name="BalanceButton">
-                <RichTextLabel Name="BalanceLabel" Access="Public"/>
-            </ContainerButton>
-            <ContainerButton Name="ShuttleDeedButton">
-                <RichTextLabel Name="ShuttleDeedLabel" Access="Public"/>
-            </ContainerButton>
-            <!-- End Frontier -->
-        </BoxContainer>
+        <ScrollContainer HorizontalExpand="True" VerticalExpand="True" HScrollEnabled="False">
+            <BoxContainer Orientation="Vertical"
+                          VerticalExpand="True"
+                          HorizontalExpand="True"
+                          MinSize="50 50"
+                          Margin="8">
+                <ContainerButton Name="PdaOwnerButton">
+                    <RichTextLabel Name="PdaOwnerLabel" Access="Public"/>
+                </ContainerButton>
+                <ContainerButton Name="IdInfoButton">
+                    <RichTextLabel Name="IdInfoLabel" Access="Public"/>
+                </ContainerButton>
+                <ContainerButton Name="StationNameButton">
+                    <RichTextLabel Name="StationNameLabel" Access="Public"/>
+                </ContainerButton>
+                <ContainerButton Name="StationAlertLevelButton">
+                    <RichTextLabel Name="StationAlertLevelLabel" Access="Public"/>
+                </ContainerButton>
+                <ContainerButton Name="StationTimeButton">
+                    <RichTextLabel Name="StationTimeLabel" Access="Public"/>
+                </ContainerButton>
+                <ContainerButton Name="StationAlertLevelInstructionsButton">
+                    <RichTextLabel Name="StationAlertLevelInstructions" Access="Public"/>
+                </ContainerButton>
+                <!-- Frontier -->
+                <ContainerButton Name="BalanceButton">
+                    <RichTextLabel Name="BalanceLabel" Access="Public"/>
+                </ContainerButton>
+                <ContainerButton Name="BankIdButton">
+                    <RichTextLabel Name="BankIdLabel" Access="Public"/>
+                </ContainerButton>
+                <GridContainer Columns="3" HorizontalExpand="True">
+                    <LineEdit Name="BankTransferRecipientEdit"
+                              PlaceHolder="{Loc 'comp-pda-ui-bank-transfer-recipient-placeholder'}"
+                              HorizontalExpand="True"/>
+                    <LineEdit Name="BankTransferAmountEdit"
+                              PlaceHolder="{Loc 'comp-pda-ui-bank-transfer-amount-placeholder'}"
+                              MinWidth="76"/>
+                    <Button Name="BankTransferButton" Text="{Loc 'comp-pda-ui-bank-transfer-send'}"/>
+                </GridContainer>
+                <RichTextLabel Name="BankTransferStatusLabel" Access="Public"/>
+                <ContainerButton Name="DonationShopInfoButton">
+                    <RichTextLabel Name="DonationShopInfoLabel" Access="Public"/>
+                </ContainerButton>
+                <GridContainer Name="DonationShopListings" Columns="2" HorizontalExpand="True"/>
+                <RichTextLabel Name="DonationShopStatusLabel" Access="Public"/>
+                <ContainerButton Name="ShuttleDeedButton">
+                    <RichTextLabel Name="ShuttleDeedLabel" Access="Public"/>
+                </ContainerButton>
+                <!-- End Frontier -->
+            </BoxContainer>
+        </ScrollContainer>
         <ScrollContainer HorizontalExpand="True" VerticalExpand="True" HScrollEnabled="True">
             <BoxContainer Orientation="Vertical"
                           VerticalExpand="True"

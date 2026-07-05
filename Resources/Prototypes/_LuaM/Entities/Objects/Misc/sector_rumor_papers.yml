@@ -1,0 +1,1154 @@
+- type: entity
+  parent: Paper
+  id: PaperLuaMSectorRumorTemplates
+  name: шаблоны доски слухов сектора
+  description: Лист повторно используемых зацепок для аварийных маяков и фронтирных контрактов.
+  components:
+  - type: Paper
+    content: |2
+      # Доска слухов сектора
+
+      Используйте эти зацепки для PDA-контрактов, новостей, радиообъявлений и малых админских сцен.
+
+      1. Тихий буксир
+      Малый корабль просит стыковку. Голоса нет, транспондер меняет имя судна, на борту может быть чёрный ящик.
+
+      2. Последний кислород
+      Шахтёрский модуль сообщает о пробоине. Один шлюз заблокирован изнутри, журнал доступа повреждён.
+
+      3. Чужой груз
+      Торговец платит за сопровождение контейнера, который нельзя открывать до прибытия.
+
+      4. Ложная тишина
+      Аванпост передаёт нормальную телеметрию, но все сообщения написаны одним и тем же человеком.
+
+      5. Слепая проводка
+      Станции нужен инженер: питание есть, но сеть связи глохнет при каждой попытке вызова помощи.
+
+      Формат контракта:
+      - Название: короткий крючок.
+      - Судно: где искать.
+      - Описание: кто зовёт, что случилось, какие риски, что считать успехом.
+      - Награда: деньги, услуга, доля добычи, ремонт, лечение или транспорт.
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMDistressContractCards
+  name: карточки аварийных контрактов
+  description: Готовые карточки контрактов КПК для одиночных сцен спасения, ремонта, доставки и расследования.
+  components:
+  - type: Paper
+    content: |2
+      # PDA-карточки сигналов бедствия
+
+      Используй эти карточки как быстрые шаблоны для коллекции "Сигналы бедствия". Каждая задача должна закрываться одним игроком: результатом считается отчёт, маяк, груз, координаты, ремонт или новый контракт.
+
+      ## Vacancy: одинокий вызов
+
+      Название: Нужен пилот на короткий вылет
+      Описание: Автоматический сигнал просит проверить точку на окраине сектора. Живого заказчика может не быть. Успех: добраться, поставить маяк, оставить отчёт о том, что найдено.
+      Награда: оплата за координаты, найденный груз или подтверждённую безопасность маршрута.
+
+      ## Construction: слепая проводка
+
+      Название: Восстановить связь аванпоста
+      Описание: Малый объект передаёт питание, но не отвечает по радио. Успех: проверить питание, шлюз или консоль, описать оставшиеся риски.
+      Награда: оплата за ремонт, список нужных деталей или следующий контракт на доставку.
+
+      ## Service: чужой груз
+
+      Название: Доставить опечатанный контейнер
+      Описание: Контейнер нельзя вскрывать до прибытия. Успех: доставить, отметить повреждения пломб или оставить акт о потере.
+      Награда: фиксированная оплата, доля спасённого груза или услуга владельца.
+
+      ## Other: чёрный ящик
+
+      Название: Расшифровать аварийный журнал
+      Описание: Найден регистратор рейса. Успех: прочитать запись, заполнить отчёт, указать вероятную причину аварии и оставить крючок для следующей смены.
+      Награда: оплата за отчёт, координаты места аварии или право на часть безопасной добычи.
+
+      ## Правило завершения
+
+      Не пиши контракт, который требует второго живого персонажа. Если игрок один, он всё равно должен иметь честный способ закончить сцену и оставить след.
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMSoloObjectiveTable
+  name: таблица одиночных задач
+  description: Компактная таблица для генерации секторных задач на одного игрока без админской подготовки.
+  components:
+  - type: Paper
+    content: |2
+      # Генератор одиночной задачи
+
+      Если в секторе один игрок, выбери по одному пункту из каждого блока или брось кубик. Получится задача на 20-40 минут, которую можно закрыть без второго персонажа.
+
+      ## 1. Источник сигнала
+
+      1. старый PDA-контракт без исполнителя
+      2. аварийный маяк без голоса
+      3. контейнер с запиской
+      4. обрывок телеметрии
+      5. чёрный ящик
+      6. слух из новостей сектора
+
+      ## 2. Работа
+
+      1. проверить место
+      2. доставить груз
+      3. восстановить питание или связь
+      4. сопроводить маршрут
+      5. заполнить отчёт
+      6. оставить новый контракт
+
+      ## 3. Риск
+
+      1. мало кислорода
+      2. повреждён шлюз
+      3. помехи связи
+      4. подозрительный груз
+      5. неверные координаты
+      6. неизвестная причина аварии
+
+      ## 4. Доказательство завершения
+
+      1. маяк на карте
+      2. заполненная бумага
+      3. PDA-контракт
+      4. новость сектора
+      5. доставленный предмет
+      6. координаты для следующего игрока
+
+      ## 5. Награда
+
+      1. деньги
+      2. доля груза
+      3. ремонт или заправка
+      4. медицинская услуга
+      5. репутация персонажа
+      6. право на следующий контракт
+
+      ## 6. Крючок
+
+      1. сигнал повторился
+      2. владелец груза неизвестен
+      3. отчёт противоречит телеметрии
+      4. найден второй маршрут
+      5. кто-то уже был на месте
+      6. награда требует обратного рейса
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMSalvageInsuranceForm
+  name: страховой бланк спасения
+  description: Компактное соглашение о компенсации за спасение, эвакуацию и утилизацию.
+  components:
+  - type: Tag
+    tags:
+    - LuaMSoloReportBounty
+  - type: LuaMSectorEvidence
+    story: LuaMSectorStorySealedCargo
+    acknowledgeHazard: true
+    claimInsurance: true
+    registerCompany: true
+    registerShip: true
+    note: "salvage insurance form filed"
+  - type: Paper
+    content: |2
+      # Договор спасработ
+
+      Владелец судна:
+      Спасатель / группа:
+      Судно или район поиска:
+      Последний известный сигнал:
+
+      Разрешённые действия:
+      [ ] эвакуация живых
+      [ ] эвакуация тел
+      [ ] буксировка судна
+      [ ] вскрытие шлюзов
+      [ ] вынос груза
+      [ ] демонтаж опасных систем
+
+      Компенсация:
+      Ответственность за риск:
+      Что считается выполнением:
+
+      Подписи:
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMBlackBoxReport
+  name: отчет черного ящика
+  description: Шаблон отчета для обломков, пропавших судов и восстановленных журналов.
+  components:
+  - type: Tag
+    tags:
+    - LuaMBlackBoxBounty
+    - LuaMSoloReportBounty
+  - type: LuaMSectorEvidence
+    story: LuaMSectorStoryBlackBoxPaid
+    acknowledgeHazard: true
+    recoverBlackBox: true
+    registerCompany: true
+    registerShip: true
+    resolveStory: true
+    note: "black box report filed"
+  - type: Paper
+    content: |2
+      # Отчёт чёрного ящика
+
+      Название судна:
+      Владелец / фракция:
+      Координаты или район:
+      Кто нашёл:
+
+      Последний сигнал:
+      Состояние корпуса:
+      Найденные выжившие:
+      Найденные тела:
+      Сохранённый груз:
+
+      Вероятная причина аварии:
+      Кому передан отчёт:
+      Рекомендованный следующий контракт:
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMTrustedSalvageCacheManifest
+  name: манифест доверенного спасательного схрона
+  description: Манифест для восстановления спасательного схрона, доступного по репутации.
+  components:
+  - type: Tag
+    tags:
+    - LuaMSoloReportBounty
+  - type: LuaMSectorEvidence
+    story: LuaMSectorStoryTrustedSalvageCache
+    acknowledgeHazard: true
+    recoverBlackBox: true
+    registerCompany: true
+    registerShip: true
+    resolveStory: true
+    note: "trusted salvage cache manifest filed"
+  - type: Paper
+    content: |2
+      # Trusted salvage cache manifest
+
+      Cache marker:
+      Responding vessel:
+      Operator:
+      Prior trust reference:
+
+      Cache status:
+      [ ] marker verified
+      [ ] debris field checked
+      [ ] trap indicators cleared
+      [ ] cargo tagged before movement
+
+      Manifest notes:
+      Recovery recommendation:
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMPreferredCourierRouteReceipt
+  name: квитанция приоритетного курьерского маршрута
+  description: Квитанция для закрытия проверки курьерского маршрута, доступной по репутации.
+  components:
+  - type: Tag
+    tags:
+    - LuaMSoloReportBounty
+  - type: LuaMSectorEvidence
+    story: LuaMSectorStoryPreferredCourierRoute
+    acknowledgeHazard: true
+    claimInsurance: true
+    recoverBlackBox: true
+    registerCompany: true
+    registerShip: true
+    resolveStory: true
+    note: "preferred courier route receipt filed"
+  - type: Paper
+    content: |2
+      # Preferred courier route receipt
+
+      Route marker:
+      Responding vessel:
+      Courier:
+      Prior sealed cargo reference:
+
+      Handoff status:
+      [ ] route marker verified
+      [ ] toll demand checked
+      [ ] cargo handoff point inspected
+      [ ] repeat cargo risk noted
+
+      Receipt notes:
+      Route recommendation:
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMGhostStationLedgerExtract
+  name: выписка реестра станции-призрака
+  description: Выписка реестра для закрытия аудита станционных записей, доступного по репутации.
+  components:
+  - type: Tag
+    tags:
+    - LuaMSoloReportBounty
+  - type: LuaMSectorEvidence
+    story: LuaMSectorStoryGhostStationLedger
+    acknowledgeHazard: true
+    claimInsurance: true
+    recoverBlackBox: true
+    registerCompany: true
+    registerShip: true
+    resolveStory: true
+    note: "ghost station ledger extract filed"
+  - type: Paper
+    content: |2
+      # Ghost station ledger extract
+
+      Station marker:
+      Responding vessel:
+      Auditor:
+      Prior station record reference:
+
+      Ledger status:
+      [ ] original signatures preserved
+      [ ] duplicate registry marks noted
+      [ ] automated replies copied
+      [ ] ownership conflict marked
+
+      Extract notes:
+      Audit recommendation:
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMPriorityRescueLaneReceipt
+  name: квитанция приоритетного спасательного коридора
+  description: Квитанция для закрытия проверки спасательного коридора с репутацией бедствия.
+  components:
+  - type: Tag
+    tags:
+    - LuaMSoloReportBounty
+  - type: LuaMSectorEvidence
+    story: LuaMSectorStoryPriorityRescueLane
+    acknowledgeHazard: true
+    claimInsurance: true
+    recoverBlackBox: true
+    registerCompany: true
+    registerShip: true
+    resolveStory: true
+    note: "priority rescue lane receipt filed"
+  - type: Paper
+    content: |2
+      # Priority rescue lane receipt
+
+      Route marker:
+      Responding vessel:
+      Rescue operator:
+      Prior distress reference:
+
+      Lane status:
+      [ ] beacon repeat checked
+      [ ] ambush signs marked
+      [ ] tow and evac route tested
+      [ ] next responder note left
+
+      Receipt notes:
+      Rescue recommendation:
+
+- type: entity
+  parent: BaseItem
+  id: LuaMBlackBoxRecorder
+  name: восстановленный черный ящик
+  description: Прочный бортовой регистратор с читаемым аварийным журналом. Полезен даже когда сектор пуст.
+  components:
+  - type: Tag
+    tags:
+    - LuaMBlackBoxBounty
+  - type: LuaMSectorEvidence
+    story: LuaMSectorStoryBlackBoxPaid
+    acknowledgeHazard: true
+    recoverBlackBox: true
+    resolveStory: true
+    note: "recovered black box recorder filed"
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/flight_recorder.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/flight_recorder.rsi
+    state: icon
+  - type: Paper
+    contentSize: 12000
+    content: |2
+      # Чёрный ящик: одиночная расшифровка
+
+      Статус: найденный аварийный регистратор.
+      Назначение: дать задачу одному пилоту, спасателю, инженеру или курьеру без ожидания других игроков.
+
+      ## Последняя запись
+
+      Судно потеряло связь после короткого всплеска помех. Автопилот успел сохранить маршрут, отметку груза и обрывок голосового журнала. Живых свидетелей может не быть, но запись достаточно полная, чтобы завершить работу документами.
+
+      ## Как закрыть сцену одному
+
+      1. Отметь место находки маяком или координатами.
+      2. Проверь корпус, груз, угрозы и признаки выживших.
+      3. Заполни отчёт чёрного ящика или одиночный журнал контракта.
+      4. Оставь результат в PDA-контракте, новости, бумаге на станции или у администрации.
+      5. Если данных мало, оформи следующий контракт: эвакуация, буксировка, ремонт, доставка груза или расследование.
+
+      ## Награда без второго игрока
+
+      Завершением считается не только спасение человека. Засчитывается доставленный груз, найденная причина аварии, безопасно поставленный маяк, честный отчёт, проданные координаты или подготовленный контракт для следующей смены.
+
+      ## Крючки для продолжения
+
+      - Последний сигнал пришёл не с того борта, что указан в манифесте.
+      - Груз опечатан, но пломбы не совпадают.
+      - В журнале есть просьба не отдавать запись корпорации.
+      - Маршрут ведёт к пустому месту, где всё ещё работает маяк.
+      - Автопилот помнит второго пассажира, которого нет в списках.
+  - type: StaticPrice
+    price: 250
+  - type: ActivatableUI
+    key: enum.PaperUiKey.Key
+    requiresComplex: false
+  - type: UserInterface
+    interfaces:
+      enum.PaperUiKey.Key:
+        type: PaperBoundUserInterface
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMCompanyCharter
+  name: чартер компании
+  description: Чартерный бланк для экипажей игроков и малых компаний сектора.
+  components:
+  - type: Paper
+    content: |2
+      # Устав компании
+
+      Название:
+      Позывной:
+      Владелец:
+      Основные услуги:
+
+      Правила найма:
+      Делёж прибыли:
+      Ответственность за долги:
+      Политика по контрактам:
+      Политика по новичкам:
+
+      Союзники:
+      Конфликты:
+      Публичная репутация:
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMQuietEventChecklist
+  name: чеклист тихого события
+  description: Легкий чеклист для спокойных админских сцен.
+  components:
+  - type: Paper
+    content: |2
+      # Тихая админ-сцена
+
+      Крючок:
+      Одна странность:
+      Одна улика:
+      Один риск:
+      Один путь к награде:
+
+      Кого вовлекаем:
+      Как игроки могут отказаться:
+      Что нельзя форсить:
+      Как сцена закончится без наказания:
+
+      Хорошая сцена открывает выбор. Если игроки нашли мирное решение, это тоже победа.
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMSoloContractLog
+  name: журнал одиночного контракта
+  description: Компактный отчет для завершения секторной работы в одиночку.
+  components:
+  - type: Tag
+    tags:
+    - LuaMSoloReportBounty
+  - type: Paper
+    content: |2
+      # Одиночный контракт
+
+      Позывной:
+      Роль:
+      Задача:
+      Район:
+
+      Минимум снаряжения:
+      [ ] скафандр / маска
+      [ ] кислород
+      [ ] аптечка
+      [ ] инструменты
+      [ ] фонарь
+      [ ] GPS или координаты
+
+      Что найдено:
+      Что доставлено:
+      Что потеряно:
+      Что опасно для следующих:
+
+      Итог:
+      [ ] выполнено полностью
+      [ ] выполнено частично
+      [ ] нужна помощь
+      [ ] оставить как новый контракт
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMSoloBountyGuide
+  name: руководство по одиночным грузовым наградам
+  description: Короткое полевое руководство для выполнения грузовых наград на малом онлайне без второго игрока.
+  components:
+  - type: Paper
+    content: |2
+      # Одиночные грузовые заявки
+
+      Эти заявки нужны, чтобы один игрок мог получить честную оплату за маленькую сцену без живого заказчика и без ручной выдачи денег администрацией.
+
+      Перед вылетом можно взять одиночный полевой набор: GPS, переносная связь, фонарь и аварийный медипен закрывают базовую разведку и маршрутные заявки.
+
+      ## Как закрыть заявку
+
+      1. Открой грузовую консоль заявок и выбери заявку с префиксом DS.
+      2. Распечатай label заявки.
+      3. Собери предметы из манифеста в один ящик.
+      4. Всегда добавь письменный итог: одиночный отчет, отчет черного ящика или договор спасработ.
+      5. Прикрепи label к ящику и продай его через грузовую систему.
+
+      ## Что считается доказательством
+
+      Сигнал бедствия: аварийный маяк и отчет о том, что найдено.
+      Черный ящик: регистратор или отчет черного ящика, плюс отдельный итоговый отчет.
+      Полевой ремонт: два рабочих инструмента и отчет о проверенной неисправности.
+      Маршрутный пакет: GPS или переносная связь, плюс координаты или заметки маршрута.
+
+      ## Антифарм
+
+      Не закрывай заявку пустым ящиком с предметами без истории. Если ты получил оплату, оставь в отчете координаты, риск, результат и крючок для следующего игрока.
+
+      Если заявка повторилась слишком быстро, выбери другой тип работы или преврати ее в PDA-контракт, новость сектора, ремонтную ведомость или маяк для следующей смены.
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMSoloFallbackProtocol
+  name: протокол одиночного обхода
+  description: Короткий протокол закрытия заблокированной работы, когда нет второго игрока, командования или клиента.
+  components:
+  - type: Paper
+    content: |2
+      # Протокол одиночного fallback
+
+      Если механика требует второго игрока, командование, живого заказчика, отдельную роль или закрытый доступ, не стой в тупике. Преврати задачу в одиночный след.
+
+      ## Порядок
+
+      1. Опиши блокер: какой доступ, роль, консоль или живой игрок нужен.
+      2. Выполни безопасную часть работы: разведка, осмотр, эвакуация, маркировка, ремонт снаружи.
+      3. Оставь доказательство: отчет, маяк, GPS-координаты, PDA-контракт, новость или грузовой label.
+      4. Если нужна оплата, закрой через DS cargo bounty или оставь PDA-контракт на продолжение.
+      5. Если нужен доступ, запиши, куда и зачем. Админ или старшая роль смогут проверить позже.
+
+      ## Примеры fallback
+
+      Нет инженера: отметь поломку маяком, почини доступную часть, оставь ремонтную заявку.
+      Нет медика: стабилизируй себя, забери тело или доказательства, оставь медицинский отчет.
+      Нет охраны: не играй в тюрьму. Опиши угрозу, маркируй зону, выдай предупреждение.
+      Нет заказчика: закрой через отчет, новость, грузовую заявку или контракт для следующего.
+      Нет доступа: не ломай критичную игру. Оставь точное место, причину и минимальный запрос.
+
+      ## Проверка честности
+
+      [ ] Игрок не получил бесконечную награду.
+      [ ] Остался риск или цена действия.
+      [ ] Есть доказательство в мире.
+      [ ] Следующий игрок сможет продолжить.
+      [ ] Админ не обязан быть онлайн.
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMSoloRoleLoops
+  name: карточки одиночных ролевых циклов
+  description: Короткие ролевые циклы для сохранения играбельности сектора при одном игроке онлайн.
+  components:
+  - type: Paper
+    content: |2
+      # Одиночные циклы ролей
+
+      Если ты один в секторе, выбери короткий цикл и оставь след.
+
+      ## Кем стартовать одному
+
+      Авантюрист - базовая роль без таймера. Она подходит для первого одиночного вылета, DS-грузовых заявок, маяков, отчетов и маленьких контрактов.
+
+      Пилот открывается после базового опыта и лучше подходит для маршрутов, буксировки и перевозки груза. Если роль еще закрыта, бери авантюриста и полевой набор.
+
+      Старшие роли не нужны для закрытия одиночной сцены. Если в секторе один игрок, не жди начальника: оставь отчет, маяк, PDA-контракт или cargo bounty как доказательство.
+
+      ## Спасатель
+      Найди сигнал, проверь корпус, поставь маяк, верни груз или отчёт.
+
+      ## Инженер
+      Восстанови питание, связь, шлюз или маршрут. Оставь записку: что починено и что осталось опасным.
+
+      ## Медик
+      Проверь место происшествия, собери медицинскую картину, эвакуируй тело или оставь запрос на лекарства.
+
+      ## Курьер
+      Доставь груз, проверь пломбы, отметь повреждения и оставь подтверждение доставки.
+
+      ## Охрана
+      Проверь угрозу, обозначь опасный район, сопроводительное условие или запрос NFSD. Бой не обязан быть целью.
+
+      ## Сервис / репортёр
+      Создай новость, слух, объявление, устав компании или список услуг. Пустой сектор тоже может получить историю.
+
+      ## Проверка завершения
+      [ ] цель была понятна
+      [ ] риск не заблокировал игру
+      [ ] есть результат
+      [ ] остался след для следующих игроков
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMSoloFirstChecklist
+  name: чеклист механик для одиночной игры
+  description: Чеклист для адаптации любой секторной сцены под одного игрока онлайн.
+  components:
+  - type: Paper
+    content: |2
+      # Проверка механики на одного игрока
+
+      Используй перед контрактом, ивентом, новой ролью или админской сценой. Если онлайн один человек, сцена должна закрываться без второго живого персонажа.
+
+      ## Пять обязательных ответов
+
+      Что игрок делает в первые пять минут:
+
+      Чем он рискует, кроме мгновенной смерти:
+
+      Что считается честным завершением:
+
+      Какой след останется в мире:
+      [ ] бумага
+      [ ] PDA-контракт
+      [ ] маяк
+      [ ] новость
+      [ ] груз / предмет
+      [ ] координаты
+
+      Как следующий игрок сможет продолжить:
+      [ ] спасти
+      [ ] починить
+      [ ] купить
+      [ ] оспорить
+      [ ] расследовать
+      [ ] доставить
+
+      ## Нельзя для низкого онлайна
+
+      [ ] требуется второй игрок у консоли
+      [ ] нужен живой заказчик для завершения
+      [ ] требуется командное одобрение
+      [ ] провал мгновенно заканчивает раунд
+      [ ] награда фармится без риска
+      [ ] роль существует только чтобы ждать нарушителя
+
+      Если отмечен любой пункт выше, добавь fallback: аварийный доступ, бумажное доказательство, маяк, частичную оплату, новый контракт или локальную поломку вместо глобальной катастрофы.
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMLowPopEventPolicy
+  name: политика событий малого онлайна
+  description: Быстрая шкала онлайна для выбора событий, работающих при малом числе игроков.
+  components:
+  - type: Paper
+    content: |2
+      # События при низком онлайне
+
+      ## 1 игрок
+
+      Только локальная сцена, которую можно закрыть одному:
+      [ ] сигнал бедствия
+      [ ] черный ящик
+      [ ] сломанный маяк, шлюз, связь или генератор
+      [ ] потерянный груз
+      [ ] подозрительный контейнер
+      [ ] слух сектора
+
+      Запрещено:
+      [ ] глобальная авария станции
+      [ ] обязательный бой
+      [ ] цель с живым противником
+      [ ] угроза без отступления
+
+      ## 2-4 игрока
+
+      Можно:
+      [ ] спасательный вызов
+      [ ] сопровождение груза
+      [ ] ремонт опасной зоны
+      [ ] медицинский вылет
+      [ ] спор по контракту
+
+      ## 5-10 игроков
+
+      Можно:
+      [ ] фракционный маршрут
+      [ ] рискованная экспедиция
+      [ ] атака на груз
+      [ ] публичный репутационный конфликт
+
+      ## 10+ игроков
+
+      Можно:
+      [ ] большой рейд
+      [ ] сильный антагонист
+      [ ] командная операция
+      [ ] масштабная авария
+
+      Если онлайн падает, следующая волна должна стать тише или превратиться в контракт, маяк, новость, отчет или координаты.
+
+      Тихий стартовый пресет: LuaMDeadSpaceLowPop.
+      Используй его, если сервер пустой или почти пустой, а цель - дать игрокам контракты, salvage и медленные угрозы без постоянного тяжелого давления.
+
+      Для постоянного тихого старта сервера: config.presets = "_Mono/monolithCore,_LuaM/deadSpaceLowPop"
+
+- type: entity
+  parent: Paper
+  id: PaperLuaMSoloMechanicsMatrix
+  name: матрица одиночных механик
+  description: Компактный лист правил для проверки, работает ли механика с одним игроком онлайн.
+  components:
+  - type: Paper
+    content: |2
+      # Матрица одиночной механики
+
+      Любая сцена, роль, контракт или событие должны работать, даже если в секторе один человек.
+
+      ## Шесть обязательных ответов
+
+      [ ] Что игрок делает в первые пять минут?
+      [ ] Чем он рискует, кроме мгновенной смерти?
+      [ ] Как он завершает задачу без второго живого персонажа?
+      [ ] Какой след остается в мире: бумага, маяк, координаты, груз, PDA-контракт, новость или черный ящик?
+      [ ] Как следующий игрок сможет продолжить, купить, спасти, расследовать или починить?
+      [ ] Почему награду нельзя бесконечно фармить без риска и истории?
+
+      ## Fallback вместо тупика
+
+      Нет доступа: оставь место, причину, координаты и минимальный запрос, не ломай критичную игру ради прохода.
+      Нет роли: возьми базовый вариант задачи через подрядчика, отчет, маяк или PDA-контракт.
+      Нет медика: стабилизируй себя и оставь медицинский отчет, но не заменяй полноценную больницу.
+      Нет инженера: почини доступную часть, отметь опасное место и создай ремонтную заявку.
+      Нет заказчика: закрывай через отчет, cargo bounty, новость, грузовой label или контракт для следующей смены.
+
+      ## Правило low-pop
+
+      Для одного игрока разрешены разведка, salvage, малый ремонт, доставка, самоспасение, маяки, отчеты и черные ящики. Массовые рейды, обязательный бой, глобальные аварии и цели с живым противником ждут большего онлайна.
+
+- type: entity
+  parent: DefaultStationBeaconUnanchored
+  id: LuaMDynamicEventMarker
+  name: динамический маркер сектора
+  description: Временный маркер, установленный доской сектора LuaM для сгенерированной зацепки.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/sector_route_beacon.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/sector_route_beacon.rsi
+    state: icon
+  - type: NavMapBeacon
+    defaultText: station-beacon-luam-dynamic-event
+    color: "#6ec7ff96"
+
+- type: entity
+  parent: LuaMDynamicEventMarker
+  id: LuaMDynamicEventMarkerDistress
+  name: динамический аварийный маркер
+  components:
+  - type: NavMapBeacon
+    defaultText: station-beacon-luam-dynamic-distress
+    color: "#ff4f4f96"
+
+- type: entity
+  parent: LuaMDynamicEventMarker
+  id: LuaMDynamicEventMarkerRepair
+  name: динамический ремонтный маркер
+  components:
+  - type: NavMapBeacon
+    defaultText: station-beacon-luam-dynamic-repair
+    color: "#ffd16696"
+
+- type: entity
+  parent: LuaMDynamicEventMarker
+  id: LuaMDynamicEventMarkerSalvage
+  name: динамический спасательный маркер
+  components:
+  - type: NavMapBeacon
+    defaultText: station-beacon-luam-dynamic-salvage
+    color: "#8fd14f96"
+
+- type: entity
+  parent: LuaMDynamicEventMarker
+  id: LuaMDynamicEventMarkerMonolith
+  name: динамический маркер Монолита
+  components:
+  - type: NavMapBeacon
+    defaultText: station-beacon-luam-dynamic-monolith
+    color: "#a35cffcc"
+
+- type: entity
+  parent: LuaMDynamicEventMarker
+  id: LuaMDynamicEventMarkerNavigation
+  name: динамический навигационный маркер
+  components:
+  - type: NavMapBeacon
+    defaultText: station-beacon-luam-dynamic-navigation
+    color: "#6ec7ff96"
+
+- type: entity
+  parent: LuaMDynamicEventMarker
+  id: LuaMDynamicEventMarkerTrade
+  name: динамический торговый маркер
+  components:
+  - type: NavMapBeacon
+    defaultText: station-beacon-luam-dynamic-trade
+    color: "#b58cff96"
+
+- type: entity
+  parent: LuaMDynamicEventMarker
+  id: LuaMDynamicEventMarkerRecords
+  name: динамический маркер реестров
+  components:
+  - type: NavMapBeacon
+    defaultText: station-beacon-luam-dynamic-records
+    color: "#d4d4d496"
+
+- type: entity
+  parent: DefaultStationBeaconUnanchored
+  id: LuaMDynamicEventConditionSensorDriftMarker
+  name: эхо дрейфа сенсоров
+  description: Временный ложный отклик, вызванный пылевым или сенсорно-дрейфовым условием сектора LuaM.
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/sensor_drift_detector.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/sensor_drift_detector.rsi
+    state: icon
+  - type: NavMapBeacon
+    text: sensor drift echo
+    color: "#ff9f1c99"
+
+- type: entity
+  id: LuaMDynamicEventConditionRadiationHazard
+  name: радиационная полоса сектора
+  description: Локальный радиационный карман, привязанный к сгенерированной точке условия сектора LuaM.
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/radiation_node.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/radiation_node.rsi
+    state: icon
+  - type: RadiationSource
+    intensity: 3
+    slope: 0.65
+  - type: NavMapBeacon
+    text: radiation hazard
+    color: "#ff4f4fcc"
+
+- type: entity
+  parent: DefaultStationBeaconUnanchored
+  id: LuaMDistressBeacon
+  name: аварийный маяк
+  description: Настраиваемый маяк для отметки обломков, контрактной точки, места спасения или одиночного предупреждения в секторе.
+  components:
+  - type: Tag
+    tags:
+    - LuaMDistressBeaconBounty
+  - type: LuaMSectorEvidence
+    story: LuaMSectorStorySilentTow
+    acknowledgeHazard: true
+    note: "позиция аварийного маяка зафиксирована"
+  - type: LuaMDistressBeacon
+    title: "Локальный сигнал аварийного маяка"
+    vessel: "Незарегистрированная аварийная точка"
+    reward: 30000
+    description: "Переносной аварийный маяк активирован оператором сектора. Проверьте место, оставьте спасательную заметку и закройте зацепку на спасение или буксировку."
+    hazard: "Открытая аварийная точка. Перед закрытием контракта проверьте атмосферу, пиратов, обломки и маршрут буксировки."
+    reputationTarget: "Distress"
+    reputationDelta: 1
+  - type: NavMapBeacon
+    defaultText: station-beacon-luam-distress
+    color: "#ff4f4f96"
+
+- type: entity
+  parent: DefaultStationBeaconUnanchored
+  id: LuaMAiBaseBeacon
+  name: маяк базы снабжения ИИ LuaM
+  description: Подтвержденный логистический якорь ИИ LuaM. Корабли снабжения ИИ используют этот маяк как текущую точку учета базы.
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/sector_route_beacon.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/sector_route_beacon.rsi
+    state: icon
+  - type: LuaMAiBaseAnchor
+  - type: NavMapBeacon
+    text: база снабжения ИИ LuaM
+    color: "#7bdcffaa"
+
+- type: entity
+  parent: BaseItem
+  id: LuaMAiBaseZoneMarker
+  name: luam-ai-base-zone-marker-name
+  description: luam-ai-base-zone-marker-description
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/sector_route_beacon.rsi
+    state: icon
+    color: "#9be7ff"
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/sector_route_beacon.rsi
+    state: icon
+  - type: PointLight
+    enabled: true
+    color: "#9be7ff"
+    radius: 1.25
+    energy: 0.55
+    netsync: false
+  - type: LuaMAiBaseZone
+
+- type: entity
+  parent: BaseItem
+  id: LuaMAiSupplyDrop
+  name: грузовой манифест ИИ LuaM
+  description: Физический манифест снабжения, оставленный логистикой ИИ LuaM. Фактическое изменение запасов записано в учете базы ИИ.
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/artifact_container.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/artifact_container.rsi
+    state: icon
+  - type: LuaMAiSupplyDrop
+  - type: TimedDespawn
+    lifetime: 1800
+
+- type: entity
+  parent: BaseItem
+  id: LuaMAiMiningDrone
+  name: добывающий дрон ИИ LuaM
+  description: Малый автономный добывающий дрон LuaM, назначенный логистическому кораблю ИИ.
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _NF/Mobs/RogueSilicons/drones.rsi
+    layers:
+    - state: base
+    - state: decor_department
+      color: "#7bdcff"
+    - state: base_eyes
+      shader: unshaded
+      color: "#7bdcff"
+  - type: Icon
+    sprite: _NF/Mobs/RogueSilicons/drones.rsi
+    state: base
+  - type: PointLight
+    enabled: true
+    color: "#7bdcff"
+    radius: 1.4
+    energy: 0.75
+    netsync: false
+  - type: LuaMAiMiningDrone
+
+- type: entity
+  parent: LuaMAiMiningDrone
+  id: LuaMAiRepairDrone
+  name: luam-ai-repair-drone-name
+  description: luam-ai-repair-drone-description
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _NF/Mobs/RogueSilicons/drones.rsi
+    layers:
+    - state: base
+    - state: decor_department
+      color: "#6ee7b7"
+    - state: base_eyes
+      shader: unshaded
+      color: "#6ee7b7"
+  - type: PointLight
+    enabled: true
+    color: "#6ee7b7"
+    radius: 1.5
+    energy: 0.82
+    netsync: false
+  - type: LuaMAiMiningDrone
+    droneRole: repair
+
+- type: entity
+  parent: LuaMAiMiningDrone
+  id: LuaMAiLogisticsDrone
+  name: luam-ai-logistics-drone-name
+  description: luam-ai-logistics-drone-description
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _NF/Mobs/RogueSilicons/drones.rsi
+    layers:
+    - state: base
+    - state: decor_department
+      color: "#b985ff"
+    - state: base_eyes
+      shader: unshaded
+      color: "#b985ff"
+  - type: PointLight
+    enabled: true
+    color: "#b985ff"
+    radius: 1.5
+    energy: 0.82
+    netsync: false
+  - type: LuaMAiMiningDrone
+    droneRole: logistics
+
+- type: entity
+  parent: LuaMAiMiningDrone
+  id: LuaMAiGuardDrone
+  name: luam-ai-guard-drone-name
+  description: luam-ai-guard-drone-description
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _NF/Mobs/RogueSilicons/drones.rsi
+    layers:
+    - state: base
+    - state: decor_department
+      color: "#ff7b7b"
+    - state: base_eyes
+      shader: unshaded
+      color: "#ff7b7b"
+  - type: PointLight
+    enabled: true
+    color: "#ff7b7b"
+    radius: 1.65
+    energy: 0.95
+    netsync: false
+  - type: LuaMAiMiningDrone
+    droneRole: guard
+
+- type: entity
+  parent: LuaMAiMiningDrone
+  id: LuaMAiScoutDrone
+  name: luam-ai-scout-drone-name
+  description: luam-ai-scout-drone-description
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _NF/Mobs/RogueSilicons/drones.rsi
+    layers:
+    - state: base
+    - state: decor_department
+      color: "#9be7ff"
+    - state: base_eyes
+      shader: unshaded
+      color: "#9be7ff"
+  - type: PointLight
+    enabled: true
+    color: "#9be7ff"
+    radius: 1.6
+    energy: 0.88
+    netsync: false
+  - type: LuaMAiMiningDrone
+    droneRole: scout
+
+- type: entity
+  parent: LuaMAiMiningDrone
+  id: LuaMAiMedicDrone
+  name: luam-ai-medic-drone-name
+  description: luam-ai-medic-drone-description
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _NF/Mobs/RogueSilicons/drones.rsi
+    layers:
+    - state: base
+    - state: decor_department
+      color: "#ff8cc6"
+    - state: base_eyes
+      shader: unshaded
+      color: "#ff8cc6"
+  - type: PointLight
+    enabled: true
+    color: "#ff8cc6"
+    radius: 1.55
+    energy: 0.86
+    netsync: false
+  - type: LuaMAiMiningDrone
+    droneRole: medic
+
+- type: entity
+  parent: LuaMAiMiningDrone
+  id: LuaMAiServiceDrone
+  name: luam-ai-service-drone-name
+  description: luam-ai-service-drone-description
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _NF/Mobs/RogueSilicons/drones.rsi
+    layers:
+    - state: base
+    - state: decor_department
+      color: "#f7c66f"
+    - state: base_eyes
+      shader: unshaded
+      color: "#f7c66f"
+  - type: PointLight
+    enabled: true
+    color: "#f7c66f"
+    radius: 1.45
+    energy: 0.8
+    netsync: false
+  - type: LuaMAiMiningDrone
+    droneRole: service
+
+- type: entity
+  parent: BaseItem
+  id: LuaMAiDroneTrace
+  name: luam-ai-drone-trace-name
+  description: luam-ai-drone-trace-description
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/sector_route_beacon.rsi
+    state: icon
+    color: "#7bdcff"
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/sector_route_beacon.rsi
+    state: icon
+  - type: PointLight
+    enabled: true
+    color: "#7bdcff"
+    radius: 1.8
+    energy: 0.85
+    netsync: false
+  - type: LuaMAiDroneTrace
+  - type: TimedDespawn
+    lifetime: 420

@@ -1,0 +1,8 @@
+- type: Tag
+  id: LuaMBlackBoxBounty
+
+- type: Tag
+  id: LuaMDistressBeaconBounty
+
+- type: Tag
+  id: LuaMSoloReportBounty

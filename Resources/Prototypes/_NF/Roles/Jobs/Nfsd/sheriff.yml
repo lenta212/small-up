@@ -5,10 +5,10 @@
   playTimeTracker: JobHeadOfSecurity
   requirements:
     - !type:OverallPlaytimeRequirement
-      time: 144000 # 40 hours - mono
+      time: 216000 # 60 hours
     - !type:DepartmentTimeRequirement
       department: Security
-      time: 90000 # 25 hours - mono
+      time: 90000 # 25 hours
     - !type:RoleTimeRequirement
       role: JobWarden
       time: 18000 # 5 hours - mono

@@ -1,0 +1,18 @@
+- type: gamePreset
+  id: LuaMDeadSpaceLowPop
+  alias:
+  - deadspacelowpop
+  - luamlowpop
+  - solo
+  name: luam-dead-space-low-pop-title
+  description: luam-dead-space-low-pop-description
+  showInVote: false
+  rules:
+  - NFAdventure
+  - LuaMSoloStationEventScheduler
+  - BluespaceDungeonEventScheduler
+  - LuaMSoloBluespaceSalvageEventScheduler
+  - LuaMSoloSmugglingEventScheduler
+  - MonoAISTCShuttleSpawnerSchedulerSlow
+  - MonoAsakimSTCShuttleSpawnerSchedulerSlow
+  - PortstrikeAnnounceRuleHour4

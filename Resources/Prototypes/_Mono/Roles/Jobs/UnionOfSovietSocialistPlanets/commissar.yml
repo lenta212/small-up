@@ -9,12 +9,12 @@
     time: 72000 # 20 hours
   - !type:RoleTimeRequirement
     role: JobUSSPSergeant
-    time: 10800 # 3 hrs
+    time: 18000 # 5 hours as Sergeant
   - !type:RoleTimeRequirement
     role: JobUSSPMedic
-    time: 10800 # 3 hrs
+    time: 10800 # 3 hours as Medic
   - !type:OverallPlaytimeRequirement
-    time: 144000 # 40 hrs
+    time: 180000 # 50 hours
   startingGear: USSPCommissarGear
   alwaysUseSpawner: true
   hideConsoleVisibility: true

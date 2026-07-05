@@ -43,6 +43,9 @@ public sealed partial class ClientClothingSystem : ClothingSystem
         {"belt", "BELT"},
         {"gloves", "HAND"},
         {"shoes", "FEET"},
+        {"underwearb", "UNDERWEARB"},
+        {"underweart", "UNDERWEART"},
+        {"socks", "SOCKS"},
         {"id", "IDCARD"},
         {"pocket1", "POCKET1"},
         {"pocket2", "POCKET2"},
@@ -103,17 +106,21 @@ public sealed partial class ClientClothingSystem : ClothingSystem
         if (!TryComp(args.Equipee, out InventoryComponent? inventory))
             return;
 
+        var speciesId = inventory.SpeciesId;
         List<PrototypeLayerData>? layers = null;
 
         // first attempt to get species specific data.
-        if (inventory.SpeciesId != null)
-            item.ClothingVisuals.TryGetValue($"{args.Slot}-{inventory.SpeciesId}", out layers);
+        if (speciesId != null)
+        {
+            item.ClothingVisuals.TryGetValue($"{args.Slot}-{speciesId}", out layers);
+            layers ??= item.ClothingVisuals.GetValueOrDefault($"{args.Slot}-{speciesId.ToLowerInvariant()}");
+        }
 
         // if that returned nothing, attempt to find generic data
         if (layers == null && !item.ClothingVisuals.TryGetValue(args.Slot, out layers))
         {
             // No generic data either. Attempt to generate defaults from the item's RSI & item-prefixes
-            if (!TryGetDefaultVisuals(uid, item, args.Slot, inventory.SpeciesId, out layers))
+            if (!TryGetDefaultVisuals(uid, item, args.Slot, speciesId, out layers))
                 return;
         }
 
@@ -155,10 +162,7 @@ public sealed partial class ClientClothingSystem : ClothingSystem
         if (rsi == null)
             return false;
 
-        var correctedSlot = slot;
-        TemporarySlotMap.TryGetValue(correctedSlot, out correctedSlot);
-
-
+        var correctedSlot = TemporarySlotMap.GetValueOrDefault(slot, slot);
 
         var state = $"equipped-{correctedSlot}";
 
@@ -169,8 +173,17 @@ public sealed partial class ClientClothingSystem : ClothingSystem
             state = $"{clothing.EquippedState}";
 
         // species specific
-        if (speciesId != null && rsi.TryGetState($"{state}-{speciesId}", out _))
-            state = $"{state}-{speciesId}";
+        if (speciesId != null)
+        {
+            var speciesState = $"{state}-{speciesId}";
+            var lowerSpeciesState = $"{state}-{speciesId.ToLowerInvariant()}";
+            if (rsi.TryGetState(speciesState, out _))
+                state = speciesState;
+            else if (rsi.TryGetState(lowerSpeciesState, out _))
+                state = lowerSpeciesState;
+            else if (!rsi.TryGetState(state, out _))
+                return false;
+        }
         else if (!rsi.TryGetState(state, out _))
             return false;
 

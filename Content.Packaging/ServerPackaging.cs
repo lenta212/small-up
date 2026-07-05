@@ -161,6 +161,20 @@ public static class ServerPackaging
         pass.Dependencies.Add(new AssetPassDependency(graph.Output.Name));
         passes.Add(pass);
 
+        var dropPrivateCoreBuildArtifactsPass = new AssetPassFilterDrop(ReleaseSurfacePolicy.IsPrivateBuildArtifact)
+        {
+            Name = "DropPrivateCoreBuildArtifactsPass",
+        };
+        dropPrivateCoreBuildArtifactsPass.AddDependency(graph.InputCore).AddBefore(graph.PresetPassesCore);
+        passes.Add(dropPrivateCoreBuildArtifactsPass);
+
+        var dropPrivateResourceBuildArtifactsPass = new AssetPassFilterDrop(ReleaseSurfacePolicy.IsPrivateBuildArtifact)
+        {
+            Name = "DropPrivateResourceBuildArtifactsPass",
+        };
+        dropPrivateResourceBuildArtifactsPass.AddDependency(graph.InputResources).AddBefore(graph.PresetPassesResources);
+        passes.Add(dropPrivateResourceBuildArtifactsPass);
+
         AssetGraph.CalculateGraph(passes, logger);
 
         var inputPassCore = graph.InputCore;

@@ -79,6 +79,7 @@ public sealed partial class BountyContractUi : UIFragment
                 list.OnCreateButtonPressed += OnOpenCreateUiPressed;
                 list.OnRefreshButtonPressed += OnRefreshListPressed;
                 list.OnRemoveButtonPressed += OnRemovePressed;
+                list.OnSetAcceptedButtonPressed += OnSetAcceptedPressed;
                 list.OnToggleNotificationPressed += OnToggleNotificationPressed;
                 list.SetContracts(state.Contracts, state.IsAllowedRemoveBounties, state.AuthorUid);
                 list.SetCanCreate(state.IsAllowedCreateBounties);
@@ -104,6 +105,11 @@ public sealed partial class BountyContractUi : UIFragment
     private void OnRemovePressed(BountyContract obj)
     {
         SendMessage(new BountyContractTryRemoveMessageEvent(obj.ContractId));
+    }
+
+    private void OnSetAcceptedPressed(BountyContract obj, bool accepted)
+    {
+        SendMessage(new BountyContractTrySetAcceptedMessageEvent(obj.ContractId, accepted));
     }
 
     private void OnSelectCollection(ProtoId<BountyContractCollectionPrototype> collection)

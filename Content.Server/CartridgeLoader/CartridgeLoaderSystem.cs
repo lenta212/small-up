@@ -15,6 +15,8 @@ namespace Content.Server.CartridgeLoader;
 
 public sealed partial class CartridgeLoaderSystem : SharedCartridgeLoaderSystem
 {
+    private const string LuaMSectorStatusProgram = "LuaMSectorStatusCartridge";
+
     [Dependency] private ContainerSystem _containerSystem = default!;
     [Dependency] private UserInterfaceSystem _userInterfaceSystem = default!;
     [Dependency] private PdaSystem _pda = default!;
@@ -391,6 +393,11 @@ public sealed partial class CartridgeLoaderSystem : SharedCartridgeLoaderSystem
     private void OnMapInit(EntityUid uid, CartridgeLoaderComponent component, MapInitEvent args)
     {
         // TODO remove this and use container fill.
+        if (!component.PreinstalledPrograms.Contains(LuaMSectorStatusProgram))
+            component.PreinstalledPrograms.Add(LuaMSectorStatusProgram);
+
+        component.DiskSpace = Math.Max(component.DiskSpace, component.PreinstalledPrograms.Count);
+
         foreach (var prototype in component.PreinstalledPrograms)
         {
             InstallProgram(uid, prototype, deinstallable: false);

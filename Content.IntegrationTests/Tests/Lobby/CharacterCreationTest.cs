@@ -1,3 +1,4 @@
+using System.Linq;
 using Content.Client.Lobby;
 using Content.Server.Preferences.Managers;
 using Content.Shared.Preferences;
@@ -35,10 +36,10 @@ namespace Content.IntegrationTests.Tests.Lobby
             var clientNetId = clientNetManager.ServerChannel.UserId;
             HumanoidCharacterProfile profile = null;
 
+            clientPrefManager.SelectCharacter(0);
+
             await client.WaitAssertion(() =>
             {
-                clientPrefManager.SelectCharacter(0);
-
                 var clientCharacters = clientPrefManager.Preferences?.Characters;
                 Assert.That(clientCharacters, Is.Not.Null);
                 Assert.Multiple(() =>
@@ -47,31 +48,49 @@ namespace Content.IntegrationTests.Tests.Lobby
 
                     Assert.That(clientStateManager.CurrentState, Is.TypeOf<LobbyState>());
                 });
+            });
 
+            await client.WaitPost(() =>
+            {
                 profile = HumanoidCharacterProfile.Random();
                 clientPrefManager.CreateCharacter(profile);
+            });
+            await pair.RunTicksSync(5);
 
-                clientCharacters = clientPrefManager.Preferences?.Characters;
+            await client.WaitAssertion(() =>
+            {
+                var clientCharacters = clientPrefManager.Preferences?.Characters;
 
                 Assert.That(clientCharacters, Is.Not.Null);
                 Assert.That(clientCharacters, Has.Count.EqualTo(2));
+                Assert.That(clientCharacters[1], Is.TypeOf<HumanoidCharacterProfile>());
+                Assert.That(((HumanoidCharacterProfile)clientCharacters[1]).BankBalance, Is.EqualTo(HumanoidCharacterProfile.DefaultBalance));
                 Assert.That(clientCharacters[1].MemberwiseEquals(profile));
             });
 
-            await PoolManager.WaitUntil(server, () => serverPrefManager.GetPreferences(clientNetId).Characters.Count == 2, maxTicks: 60);
+            await PoolManager.WaitUntil(server, () =>
+            {
+                var serverCharacters = serverPrefManager.GetPreferences(clientNetId).Characters;
+                return serverCharacters.Count == 2 &&
+                       serverCharacters.TryGetValue(1, out var serverProfile) &&
+                       serverProfile.MemberwiseEquals(profile);
+            }, maxTicks: 600);
 
             await server.WaitAssertion(() =>
             {
                 var serverCharacters = serverPrefManager.GetPreferences(clientNetId).Characters;
 
                 Assert.That(serverCharacters, Has.Count.EqualTo(2));
-                Assert.That(serverCharacters[1].MemberwiseEquals(profile));
+                Assert.That(serverCharacters[1], Is.TypeOf<HumanoidCharacterProfile>());
+                Assert.That(((HumanoidCharacterProfile)serverCharacters[1]).BankBalance, Is.EqualTo(HumanoidCharacterProfile.DefaultBalance));
+                Assert.That(serverCharacters[1].MemberwiseEquals(profile), ProfileDiff(serverCharacters[1], profile));
             });
+
+            await client.WaitPost(() => clientPrefManager.DeleteCharacter(1));
+            await pair.RunTicksSync(5);
 
             await client.WaitAssertion(() =>
             {
-                clientPrefManager.DeleteCharacter(1);
-
                 var clientCharacters = clientPrefManager.Preferences?.Characters.Count;
                 Assert.That(clientCharacters, Is.EqualTo(1));
             });
@@ -86,29 +105,70 @@ namespace Content.IntegrationTests.Tests.Lobby
 
             await client.WaitIdleAsync();
 
-            await client.WaitAssertion(() =>
+            await client.WaitPost(() =>
             {
                 profile = HumanoidCharacterProfile.Random();
-
                 clientPrefManager.CreateCharacter(profile);
+            });
+            await pair.RunTicksSync(5);
 
+            await client.WaitAssertion(() =>
+            {
                 var clientCharacters = clientPrefManager.Preferences?.Characters;
 
                 Assert.That(clientCharacters, Is.Not.Null);
                 Assert.That(clientCharacters, Has.Count.EqualTo(2));
+                Assert.That(clientCharacters[1], Is.TypeOf<HumanoidCharacterProfile>());
+                Assert.That(((HumanoidCharacterProfile)clientCharacters[1]).BankBalance, Is.EqualTo(HumanoidCharacterProfile.DefaultBalance));
                 Assert.That(clientCharacters[1].MemberwiseEquals(profile));
             });
 
-            await PoolManager.WaitUntil(server, () => serverPrefManager.GetPreferences(clientNetId).Characters.Count == 2, maxTicks: 120); //60->120 - Mono
+            await PoolManager.WaitUntil(server, () =>
+            {
+                var serverCharacters = serverPrefManager.GetPreferences(clientNetId).Characters;
+                return serverCharacters.Count == 2 &&
+                       serverCharacters.TryGetValue(1, out var serverProfile) &&
+                       serverProfile.MemberwiseEquals(profile);
+            }, maxTicks: 600); //60->600 - Mono: recycled pairs can take longer to deliver preference updates.
 
             await server.WaitAssertion(() =>
             {
                 var serverCharacters = serverPrefManager.GetPreferences(clientNetId).Characters;
 
                 Assert.That(serverCharacters, Has.Count.EqualTo(2));
-                Assert.That(serverCharacters[1].MemberwiseEquals(profile));
+                Assert.That(serverCharacters[1], Is.TypeOf<HumanoidCharacterProfile>());
+                Assert.That(((HumanoidCharacterProfile)serverCharacters[1]).BankBalance, Is.EqualTo(HumanoidCharacterProfile.DefaultBalance));
+                Assert.That(serverCharacters[1].MemberwiseEquals(profile), ProfileDiff(serverCharacters[1], profile));
             });
             await pair.CleanReturnAsync();
+        }
+
+        private static string ProfileDiff(ICharacterProfile actual, ICharacterProfile expected)
+        {
+            if (actual is not HumanoidCharacterProfile actualHumanoid ||
+                expected is not HumanoidCharacterProfile expectedHumanoid)
+            {
+                return $"actual={actual.GetType().Name}, expected={expected.GetType().Name}";
+            }
+
+            return string.Join("; ", new[]
+            {
+                $"Name: '{actualHumanoid.Name}' vs '{expectedHumanoid.Name}'",
+                $"Age: {actualHumanoid.Age} vs {expectedHumanoid.Age}",
+                $"Sex: {actualHumanoid.Sex} vs {expectedHumanoid.Sex}",
+                $"Gender: {actualHumanoid.Gender} vs {expectedHumanoid.Gender}",
+                $"BankBalance: {actualHumanoid.BankBalance} vs {expectedHumanoid.BankBalance}",
+                $"PreferenceUnavailable: {actualHumanoid.PreferenceUnavailable} vs {expectedHumanoid.PreferenceUnavailable}",
+                $"SpawnPriority: {actualHumanoid.SpawnPriority} vs {expectedHumanoid.SpawnPriority}",
+                $"Species: {actualHumanoid.Species} vs {expectedHumanoid.Species}",
+                $"Company: {actualHumanoid.Company} vs {expectedHumanoid.Company}",
+                $"FlavorText: '{actualHumanoid.FlavorText}' vs '{expectedHumanoid.FlavorText}'",
+                $"AppearanceEqual: {actualHumanoid.Appearance.MemberwiseEquals(expectedHumanoid.Appearance)}",
+                $"JobsEqual: {actualHumanoid.JobPriorities.SequenceEqual(expectedHumanoid.JobPriorities)}",
+                $"AntagsEqual: {actualHumanoid.AntagPreferences.SequenceEqual(expectedHumanoid.AntagPreferences)}",
+                $"TraitsEqual: {actualHumanoid.TraitPreferences.SequenceEqual(expectedHumanoid.TraitPreferences)}",
+                $"LoadoutsEqual: {actualHumanoid.Loadouts.Count == expectedHumanoid.Loadouts.Count}",
+            });
         }
     }
 }

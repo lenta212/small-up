@@ -11,3 +11,85 @@
   storage:
     back:
     - RubberStampDenied
+
+- type: loadout
+  id: ContractorLuaMSectorRumorTemplates
+  price: 0
+  storage:
+    back:
+    - PaperLuaMSectorRumorTemplates
+
+- type: loadout
+  id: ContractorLuaMSoloContractLog
+  price: 0
+  storage:
+    back:
+    - PaperLuaMSoloContractLog
+
+- type: loadout
+  id: ContractorLuaMSoloOperatorPacket
+  price: 500
+  storage:
+    back:
+    - PaperLuaMSectorRumorTemplates
+    - PaperLuaMDistressContractCards
+    - PaperLuaMSoloObjectiveTable
+    - PaperLuaMSoloFirstChecklist
+    - PaperLuaMSoloMechanicsMatrix
+    - PaperLuaMLowPopEventPolicy
+    - PaperLuaMSoloBountyGuide
+    - PaperLuaMSoloFallbackProtocol
+    - PaperLuaMSoloContractLog
+    - PaperLuaMSoloRoleLoops
+    - PaperLuaMBlackBoxReport
+    - LuaMDistressBeacon
+
+- type: loadout
+  id: ContractorLuaMSoloFieldKit
+  effects:
+  - !type:GroupLoadoutEffect
+    proto: ContractorT1
+  price: 1800
+  storage:
+    back:
+    - HandheldGPSBasic
+    - RadioHandheldNF
+    - FlashlightLantern
+    - HandheldHealthAnalyzer
+    - Gauze
+    - Brutepack
+    - Ointment
+    - EmergencyMedipen
+
+- type: loadout
+  id: ContractorLuaMSoloRepairKit
+  effects:
+  - !type:GroupLoadoutEffect
+    proto: ContractorT1
+  price: 2500
+  inhand:
+    - ToolboxMechanicalFilled
+
+- type: loadout
+  id: ContractorLuaMBlackBoxRecorder
+  price: 250
+  storage:
+    back:
+    - LuaMBlackBoxRecorder
+
+- type: loadout
+  id: ContractorLuaMSectorStatusCartridge
+  effects:
+  - !type:GroupLoadoutEffect
+    proto: ContractorT1
+  price: 0
+  storage:
+    back:
+    - LuaMSectorStatusCartridge
+
+- type: loadout
+  id: ContractorLuaMDistressBeacon
+  price: 250
+  storage:
+    back:
+    - LuaMDistressBeacon

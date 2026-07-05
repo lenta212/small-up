@@ -15,6 +15,27 @@
       uiWindowPos: 0,1
       strippingWindowPos: 0,2
       displayName: Jumpsuit
+    - name: underwearb
+      slotTexture: uniform
+      slotFlags: UNDERWEARB
+      stripTime: 3
+      uiWindowPos: 0,0
+      strippingWindowPos: 4,0
+      displayName: Underwear Bottom
+    - name: underweart
+      slotTexture: uniform
+      slotFlags: UNDERWEART
+      stripTime: 3
+      uiWindowPos: 2,0
+      strippingWindowPos: 4,1
+      displayName: Underwear Top
+    - name: socks
+      slotTexture: shoes
+      slotFlags: SOCKS
+      stripTime: 3
+      uiWindowPos: 1,0
+      strippingWindowPos: 4,2
+      displayName: Socks
     - name: outerClothing
       slotTexture: suit
       slotFlags: OUTERCLOTHING

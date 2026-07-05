@@ -21,3 +21,5 @@ bounty-console-tab-history-label = История
 bounty-console-history-empty-label = История наград не найдена
 bounty-console-history-notice-completed-label = [color=limegreen]Выполнено[/color]
 bounty-console-history-notice-skipped-label = [color=red]Пропущено[/color] пользователем {$id}
+bounty-manifest-description = Описание: { $description }
+bounty-manifest-route-hint = Где искать: проверьте описание, активные GPS/маяки, карту сектора и терминал LuaM. Если точка не указана, приложите собственную координату или маршрутную заметку в итоговом отчете.

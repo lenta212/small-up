@@ -68,9 +68,12 @@ public sealed class BountyContract
     public readonly string? Vessel;
     public readonly string? Description;
     public readonly string? Author;
+    public NetEntity AcceptedByUid;
+    public string? AcceptedBy;
 
     public BountyContract(uint contractId, BountyContractCategory category, string name,
-        int reward, NetEntity authorUid, string? dna, string? vessel, string? description, string? author)
+        int reward, NetEntity authorUid, string? dna, string? vessel, string? description, string? author,
+        NetEntity acceptedByUid = default, string? acceptedBy = null)
     {
         ContractId = contractId;
         Category = category;
@@ -81,6 +84,8 @@ public sealed class BountyContract
         Vessel = vessel;
         Description = description;
         Author = author;
+        AcceptedByUid = acceptedByUid == default ? NetEntity.Invalid : acceptedByUid;
+        AcceptedBy = acceptedBy;
     }
 }
 
@@ -142,6 +147,13 @@ public sealed class BountyContractTryRemoveMessageEvent(uint contractId) : Cartr
 }
 
 [NetSerializable, Serializable]
+public sealed class BountyContractTrySetAcceptedMessageEvent(uint contractId, bool accepted) : CartridgeMessageEvent
+{
+    public readonly uint ContractId = contractId;
+    public readonly bool Accepted = accepted;
+}
+
+[NetSerializable, Serializable]
 public sealed class BountyContractTryCreateMessageEvent(BountyContractRequest contract) : CartridgeMessageEvent
 {
     public readonly BountyContractRequest Contract = contract;
@@ -151,8 +163,55 @@ public abstract class SharedBountyContractSystem : EntitySystem
 {
     public const int MaxNameLength = 32;
     public const int MaxVesselLength = 32;
-    public const int MaxDescriptionLength = 256;
-    public const int DefaultReward = 5000;
+    public const int MaxDescriptionLength = 768;
+    public const int MinReward = 30000;
+    public const int MaxReward = 100000;
+    public const int DefaultReward = MinReward;
+
+    public static bool IsRewardValid(int reward)
+    {
+        return reward >= MinReward && reward <= MaxReward;
+    }
+
+    public static bool HasRouteHint(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+            return false;
+
+        return description.Contains("GPS", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("coordinate", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("coordinates", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("marker", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("beacon", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("map", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("route", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("координ", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("маркер", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("метк", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("маяк", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("карт", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("маршрут", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("координ", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("маркер", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("метк", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("маяк", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("карт", StringComparison.OrdinalIgnoreCase) ||
+               description.Contains("маршрут", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string BuildRouteHintForUi(string? description, string? vessel)
+    {
+        if (HasRouteHint(description))
+            return Robust.Shared.Localization.Loc.GetString("bounty-contracts-ui-list-route-in-description");
+
+        if (!string.IsNullOrWhiteSpace(vessel) &&
+            !vessel.Equals(Robust.Shared.Localization.Loc.GetString("bounty-contracts-ui-create-vessel-unknown"), StringComparison.OrdinalIgnoreCase))
+        {
+            return Robust.Shared.Localization.Loc.GetString("bounty-contracts-ui-list-route-vessel", ("vessel", vessel));
+        }
+
+        return Robust.Shared.Localization.Loc.GetString("bounty-contracts-ui-list-route-generic");
+    }
 
     // TODO: move this to prototypes?
     public static readonly Dictionary<BountyContractCategory, BountyContractCategoryMeta> CategoriesMeta = new()

@@ -1,0 +1,13 @@
+luam-sector-pressure-announcer = LuaM sector automation
+luam-sector-pressure-announcement-01 = Low-frequency sector control is detecting repeated matches across observation channels. Condition: { $condition }, SC-{ $severity }.
+luam-sector-pressure-announcement-02 = Navigation forecasts are converging on the same hazardous points. This is not an evacuation order. This is a pressure-direction warning.
+luam-sector-pressure-announcement-03 = External channels confirm delayed sector response to crew action. Do not postpone decisions that have already become obvious.
+luam-sector-pressure-announcement-04 = Deep comms noise is no longer random. Sector automation has isolated a repeating observation contour.
+luam-sector-pressure-announcement-05 = Safe route narrowing detected. Every new correction leaves fewer acceptable outcomes.
+luam-sector-pressure-announcement-06 = Attention all crews: the pressure is not localized. It is distributed across routes, contracts, beacons, and unresolved sector debt.
+luam-sector-pressure-announcement-07 = Prediction systems no longer classify the current situation as temporary. The sector is entering sustained coercion mode.
+luam-sector-pressure-announcement-08 = The calm maneuver window is closing. Further delays will be counted as consent to the worst available option.
+luam-sector-pressure-announcement-09 = Inevitability protocol confirmed. The sector does not ask for readiness. It continues to compress available decisions.
+luam-sector-pressure-announcement-10 = All open routes are now treated as part of the same pressure. Separate events are forming a single will.
+luam-sector-pressure-announcement-11 = Observation continues. Signal absence is no longer classified as safety.
+luam-sector-pressure-announcement-12 = Pressure accepted as sector background. It requires no cause, only direction.

@@ -8,6 +8,9 @@ admin-player-actions-window-shuttle = Вызвать/отозвать шаттл
 admin-player-actions-window-admin-logs = Админ логи
 admin-player-actions-window-admin-notes = Админ заметки
 admin-player-actions-window-admin-fax = Админ факс
+admin-player-actions-window-luam-ai-director = ИИ-диспетчер
+admin-player-actions-window-luam-ai-director-tooltip = Открыть панель ИИ-диспетчера LuaM.
+admin-player-actions-window-luam-ai-director-disabled-tooltip = Нужны активные права администратора.
 admin-player-actions-window-admin-chat = Админ чат
 admin-player-actions-window-whitelists = ВЛ доступы
 

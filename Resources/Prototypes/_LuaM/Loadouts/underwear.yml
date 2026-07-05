@@ -1,0 +1,200 @@
+- type: loadout
+  id: LuaMClothingUnderwearBottomBoxersAcorp
+  equipment:
+    underwearb: ClothingUnderwearBottomBoxersAcorp
+
+- type: loadout
+  id: LuaMClothingUnderwearBottomBoxersAcorp2
+  equipment:
+    underwearb: ClothingUnderwearBottomBoxersAcorp2
+
+- type: loadout
+  id: LuaMClothingUnderwearBottomRadiantBoxersBlack
+  equipment:
+    underwearb: ClothingUnderwearBottomRadiantBoxersBlack
+
+- type: loadout
+  id: LuaMClothingUnderwearBottomPantiesAcorp
+  equipment:
+    underwearb: ClothingUnderwearBottomPantiesAcorp
+
+- type: loadout
+  id: LuaMClothingUnderwearBottomRadiantPantiesTrusikiblack
+  equipment:
+    underwearb: ClothingUnderwearBottomRadiantPantiesTrusikiblack
+
+- type: loadout
+  id: LuaMClothingUnderwearBottomRadiantPantiesRed
+  equipment:
+    underwearb: ClothingUnderwearBottomRadiantPantiesRed
+
+- type: loadout
+  id: LuaMClothingUnderwearBottomRadiantPantiesPink
+  equipment:
+    underwearb: ClothingUnderwearBottomRadiantPantiesPink
+
+- type: loadout
+  id: LuaMClothingUnderwearBottomPantiesWhite
+  equipment:
+    underwearb: ClothingUnderwearBottomPantiesWhite
+
+- type: loadout
+  id: LuaMClothingUnderwearBottomPantiesNeko
+  equipment:
+    underwearb: ClothingUnderwearBottomPantiesNeko
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksAcorpStriped
+  equipment:
+    socks: ClothingUnderwearSocksAcorpStriped
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksRich
+  equipment:
+    socks: ClothingUnderwearSocksRich
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksRadiantBlackPolosatie
+  equipment:
+    socks: ClothingUnderwearSocksRadiantBlackPolosatie
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksRadiantBlack
+  equipment:
+    socks: ClothingUnderwearSocksRadiantBlack
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksGarters
+  equipment:
+    socks: ClothingUnderwearSocksGarters
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksHigh
+  equipment:
+    socks: ClothingUnderwearSocksHigh
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksRadiantThighblue
+  equipment:
+    socks: ClothingUnderwearSocksRadiantThighblue
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksRadiantSocksBlack
+  equipment:
+    socks: ClothingUnderwearSocksRadiantSocksBlack
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksRadiantStriped
+  equipment:
+    socks: ClothingUnderwearSocksRadiantStriped
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksShort
+  equipment:
+    socks: ClothingUnderwearSocksShort
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksRadiantPink
+  equipment:
+    socks: ClothingUnderwearSocksRadiantPink
+
+- type: loadout
+  id: LuaMClothingUnderwearSocksRadiantMeee
+  equipment:
+    socks: ClothingUnderwearSocksRadiantMeee
+
+- type: loadout
+  id: LuaMClothingUnderwearTopBraAcorp
+  equipment:
+    underweart: ClothingUnderwearTopBraAcorp
+
+- type: loadout
+  id: LuaMClothingUnderwearTopBraAcorp2
+  equipment:
+    underweart: ClothingUnderwearTopBraAcorp2
+
+- type: loadout
+  id: LuaMClothingUnderwearTopRadiantPink
+  equipment:
+    underweart: ClothingUnderwearTopRadiantPink
+
+- type: loadout
+  id: LuaMClothingUnderwearTopRadiantRed
+  equipment:
+    underweart: ClothingUnderwearTopRadiantRed
+
+- type: loadout
+  id: LuaMClothingUnderwearTopRadiantBlack
+  equipment:
+    underweart: ClothingUnderwearTopRadiantBlack
+
+- type: loadout
+  id: LuaMClothingUnderwearTopNekoBra
+  equipment:
+    underweart: ClothingUnderwearTopNekoBra
+
+- type: loadout
+  id: LuaMClothingUnderwearTopRadiantSeeeexsi
+  equipment:
+    underweart: ClothingUnderwearTopRadiantSeeeexsi
+
+- type: loadout
+  id: LuaMClothingUnderwearTopRadiantNeeeekoUwU
+  equipment:
+    underweart: ClothingUnderwearTopRadiantNeeeekoUwU
+
+- type: loadout
+  id: LuaMClothingUnderwearTopBraWhite
+  equipment:
+    underweart: ClothingUnderwearTopBraWhite
+
+- type: loadoutGroup
+  id: LuaMUnderwearBottom
+  name: loadout-group-luam-underwear-bottom
+  minLimit: 0
+  maxLimit: 1
+  loadouts:
+  - LuaMClothingUnderwearBottomBoxersAcorp
+  - LuaMClothingUnderwearBottomBoxersAcorp2
+  - LuaMClothingUnderwearBottomRadiantBoxersBlack
+  - LuaMClothingUnderwearBottomPantiesAcorp
+  - LuaMClothingUnderwearBottomRadiantPantiesTrusikiblack
+  - LuaMClothingUnderwearBottomRadiantPantiesRed
+  - LuaMClothingUnderwearBottomRadiantPantiesPink
+  - LuaMClothingUnderwearBottomPantiesWhite
+  - LuaMClothingUnderwearBottomPantiesNeko
+
+- type: loadoutGroup
+  id: LuaMUnderwearSocks
+  name: loadout-group-luam-underwear-socks
+  minLimit: 0
+  maxLimit: 1
+  loadouts:
+  - LuaMClothingUnderwearSocksAcorpStriped
+  - LuaMClothingUnderwearSocksRich
+  - LuaMClothingUnderwearSocksRadiantBlackPolosatie
+  - LuaMClothingUnderwearSocksRadiantBlack
+  - LuaMClothingUnderwearSocksGarters
+  - LuaMClothingUnderwearSocksHigh
+  - LuaMClothingUnderwearSocksRadiantThighblue
+  - LuaMClothingUnderwearSocksRadiantSocksBlack
+  - LuaMClothingUnderwearSocksRadiantStriped
+  - LuaMClothingUnderwearSocksShort
+  - LuaMClothingUnderwearSocksRadiantPink
+  - LuaMClothingUnderwearSocksRadiantMeee
+
+- type: loadoutGroup
+  id: LuaMUnderwearTop
+  name: loadout-group-luam-underwear-top
+  minLimit: 0
+  maxLimit: 1
+  loadouts:
+  - LuaMClothingUnderwearTopBraAcorp
+  - LuaMClothingUnderwearTopBraAcorp2
+  - LuaMClothingUnderwearTopRadiantPink
+  - LuaMClothingUnderwearTopRadiantRed
+  - LuaMClothingUnderwearTopRadiantBlack
+  - LuaMClothingUnderwearTopNekoBra
+  - LuaMClothingUnderwearTopRadiantSeeeexsi
+  - LuaMClothingUnderwearTopRadiantNeeeekoUwU
+  - LuaMClothingUnderwearTopBraWhite

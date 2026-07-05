@@ -1,0 +1,70 @@
+# Optional low-pop configuration layer for "Мёртвый космос: Абсолютное одиночество".
+# Load with: config.presets = "_Mono/monolithCore,_LuaM/deadSpaceLowPop"
+
+[log]
+level = 3
+
+[game]
+defaultpreset = "LuaMDeadSpaceLowPop"
+fallbackenabled = true
+fallbackpreset = "LuaMDeadSpaceLowPop,MonoMixed,NFAdventure"
+lobbyenabled = true
+lobbyduration = 30
+soft_max_players = 100
+role_timers = true
+dynamic_roles.enabled = false
+role_timer_override = "LuaMRoleLadder"
+
+[net]
+lidgren_log_warning = false
+lidgren_log_error = false
+log_late_msg = false
+
+[shuttle]
+auto_call_time = 10080
+
+[vote]
+preset_autovote_enabled = false
+
+[playtime]
+save_interval = 60
+
+[events]
+enabled = true
+
+[gateway]
+generator_enabled = true
+
+[luam.ai_director]
+enabled = true
+fallback_enabled = true
+admin_mode = true
+local_bridge_enabled = false
+local_bridge_unsafe_actions_enabled = false
+greet_on_join = true
+world_pulse_enabled = true
+max_danger = true
+initial_delay = 60
+interval = 300
+world_pulse_interval = 60
+request_timeout = 12
+gateway_url = ""
+
+[luam.sector]
+all_hazards_enabled = true
+
+[status]
+connectaddress = "udp://188.127.225.57:1212"
+
+[admin]
+admins_count_in_playercount = true
+deadmin_on_join = false
+
+[nf14.worldgen]
+market_stations = 1
+cargo_depots = 4
+optional_stations = 1
+
+[mono.cleanup]
+debug = false
+log = false

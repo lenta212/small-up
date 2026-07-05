@@ -769,6 +769,7 @@
   - ContractorPickaxe
   - ContractorHandheldGPSBasic
   - ContractorRadioHandheld
+  - ContractorLuaMSoloFieldKit
   - ContractorNetworkConfigurator
   - ContractorHandheldHealthAnalyzerUnpowered
   - ContractorAnomalyScanner
@@ -792,6 +793,7 @@
   - ContractorBriefcaseBrownFilled
   - ContractorToolboxEmergency
   - ContractorToolboxMechanical
+  - ContractorLuaMSoloRepairKit
   - ContractorPlushieSharkGrey
   - ContractorPlushieSharkBlue
   - ContractorPlushieSharkPink
@@ -946,6 +948,10 @@
   - ContractorMedTekCartridge
   - ContractorNetProbeCartridge
   - ContractorLogProbeCartridge
+  - ContractorBountyContractsCartridge
+  - ContractorNewsReaderCartridge
+  - ContractorNotekeeperCartridge
+  - ContractorLuaMSectorStatusCartridge
 
 - type: loadoutGroup
   id: ContractorImplanter
@@ -974,6 +980,11 @@
 # LuaM-start:
   - ContractorRubberStampApproved 
   - ContractorRubberStampDenied
+  - ContractorLuaMSectorRumorTemplates
+  - ContractorLuaMSoloContractLog
+  - ContractorLuaMSoloOperatorPacket
+  - ContractorLuaMBlackBoxRecorder
+  - ContractorLuaMDistressBeacon
 # LuaM-end.
   - ContractorRubberStampCaptain
   - ContractorRubberStampChaplain

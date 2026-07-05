@@ -1,0 +1,48 @@
+- type: guideEntry
+  id: LuaMDeadSpace
+  name: guide-entry-luam-dead-space
+  text: "/ServerInfo/_LuaM/Guidebook/DeadSpace/DeadSpace.xml"
+  priority: -1
+  children:
+  - LuaMSectorRumors
+  - LuaMSectorPractices
+  - LuaMSoloPlay
+  - LuaMSoloFirstMechanics
+  - LuaMSoloMechanicsMatrix
+  - LuaMLowPopEventPolicy
+  - LuaMSoloRoleLoops
+
+- type: guideEntry
+  id: LuaMSectorRumors
+  name: guide-entry-luam-sector-rumors
+  text: "/ServerInfo/_LuaM/Guidebook/DeadSpace/SectorRumors.xml"
+
+- type: guideEntry
+  id: LuaMSectorPractices
+  name: guide-entry-luam-sector-practices
+  text: "/ServerInfo/_LuaM/Guidebook/DeadSpace/SectorPractices.xml"
+
+- type: guideEntry
+  id: LuaMSoloPlay
+  name: guide-entry-luam-solo-play
+  text: "/ServerInfo/_LuaM/Guidebook/DeadSpace/SoloPlay.xml"
+
+- type: guideEntry
+  id: LuaMSoloFirstMechanics
+  name: guide-entry-luam-solo-first-mechanics
+  text: "/ServerInfo/_LuaM/Guidebook/DeadSpace/SoloFirstMechanics.xml"
+
+- type: guideEntry
+  id: LuaMSoloMechanicsMatrix
+  name: guide-entry-luam-solo-mechanics-matrix
+  text: "/ServerInfo/_LuaM/Guidebook/DeadSpace/SoloMechanicsMatrix.xml"
+
+- type: guideEntry
+  id: LuaMLowPopEventPolicy
+  name: guide-entry-luam-low-pop-event-policy
+  text: "/ServerInfo/_LuaM/Guidebook/DeadSpace/LowPopEventPolicy.xml"
+
+- type: guideEntry
+  id: LuaMSoloRoleLoops
+  name: guide-entry-luam-solo-role-loops
+  text: "/ServerInfo/_LuaM/Guidebook/DeadSpace/SoloRoleLoops.xml"

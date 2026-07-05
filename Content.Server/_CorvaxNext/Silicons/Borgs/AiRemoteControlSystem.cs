@@ -12,14 +12,14 @@ using Content.Shared._CorvaxNext.Silicons.Borgs;
 using Content.Shared._CorvaxNext.Silicons.Borgs.Components;
 using Content.Shared.Actions;
 using Content.Shared.Mind;
+using Content.Shared.Silicons.Borgs.Components;
 using Content.Shared.Silicons.Laws.Components;
 using Content.Shared.Silicons.StationAi;
 using Content.Shared.StationAi;
+using Content.Shared.Tag;
 using Content.Shared.Verbs;
-using Robust.Shared.Map; // Mono
 using Robust.Server.GameObjects;
 using Robust.Shared.Player;
-using System.Threading.Tasks.Dataflow;
 
 namespace Content.Server._CorvaxNext.Silicons.Borgs;
 
@@ -31,14 +31,14 @@ public sealed partial class AiRemoteControlSystem : SharedAiRemoteControlSystem
     [Dependency] private SharedMindSystem _mind = default!;
     [Dependency] private UserInterfaceSystem _userInterface = default!;
     [Dependency] private SharedTransformSystem _xformSystem = default!;
-
-    [Dependency] private IMapManager _map = default!; // Mono
+    [Dependency] private TagSystem _tag = default!;
 
     public override void Initialize()
     {
         base.Initialize();
 
         SubscribeLocalEvent<AiRemoteControllerComponent, ReturnMindIntoAiEvent>(OnReturnMindIntoAi);
+        SubscribeLocalEvent<AiRemoteControllerComponent, ComponentStartup>(OnStartup);
         SubscribeLocalEvent<AiRemoteControllerComponent, MapInitEvent>(OnMapInit);
         SubscribeLocalEvent<AiRemoteControllerComponent, ComponentShutdown>(OnShutdown);
         SubscribeLocalEvent<AiRemoteControllerComponent, GetVerbsEvent<AlternativeVerb>>(OnGetVerbs);
@@ -48,9 +48,24 @@ public sealed partial class AiRemoteControlSystem : SharedAiRemoteControlSystem
 
     private void OnMapInit(Entity<AiRemoteControllerComponent> entity, ref MapInitEvent args)
     {
-        var visionComp = EnsureComp<StationAiVisionComponent>(entity.Owner);
-        EntityUid? actionEnt = null;
+        EnsureRemoteControllerSetup(entity);
+    }
 
+    private void OnStartup(Entity<AiRemoteControllerComponent> entity, ref ComponentStartup args)
+    {
+        EnsureRemoteControllerSetup(entity);
+    }
+
+    private void EnsureRemoteControllerSetup(Entity<AiRemoteControllerComponent> entity)
+    {
+        EnsureComp<StationAiVisionComponent>(entity.Owner);
+        if (entity.Comp.BackToAiActionEntity is { } existingAction &&
+            !TerminatingOrDeleted(existingAction))
+        {
+            return;
+        }
+
+        EntityUid? actionEnt = null;
         _actions.AddAction(entity.Owner, ref actionEnt, entity.Comp.BackToAiAction);
 
         if (actionEnt != null)
@@ -61,18 +76,12 @@ public sealed partial class AiRemoteControlSystem : SharedAiRemoteControlSystem
     {
         _actions.RemoveAction(entity.Owner, entity.Comp.BackToAiActionEntity);
 
-        var backArgs = new ReturnMindIntoAiEvent();
-        backArgs.Performer = entity;
-
-        if (TryComp(entity, out IntrinsicRadioTransmitterComponent? transmitter)
-            && entity.Comp.PreviouslyTransmitterChannels != null)
-            transmitter.Channels = [.. entity.Comp.PreviouslyTransmitterChannels];
-
-        if (TryComp(entity, out ActiveRadioComponent? activeRadio)
-            && entity.Comp.PreviouslyActiveRadioChannels != null)
-            activeRadio.Channels = [.. entity.Comp.PreviouslyActiveRadioChannels];
+        RestoreRadioChannels(entity);
 
         ReturnMindIntoAi(entity);
+
+        if (entity.Comp.TemporaryRemoteController && !TerminatingOrDeleted(entity.Owner))
+            RemCompDeferred<StationAiVisionComponent>(entity.Owner);
     }
 
     private void OnGetVerbs(Entity<AiRemoteControllerComponent> entity, ref GetVerbsEvent<AlternativeVerb> args)
@@ -91,7 +100,7 @@ public sealed partial class AiRemoteControlSystem : SharedAiRemoteControlSystem
     }
 
     private void OnReturnMindIntoAi(Entity<AiRemoteControllerComponent> entity, ref ReturnMindIntoAiEvent args) =>
-        ReturnMindIntoAi(entity);
+        ReturnMindIntoAiAndCleanup(entity);
 
     public void AiTakeControl(EntityUid ai, EntityUid entity)
     {
@@ -104,11 +113,13 @@ public sealed partial class AiRemoteControlSystem : SharedAiRemoteControlSystem
         if (!TryComp<StationAiHeldComponent>(ai, out var stationAiHeldComp))
             return;
 
-        if (!TryComp<AiRemoteControllerComponent>(entity, out var aiRemoteComp))
+        if (!CanRemoteControlTarget(entity))
             return;
 
-        if (!_map.TryFindGridAt(Transform(ai).MapPosition, out var grid, out var _) || Transform(entity).GridUid != grid)
-            return; // Mono no controlling borgs outside the ai's grid.
+        var hadRemoteController = TryComp(entity, out AiRemoteControllerComponent? aiRemoteComp);
+        aiRemoteComp ??= EnsureComp<AiRemoteControllerComponent>(entity);
+        aiRemoteComp.TemporaryRemoteController |= !hadRemoteController;
+        EnsureRemoteControllerSetup((entity, aiRemoteComp));
 
         if (TryComp(entity, out IntrinsicRadioTransmitterComponent? transmitter))
         {
@@ -148,25 +159,40 @@ public sealed partial class AiRemoteControlSystem : SharedAiRemoteControlSystem
 
         _userInterface.TryToggleUi(uid, RemoteDeviceUiKey.Key, actor.PlayerSession);
 
-        var aiGrid = Transform(uid).GridUid; // Mono
-        var query = EntityManager.EntityQueryEnumerator<AiRemoteControllerComponent>();
         var remoteDevices = new List<RemoteDevicesData>();
+        var seen = new HashSet<EntityUid>();
 
-        while (query.MoveNext(out var queryUid, out var comp))
+        var remoteQuery = EntityManager.EntityQueryEnumerator<AiRemoteControllerComponent>();
+        while (remoteQuery.MoveNext(out var queryUid, out _))
+            TryAddRemoteDevice(queryUid, remoteDevices, seen);
+
+        var borgQuery = EntityManager.EntityQueryEnumerator<BorgChassisComponent>();
+        while (borgQuery.MoveNext(out var queryUid, out _))
+            TryAddRemoteDevice(queryUid, remoteDevices, seen);
+
+        var tagQuery = EntityManager.EntityQueryEnumerator<TagComponent>();
+        while (tagQuery.MoveNext(out var queryUid, out var tags))
         {
-            if (Transform(queryUid).GridUid != aiGrid)
-                continue;
-            var data = new RemoteDevicesData
-            {
-                NetEntityUid = GetNetEntity(queryUid),
-                DisplayName = Comp<MetaDataComponent>(queryUid).EntityName
-            };
-
-            remoteDevices.Add(data);
+            if (_tag.HasTag(tags, "Bot"))
+                TryAddRemoteDevice(queryUid, remoteDevices, seen);
         }
 
         var state = new RemoteDevicesBuiState(remoteDevices);
         _userInterface.SetUiState(uid, RemoteDeviceUiKey.Key, state);
+    }
+
+    private void TryAddRemoteDevice(EntityUid queryUid, List<RemoteDevicesData> remoteDevices, HashSet<EntityUid> seen)
+    {
+        if (!seen.Add(queryUid) || !CanRemoteControlTarget(queryUid))
+            return;
+
+        var data = new RemoteDevicesData
+        {
+            NetEntityUid = GetNetEntity(queryUid),
+            DisplayName = Comp<MetaDataComponent>(queryUid).EntityName
+        };
+
+        remoteDevices.Add(data);
     }
 
     private void OnUiRemoteAction(EntityUid uid, StationAiHeldComponent component, AiRemoteControllerComponent.RemoteDeviceActionMessage msg)
@@ -176,7 +202,7 @@ public sealed partial class AiRemoteControlSystem : SharedAiRemoteControlSystem
 
         var target = GetEntity(msg.RemoteAction?.Target);
 
-        if (!HasComp<AiRemoteControllerComponent>(target))
+        if (target == null || !CanRemoteControlTarget(target.Value))
             return;
 
         switch (msg.RemoteAction?.ActionType)
@@ -191,6 +217,51 @@ public sealed partial class AiRemoteControlSystem : SharedAiRemoteControlSystem
             case RemoteDeviceActionEvent.RemoteDeviceActionType.TakeControl:
                 AiTakeControl(uid, target.Value);
                 break;
+        }
+    }
+
+    private bool CanRemoteControlTarget(EntityUid entity)
+    {
+        if (TerminatingOrDeleted(entity))
+            return false;
+
+        if (_mind.TryGetMind(entity, out _, out _))
+            return false;
+
+        return HasComp<AiRemoteControllerComponent>(entity) ||
+               HasComp<BorgChassisComponent>(entity) ||
+               _tag.HasTag(entity, "Bot");
+    }
+
+    private void ReturnMindIntoAiAndCleanup(Entity<AiRemoteControllerComponent> entity)
+    {
+        var hadLinkedMind = entity.Comp.AiHolder != null && entity.Comp.LinkedMind != null;
+
+        ReturnMindIntoAi(entity);
+
+        if (!hadLinkedMind || entity.Comp.AiHolder != null || entity.Comp.LinkedMind != null)
+            return;
+
+        RestoreRadioChannels(entity);
+
+        if (entity.Comp.TemporaryRemoteController)
+            RemCompDeferred<AiRemoteControllerComponent>(entity.Owner);
+    }
+
+    private void RestoreRadioChannels(Entity<AiRemoteControllerComponent> entity)
+    {
+        if (TryComp(entity, out IntrinsicRadioTransmitterComponent? transmitter)
+            && entity.Comp.PreviouslyTransmitterChannels != null)
+        {
+            transmitter.Channels = [.. entity.Comp.PreviouslyTransmitterChannels];
+            entity.Comp.PreviouslyTransmitterChannels = null;
+        }
+
+        if (TryComp(entity, out ActiveRadioComponent? activeRadio)
+            && entity.Comp.PreviouslyActiveRadioChannels != null)
+        {
+            activeRadio.Channels = [.. entity.Comp.PreviouslyActiveRadioChannels];
+            entity.Comp.PreviouslyActiveRadioChannels = null;
         }
     }
 

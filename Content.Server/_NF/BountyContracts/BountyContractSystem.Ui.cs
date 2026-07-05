@@ -113,6 +113,8 @@ public sealed partial class BountyContractSystem
             OnCommandMessage((uid, component), ref command);
         else if (args is BountyContractTryRemoveMessageEvent remove)
             OnTryRemoveMessage((uid, component), ref remove);
+        else if (args is BountyContractTrySetAcceptedMessageEvent accepted)
+            OnTrySetAcceptedMessage((uid, component), ref accepted);
         else if (args is BountyContractTryCreateMessageEvent create)
             OnTryCreateMessage((uid, component), ref create);
     }
@@ -145,6 +147,14 @@ public sealed partial class BountyContractSystem
 
         // Check the delete access for the user on this collection.
         if (TryRemoveBountyContract(loader, args.Actor, args.ContractId))
+            CartridgeRefreshListUi(cartridge, loader);
+    }
+
+    private void OnTrySetAcceptedMessage(Entity<BountyContractsCartridgeComponent> cartridge, ref BountyContractTrySetAcceptedMessageEvent args)
+    {
+        var loader = GetEntity(args.LoaderUid);
+
+        if (TrySetBountyContractAccepted(loader, args.Actor, args.ContractId, args.Accepted))
             CartridgeRefreshListUi(cartridge, loader);
     }
 
