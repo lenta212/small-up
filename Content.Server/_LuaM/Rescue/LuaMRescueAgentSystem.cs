@@ -4,6 +4,8 @@ using System.Numerics;
 using Content.Server.Administration;
 using Content.Server.Bed.Components;
 using Content.Server.Buckle.Systems;
+using Content.Server.Hands.Systems;
+using Content.Server.Interaction;
 using Content.Server.Mind;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
@@ -12,6 +14,8 @@ using Content.Server.Shuttles.Components;
 using Content.Shared.Buckle.Components;
 using Content.Shared.Chemistry.Components.SolutionManager;
 using Content.Shared.Damage;
+using Content.Shared.Hands.Components;
+using Content.Shared.Interaction;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Movement.Pulling.Components;
@@ -37,6 +41,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly MedibotSystem _medibot = default!;
     [Dependency] private readonly PullingSystem _pulling = default!;
     [Dependency] private readonly BuckleSystem _buckle = default!;
+    [Dependency] private readonly HandsSystem _hands = default!;
+    [Dependency] private readonly InteractionSystem _interaction = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
     public override void Update(float frameTime)
@@ -46,8 +52,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var query = EntityQueryEnumerator<LuaMRescueAgentComponent, HTNComponent>();
         while (query.MoveNext(out var uid, out var rescue, out var htn))
         {
-            if (!rescue.AutoAcquireTargets ||
-                HasComp<ActorComponent>(uid))
+            if (HasComp<ActorComponent>(uid))
+                continue;
+
+            if (rescue.PendingPlayerAction != LuaMRescuePlayerActionKind.None)
+            {
+                UpdatePendingPlayerAction(uid, rescue, htn, frameTime);
+                continue;
+            }
+
+            if (!rescue.AutoAcquireTargets)
                 continue;
 
             rescue.TargetRefreshAccumulator += frameTime;
@@ -115,6 +129,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 StopPullingTarget(agent, previousTarget);
             }
 
+            ClearPendingPlayerAction(rescue);
             ResetTargetProgress(rescue);
             StandbyAtAssignedShuttle(agent, rescue, htn);
             status = $"{FormatEntityRef(agent)} cleared current rescue order and is returning to standby.";
@@ -135,6 +150,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         rescue.SkippedTargets.Remove(targetUid);
+        ClearPendingPlayerAction(rescue);
         ResetTargetProgress(rescue);
 
         if (TryStartOrContinueEvacuation(agent, rescue, htn, targetUid))
@@ -145,6 +161,86 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         SetFollowTarget(agent, rescue, htn, targetUid);
         status = $"{FormatEntityRef(agent)} ordered to follow {FormatEntityRef(targetUid)}.";
+        return true;
+    }
+
+    public bool TryOrderPlayerAction(
+        EntityUid agent,
+        LuaMRescuePlayerActionKind action,
+        EntityUid? target,
+        out string status)
+    {
+        status = string.Empty;
+
+        if (!TryComp<LuaMRescueAgentComponent>(agent, out var rescue) ||
+            !TryComp<HTNComponent>(agent, out var htn))
+        {
+            status = $"{FormatEntityRef(agent)} is not a LuaM rescue agent.";
+            return false;
+        }
+
+        if (HasComp<ActorComponent>(agent))
+        {
+            status = $"{FormatEntityRef(agent)} is under manual player control.";
+            return false;
+        }
+
+        if (action == LuaMRescuePlayerActionKind.None)
+        {
+            ClearPendingPlayerAction(rescue, "cleared");
+            ResetTargetProgress(rescue);
+            StandbyAtAssignedShuttle(agent, rescue, htn);
+            status = $"{FormatEntityRef(agent)} cleared pending player action and is returning to standby.";
+            return true;
+        }
+
+        if (RequiresPlayerActionTarget(action) &&
+            target is not { Valid: true })
+        {
+            status = $"{FormatPlayerAction(action)} requires target=<entity|player>.";
+            return false;
+        }
+
+        if (target is { Valid: true } targetUid &&
+            Deleted(targetUid))
+        {
+            status = $"Target {targetUid} is deleted.";
+            return false;
+        }
+
+        if (rescue.EvacuatingTarget is { Valid: true } previous &&
+            !Deleted(previous))
+        {
+            StopPullingTarget(agent, previous);
+        }
+
+        rescue.EvacuatingTarget = null;
+        rescue.AssignedPatientStrap = null;
+        ResetTargetProgress(rescue);
+
+        if (target is not { Valid: true } actionTarget)
+        {
+            if (TryExecutePlayerAction(agent, action, null, out var actionStatus))
+            {
+                ClearPendingPlayerAction(rescue, actionStatus);
+                StandbyAtAssignedShuttle(agent, rescue, htn);
+                status = $"{FormatEntityRef(agent)} {actionStatus}.";
+                return true;
+            }
+
+            rescue.LastPlayerActionStatus = actionStatus;
+            StandbyAtAssignedShuttle(agent, rescue, htn);
+            status = $"{FormatEntityRef(agent)} failed to {FormatPlayerAction(action)}: {actionStatus}.";
+            return false;
+        }
+
+        rescue.PendingPlayerAction = action;
+        rescue.PendingPlayerActionTarget = actionTarget;
+        rescue.PlayerActionAccumulator = 0f;
+        rescue.LastPlayerActionStatus = $"pending {FormatPlayerAction(action)} {FormatEntityRef(actionTarget)}";
+        SetFollowTarget(agent, rescue, htn, actionTarget);
+
+        status = $"{FormatEntityRef(agent)} ordered to {FormatPlayerAction(action)} {FormatEntityRef(actionTarget)}.";
         return true;
     }
 
@@ -160,13 +256,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return $"{FormatEntityRef(uid)} phase={GetRescuePhase(uid, rescue)}; " +
                $"target={FormatEntityRef(target)}; shuttle={FormatEntityRef(rescue.AssignedShuttle)}; " +
                $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
-               $"skipped={rescue.SkippedTargets.Count}; {FormatProgress(rescue)}";
+               $"skipped={rescue.SkippedTargets.Count}; {FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
     }
 
     private string GetRescuePhase(EntityUid uid, LuaMRescueAgentComponent rescue)
     {
         if (HasComp<ActorComponent>(uid))
             return "manual-control";
+
+        if (rescue.PendingPlayerAction != LuaMRescuePlayerActionKind.None)
+            return $"player-action-{FormatPlayerAction(rescue.PendingPlayerAction)}";
 
         if (!rescue.AutoAcquireTargets)
             return "manual";
@@ -236,6 +335,207 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return $"{entity}:deleted";
 
         return $"{GetNetEntity(entity)}:{Name(entity)}";
+    }
+
+    private string FormatPlayerActionStatus(LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.PendingPlayerAction == LuaMRescuePlayerActionKind.None)
+            return $"action=none; lastAction={rescue.LastPlayerActionStatus}";
+
+        return $"action={FormatPlayerAction(rescue.PendingPlayerAction)}; " +
+               $"actionTarget={FormatEntityRef(rescue.PendingPlayerActionTarget)}; " +
+               $"actionTime={rescue.PlayerActionAccumulator:0.0}/{rescue.PlayerActionTimeout:0.0}s; " +
+               $"lastAction={rescue.LastPlayerActionStatus}";
+    }
+
+    private void UpdatePendingPlayerAction(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        float frameTime)
+    {
+        var action = rescue.PendingPlayerAction;
+        if (action == LuaMRescuePlayerActionKind.None)
+            return;
+
+        rescue.PlayerActionAccumulator += frameTime;
+
+        var target = rescue.PendingPlayerActionTarget;
+        if (RequiresPlayerActionTarget(action) &&
+            target is not { Valid: true })
+        {
+            FinishPendingPlayerAction(uid, rescue, htn, $"failed {FormatPlayerAction(action)}: target missing");
+            return;
+        }
+
+        if (target is { Valid: true } targetUid)
+        {
+            if (Deleted(targetUid))
+            {
+                FinishPendingPlayerAction(uid, rescue, htn, $"failed {FormatPlayerAction(action)}: target deleted");
+                return;
+            }
+
+            if (!IsWithinRange(uid, targetUid, rescue.PlayerActionRange))
+            {
+                if (rescue.PlayerActionAccumulator >= rescue.PlayerActionTimeout)
+                {
+                    FinishPendingPlayerAction(uid, rescue, htn, $"failed {FormatPlayerAction(action)}: timed out reaching {FormatEntityRef(targetUid)}");
+                    return;
+                }
+
+                if (rescue.AssignedTarget != targetUid)
+                    SetFollowTarget(uid, rescue, htn, targetUid);
+
+                return;
+            }
+        }
+
+        var succeeded = TryExecutePlayerAction(uid, action, target, out var status);
+        FinishPendingPlayerAction(
+            uid,
+            rescue,
+            htn,
+            succeeded
+                ? status
+                : $"failed {FormatPlayerAction(action)}: {status}");
+    }
+
+    private bool TryExecutePlayerAction(
+        EntityUid uid,
+        LuaMRescuePlayerActionKind action,
+        EntityUid? target,
+        out string status)
+    {
+        switch (action)
+        {
+            case LuaMRescuePlayerActionKind.Interact:
+            {
+                if (target is not { Valid: true } targetUid)
+                {
+                    status = "target missing";
+                    return false;
+                }
+
+                var handled = _interaction.InteractHand(uid, targetUid);
+                status = handled
+                    ? $"interacted with {FormatEntityRef(targetUid)}"
+                    : $"interact with {FormatEntityRef(targetUid)} was not handled";
+                return handled;
+            }
+            case LuaMRescuePlayerActionKind.AltInteract:
+            {
+                if (target is not { Valid: true } targetUid)
+                {
+                    status = "target missing";
+                    return false;
+                }
+
+                var handled = _interaction.AltInteract(uid, targetUid);
+                status = handled
+                    ? $"alt-interacted with {FormatEntityRef(targetUid)}"
+                    : $"alt-interact with {FormatEntityRef(targetUid)} was not handled";
+                return handled;
+            }
+            case LuaMRescuePlayerActionKind.Use:
+            {
+                if (!TryComp<HandsComponent>(uid, out var hands) ||
+                    hands.ActiveHandEntity is not { Valid: true } held)
+                {
+                    status = "active hand is empty";
+                    return false;
+                }
+
+                if (target is { Valid: true } targetUid)
+                {
+                    var handled = held == targetUid
+                        ? _interaction.UseInHandInteraction(uid, held)
+                        : _interaction.InteractUsing(uid, held, targetUid, Transform(targetUid).Coordinates);
+                    status = handled
+                        ? $"used {FormatEntityRef(held)} on {FormatEntityRef(targetUid)}"
+                        : $"use of {FormatEntityRef(held)} on {FormatEntityRef(targetUid)} was not handled";
+                    return handled;
+                }
+
+                var usedInHand = _interaction.UseInHandInteraction(uid, held);
+                status = usedInHand
+                    ? $"used {FormatEntityRef(held)} in hand"
+                    : $"use of {FormatEntityRef(held)} in hand was not handled";
+                return usedInHand;
+            }
+            case LuaMRescuePlayerActionKind.Pickup:
+            {
+                if (target is not { Valid: true } targetUid)
+                {
+                    status = "target missing";
+                    return false;
+                }
+
+                var pickedUp = _hands.TryPickupAnyHand(uid, targetUid);
+                status = pickedUp
+                    ? $"picked up {FormatEntityRef(targetUid)}"
+                    : $"could not pick up {FormatEntityRef(targetUid)}";
+                return pickedUp;
+            }
+            case LuaMRescuePlayerActionKind.Drop:
+            {
+                EntityCoordinates? dropLocation = null;
+                if (target is { Valid: true } targetUid)
+                    dropLocation = Transform(targetUid).Coordinates;
+
+                var dropped = _hands.TryDrop(uid, dropLocation);
+                status = dropped
+                    ? target is { Valid: true }
+                        ? $"dropped active hand near {FormatEntityRef(target)}"
+                        : "dropped active hand"
+                    : "could not drop active hand";
+                return dropped;
+            }
+            default:
+                status = "unsupported player action";
+                return false;
+        }
+    }
+
+    private void FinishPendingPlayerAction(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        string status)
+    {
+        ClearPendingPlayerAction(rescue, status);
+        StandbyAtAssignedShuttle(uid, rescue, htn);
+        Dirty(uid, rescue);
+    }
+
+    private static bool RequiresPlayerActionTarget(LuaMRescuePlayerActionKind action)
+    {
+        return action is LuaMRescuePlayerActionKind.Interact
+            or LuaMRescuePlayerActionKind.AltInteract
+            or LuaMRescuePlayerActionKind.Pickup;
+    }
+
+    private static string FormatPlayerAction(LuaMRescuePlayerActionKind action)
+    {
+        return action switch
+        {
+            LuaMRescuePlayerActionKind.Interact => "interact",
+            LuaMRescuePlayerActionKind.AltInteract => "alt-interact",
+            LuaMRescuePlayerActionKind.Use => "use",
+            LuaMRescuePlayerActionKind.Pickup => "pickup",
+            LuaMRescuePlayerActionKind.Drop => "drop",
+            _ => "none",
+        };
+    }
+
+    private static void ClearPendingPlayerAction(LuaMRescueAgentComponent rescue, string? lastStatus = null)
+    {
+        rescue.PendingPlayerAction = LuaMRescuePlayerActionKind.None;
+        rescue.PendingPlayerActionTarget = null;
+        rescue.PlayerActionAccumulator = 0f;
+
+        if (lastStatus != null)
+            rescue.LastPlayerActionStatus = lastStatus;
     }
 
     private void UpdateAssignedTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
@@ -1382,6 +1682,307 @@ public sealed class LuaMRescueOrderCommand : IConsoleCommand
 
         entity = uid;
         return true;
+    }
+
+    private static string? GetValue(string[] args, string key)
+    {
+        var prefix = $"{key}=";
+        var match = args.FirstOrDefault(arg => arg.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        return match?.Substring(prefix.Length);
+    }
+}
+
+[AdminCommand(AdminFlags.Server)]
+public sealed class LuaMRescueActionCommand : IConsoleCommand
+{
+    private const string ActionKey = "action";
+    private const string AgentKey = "agent";
+    private const string TargetKey = "target";
+    private const string AllAgentsValue = "all";
+    private const string NearestAgentValue = "nearest";
+
+    private static readonly string[] ActionNames =
+    [
+        "interact",
+        "alt",
+        "use",
+        "pickup",
+        "drop",
+        "clear",
+    ];
+
+    [Dependency] private readonly IEntityManager _entities = default!;
+    [Dependency] private readonly IPlayerManager _players = default!;
+
+    public string Command => "luam_rescue_action";
+    public string Description => "Orders active LuaM rescue agents to perform player-like interactions.";
+    public string Help =>
+        $"Usage: {Command} {ActionKey}=<interact|alt|use|pickup|drop|clear> " +
+        $"[agent=<entity|{NearestAgentValue}|{AllAgentsValue}>] [target=<entity|player>]";
+
+    public void Execute(IConsoleShell shell, string argStr, string[] args)
+    {
+        var positional = args
+            .Where(arg => !arg.Contains('=') &&
+                          !arg.StartsWith("--", StringComparison.Ordinal))
+            .ToArray();
+        var actionArg = GetValue(args, ActionKey) ?? positional.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(actionArg) ||
+            !TryParseAction(actionArg, out var action))
+        {
+            shell.WriteError($"Pass {ActionKey}=<interact|alt|use|pickup|drop|clear>.");
+            return;
+        }
+
+        var actionWasFirstPositional = positional.Length > 0 &&
+                                       positional[0].Equals(actionArg, StringComparison.OrdinalIgnoreCase);
+        var targetArg = GetValue(args, TargetKey) ??
+                        positional.Skip(actionWasFirstPositional ? 1 : 0).FirstOrDefault();
+        var agentArg = GetValue(args, AgentKey);
+
+        if (!TryResolveAgents(shell, agentArg, out var agents, out var error))
+        {
+            shell.WriteError(error);
+            return;
+        }
+
+        EntityUid? target = null;
+        if (!string.IsNullOrWhiteSpace(targetArg))
+        {
+            if (!TryResolveTarget(targetArg, out target, out error))
+            {
+                shell.WriteError(error);
+                return;
+            }
+        }
+        else if (ActionRequiresTarget(action))
+        {
+            shell.WriteError($"{FormatAction(action)} requires {TargetKey}=<entity|player>.");
+            return;
+        }
+
+        var system = _entities.System<LuaMRescueAgentSystem>();
+        foreach (var agent in agents)
+        {
+            if (system.TryOrderPlayerAction(agent, action, target, out var status))
+                shell.WriteLine(status);
+            else
+                shell.WriteError(status);
+        }
+    }
+
+    public CompletionResult GetCompletion(IConsoleShell shell, string[] args)
+    {
+        if (args.Length <= 1)
+        {
+            var names = _players.Sessions.Select(session => $"{TargetKey}={session.Name}");
+            return CompletionResult.FromHintOptions(
+                ActionNames.Select(action => $"{ActionKey}={action}")
+                    .Concat(names)
+                    .Concat([
+                        $"{AgentKey}={NearestAgentValue}",
+                        $"{AgentKey}={AllAgentsValue}",
+                        $"{TargetKey}=",
+                    ]),
+                "rescue player action option");
+        }
+
+        return CompletionResult.FromHintOptions(
+            ActionNames.Select(action => $"{ActionKey}={action}")
+                .Concat([
+                    $"{AgentKey}={NearestAgentValue}",
+                    $"{AgentKey}={AllAgentsValue}",
+                    $"{TargetKey}=",
+                ]),
+            "rescue player action option");
+    }
+
+    private bool TryResolveAgents(IConsoleShell shell, string? raw, out List<EntityUid> agents, out string error)
+    {
+        agents = [];
+        error = string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(raw))
+        {
+            if (raw.Equals(AllAgentsValue, StringComparison.OrdinalIgnoreCase))
+            {
+                agents.AddRange(GetActiveAgents());
+                if (agents.Count > 0)
+                    return true;
+
+                error = "No LuaM rescue agents are active.";
+                return false;
+            }
+
+            if (raw.Equals(NearestAgentValue, StringComparison.OrdinalIgnoreCase))
+                return TryResolveNearestAgent(shell, out agents, out error);
+
+            if (TryResolveEntity(raw, out var agent) &&
+                _entities.HasComponent<LuaMRescueAgentComponent>(agent))
+            {
+                agents.Add(agent);
+                return true;
+            }
+
+            error = $"LuaM rescue agent not found: {raw}.";
+            return false;
+        }
+
+        agents.AddRange(GetActiveAgents());
+        if (agents.Count == 1)
+            return true;
+
+        if (agents.Count > 1)
+            return TryResolveNearestAgent(shell, out agents, out error);
+
+        error = "No LuaM rescue agents are active.";
+        return false;
+    }
+
+    private bool TryResolveNearestAgent(IConsoleShell shell, out List<EntityUid> agents, out string error)
+    {
+        agents = [];
+        error = string.Empty;
+
+        if (shell.Player?.AttachedEntity is not { Valid: true } attached)
+        {
+            error = $"Could not infer nearest agent. Pass {AgentKey}=<entity|{AllAgentsValue}>.";
+            return false;
+        }
+
+        var attachedCoordinates = _entities.GetComponent<TransformComponent>(attached).Coordinates;
+        var bestDistance = float.PositiveInfinity;
+        EntityUid? bestAgent = null;
+
+        foreach (var agent in GetActiveAgents())
+        {
+            var coordinates = _entities.GetComponent<TransformComponent>(agent).Coordinates;
+            if (!attachedCoordinates.TryDistance(_entities, coordinates, out var distance) ||
+                distance >= bestDistance)
+            {
+                continue;
+            }
+
+            bestAgent = agent;
+            bestDistance = distance;
+        }
+
+        if (bestAgent is { Valid: true } nearest)
+        {
+            agents.Add(nearest);
+            return true;
+        }
+
+        error = "No reachable LuaM rescue agent found.";
+        return false;
+    }
+
+    private List<EntityUid> GetActiveAgents()
+    {
+        var agents = new List<EntityUid>();
+        var query = _entities.EntityQueryEnumerator<LuaMRescueAgentComponent>();
+        while (query.MoveNext(out var uid, out _))
+        {
+            agents.Add(uid);
+        }
+
+        return agents;
+    }
+
+    private bool TryResolveTarget(string raw, out EntityUid? target, out string error)
+    {
+        target = null;
+        error = string.Empty;
+
+        if (TryResolveEntity(raw, out var parsedTarget))
+        {
+            target = parsedTarget;
+            return true;
+        }
+
+        var matches = _players.Sessions
+            .Where(session => session.Name.Contains(raw, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        if (matches.Length == 1 && matches[0].AttachedEntity is { Valid: true } attached)
+        {
+            target = attached;
+            return true;
+        }
+
+        error = matches.Length > 1
+            ? $"Target player name is ambiguous: {raw}."
+            : $"Target not found or has no attached entity: {raw}.";
+        return false;
+    }
+
+    private bool TryResolveEntity(string raw, out EntityUid entity)
+    {
+        entity = default;
+
+        if (NetEntity.TryParse(raw, out var netEntity) &&
+            _entities.TryGetEntity(netEntity, out var parsed) &&
+            parsed is { Valid: true })
+        {
+            entity = parsed.Value;
+            return true;
+        }
+
+        if (!int.TryParse(raw, out var integerId))
+            return false;
+
+        if (_entities.TryGetEntity(new NetEntity(integerId), out parsed) &&
+            parsed is { Valid: true })
+        {
+            entity = parsed.Value;
+            return true;
+        }
+
+        var uid = new EntityUid(integerId);
+        if (!_entities.EntityExists(uid))
+            return false;
+
+        entity = uid;
+        return true;
+    }
+
+    private static bool TryParseAction(string raw, out LuaMRescuePlayerActionKind action)
+    {
+        action = raw.ToLowerInvariant() switch
+        {
+            "interact" or "click" or "hand" => LuaMRescuePlayerActionKind.Interact,
+            "alt" or "alt-interact" or "altinteract" => LuaMRescuePlayerActionKind.AltInteract,
+            "use" or "use-held" or "usehand" => LuaMRescuePlayerActionKind.Use,
+            "pickup" or "pick-up" or "take" or "grab" => LuaMRescuePlayerActionKind.Pickup,
+            "drop" => LuaMRescuePlayerActionKind.Drop,
+            "clear" or "cancel" or "standby" => LuaMRescuePlayerActionKind.None,
+            _ => LuaMRescuePlayerActionKind.None,
+        };
+
+        return raw.Equals("clear", StringComparison.OrdinalIgnoreCase) ||
+               raw.Equals("cancel", StringComparison.OrdinalIgnoreCase) ||
+               raw.Equals("standby", StringComparison.OrdinalIgnoreCase) ||
+               action != LuaMRescuePlayerActionKind.None;
+    }
+
+    private static bool ActionRequiresTarget(LuaMRescuePlayerActionKind action)
+    {
+        return action is LuaMRescuePlayerActionKind.Interact
+            or LuaMRescuePlayerActionKind.AltInteract
+            or LuaMRescuePlayerActionKind.Pickup;
+    }
+
+    private static string FormatAction(LuaMRescuePlayerActionKind action)
+    {
+        return action switch
+        {
+            LuaMRescuePlayerActionKind.Interact => "interact",
+            LuaMRescuePlayerActionKind.AltInteract => "alt-interact",
+            LuaMRescuePlayerActionKind.Use => "use",
+            LuaMRescuePlayerActionKind.Pickup => "pickup",
+            LuaMRescuePlayerActionKind.Drop => "drop",
+            _ => "clear",
+        };
     }
 
     private static string? GetValue(string[] args, string key)

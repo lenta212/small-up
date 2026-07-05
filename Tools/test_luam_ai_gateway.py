@@ -296,7 +296,7 @@ def run_no_key_fallback_test() -> dict[str, object]:
                     "cleanup_dynamic_markers",
                     "run_admin_command",
                 ],
-                "allowedAdminCommandNames": ["luam_sector_status", "luam_rescue_status", "luam_rescue_order"],
+                "allowedAdminCommandNames": ["luam_sector_status", "luam_rescue_status", "luam_rescue_order", "luam_rescue_action"],
                 "allowedTemplateIds": ["distress"],
                 "sector": {
                     "aiMemoryBrief": ["ADMIN_ONLY: safe manual mode"],
@@ -480,7 +480,7 @@ def run_anthropic_mock_test() -> dict[str, object]:
             {
                 "message": "danger-admin-command",
                 "allowedActions": ["none", "run_admin_command"],
-                "allowedAdminCommandNames": ["shutdown", "luam_sector_status", "luam_rescue_status", "luam_rescue_order"],
+                "allowedAdminCommandNames": ["shutdown", "luam_sector_status", "luam_rescue_status", "luam_rescue_order", "luam_rescue_action"],
                 "allowedTemplateIds": [],
                 "adminModeEnabled": True,
                 "sector": {
@@ -494,7 +494,7 @@ def run_anthropic_mock_test() -> dict[str, object]:
             {
                 "message": "safe-admin-command",
                 "allowedActions": ["none", "run_admin_command"],
-                "allowedAdminCommandNames": ["shutdown", "luam_sector_status", "luam_rescue_status", "luam_rescue_order"],
+                "allowedAdminCommandNames": ["shutdown", "luam_sector_status", "luam_rescue_status", "luam_rescue_order", "luam_rescue_action"],
                 "allowedTemplateIds": [],
                 "adminModeEnabled": True,
                 "sector": {
@@ -599,6 +599,7 @@ def run_anthropic_mock_test() -> dict[str, object]:
                 assert "luam_sector_status" in context["allowedAdminCommandNames"]
                 assert "luam_rescue_status" in context["allowedAdminCommandNames"]
                 assert "luam_rescue_order" in context["allowedAdminCommandNames"]
+                assert "luam_rescue_action" in context["allowedAdminCommandNames"]
                 assert "shutdown" not in context["allowedAdminCommandNames"]
             assert_provider_context_minimized(context)
 

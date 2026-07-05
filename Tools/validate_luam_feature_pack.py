@@ -736,6 +736,7 @@ def main() -> int:
         "run_admin_command",
         "RunAdminConsoleCommandAsync",
         "AllowedAiAdminCommandNames",
+        "luam_rescue_action",
         "luam_rescue_order",
         "luam_rescue_status",
         "NormalizeAiAdminConsoleCommand",
@@ -2078,6 +2079,7 @@ def main() -> int:
         "matches_forbidden_admin_command_prefix",
         "is_safe_admin_command",
         "allowedAdminCommandNames",
+        "luam_rescue_action",
         "luam_rescue_order",
         "luam_rescue_status",
         "inputSafetyFlags",
@@ -2177,6 +2179,7 @@ def main() -> int:
         "luam_sector_status",
         "luam_rescue_status",
         "luam_rescue_order",
+        "luam_rescue_action",
         "dangerChat",
         "safeChat",
         "len(requests) == 5",
@@ -3066,11 +3069,20 @@ def main() -> int:
 
     rescue_agent_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs").read_text(encoding="utf-8")
     assert_contains(rescue_agent_system, 'Command => "luam_rescue_agent"', "LuaMRescueAgentCommand")
+    assert_contains(rescue_agent_system, 'Command => "luam_rescue_action"', "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, 'Command => "luam_rescue_order"', "LuaMRescueOrderCommand")
     assert_contains(rescue_agent_system, 'Command => "luam_rescue_status"', "LuaMRescueStatusCommand")
     assert_contains(rescue_agent_system, "MindSystem", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "ControlMob(controller.UserId, agent)", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryOrderAgent", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryOrderPlayerAction", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "UpdatePendingPlayerAction", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryExecutePlayerAction", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "LuaMRescueActionCommand", "LuaMRescueActionCommand")
+    assert_contains(rescue_agent_system, "<interact|alt|use|pickup|drop|clear>", "LuaMRescueActionCommand")
+    assert_contains(rescue_agent_system, "InteractUsing", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryPickupAnyHand", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryDrop", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "LuaMRescueOrderCommand", "LuaMRescueOrderCommand")
     assert_contains(rescue_agent_system, "agent=<entity|", "LuaMRescueOrderCommand")
     assert_contains(rescue_agent_system, "target=<entity|player>", "LuaMRescueOrderCommand")

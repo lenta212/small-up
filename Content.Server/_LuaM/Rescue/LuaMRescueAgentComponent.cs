@@ -97,5 +97,32 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float TargetStallAccumulator;
 
     [DataField]
+    public LuaMRescuePlayerActionKind PendingPlayerAction = LuaMRescuePlayerActionKind.None;
+
+    [DataField]
+    public EntityUid? PendingPlayerActionTarget;
+
+    [DataField]
+    public float PlayerActionRange = 1.5f;
+
+    [DataField]
+    public float PlayerActionTimeout = 20f;
+
+    public float PlayerActionAccumulator;
+
+    [DataField]
+    public string LastPlayerActionStatus = "none";
+
+    [DataField]
     public string Role = "rescue";
+}
+
+public enum LuaMRescuePlayerActionKind : byte
+{
+    None,
+    Interact,
+    AltInteract,
+    Use,
+    Pickup,
+    Drop,
 }
