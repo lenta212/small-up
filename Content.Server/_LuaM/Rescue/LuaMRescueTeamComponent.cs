@@ -27,6 +27,32 @@ public sealed partial class LuaMRescueTeamComponent : Component
     [DataField]
     public string LastStatus = "none";
 
+    [DataField]
+    public EntityUid? SceneAnchor;
+
+    [DataField]
+    public EntityUid? ThreatTarget;
+
+    [DataField]
+    public int NearbyHostiles;
+
+    [DataField]
+    public int NearbyCombatants;
+
+    [DataField]
+    public int NearbyCrowd;
+
+    [DataField]
+    public int NearbyBlockers;
+
+    [DataField]
+    public string LastSceneStatus = "scene clear";
+
+    [DataField]
+    public float SceneScanInterval = 1f;
+
+    public float SceneScanAccumulator;
+
     public readonly List<EntityUid> Escorts = new();
 }
 
@@ -61,6 +87,27 @@ public sealed partial class LuaMRescueEscortComponent : Component
     public string LastDutyStatus = "none";
 
     [DataField]
+    public EntityUid? SceneAnchor;
+
+    [DataField]
+    public EntityUid? ThreatTarget;
+
+    [DataField]
+    public int NearbyHostiles;
+
+    [DataField]
+    public int NearbyCombatants;
+
+    [DataField]
+    public int NearbyCrowd;
+
+    [DataField]
+    public int NearbyBlockers;
+
+    [DataField]
+    public string LastSceneStatus = "scene clear";
+
+    [DataField]
     public float FollowCloseRange = 1.75f;
 
     [DataField]
@@ -88,6 +135,9 @@ public enum LuaMRescueEscortDuty : byte
     PatientSupport,
     EvacuationCorridor,
     ReturnToShuttle,
+    ThreatScreen,
+    CrowdControl,
+    ClearRoute,
 }
 
 public enum LuaMRescueTeamPhase : byte

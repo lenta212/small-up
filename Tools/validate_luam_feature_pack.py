@@ -2107,6 +2107,10 @@ def main() -> int:
         "Tourniquet",
         "Kostyl",
         "Zaslon",
+        "scene assessment",
+        "crowd control",
+        "threat screen",
+        "route blockers",
         "take medical supplies from accessible nearby storage",
         "take-target-storage",
         "store collected medical supplies",
@@ -3336,6 +3340,14 @@ def main() -> int:
     assert_contains(rescue_team_component, "Zaslon", "LuaMRescueEscortRole")
     assert_contains(rescue_team_component, "LuaMRescueTeamPhase", "LuaMRescueTeamPhase")
     assert_contains(rescue_team_component, "LuaMRescueEscortDuty", "LuaMRescueEscortDuty")
+    assert_contains(rescue_team_component, "SceneAnchor", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "ThreatTarget", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "NearbyHostiles", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "NearbyCrowd", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "NearbyBlockers", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "ThreatScreen", "LuaMRescueEscortDuty")
+    assert_contains(rescue_team_component, "CrowdControl", "LuaMRescueEscortDuty")
+    assert_contains(rescue_team_component, "ClearRoute", "LuaMRescueEscortDuty")
 
     rescue_team_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs").read_text(encoding="utf-8")
     assert_contains(rescue_team_system, "SpawnEscortTeam", "LuaMRescueTeamSystem")
@@ -3343,6 +3355,20 @@ def main() -> int:
     assert_contains(rescue_team_system, "UpdateEscortDuty", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "GetEscortDuty", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "SetEscortFollowTarget", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "ScanRescueScene", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "UpdateTeamScene", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "ApplySceneToEscort", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "IsHostileToObserver", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "IsActiveCombatant", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "IsRouteBlocker", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "BuildSceneSummary", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "CrowdPressureThreshold", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "RouteBlockerThreshold", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "scene=", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "threat-screen", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "crowd-control", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "clear-route", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "route pressure", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "TrySendInGameICMessage", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "Медицинская зона", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "Пациент внутри периметра", "LuaMRescueTeamSystem")

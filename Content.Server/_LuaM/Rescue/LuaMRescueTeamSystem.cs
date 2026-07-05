@@ -6,9 +6,15 @@ using Content.Server.NPC;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Systems;
 using Content.Shared.Chat;
+using Content.Shared.CombatMode;
+using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
+using Content.Shared.NPC.Components;
+using Content.Shared.NPC.Systems;
 using Robust.Server.GameObjects;
 using Robust.Shared.Map;
+using Robust.Shared.Physics;
+using Robust.Shared.Physics.Components;
 using Robust.Shared.Player;
 using Robust.Shared.Timing;
 
@@ -17,6 +23,9 @@ namespace Content.Server._LuaM.Rescue;
 public sealed class LuaMRescueTeamSystem : EntitySystem
 {
     private const string EscortPrototype = "LuaMRescueEscort";
+    private const float SceneScanRange = 6f;
+    private const int CrowdPressureThreshold = 4;
+    private const int RouteBlockerThreshold = 2;
 
     private static readonly (LuaMRescueEscortRole Role, Vector2 Offset)[] EscortFormation =
     [
@@ -28,8 +37,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     [Dependency] private readonly NPCSystem _npc = default!;
     [Dependency] private readonly ChatSystem _chat = default!;
     [Dependency] private readonly MetaDataSystem _metaData = default!;
+    [Dependency] private readonly EntityLookupSystem _lookup = default!;
+    [Dependency] private readonly NpcFactionSystem _factions = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
+    private readonly HashSet<EntityUid> _sceneEntities = new();
     private int _nextTeamId = 1;
 
     public override void Update(float frameTime)
@@ -39,7 +51,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var teamQuery = EntityQueryEnumerator<LuaMRescueTeamComponent, LuaMRescueAgentComponent>();
         while (teamQuery.MoveNext(out var uid, out var team, out var rescue))
         {
-            UpdateLeaderTeamState(uid, team, rescue);
+            UpdateLeaderTeamState(uid, team, rescue, frameTime);
         }
 
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent, HTNComponent>();
@@ -76,6 +88,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             ? LuaMRescueTeamPhase.Dispatch
             : LuaMRescueTeamPhase.Idle;
         team.LastStatus = "autonomous rescue team deployed";
+        team.SceneScanAccumulator = team.SceneScanInterval;
         team.Escorts.Clear();
 
         var anchorCoordinates = Transform(anchor).Coordinates;
@@ -101,7 +114,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             lines.Add(
                 $"team={team.TeamId}; leader={FormatEntityRef(uid)}; phase={FormatPhase(team.Phase)}; " +
                 $"patient={FormatEntityRef(team.Patient)}; shuttle={FormatEntityRef(team.Shuttle)}; " +
-                $"escorts={team.Escorts.Count}; last={team.LastStatus}");
+                $"escorts={team.Escorts.Count}; scene={team.LastSceneStatus}; " +
+                $"threat={FormatEntityRef(team.ThreatTarget)}; crowd={team.NearbyCrowd}; " +
+                $"blockers={team.NearbyBlockers}; last={team.LastStatus}");
         }
 
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
@@ -111,6 +126,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"escort={FormatEntityRef(uid)}; team={escort.TeamId}; role={FormatRole(escort.Role)}; " +
                 $"duty={FormatDuty(escort.CurrentDuty)}; follow={FormatEntityRef(escort.CurrentFollowTarget)}; " +
                 $"leader={FormatEntityRef(escort.Leader)}; patient={FormatEntityRef(escort.Patient)}; " +
+                $"threat={FormatEntityRef(escort.ThreatTarget)}; scene={escort.LastSceneStatus}; " +
                 $"last={escort.LastDutyStatus}");
         }
 
@@ -145,7 +161,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         Dirty(uid, escort);
     }
 
-    private void UpdateLeaderTeamState(EntityUid uid, LuaMRescueTeamComponent team, LuaMRescueAgentComponent rescue)
+    private void UpdateLeaderTeamState(
+        EntityUid uid,
+        LuaMRescueTeamComponent team,
+        LuaMRescueAgentComponent rescue,
+        float frameTime)
     {
         var patient = ValidOrNull(rescue.EvacuatingTarget ?? rescue.AssignedTarget ?? rescue.TaskPatientTarget ?? team.Patient);
         var shuttle = ValidOrNull(rescue.AssignedShuttle);
@@ -191,6 +211,14 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         changed |= PruneTeamEscorts(team);
+        team.SceneScanAccumulator += frameTime;
+        if (team.SceneScanAccumulator >= team.SceneScanInterval)
+        {
+            team.SceneScanAccumulator = 0f;
+            var scene = ScanRescueScene(uid, team.TeamId, uid, patient, shuttle, shuttleAnchor);
+            changed |= UpdateTeamScene(team, scene);
+        }
+
         if (changed)
             Dirty(uid, team);
     }
@@ -205,7 +233,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         escort.CurrentDuty = duty;
         escort.CurrentFollowTarget = followTarget;
-        escort.LastDutyStatus = $"{FormatRole(escort.Role)} {FormatDuty(duty)}";
+        escort.LastDutyStatus = $"{FormatRole(escort.Role)} {FormatDuty(duty)}; {escort.LastSceneStatus}";
 
         SetEscortFollowTarget(uid, escort, htn, followTarget, duty);
         if ((changed || forceSpeech) &&
@@ -234,6 +262,13 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.Patient = ValidOrNull(team.Patient);
             escort.Shuttle = ValidOrNull(team.Shuttle);
             escort.ShuttleAnchor = ValidOrNull(team.ShuttleAnchor);
+            escort.SceneAnchor = ValidOrNull(team.SceneAnchor);
+            escort.ThreatTarget = ValidOrNull(team.ThreatTarget);
+            escort.NearbyHostiles = team.NearbyHostiles;
+            escort.NearbyCombatants = team.NearbyCombatants;
+            escort.NearbyCrowd = team.NearbyCrowd;
+            escort.NearbyBlockers = team.NearbyBlockers;
+            escort.LastSceneStatus = team.LastSceneStatus;
             return;
         }
 
@@ -242,7 +277,251 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.Patient = ValidOrNull(rescue.EvacuatingTarget ?? rescue.AssignedTarget ?? rescue.TaskPatientTarget);
             escort.Shuttle = ValidOrNull(rescue.AssignedShuttle);
             escort.ShuttleAnchor = ValidOrNull(rescue.AssignedShuttleAnchor);
+            var scene = ScanRescueScene(leader, escort.TeamId, leader, escort.Patient, escort.Shuttle, escort.ShuttleAnchor);
+            ApplySceneToEscort(escort, scene);
         }
+    }
+
+    private LuaMRescueSceneSnapshot ScanRescueScene(
+        EntityUid observer,
+        int teamId,
+        EntityUid? leader,
+        EntityUid? patient,
+        EntityUid? shuttle,
+        EntityUid? shuttleAnchor)
+    {
+        var anchor = ValidOrNull(patient) ??
+            ValidOrNull(leader) ??
+            ValidOrNull(shuttleAnchor) ??
+            ValidOrNull(shuttle) ??
+            ValidOrNull(observer);
+
+        if (anchor is not { Valid: true } anchorUid)
+            return LuaMRescueSceneSnapshot.Clear;
+
+        var origin = Transform(anchorUid).MapPosition;
+        var hostileCount = 0;
+        var combatantCount = 0;
+        var crowdCount = 0;
+        var blockerCount = 0;
+        EntityUid? threatTarget = null;
+        var threatDistance = float.MaxValue;
+
+        _sceneEntities.Clear();
+        _lookup.GetEntitiesInRange(anchorUid, SceneScanRange, _sceneEntities, LookupFlags.Dynamic | LookupFlags.Sundries | LookupFlags.Approximate);
+
+        foreach (var candidate in _sceneEntities)
+        {
+            if (ShouldIgnoreSceneEntity(candidate, teamId, leader, patient, shuttle, shuttleAnchor))
+                continue;
+
+            if (!TryComp(candidate, out TransformComponent? candidateXform) ||
+                candidateXform.MapID != origin.MapId)
+            {
+                continue;
+            }
+
+            var hasMobState = TryComp<MobStateComponent>(candidate, out var mobState);
+            if (mobState?.CurrentState == MobState.Dead)
+                continue;
+
+            if (hasMobState)
+                crowdCount++;
+
+            var hostile = IsHostileToObserver(observer, candidate);
+            var activeCombatant = !hostile && IsActiveCombatant(observer, candidate);
+
+            if (hostile)
+                hostileCount++;
+            else if (activeCombatant)
+                combatantCount++;
+
+            if (hostile || activeCombatant)
+            {
+                var distance = (candidateXform.MapPosition.Position - origin.Position).LengthSquared();
+                if (distance < threatDistance)
+                {
+                    threatDistance = distance;
+                    threatTarget = candidate;
+                }
+            }
+
+            if (IsRouteBlocker(candidate, hasMobState))
+                blockerCount++;
+        }
+
+        _sceneEntities.Clear();
+
+        var summary = BuildSceneSummary(hostileCount, combatantCount, crowdCount, blockerCount);
+        return new LuaMRescueSceneSnapshot(
+            anchorUid,
+            ValidOrNull(threatTarget),
+            hostileCount,
+            combatantCount,
+            crowdCount,
+            blockerCount,
+            summary);
+    }
+
+    private bool UpdateTeamScene(LuaMRescueTeamComponent team, LuaMRescueSceneSnapshot scene)
+    {
+        var changed = false;
+
+        if (team.SceneAnchor != scene.Anchor)
+        {
+            team.SceneAnchor = scene.Anchor;
+            changed = true;
+        }
+
+        if (team.ThreatTarget != scene.ThreatTarget)
+        {
+            team.ThreatTarget = scene.ThreatTarget;
+            changed = true;
+        }
+
+        if (team.NearbyHostiles != scene.HostileCount)
+        {
+            team.NearbyHostiles = scene.HostileCount;
+            changed = true;
+        }
+
+        if (team.NearbyCombatants != scene.CombatantCount)
+        {
+            team.NearbyCombatants = scene.CombatantCount;
+            changed = true;
+        }
+
+        if (team.NearbyCrowd != scene.CrowdCount)
+        {
+            team.NearbyCrowd = scene.CrowdCount;
+            changed = true;
+        }
+
+        if (team.NearbyBlockers != scene.BlockerCount)
+        {
+            team.NearbyBlockers = scene.BlockerCount;
+            changed = true;
+        }
+
+        if (!string.Equals(team.LastSceneStatus, scene.Status, StringComparison.Ordinal))
+        {
+            team.LastSceneStatus = scene.Status;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private void ApplySceneToEscort(LuaMRescueEscortComponent escort, LuaMRescueSceneSnapshot scene)
+    {
+        escort.SceneAnchor = scene.Anchor;
+        escort.ThreatTarget = scene.ThreatTarget;
+        escort.NearbyHostiles = scene.HostileCount;
+        escort.NearbyCombatants = scene.CombatantCount;
+        escort.NearbyCrowd = scene.CrowdCount;
+        escort.NearbyBlockers = scene.BlockerCount;
+        escort.LastSceneStatus = scene.Status;
+    }
+
+    private bool ShouldIgnoreSceneEntity(
+        EntityUid candidate,
+        int teamId,
+        EntityUid? leader,
+        EntityUid? patient,
+        EntityUid? shuttle,
+        EntityUid? shuttleAnchor)
+    {
+        if (Deleted(candidate) ||
+            candidate == leader ||
+            candidate == patient ||
+            candidate == shuttle ||
+            candidate == shuttleAnchor)
+        {
+            return true;
+        }
+
+        if (TryComp<LuaMRescueTeamComponent>(candidate, out var team) &&
+            (teamId <= 0 || team.TeamId == teamId))
+        {
+            return true;
+        }
+
+        if (TryComp<LuaMRescueEscortComponent>(candidate, out var escort) &&
+            (teamId <= 0 || escort.TeamId == teamId))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsHostileToObserver(EntityUid observer, EntityUid candidate)
+    {
+        if (!TryComp<NpcFactionMemberComponent>(observer, out var observerFaction) ||
+            !TryComp<NpcFactionMemberComponent>(candidate, out var candidateFaction))
+        {
+            return false;
+        }
+
+        if (_factions.IsEntityFriendly((observer, observerFaction), (candidate, candidateFaction)))
+            return false;
+
+        return _factions.IsFactionHostile("NanoTrasen", (candidate, candidateFaction));
+    }
+
+    private bool IsActiveCombatant(EntityUid observer, EntityUid candidate)
+    {
+        if (!TryComp<CombatModeComponent>(candidate, out var combat) ||
+            !combat.IsInCombatMode)
+        {
+            return false;
+        }
+
+        return !IsFriendlyToObserver(observer, candidate);
+    }
+
+    private bool IsFriendlyToObserver(EntityUid observer, EntityUid candidate)
+    {
+        return TryComp<NpcFactionMemberComponent>(observer, out var observerFaction) &&
+            TryComp<NpcFactionMemberComponent>(candidate, out var candidateFaction) &&
+            _factions.IsEntityFriendly((observer, observerFaction), (candidate, candidateFaction));
+    }
+
+    private bool IsRouteBlocker(EntityUid candidate, bool hasMobState)
+    {
+        if (hasMobState ||
+            !TryComp<PhysicsComponent>(candidate, out var physics))
+        {
+            return false;
+        }
+
+        return physics.Hard &&
+            physics.CanCollide &&
+            physics.BodyType is not BodyType.Static and not BodyType.KinematicController;
+    }
+
+    private static bool HasSceneThreat(LuaMRescueEscortComponent escort)
+    {
+        return escort.ThreatTarget is { Valid: true } ||
+            escort.NearbyHostiles > 0 ||
+            escort.NearbyCombatants > 0;
+    }
+
+    private static string BuildSceneSummary(int hostiles, int combatants, int crowd, int blockers)
+    {
+        if (hostiles > 0)
+            return $"threat hostiles={hostiles} combatants={combatants} crowd={crowd} blockers={blockers}";
+
+        if (combatants > 0)
+            return $"armed pressure combatants={combatants} crowd={crowd} blockers={blockers}";
+
+        if (blockers >= RouteBlockerThreshold)
+            return $"route pressure crowd={crowd} blockers={blockers}";
+
+        if (crowd >= CrowdPressureThreshold)
+            return $"crowd pressure crowd={crowd} blockers={blockers}";
+
+        return $"scene clear crowd={crowd} blockers={blockers}";
     }
 
     private LuaMRescueEscortDuty GetEscortDuty(LuaMRescueEscortComponent escort)
@@ -259,8 +538,29 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (escort.Leader is { Valid: true } leader &&
             TryComp<LuaMRescueAgentComponent>(leader, out var rescue))
         {
-            if (rescue.TaskStage is LuaMRescueTaskStage.EvacuatingPatient or LuaMRescueTaskStage.DeliveringPatient ||
-                rescue.EvacuatingTarget is { Valid: true })
+            var evacuating = rescue.TaskStage is LuaMRescueTaskStage.EvacuatingPatient or LuaMRescueTaskStage.DeliveringPatient ||
+                rescue.EvacuatingTarget is { Valid: true };
+
+            if (HasSceneThreat(escort) &&
+                escort.Role == LuaMRescueEscortRole.Zaslon)
+            {
+                return LuaMRescueEscortDuty.ThreatScreen;
+            }
+
+            if (evacuating &&
+                escort.NearbyBlockers >= RouteBlockerThreshold &&
+                escort.Role != LuaMRescueEscortRole.Kostyl)
+            {
+                return LuaMRescueEscortDuty.ClearRoute;
+            }
+
+            if (escort.NearbyCrowd >= CrowdPressureThreshold &&
+                escort.Role == LuaMRescueEscortRole.Tourniquet)
+            {
+                return LuaMRescueEscortDuty.CrowdControl;
+            }
+
+            if (evacuating)
             {
                 return escort.Role switch
                 {
@@ -273,10 +573,28 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
             if (rescue.TaskStage == LuaMRescueTaskStage.TreatingPatient)
             {
+                if (escort.NearbyCrowd >= CrowdPressureThreshold &&
+                    escort.Role == LuaMRescueEscortRole.Tourniquet)
+                {
+                    return LuaMRescueEscortDuty.CrowdControl;
+                }
+
                 return escort.Role == LuaMRescueEscortRole.Kostyl
                     ? LuaMRescueEscortDuty.PatientSupport
                     : LuaMRescueEscortDuty.SecureScene;
             }
+        }
+
+        if (HasSceneThreat(escort) &&
+            escort.Role == LuaMRescueEscortRole.Zaslon)
+        {
+            return LuaMRescueEscortDuty.ThreatScreen;
+        }
+
+        if (escort.NearbyCrowd >= CrowdPressureThreshold &&
+            escort.Role == LuaMRescueEscortRole.Tourniquet)
+        {
+            return LuaMRescueEscortDuty.CrowdControl;
         }
 
         return escort.Role == LuaMRescueEscortRole.Kostyl
@@ -298,15 +616,21 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var shuttle = escort.Shuttle is { Valid: true } shuttleUid && !Deleted(shuttleUid)
             ? shuttleUid
             : (EntityUid?) null;
+        var threat = escort.ThreatTarget is { Valid: true } threatUid && !Deleted(threatUid)
+            ? threatUid
+            : (EntityUid?) null;
 
         return duty switch
         {
+            LuaMRescueEscortDuty.ThreatScreen => threat ?? patient ?? leader ?? shuttleAnchor ?? shuttle,
+            LuaMRescueEscortDuty.CrowdControl => patient ?? leader ?? shuttleAnchor ?? shuttle,
+            LuaMRescueEscortDuty.ClearRoute => leader ?? shuttleAnchor ?? patient ?? shuttle,
             LuaMRescueEscortDuty.SecureScene => escort.Role == LuaMRescueEscortRole.Zaslon
-                ? patient ?? leader ?? shuttleAnchor ?? shuttle
+                ? threat ?? patient ?? leader ?? shuttleAnchor ?? shuttle
                 : leader ?? patient ?? shuttleAnchor ?? shuttle,
             LuaMRescueEscortDuty.PatientSupport => patient ?? leader ?? shuttleAnchor ?? shuttle,
             LuaMRescueEscortDuty.EvacuationCorridor => escort.Role == LuaMRescueEscortRole.Zaslon
-                ? patient ?? shuttleAnchor ?? leader ?? shuttle
+                ? threat ?? patient ?? shuttleAnchor ?? leader ?? shuttle
                 : leader ?? patient ?? shuttleAnchor ?? shuttle,
             LuaMRescueEscortDuty.ReturnToShuttle => shuttleAnchor ?? shuttle ?? leader,
             _ => leader ?? shuttleAnchor ?? shuttle,
@@ -329,6 +653,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         var closeRange = duty switch
         {
+            LuaMRescueEscortDuty.ThreatScreen => 2.75f,
+            LuaMRescueEscortDuty.CrowdControl => 2.25f,
+            LuaMRescueEscortDuty.ClearRoute => 2.5f,
             LuaMRescueEscortDuty.SecureScene => escort.Role == LuaMRescueEscortRole.Zaslon ? 1.0f : 2.0f,
             LuaMRescueEscortDuty.EvacuationCorridor => escort.Role == LuaMRescueEscortRole.Kostyl ? 1.25f : 2.25f,
             LuaMRescueEscortDuty.PatientSupport => 1.25f,
@@ -338,6 +665,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         var followRange = duty switch
         {
+            LuaMRescueEscortDuty.ThreatScreen => 7f,
+            LuaMRescueEscortDuty.CrowdControl => 5.5f,
+            LuaMRescueEscortDuty.ClearRoute => 6.5f,
             LuaMRescueEscortDuty.SecureScene => 5.5f,
             LuaMRescueEscortDuty.EvacuationCorridor => 6f,
             LuaMRescueEscortDuty.PatientSupport => 4f,
@@ -401,10 +731,14 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         {
             (LuaMRescueEscortRole.Tourniquet, LuaMRescueEscortDuty.SecureScene) => "Медицинская зона. Дайте Айболиту пространство.",
             (LuaMRescueEscortRole.Tourniquet, LuaMRescueEscortDuty.EvacuationCorridor) => "Медицинский коридор, освободить.",
+            (LuaMRescueEscortRole.Tourniquet, LuaMRescueEscortDuty.CrowdControl) => "Держим медицинскую зону свободной.",
+            (LuaMRescueEscortRole.Tourniquet, LuaMRescueEscortDuty.ClearRoute) => "Маршрут эвакуации проверяю.",
             (LuaMRescueEscortRole.Kostyl, LuaMRescueEscortDuty.PatientSupport) => "Пациент в работе. Носилки морально готовы.",
             (LuaMRescueEscortRole.Kostyl, LuaMRescueEscortDuty.ReturnToShuttle) => "Возвращаюсь к шаттлу. Без пациента скучно, но легче.",
             (LuaMRescueEscortRole.Zaslon, LuaMRescueEscortDuty.SecureScene) => "Я встал. Сектор понял намек.",
             (LuaMRescueEscortRole.Zaslon, LuaMRescueEscortDuty.EvacuationCorridor) => "Пациент внутри периметра.",
+            (LuaMRescueEscortRole.Zaslon, LuaMRescueEscortDuty.ThreatScreen) => "Вижу угрозу. Держу сторону.",
+            (LuaMRescueEscortRole.Zaslon, LuaMRescueEscortDuty.ClearRoute) => "Коридор держу, лишнее обхожу.",
             _ => string.Empty,
         };
     }
@@ -463,6 +797,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             LuaMRescueEscortDuty.PatientSupport => "patient-support",
             LuaMRescueEscortDuty.EvacuationCorridor => "evacuation-corridor",
             LuaMRescueEscortDuty.ReturnToShuttle => "return-to-shuttle",
+            LuaMRescueEscortDuty.ThreatScreen => "threat-screen",
+            LuaMRescueEscortDuty.CrowdControl => "crowd-control",
+            LuaMRescueEscortDuty.ClearRoute => "clear-route",
             _ => "unknown",
         };
     }
@@ -483,5 +820,24 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             LuaMRescueTeamPhase.ReturnOrExtract => "return-or-extract",
             _ => "unknown",
         };
+    }
+
+    private readonly record struct LuaMRescueSceneSnapshot(
+        EntityUid? Anchor,
+        EntityUid? ThreatTarget,
+        int HostileCount,
+        int CombatantCount,
+        int CrowdCount,
+        int BlockerCount,
+        string Status)
+    {
+        public static LuaMRescueSceneSnapshot Clear => new(
+            null,
+            null,
+            0,
+            0,
+            0,
+            0,
+            "scene clear");
     }
 }
