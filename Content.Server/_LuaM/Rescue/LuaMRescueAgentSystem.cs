@@ -1351,7 +1351,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         HTNComponent htn,
         string status)
     {
+        var completedAction = rescue.PendingPlayerAction;
         ClearPendingPlayerAction(rescue, status);
+
+        if (!status.StartsWith("failed", StringComparison.OrdinalIgnoreCase) &&
+            completedAction is LuaMRescuePlayerActionKind.Pickup
+                or LuaMRescuePlayerActionKind.TakeStorage
+                or LuaMRescuePlayerActionKind.Vend)
+        {
+            rescue.NextAutoTreatmentAttempt = _timing.CurTime;
+        }
+
         StandbyAtAssignedShuttle(uid, rescue, htn);
         Dirty(uid, rescue);
     }
@@ -1722,7 +1732,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue.LastAutoTreatmentStatus = status;
             if (status.StartsWith("no usable medical item", StringComparison.OrdinalIgnoreCase))
             {
-                if (TryStartAutoResupplyFromVending(uid, rescue, htn, out var supplyStatus))
+                if (TryStartAutoPickupNearbyMedicalSupply(uid, rescue, htn, target, out var supplyStatus))
+                {
+                    rescue.LastAutoSupplyStatus = supplyStatus;
+                    Dirty(uid, rescue);
+                    return true;
+                }
+
+                if (TryStartAutoResupplyFromVending(uid, rescue, htn, out supplyStatus))
                 {
                     rescue.LastAutoSupplyStatus = supplyStatus;
                     Dirty(uid, rescue);
@@ -1749,6 +1766,88 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         SetFollowTarget(uid, rescue, htn, target);
         return true;
+    }
+
+    private bool TryStartAutoPickupNearbyMedicalSupply(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target,
+        out string status)
+    {
+        status = string.Empty;
+
+        if (!rescue.AutoPickupNearbyMedicalSupplies ||
+            rescue.AutoPickupSupplyRange <= 0f)
+        {
+            return false;
+        }
+
+        if (!TryComp<HandsComponent>(uid, out var hands) ||
+            !_hands.TryGetEmptyHand(uid, out _, hands))
+        {
+            status = "no empty hand for nearby medical supply";
+            return false;
+        }
+
+        if (!TryFindNearbyMedicalSupply(uid, target, rescue.AutoPickupSupplyRange, out var supplyUid, out status))
+            return false;
+
+        rescue.PendingPlayerAction = LuaMRescuePlayerActionKind.Pickup;
+        rescue.PendingPlayerActionTarget = supplyUid;
+        rescue.PendingPlayerActionSlot = null;
+        rescue.PendingPlayerActionItem = null;
+        rescue.PendingVendingStarted = false;
+        rescue.PendingVendingProduct = null;
+        rescue.PlayerActionAccumulator = 0f;
+        rescue.LastPlayerActionStatus = $"pending pickup {FormatEntityRef(supplyUid)}";
+        SetFollowTarget(uid, rescue, htn, supplyUid);
+
+        status = $"collecting nearby {FormatEntityRef(supplyUid)}";
+        return true;
+    }
+
+    private bool TryFindNearbyMedicalSupply(
+        EntityUid uid,
+        EntityUid target,
+        float searchRange,
+        out EntityUid supplyUid,
+        out string status)
+    {
+        supplyUid = default;
+        status = string.Empty;
+
+        var bestScore = float.MinValue;
+        foreach (var candidate in _lookup.GetEntitiesInRange(uid, searchRange))
+        {
+            if (candidate == uid ||
+                candidate == target ||
+                Deleted(candidate) ||
+                _container.IsEntityOrParentInContainer(candidate))
+            {
+                continue;
+            }
+
+            var itemScore = GetTreatmentItemScore(candidate, target, itemSelector: null, includeDiagnosticItems: false);
+            if (itemScore <= 0f ||
+                !TryGetDistance(uid, candidate, out var distance))
+            {
+                continue;
+            }
+
+            var score = itemScore * 100f - distance;
+            if (score <= bestScore)
+                continue;
+
+            supplyUid = candidate;
+            bestScore = score;
+        }
+
+        if (supplyUid is { Valid: true })
+            return true;
+
+        status = $"no nearby medical supply found within {searchRange:0.0}m";
+        return false;
     }
 
     private bool TryStartAutoResupplyFromVending(

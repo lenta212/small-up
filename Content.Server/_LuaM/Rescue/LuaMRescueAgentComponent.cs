@@ -46,6 +46,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoTreatWithCarriedItems = true;
 
     [DataField]
+    public bool AutoPickupNearbyMedicalSupplies = true;
+
+    [DataField]
     public bool AutoResupplyFromVending = true;
 
     [DataField]
@@ -95,6 +98,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     [DataField]
     public float AutoTreatCooldown = 6f;
+
+    [DataField]
+    public float AutoPickupSupplyRange = 12f;
 
     [DataField]
     public float AutoResupplyRange = 24f;
