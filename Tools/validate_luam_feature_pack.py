@@ -2183,6 +2183,7 @@ def main() -> int:
         "luam_rescue_order",
         "luam_rescue_action",
         "luam_rescue_shuttle",
+        "action=stop-pull",
         "dangerChat",
         "safeChat",
         "len(requests) == 5",
@@ -3082,10 +3083,13 @@ def main() -> int:
     assert_contains(rescue_agent_system, "UpdatePendingPlayerAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryExecutePlayerAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "LuaMRescueActionCommand", "LuaMRescueActionCommand")
-    assert_contains(rescue_agent_system, "<interact|alt|use|pickup|drop|clear>", "LuaMRescueActionCommand")
+    assert_contains(rescue_agent_system, "<interact|alt|use|pickup|drop|pull|stop-pull|buckle|clear>", "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, "InteractUsing", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryPickupAnyHand", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryDrop", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryStartPull", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryStopPull", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryBuckle", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "LuaMRescueOrderCommand", "LuaMRescueOrderCommand")
     assert_contains(rescue_agent_system, "agent=<entity|", "LuaMRescueOrderCommand")
     assert_contains(rescue_agent_system, "target=<entity|player>", "LuaMRescueOrderCommand")

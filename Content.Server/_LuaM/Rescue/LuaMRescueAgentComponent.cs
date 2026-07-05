@@ -125,4 +125,7 @@ public enum LuaMRescuePlayerActionKind : byte
     Use,
     Pickup,
     Drop,
+    Pull,
+    StopPull,
+    Buckle,
 }

@@ -491,6 +491,100 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                     : "could not drop active hand";
                 return dropped;
             }
+            case LuaMRescuePlayerActionKind.Pull:
+            {
+                if (target is not { Valid: true } targetUid)
+                {
+                    status = "target missing";
+                    return false;
+                }
+
+                if (!TryComp<PullableComponent>(targetUid, out _))
+                {
+                    status = $"{FormatEntityRef(targetUid)} is not pullable";
+                    return false;
+                }
+
+                if (!IsPullingTarget(uid, targetUid))
+                    _pulling.TryStartPull(uid, targetUid);
+
+                var pulling = IsPullingTarget(uid, targetUid);
+                status = pulling
+                    ? $"pulling {FormatEntityRef(targetUid)}"
+                    : $"could not start pulling {FormatEntityRef(targetUid)}";
+                return pulling;
+            }
+            case LuaMRescuePlayerActionKind.StopPull:
+            {
+                var targetWasExplicit = target is { Valid: true };
+                EntityUid? pulled = targetWasExplicit
+                    ? target
+                    : TryComp<PullerComponent>(uid, out var puller)
+                        ? puller.Pulling
+                        : null;
+
+                if (pulled is not { Valid: true } pulledUid)
+                {
+                    status = "not pulling anything";
+                    return true;
+                }
+
+                if (targetWasExplicit && !IsPullingTarget(uid, pulledUid))
+                {
+                    status = $"not pulling {FormatEntityRef(pulledUid)}";
+                    return false;
+                }
+
+                if (!TryComp<PullableComponent>(pulledUid, out var pullable))
+                {
+                    status = $"{FormatEntityRef(pulledUid)} is not pullable";
+                    return false;
+                }
+
+                var stopped = _pulling.TryStopPull(pulledUid, pullable, uid);
+                status = stopped
+                    ? $"stopped pulling {FormatEntityRef(pulledUid)}"
+                    : $"could not stop pulling {FormatEntityRef(pulledUid)}";
+                return stopped;
+            }
+            case LuaMRescuePlayerActionKind.Buckle:
+            {
+                if (target is not { Valid: true } strapUid)
+                {
+                    status = "target missing";
+                    return false;
+                }
+
+                if (!TryComp<StrapComponent>(strapUid, out var strap))
+                {
+                    status = $"{FormatEntityRef(strapUid)} is not a strap";
+                    return false;
+                }
+
+                if (!strap.Enabled)
+                {
+                    status = $"{FormatEntityRef(strapUid)} strap is disabled";
+                    return false;
+                }
+
+                var buckledEntity = TryComp<PullerComponent>(uid, out var puller) &&
+                                    puller.Pulling is { Valid: true } pulled &&
+                                    !Deleted(pulled)
+                    ? pulled
+                    : uid;
+
+                if (!TryComp<BuckleComponent>(buckledEntity, out var buckle))
+                {
+                    status = $"{FormatEntityRef(buckledEntity)} cannot be buckled";
+                    return false;
+                }
+
+                var buckled = _buckle.TryBuckle(buckledEntity, uid, strapUid, buckle, popup: false);
+                status = buckled
+                    ? $"buckled {FormatEntityRef(buckledEntity)} to {FormatEntityRef(strapUid)}"
+                    : $"could not buckle {FormatEntityRef(buckledEntity)} to {FormatEntityRef(strapUid)}";
+                return buckled;
+            }
             default:
                 status = "unsupported player action";
                 return false;
@@ -512,7 +606,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         return action is LuaMRescuePlayerActionKind.Interact
             or LuaMRescuePlayerActionKind.AltInteract
-            or LuaMRescuePlayerActionKind.Pickup;
+            or LuaMRescuePlayerActionKind.Pickup
+            or LuaMRescuePlayerActionKind.Pull
+            or LuaMRescuePlayerActionKind.Buckle;
     }
 
     private static string FormatPlayerAction(LuaMRescuePlayerActionKind action)
@@ -524,6 +620,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             LuaMRescuePlayerActionKind.Use => "use",
             LuaMRescuePlayerActionKind.Pickup => "pickup",
             LuaMRescuePlayerActionKind.Drop => "drop",
+            LuaMRescuePlayerActionKind.Pull => "pull",
+            LuaMRescuePlayerActionKind.StopPull => "stop-pull",
+            LuaMRescuePlayerActionKind.Buckle => "buckle",
             _ => "none",
         };
     }
@@ -1708,6 +1807,9 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
         "use",
         "pickup",
         "drop",
+        "pull",
+        "stop-pull",
+        "buckle",
         "clear",
     ];
 
@@ -1717,7 +1819,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
     public string Command => "luam_rescue_action";
     public string Description => "Orders active LuaM rescue agents to perform player-like interactions.";
     public string Help =>
-        $"Usage: {Command} {ActionKey}=<interact|alt|use|pickup|drop|clear> " +
+        $"Usage: {Command} {ActionKey}=<interact|alt|use|pickup|drop|pull|stop-pull|buckle|clear> " +
         $"[agent=<entity|{NearestAgentValue}|{AllAgentsValue}>] [target=<entity|player>]";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
@@ -1730,7 +1832,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
         if (string.IsNullOrWhiteSpace(actionArg) ||
             !TryParseAction(actionArg, out var action))
         {
-            shell.WriteError($"Pass {ActionKey}=<interact|alt|use|pickup|drop|clear>.");
+            shell.WriteError($"Pass {ActionKey}=<interact|alt|use|pickup|drop|pull|stop-pull|buckle|clear>.");
             return;
         }
 
@@ -1955,6 +2057,9 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             "use" or "use-held" or "usehand" => LuaMRescuePlayerActionKind.Use,
             "pickup" or "pick-up" or "take" or "grab" => LuaMRescuePlayerActionKind.Pickup,
             "drop" => LuaMRescuePlayerActionKind.Drop,
+            "pull" or "drag" => LuaMRescuePlayerActionKind.Pull,
+            "stop-pull" or "stoppull" or "unpull" or "release" => LuaMRescuePlayerActionKind.StopPull,
+            "buckle" or "strap" or "seat" => LuaMRescuePlayerActionKind.Buckle,
             "clear" or "cancel" or "standby" => LuaMRescuePlayerActionKind.None,
             _ => LuaMRescuePlayerActionKind.None,
         };
@@ -1969,7 +2074,9 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
     {
         return action is LuaMRescuePlayerActionKind.Interact
             or LuaMRescuePlayerActionKind.AltInteract
-            or LuaMRescuePlayerActionKind.Pickup;
+            or LuaMRescuePlayerActionKind.Pickup
+            or LuaMRescuePlayerActionKind.Pull
+            or LuaMRescuePlayerActionKind.Buckle;
     }
 
     private static string FormatAction(LuaMRescuePlayerActionKind action)
@@ -1981,6 +2088,9 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             LuaMRescuePlayerActionKind.Use => "use",
             LuaMRescuePlayerActionKind.Pickup => "pickup",
             LuaMRescuePlayerActionKind.Drop => "drop",
+            LuaMRescuePlayerActionKind.Pull => "pull",
+            LuaMRescuePlayerActionKind.StopPull => "stop-pull",
+            LuaMRescuePlayerActionKind.Buckle => "buckle",
             _ => "clear",
         };
     }
