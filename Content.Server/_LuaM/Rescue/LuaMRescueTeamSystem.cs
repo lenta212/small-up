@@ -30,6 +30,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const int SceneMemoryLimit = 8;
     private const double SceneMemoryLifetimeSeconds = 90;
     private const double SceneMemoryReinforceSeconds = 18;
+    private const double SortiePlanHoldSeconds = 4;
 
     private static readonly (LuaMRescueEscortRole Role, Vector2 Offset)[] EscortFormation =
     [
@@ -94,6 +95,10 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.SortiePlan = team.Patient is { Valid: true }
             ? LuaMRescueSortiePlan.ApproachPatient
             : LuaMRescueSortiePlan.Standby;
+        team.SortiePlanUpdatedAt = _timing.CurTime;
+        team.PendingSortiePlan = team.SortiePlan;
+        team.PendingSortiePlanSince = _timing.CurTime;
+        team.SortiePlanTransitions = 0;
         team.LastSortiePlanStatus = $"plan {FormatPlan(team.SortiePlan)} after dispatch";
         team.LastStatus = "autonomous rescue team deployed";
         team.LastMemoryDigest = "memory clear";
@@ -126,7 +131,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             PruneTeamEscorts(team);
             lines.Add(
                 $"team={team.TeamId}; leader={FormatEntityRef(uid)}; phase={FormatPhase(team.Phase)}; " +
-                $"plan={FormatPlan(team.SortiePlan)}; " +
+                $"plan={FormatPlan(team.SortiePlan)}; planAge={GetSortiePlanAgeSeconds(team)}s; planTransitions={team.SortiePlanTransitions}; " +
                 $"patient={FormatEntityRef(team.Patient)}; shuttle={FormatEntityRef(team.Shuttle)}; " +
                 $"escorts={team.Escorts.Count}; scene={team.LastSceneStatus}; " +
                 $"threat={FormatEntityRef(team.ThreatTarget)}; crowd={team.NearbyCrowd}; " +
@@ -157,7 +162,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             var escortCount = team.Escorts.Count(escort => escort.Valid && !Deleted(escort));
             lines.Add(
                 $"ADMIN_ONLY: rescue sortie digest: team={team.TeamId}; autonomy=escort-group; " +
-                $"phase={FormatPhase(team.Phase)}; plan={FormatPlan(team.SortiePlan)}; escorts={escortCount}; scene={team.LastSceneStatus}; " +
+                $"phase={FormatPhase(team.Phase)}; plan={FormatPlan(team.SortiePlan)}; planAge={GetSortiePlanAgeSeconds(team)}s; " +
+                $"planTransitions={team.SortiePlanTransitions}; escorts={escortCount}; scene={team.LastSceneStatus}; " +
                 $"pressure(threat/crowd/route)={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
                 $"memory={team.LastMemoryDigest}; planStatus={team.LastSortiePlanStatus}; identities=withheld; coordinates=withheld.");
         }
@@ -294,22 +300,128 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         LuaMRescueTeamPhase phase,
         EntityUid? patient)
     {
-        var (plan, status) = SelectSortiePlan(team, phase, patient);
+        var (candidatePlan, candidateStatus) = SelectSortiePlan(team, phase, patient);
+        var now = _timing.CurTime;
+        var changed = false;
+
+        if (candidatePlan == team.SortiePlan)
+        {
+            if (team.PendingSortiePlan != candidatePlan)
+            {
+                team.PendingSortiePlan = candidatePlan;
+                team.PendingSortiePlanSince = team.SortiePlanUpdatedAt;
+                changed = true;
+            }
+
+            changed |= SetSortiePlanStatus(team, BuildActiveSortiePlanStatus(team, candidateStatus));
+            return changed;
+        }
+
+        if (IsUrgentSortiePlan(candidatePlan, phase, patient))
+        {
+            changed |= CommitSortiePlan(team, candidatePlan, now);
+            changed |= SetSortiePlanStatus(team, BuildActiveSortiePlanStatus(team, $"immediate transition; {candidateStatus}"));
+            return changed;
+        }
+
+        if (team.PendingSortiePlan != candidatePlan)
+        {
+            team.PendingSortiePlan = candidatePlan;
+            team.PendingSortiePlanSince = now;
+            changed = true;
+        }
+
+        if ((now - team.PendingSortiePlanSince).TotalSeconds >= SortiePlanHoldSeconds)
+        {
+            changed |= CommitSortiePlan(team, candidatePlan, now);
+            changed |= SetSortiePlanStatus(team, BuildActiveSortiePlanStatus(team, $"confirmed transition; {candidateStatus}"));
+            return changed;
+        }
+
+        changed |= SetSortiePlanStatus(team, BuildHoldingSortiePlanStatus(team, candidatePlan, candidateStatus, now));
+        return changed;
+    }
+
+    private static bool CommitSortiePlan(
+        LuaMRescueTeamComponent team,
+        LuaMRescueSortiePlan plan,
+        TimeSpan now)
+    {
         var changed = false;
 
         if (team.SortiePlan != plan)
         {
             team.SortiePlan = plan;
+            team.SortiePlanUpdatedAt = now;
+            team.SortiePlanTransitions++;
             changed = true;
         }
 
-        if (!string.Equals(team.LastSortiePlanStatus, status, StringComparison.Ordinal))
+        if (team.PendingSortiePlan != plan)
         {
-            team.LastSortiePlanStatus = status;
+            team.PendingSortiePlan = plan;
+            changed = true;
+        }
+
+        if (team.PendingSortiePlanSince != now)
+        {
+            team.PendingSortiePlanSince = now;
             changed = true;
         }
 
         return changed;
+    }
+
+    private static bool SetSortiePlanStatus(LuaMRescueTeamComponent team, string status)
+    {
+        if (string.Equals(team.LastSortiePlanStatus, status, StringComparison.Ordinal))
+            return false;
+
+        team.LastSortiePlanStatus = status;
+        return true;
+    }
+
+    private static string BuildActiveSortiePlanStatus(
+        LuaMRescueTeamComponent team,
+        string candidateStatus)
+    {
+        return $"plan {FormatPlan(team.SortiePlan)} active; transitions={team.SortiePlanTransitions}; {candidateStatus}";
+    }
+
+    private static string BuildHoldingSortiePlanStatus(
+        LuaMRescueTeamComponent team,
+        LuaMRescueSortiePlan candidatePlan,
+        string candidateStatus,
+        TimeSpan now)
+    {
+        var pendingSeconds = GetElapsedSeconds(team.PendingSortiePlanSince, now);
+        return $"plan {FormatPlan(team.SortiePlan)} holding candidate {FormatPlan(candidatePlan)} " +
+            $"{pendingSeconds}s/{SortiePlanHoldSeconds:0}s; transitions={team.SortiePlanTransitions}; {candidateStatus}";
+    }
+
+    private static bool IsUrgentSortiePlan(
+        LuaMRescueSortiePlan plan,
+        LuaMRescueTeamPhase phase,
+        EntityUid? patient)
+    {
+        if (patient is not { Valid: true })
+            return true;
+
+        if (plan == LuaMRescueSortiePlan.ThreatScreen)
+            return true;
+
+        return plan == LuaMRescueSortiePlan.ClearRoute &&
+            phase is LuaMRescueTeamPhase.PrepareEvacuation or LuaMRescueTeamPhase.EvacuateToShuttle;
+    }
+
+    private int GetSortiePlanAgeSeconds(LuaMRescueTeamComponent team)
+    {
+        return GetElapsedSeconds(team.SortiePlanUpdatedAt, _timing.CurTime);
+    }
+
+    private static int GetElapsedSeconds(TimeSpan startedAt, TimeSpan now)
+    {
+        return Math.Max(0, (int) (now - startedAt).TotalSeconds);
     }
 
     private void SyncEscortContextFromLeader(LuaMRescueEscortComponent escort)

@@ -576,6 +576,8 @@ def main() -> int:
         "LuaMAiDirectorGatewayToken",
         "LuaMAiDirectorFallbackEnabled",
         "LuaMAiDirectorAdminMode",
+        "LuaMAiDirectorGameMasterMode",
+        "game_master_mode",
         "LuaMAiDirectorLocalBridgeEnabled",
         "LuaMAiDirectorLocalBridgeUnsafeActionsEnabled",
         "local_bridge_unsafe_actions_enabled",
@@ -966,6 +968,7 @@ def main() -> int:
         "IgnoreOpenLead",
         "ChatTranscript",
         "CanRunServerActions",
+        "GameMasterModeEnabled",
         "HasPendingConfirmation",
         "PendingConfirmationId",
         "PendingConfirmationTitle",
@@ -1997,6 +2000,7 @@ def main() -> int:
             "luam-ai-director-mode-auto",
             "luam-ai-director-mode-auto-pulse",
             "luam-ai-director-mode-max-danger",
+            "luam-ai-director-mode-game-master",
             "luam-ai-director-result",
         } - keys
         if missing:
@@ -2117,6 +2121,8 @@ def main() -> int:
         "autonomy=escort-group",
         "sortie planner",
         "plan=...",
+        "planAge=...",
+        "planTransitions=...",
         "take medical supplies from accessible nearby storage",
         "take-target-storage",
         "store collected medical supplies",
@@ -3287,6 +3293,8 @@ def main() -> int:
     assert_contains(rescue_team_system, "rescue sortie digest", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "autonomy=escort-group", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "plan=", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "planAge=", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "planTransitions=", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "planStatus=", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "identities=withheld", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "coordinates=withheld", "LuaMRescueTeamSystem")
@@ -3355,6 +3363,10 @@ def main() -> int:
     assert_contains(rescue_team_component, "LuaMRescueTeamPhase", "LuaMRescueTeamPhase")
     assert_contains(rescue_team_component, "LuaMRescueSortiePlan", "LuaMRescueSortiePlan")
     assert_contains(rescue_team_component, "SortiePlan", "LuaMRescueSortiePlan")
+    assert_contains(rescue_team_component, "SortiePlanUpdatedAt", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "PendingSortiePlan", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "PendingSortiePlanSince", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "SortiePlanTransitions", "LuaMRescueTeamComponent")
     assert_contains(rescue_team_component, "LastSortiePlanStatus", "LuaMRescueTeamComponent")
     assert_contains(rescue_team_component, "LuaMRescueEscortDuty", "LuaMRescueEscortDuty")
     assert_contains(rescue_team_component, "SceneAnchor", "LuaMRescueTeamComponent")
@@ -3382,6 +3394,10 @@ def main() -> int:
     assert_contains(rescue_team_system, "UpdateEscortDuty", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "UpdateSortiePlan", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "SelectSortiePlan", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "SortiePlanHoldSeconds", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "CommitSortiePlan", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "IsUrgentSortiePlan", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "holding candidate", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "GetPlannedEscortDuty", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "GetEscortDuty", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "SetEscortFollowTarget", "LuaMRescueTeamSystem")

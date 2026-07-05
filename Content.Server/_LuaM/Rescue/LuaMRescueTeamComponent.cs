@@ -28,6 +28,18 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public LuaMRescueSortiePlan SortiePlan = LuaMRescueSortiePlan.Standby;
 
     [DataField]
+    public TimeSpan SortiePlanUpdatedAt;
+
+    [DataField]
+    public LuaMRescueSortiePlan PendingSortiePlan = LuaMRescueSortiePlan.Standby;
+
+    [DataField]
+    public TimeSpan PendingSortiePlanSince;
+
+    [DataField]
+    public int SortiePlanTransitions;
+
+    [DataField]
     public string LastSortiePlanStatus = "plan standby";
 
     [DataField]
