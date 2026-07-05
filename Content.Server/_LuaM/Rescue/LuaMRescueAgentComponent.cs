@@ -40,6 +40,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool BucklePatientsOnShuttle = true;
 
     [DataField]
+    public bool AutoUnbucklePatientsForEvacuation = true;
+
+    [DataField]
     public bool PreferStasisBedDelivery = true;
 
     [DataField]
@@ -162,6 +165,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public string LastAutoAnalyzeStatus = "none";
 
     [DataField]
+    public string LastAutoEvacuationStatus = "none";
+
+    [DataField]
     public string LastAutoSupplyStatus = "none";
 
     public bool PendingVendingStarted;
@@ -183,6 +189,7 @@ public enum LuaMRescuePlayerActionKind : byte
     Pull,
     StopPull,
     Buckle,
+    Unbuckle,
     EquipSlot,
     UnequipSlot,
     StoreSlot,

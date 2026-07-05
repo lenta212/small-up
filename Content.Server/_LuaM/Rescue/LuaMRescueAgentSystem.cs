@@ -325,7 +325,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"target={FormatEntityRef(target)}; shuttle={FormatEntityRef(rescue.AssignedShuttle)}; " +
                $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
                $"skipped={rescue.SkippedTargets.Count}; autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
-               $"autoTreat={rescue.LastAutoTreatmentStatus}; " +
+               $"autoTreat={rescue.LastAutoTreatmentStatus}; autoEvac={rescue.LastAutoEvacuationStatus}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
     }
@@ -689,6 +689,24 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                     : $"could not buckle {FormatEntityRef(buckledEntity)} to {FormatEntityRef(strapUid)}";
                 return buckled;
             }
+            case LuaMRescuePlayerActionKind.Unbuckle:
+            {
+                if (target is not { Valid: true } targetUid)
+                {
+                    status = "target missing";
+                    return false;
+                }
+
+                if (!TryResolveUnbuckleTarget(targetUid, out var buckledEntity, out var buckle, out status))
+                    return false;
+
+                var oldStrap = buckle.BuckledTo;
+                var unbuckled = _buckle.TryUnbuckle(buckledEntity, uid, buckle, popup: false);
+                status = unbuckled
+                    ? $"unbuckled {FormatEntityRef(buckledEntity)} from {FormatEntityRef(oldStrap)}"
+                    : $"could not unbuckle {FormatEntityRef(buckledEntity)} from {FormatEntityRef(oldStrap)}";
+                return unbuckled;
+            }
             case LuaMRescuePlayerActionKind.EquipSlot:
             {
                 if (string.IsNullOrWhiteSpace(slot))
@@ -855,6 +873,46 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         storage = storageComp;
         storageUid = slotItem;
         return true;
+    }
+
+    private bool TryResolveUnbuckleTarget(
+        EntityUid target,
+        out EntityUid buckledEntity,
+        out BuckleComponent buckle,
+        out string status)
+    {
+        buckledEntity = default;
+        buckle = default!;
+        status = string.Empty;
+
+        if (TryComp<BuckleComponent>(target, out var targetBuckle) &&
+            targetBuckle.BuckledTo is { Valid: true })
+        {
+            buckledEntity = target;
+            buckle = targetBuckle;
+            return true;
+        }
+
+        if (TryComp<StrapComponent>(target, out var strap))
+        {
+            foreach (var strapped in strap.BuckledEntities)
+            {
+                if (!Deleted(strapped) &&
+                    TryComp<BuckleComponent>(strapped, out var strappedBuckle) &&
+                    strappedBuckle.BuckledTo == target)
+                {
+                    buckledEntity = strapped;
+                    buckle = strappedBuckle;
+                    return true;
+                }
+            }
+
+            status = $"{FormatEntityRef(target)} has no buckled patient";
+            return false;
+        }
+
+        status = $"{FormatEntityRef(target)} is not buckled and is not a strap";
+        return false;
     }
 
     private bool TryStoreHeldItemInStorage(
@@ -1553,7 +1611,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             or LuaMRescuePlayerActionKind.Vend
             or LuaMRescuePlayerActionKind.Pickup
             or LuaMRescuePlayerActionKind.Pull
-            or LuaMRescuePlayerActionKind.Buckle;
+            or LuaMRescuePlayerActionKind.Buckle
+            or LuaMRescuePlayerActionKind.Unbuckle;
     }
 
     private static bool RequiresPlayerActionSlot(LuaMRescuePlayerActionKind action)
@@ -1608,6 +1667,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             LuaMRescuePlayerActionKind.Pull => "pull",
             LuaMRescuePlayerActionKind.StopPull => "stop-pull",
             LuaMRescuePlayerActionKind.Buckle => "buckle",
+            LuaMRescuePlayerActionKind.Unbuckle => "unbuckle",
             LuaMRescuePlayerActionKind.EquipSlot => "equip-slot",
             LuaMRescuePlayerActionKind.UnequipSlot => "unequip-slot",
             LuaMRescuePlayerActionKind.StoreSlot => "store-slot",
@@ -1804,6 +1864,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
         }
 
+        if (!IsPullingTarget(uid, target) &&
+            TryAutoUnbucklePatientForEvacuation(uid, target, rescue, htn))
+        {
+            return true;
+        }
+
         if (TryFindPatientDeliveryStrap(rescue, out var patientStrap, out _))
         {
             rescue.AssignedPatientStrap = patientStrap;
@@ -1870,6 +1936,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (TryAutoTreatTarget(uid, rescue, htn, target))
             return true;
 
+        if (!IsPullingTarget(uid, target) &&
+            TryAutoUnbucklePatientForEvacuation(uid, target, rescue, htn))
+        {
+            return true;
+        }
+
         if (!IsWithinRange(uid, target, rescue.EvacuationStartRange))
         {
             SetFollowTarget(uid, rescue, htn, target);
@@ -1885,6 +1957,41 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         return SetFollowShuttle(uid, rescue, htn);
+    }
+
+    private bool TryAutoUnbucklePatientForEvacuation(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (!rescue.AutoUnbucklePatientsForEvacuation ||
+            !TryComp<BuckleComponent>(target, out var buckle) ||
+            buckle.BuckledTo is not { Valid: true } strap ||
+            Deleted(strap) ||
+            IsAssignedShuttlePatientStrap(strap, rescue))
+        {
+            return false;
+        }
+
+        if (!IsWithinRange(uid, strap, buckle.Range))
+        {
+            rescue.LastAutoEvacuationStatus = $"moving to unbuckle {FormatEntityRef(target)} from {FormatEntityRef(strap)}";
+            SetFollowTarget(uid, rescue, htn, target);
+            return true;
+        }
+
+        var unbuckled = _buckle.TryUnbuckle(target, uid, buckle, popup: false);
+        rescue.LastAutoEvacuationStatus = unbuckled
+            ? $"unbuckled {FormatEntityRef(target)} from {FormatEntityRef(strap)} for evacuation"
+            : $"could not unbuckle {FormatEntityRef(target)} from {FormatEntityRef(strap)} for evacuation";
+
+        if (!unbuckled)
+            SetFollowTarget(uid, rescue, htn, target);
+        else
+            Dirty(uid, rescue);
+
+        return true;
     }
 
     private bool TryAutoAnalyzeTarget(
@@ -3136,6 +3243,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
         "pull",
         "stop-pull",
         "buckle",
+        "unbuckle",
         "equip-slot",
         "unequip-slot",
         "store-slot",
@@ -3186,7 +3294,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
     public string Command => "luam_rescue_action";
     public string Description => "Orders active LuaM rescue agents to perform player-like interactions.";
     public string Help =>
-        $"Usage: {Command} {ActionKey}=<interact|alt|use|treat|vend|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|store-slot|take-storage|clear> " +
+        $"Usage: {Command} {ActionKey}=<interact|alt|use|treat|vend|pickup|drop|pull|stop-pull|buckle|unbuckle|equip-slot|unequip-slot|store-slot|take-storage|clear> " +
         $"[agent=<entity|{NearestAgentValue}|{AllAgentsValue}>] [target=<entity|player>] [slot=<inventorySlot>] [item=<name|prototype|entity>]";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
@@ -3199,7 +3307,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
         if (string.IsNullOrWhiteSpace(actionArg) ||
             !TryParseAction(actionArg, out var action))
         {
-            shell.WriteError($"Pass {ActionKey}=<interact|alt|use|treat|vend|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|store-slot|take-storage|clear>.");
+            shell.WriteError($"Pass {ActionKey}=<interact|alt|use|treat|vend|pickup|drop|pull|stop-pull|buckle|unbuckle|equip-slot|unequip-slot|store-slot|take-storage|clear>.");
             return;
         }
 
@@ -3477,6 +3585,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             "pull" or "drag" => LuaMRescuePlayerActionKind.Pull,
             "stop-pull" or "stoppull" or "unpull" or "release" => LuaMRescuePlayerActionKind.StopPull,
             "buckle" or "strap" or "seat" => LuaMRescuePlayerActionKind.Buckle,
+            "unbuckle" or "unstrap" or "unseat" => LuaMRescuePlayerActionKind.Unbuckle,
             "equip-slot" or "equipslot" or "equip" or "wear" => LuaMRescuePlayerActionKind.EquipSlot,
             "unequip-slot" or "unequipslot" or "unequip" or "take-slot" or "draw-slot" => LuaMRescuePlayerActionKind.UnequipSlot,
             "store-slot" or "storeslot" or "store" or "stow" => LuaMRescuePlayerActionKind.StoreSlot,
@@ -3499,7 +3608,8 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             or LuaMRescuePlayerActionKind.Vend
             or LuaMRescuePlayerActionKind.Pickup
             or LuaMRescuePlayerActionKind.Pull
-            or LuaMRescuePlayerActionKind.Buckle;
+            or LuaMRescuePlayerActionKind.Buckle
+            or LuaMRescuePlayerActionKind.Unbuckle;
     }
 
     private static bool ActionRequiresSlot(LuaMRescuePlayerActionKind action)
@@ -3524,6 +3634,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             LuaMRescuePlayerActionKind.Pull => "pull",
             LuaMRescuePlayerActionKind.StopPull => "stop-pull",
             LuaMRescuePlayerActionKind.Buckle => "buckle",
+            LuaMRescuePlayerActionKind.Unbuckle => "unbuckle",
             LuaMRescuePlayerActionKind.EquipSlot => "equip-slot",
             LuaMRescuePlayerActionKind.UnequipSlot => "unequip-slot",
             LuaMRescuePlayerActionKind.StoreSlot => "store-slot",

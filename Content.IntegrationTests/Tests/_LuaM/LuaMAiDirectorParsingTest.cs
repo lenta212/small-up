@@ -188,6 +188,7 @@ public sealed class LuaMAiDirectorParsingTest
     [TestCase("luam_rescue_action action=drop")]
     [TestCase("luam_rescue_action action=pull target=123")]
     [TestCase("luam_rescue_action action=buckle target=123")]
+    [TestCase("luam_rescue_action action=unbuckle target=123")]
     [TestCase("luam_rescue_action action=stop-pull")]
     [TestCase("luam_rescue_shuttle")]
     [TestCase("luam_rescue_shuttle target=123")]

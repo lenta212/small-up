@@ -654,6 +654,7 @@ def run_anthropic_mock_test() -> dict[str, object]:
                 assert "evacuate critical patients" in body["system"]
                 assert "store-slot" in body["system"]
                 assert "take-storage" in body["system"]
+                assert "unbuckle" in body["system"]
                 assert "slot=<slot>" in body["system"]
                 assert "item=<name|prototype|entity>" in body["system"]
             if "allowedAdminCommandNames" in context:
