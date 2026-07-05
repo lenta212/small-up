@@ -37,6 +37,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double EscortDutyHoldSeconds = 2;
     private const double EscortDutyActionIntervalSeconds = 2;
     private const float EscortDutyActionRange = 1.75f;
+    private const float EscortThreatScreenRange = 7f;
     private const float EscortPatientAssistRange = 1.5f;
     private const float EscortCrowdControlRange = 3f;
 
@@ -53,6 +54,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     [Dependency] private readonly EntityLookupSystem _lookup = default!;
     [Dependency] private readonly NpcFactionSystem _factions = default!;
     [Dependency] private readonly PullingSystem _pulling = default!;
+    [Dependency] private readonly SharedCombatModeSystem _combatMode = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
     private readonly HashSet<EntityUid> _sceneEntities = new();
@@ -308,7 +310,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         escort.CurrentFollowTarget = followTarget;
 
         SetEscortFollowTarget(uid, escort, htn, followTarget, duty);
-        TryRunEscortDutyAction(uid, escort, duty, followTarget);
+        TryRunEscortDutyAction(uid, escort, htn, duty, followTarget);
         escort.LastDutyStatus = BuildEscortDutyStatus(escort, candidateDuty, followTarget, _timing.CurTime);
 
         if ((dutyChanged || followChanged || forceSpeech) &&
@@ -414,6 +416,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private void TryRunEscortDutyAction(
         EntityUid uid,
         LuaMRescueEscortComponent escort,
+        HTNComponent htn,
         LuaMRescueEscortDuty duty,
         EntityUid? followTarget)
     {
@@ -421,6 +424,15 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             return;
 
         escort.NextDutyActionAt = _timing.CurTime + TimeSpan.FromSeconds(EscortDutyActionIntervalSeconds);
+
+        if (duty != LuaMRescueEscortDuty.ThreatScreen)
+            htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
+
+        if (duty == LuaMRescueEscortDuty.ThreatScreen)
+        {
+            TryRunThreatScreenAction(uid, escort, htn, followTarget);
+            return;
+        }
 
         if (duty == LuaMRescueEscortDuty.ClearRoute)
         {
@@ -441,6 +453,48 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         escort.LastDutyActionStatus = $"watch {FormatDuty(duty)}";
+    }
+
+    private void TryRunThreatScreenAction(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        HTNComponent htn,
+        EntityUid? followTarget)
+    {
+        var target = ValidOrNull(escort.ThreatTarget) ?? ValidOrNull(followTarget);
+        if (target is not { Valid: true } threatUid ||
+            Deleted(threatUid))
+        {
+            htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
+            escort.LastDutyActionStatus = "threat-screen no threat target";
+            return;
+        }
+
+        if (TryComp<MobStateComponent>(threatUid, out var mobState) &&
+            mobState.CurrentState == MobState.Dead)
+        {
+            htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
+            escort.LastDutyActionStatus = $"threat-screen target neutralized {FormatEntityRef(threatUid)}";
+            return;
+        }
+
+        if (TryComp<CombatModeComponent>(uid, out var combat))
+            _combatMode.SetInCombatMode(uid, true, combat);
+
+        if (!IsHostileToObserver(uid, threatUid))
+        {
+            htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
+            escort.LastDutyActionStatus = $"threat-screen screening armed pressure {FormatEntityRef(threatUid)}";
+            return;
+        }
+
+        _npc.SetBlackboard(uid, NPCBlackboard.CurrentOrderedTarget, threatUid, htn);
+        _npc.WakeNPC(uid, htn);
+        escort.DutyActions++;
+
+        escort.LastDutyActionStatus = !IsWithinRange(uid, threatUid, EscortThreatScreenRange)
+            ? $"threat-screen advancing to hostile {FormatEntityRef(threatUid)}"
+            : $"threat-screen engaging hostile {FormatEntityRef(threatUid)}";
     }
 
     private void TryRunClearRouteAction(

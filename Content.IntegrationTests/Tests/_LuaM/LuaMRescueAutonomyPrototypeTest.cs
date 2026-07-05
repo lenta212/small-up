@@ -139,6 +139,23 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Not.Contain("IsFactionHostile(\"NanoTrasen\""));
     }
 
+    [Test]
+    public void RescueEscortsActivelyScreenHostileThreatTargets()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("TryRunThreatScreenAction"));
+        Assert.That(source, Does.Contain("EscortThreatScreenRange = 7f"));
+        Assert.That(source, Does.Contain("duty != LuaMRescueEscortDuty.ThreatScreen"));
+        Assert.That(source, Does.Contain("NPCBlackboard.CurrentOrderedTarget"));
+        Assert.That(source, Does.Contain("_combatMode.SetInCombatMode(uid, true, combat)"));
+        Assert.That(source, Does.Contain("IsHostileToObserver(uid, threatUid)"));
+        Assert.That(source, Does.Contain("threat-screen advancing to hostile"));
+        Assert.That(source, Does.Contain("threat-screen engaging hostile"));
+        Assert.That(source, Does.Contain("threat-screen screening armed pressure"));
+        Assert.That(source, Does.Contain("threat-screen target neutralized"));
+    }
+
     private static void AssertLoadout(YamlSequenceNode entities, string prototypeId)
     {
         var entity = FindPrototype(entities, prototypeId);
