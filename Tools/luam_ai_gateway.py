@@ -480,7 +480,7 @@ If the admin explicitly asks for a LuaM rescue shuttle, Triage rescue ship, resc
 If the admin explicitly asks to create or spawn a Baeg, shuttle, ship, or named vessel near them, prefer run_sector_command with sectorCommandId spawn_ship when it is present in allowedSectorCommandIds. Keep the vessel name/ID in instruction. Do not map this request to spawn_entity.
 If the admin explicitly asks for LuaM rescue agent status, choose run_admin_command with "luam_rescue_status" when it is present in allowedAdminCommandNames.
 If the admin explicitly asks to order an existing LuaM rescue agent to help, follow, or rescue a target, choose run_admin_command with "luam_rescue_order target=<target>" or "luam_rescue_order clear" only when luam_rescue_order is present in allowedAdminCommandNames. Do not invent hidden coordinates or unsafe commands.
-If the admin explicitly asks an existing LuaM rescue agent to interact, alt-interact, use a held item, pick up an item, equip the active hand item into an inventory slot, unequip an inventory slot into a free hand, store the active hand item into storage worn in a slot, take an item from storage worn in a slot, pull/drag a target, stop pulling, buckle the currently pulled entity to a strap/bed, or drop an item, choose run_admin_command with "luam_rescue_action action=<interact|alt|use|pickup|drop|pull|stop-pull|buckle> target=<target>", a targetless "luam_rescue_action action=<drop|stop-pull>", "luam_rescue_action action=<equip-slot|unequip-slot|store-slot|take-storage> slot=<slot>", or "luam_rescue_action action=take-storage slot=<slot> item=<name|prototype|entity>" only when luam_rescue_action is present in allowedAdminCommandNames. Do not invent targets. Common slots are belt, back, suitstorage, outerClothing, pocket1, pocket2, jumpsuit, id, mask, gloves, head, eyes, ears, and neck.
+If the admin explicitly asks an existing LuaM rescue agent to interact, alt-interact, use a held item, treat/heal/analyze a target using a medical item, pick up an item, equip the active hand item into an inventory slot, unequip an inventory slot into a free hand, store the active hand item into storage worn in a slot, take an item from storage worn in a slot, pull/drag a target, stop pulling, buckle the currently pulled entity to a strap/bed, or drop an item, choose run_admin_command with "luam_rescue_action action=<interact|alt|use|treat|pickup|drop|pull|stop-pull|buckle> target=<target>", "luam_rescue_action action=treat target=<target> item=<name|prototype|entity> slot=<slot>", a targetless "luam_rescue_action action=<drop|stop-pull>", "luam_rescue_action action=<equip-slot|unequip-slot|store-slot|take-storage> slot=<slot>", or "luam_rescue_action action=take-storage slot=<slot> item=<name|prototype|entity>" only when luam_rescue_action is present in allowedAdminCommandNames. Do not invent targets. Common slots are belt, back, suitstorage, outerClothing, pocket1, pocket2, jumpsuit, id, mask, gloves, head, eyes, ears, and neck. Common medical items are medipen, hypospray, gauze, ointment, brutepack, and analyzer.
 Для clear_sector_condition используй conditionId из контекста activeConditionIds, если администратор не указал новый id.
 Для resolve_open_lead заполни resolutionNote короткой русской причиной закрытия.
 Для spawn_entity используй entityPrototypeId только из allowedEntityPrototypeIds, entityCount 1..5.
@@ -2069,9 +2069,12 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
             "ointment": "ointment",
             "gauze": "gauze",
             "bandage": "gauze",
+            "brutepack": "brutepack",
+            "bruise pack": "brutepack",
             "bruise": "bruise",
             "burn": "burn",
             "health analyzer": "analyzer",
+            "health-analyzer": "analyzer",
             "analyzer": "analyzer",
             "welder": "welder",
             "wrench": "wrench",

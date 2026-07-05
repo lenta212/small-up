@@ -2185,6 +2185,7 @@ def main() -> int:
         "luam_rescue_shuttle",
         "action=stop-pull",
         "equip-slot",
+        "treat",
         "store-slot",
         "take-storage",
         "slot=<slot>",
@@ -3088,7 +3089,7 @@ def main() -> int:
     assert_contains(rescue_agent_system, "UpdatePendingPlayerAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryExecutePlayerAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "LuaMRescueActionCommand", "LuaMRescueActionCommand")
-    assert_contains(rescue_agent_system, "<interact|alt|use|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|store-slot|take-storage|clear>", "LuaMRescueActionCommand")
+    assert_contains(rescue_agent_system, "<interact|alt|use|treat|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|store-slot|take-storage|clear>", "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, "slot=<inventorySlot>", "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, "item=<name|prototype|entity>", "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, "InteractUsing", "LuaMRescueAgentSystem")
@@ -3100,10 +3101,16 @@ def main() -> int:
     assert_contains(rescue_agent_system, "InventorySystem", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "SharedStorageSystem", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "StorageComponent", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "HealingComponent", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "HealthAnalyzerComponent", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "HyposprayComponent", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryResolveStorageSlot", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TrySelectStoredItem", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryFindTreatmentItem", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TrySelectTreatmentItem", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryEquip", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryUnequip", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "treat", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "equip-slot", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "unequip-slot", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "store-slot", "LuaMRescueAgentSystem")

@@ -103,6 +103,12 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public EntityUid? PendingPlayerActionTarget;
 
     [DataField]
+    public string? PendingPlayerActionSlot;
+
+    [DataField]
+    public string? PendingPlayerActionItem;
+
+    [DataField]
     public float PlayerActionRange = 1.5f;
 
     [DataField]
@@ -132,4 +138,5 @@ public enum LuaMRescuePlayerActionKind : byte
     UnequipSlot,
     StoreSlot,
     TakeStorage,
+    Treat,
 }
