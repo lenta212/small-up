@@ -5,6 +5,11 @@ using Content.Server.Mind;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Systems;
+using Content.Shared.Chemistry.Components.SolutionManager;
+using Content.Shared.Damage;
+using Content.Shared.Mobs;
+using Content.Shared.Mobs.Components;
+using Content.Shared.Silicons.Bots;
 using Content.Shared.Administration;
 using Robust.Server.Player;
 using Robust.Shared.Console;
@@ -20,27 +25,153 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     [Dependency] private readonly NPCSystem _npc = default!;
     [Dependency] private readonly MindSystem _mind = default!;
+    [Dependency] private readonly EntityLookupSystem _lookup = default!;
+    [Dependency] private readonly MedibotSystem _medibot = default!;
+
+    public override void Update(float frameTime)
+    {
+        base.Update(frameTime);
+
+        var query = EntityQueryEnumerator<LuaMRescueAgentComponent, HTNComponent>();
+        while (query.MoveNext(out var uid, out var rescue, out var htn))
+        {
+            if (!rescue.AutoAcquireTargets ||
+                HasComp<ActorComponent>(uid))
+                continue;
+
+            rescue.TargetRefreshAccumulator += frameTime;
+            if (rescue.TargetRefreshAccumulator < rescue.TargetRefreshInterval)
+                continue;
+
+            rescue.TargetRefreshAccumulator = 0f;
+            UpdateAssignedTarget(uid, rescue, htn);
+        }
+    }
 
     public EntityUid SpawnAgent(EntityUid anchor, EntityUid? followTarget, ICommonSession? controller, bool control)
     {
         var spawnCoordinates = Transform(anchor).Coordinates.Offset(SpawnOffset);
         var agent = Spawn(RescueAgentPrototype, spawnCoordinates);
         var rescue = EnsureComp<LuaMRescueAgentComponent>(agent);
-        rescue.AssignedTarget = followTarget;
 
         if (followTarget is { Valid: true } target &&
             TryComp<HTNComponent>(agent, out var htn))
         {
-            _npc.SetBlackboard(agent, NPCBlackboard.FollowTarget, new EntityCoordinates(target, Vector2.Zero), htn);
-            _npc.SetBlackboard(agent, "FollowCloseRange", 1.25f, htn);
-            _npc.SetBlackboard(agent, "FollowRange", 4f, htn);
-            _npc.WakeNPC(agent, htn);
+            SetFollowTarget(agent, rescue, htn, target);
         }
 
         if (control && controller != null)
             _mind.ControlMob(controller.UserId, agent);
 
         return agent;
+    }
+
+    private void UpdateAssignedTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    {
+        if (!TryComp<MedibotComponent>(uid, out var medibot))
+        {
+            ClearFollowTarget(uid, rescue, htn);
+            return;
+        }
+
+        if (rescue.AssignedTarget is { Valid: true } current &&
+            IsRescueCandidate(uid, current, medibot, requireRange: false, rescue.SearchRange, out _))
+        {
+            SetFollowTarget(uid, rescue, htn, current);
+            return;
+        }
+
+        if (TryFindRescueTarget(uid, rescue.SearchRange, medibot, out var target))
+        {
+            SetFollowTarget(uid, rescue, htn, target);
+            return;
+        }
+
+        ClearFollowTarget(uid, rescue, htn);
+    }
+
+    private bool TryFindRescueTarget(EntityUid uid, float searchRange, MedibotComponent medibot, out EntityUid target)
+    {
+        target = default;
+        var bestScore = float.MinValue;
+
+        foreach (var candidate in _lookup.GetEntitiesInRange(uid, searchRange))
+        {
+            if (!IsRescueCandidate(uid, candidate, medibot, requireRange: true, searchRange, out var score))
+                continue;
+
+            if (score <= bestScore)
+                continue;
+
+            target = candidate;
+            bestScore = score;
+        }
+
+        return target != default;
+    }
+
+    private bool IsRescueCandidate(
+        EntityUid rescuer,
+        EntityUid candidate,
+        MedibotComponent medibot,
+        bool requireRange,
+        float searchRange,
+        out float score)
+    {
+        score = 0f;
+
+        if (candidate == rescuer ||
+            Deleted(candidate) ||
+            !TryComp<MobStateComponent>(candidate, out var mobState) ||
+            !TryComp<DamageableComponent>(candidate, out var damage) ||
+            !HasComp<InjectableSolutionComponent>(candidate))
+        {
+            return false;
+        }
+
+        if (mobState.CurrentState == MobState.Dead ||
+            !_medibot.TryGetTreatment(medibot, mobState.CurrentState, out var treatment) ||
+            !treatment.IsValid(damage.TotalDamage))
+        {
+            return false;
+        }
+
+        var rescuerCoordinates = Transform(rescuer).Coordinates;
+        var candidateCoordinates = Transform(candidate).Coordinates;
+        if (!rescuerCoordinates.TryDistance(EntityManager, candidateCoordinates, out var distance))
+            return false;
+
+        if (requireRange && distance > searchRange)
+            return false;
+
+        score = damage.TotalDamage.Float() - distance;
+        if (mobState.CurrentState == MobState.Critical)
+            score += 1000f;
+
+        return true;
+    }
+
+    private void SetFollowTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
+    {
+        rescue.AssignedTarget = target;
+        _npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, new EntityCoordinates(target, Vector2.Zero), htn);
+        _npc.SetBlackboard(uid, "FollowCloseRange", rescue.FollowCloseRange, htn);
+        _npc.SetBlackboard(uid, "FollowRange", rescue.FollowRange, htn);
+        _npc.WakeNPC(uid, htn);
+        Dirty(uid, rescue);
+    }
+
+    private void ClearFollowTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    {
+        if (rescue.AssignedTarget == null &&
+            !htn.Blackboard.ContainsKey(NPCBlackboard.FollowTarget))
+        {
+            return;
+        }
+
+        rescue.AssignedTarget = null;
+        htn.Blackboard.Remove<EntityCoordinates>(NPCBlackboard.FollowTarget);
+        Dirty(uid, rescue);
     }
 }
 
