@@ -439,6 +439,26 @@ try {
         Add-Step "diff-check" "passed" "No whitespace errors in tracked release diff."
     }
 
+    $dependencyAudit = Invoke-Captured -FilePath "dotnet" -Arguments @(
+        "list",
+        "Content.Server.Database\Content.Server.Database.csproj",
+        "package",
+        "--vulnerable",
+        "--include-transitive",
+        "--format",
+        "json"
+    )
+    $dependencyAuditJson = $dependencyAudit.Output -join [Environment]::NewLine
+    if ($dependencyAudit.ExitCode -ne 0) {
+        $issues.Add("Dependency vulnerability audit failed: $(Format-CapturedTail $dependencyAudit)") | Out-Null
+        Add-Step "dependency-vulnerability-audit" "failed" "dotnet list package returned $($dependencyAudit.ExitCode)."
+    } elseif ($dependencyAuditJson -match '"vulnerabilities"\s*:\s*\[\s*\{') {
+        $issues.Add("Dependency vulnerability audit found vulnerable packages: $dependencyAuditJson") | Out-Null
+        Add-Step "dependency-vulnerability-audit" "failed" "Vulnerable package entries found."
+    } else {
+        Add-Step "dependency-vulnerability-audit" "passed" "No vulnerable packages found for Content.Server.Database."
+    }
+
     $validator = Invoke-Captured -FilePath "python" -Arguments @("Tools\validate_luam_feature_pack.py")
     if ($validator.ExitCode -ne 0) {
         $issues.Add("LuaM feature validator failed: $($validator.Output -join '; ')") | Out-Null
