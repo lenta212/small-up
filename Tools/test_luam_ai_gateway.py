@@ -627,6 +627,9 @@ def run_anthropic_mock_test() -> dict[str, object]:
             assert isinstance(context.get("sector"), dict)
             assert context["sector"]["aiMemoryBrief"]
             assert context["sector"]["safetyDirectives"]
+            if "allowedActions" in context:
+                assert "equip-slot" in body["system"]
+                assert "slot=<slot>" in body["system"]
             if "allowedAdminCommandNames" in context:
                 assert "luam_sector_status" in context["allowedAdminCommandNames"]
                 assert "luam_rescue_status" in context["allowedAdminCommandNames"]

@@ -128,4 +128,6 @@ public enum LuaMRescuePlayerActionKind : byte
     Pull,
     StopPull,
     Buckle,
+    EquipSlot,
+    UnequipSlot,
 }

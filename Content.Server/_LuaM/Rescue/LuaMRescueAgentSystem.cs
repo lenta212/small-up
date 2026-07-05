@@ -16,6 +16,7 @@ using Content.Shared.Chemistry.Components.SolutionManager;
 using Content.Shared.Damage;
 using Content.Shared.Hands.Components;
 using Content.Shared.Interaction;
+using Content.Shared.Inventory;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Movement.Pulling.Components;
@@ -42,6 +43,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly PullingSystem _pulling = default!;
     [Dependency] private readonly BuckleSystem _buckle = default!;
     [Dependency] private readonly HandsSystem _hands = default!;
+    [Dependency] private readonly InventorySystem _inventory = default!;
     [Dependency] private readonly InteractionSystem _interaction = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
@@ -170,7 +172,18 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         EntityUid? target,
         out string status)
     {
+        return TryOrderPlayerAction(agent, action, target, null, out status);
+    }
+
+    public bool TryOrderPlayerAction(
+        EntityUid agent,
+        LuaMRescuePlayerActionKind action,
+        EntityUid? target,
+        string? slot,
+        out string status)
+    {
         status = string.Empty;
+        var normalizedSlot = NormalizeInventorySlot(slot);
 
         if (!TryComp<LuaMRescueAgentComponent>(agent, out var rescue) ||
             !TryComp<HTNComponent>(agent, out var htn))
@@ -192,6 +205,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             StandbyAtAssignedShuttle(agent, rescue, htn);
             status = $"{FormatEntityRef(agent)} cleared pending player action and is returning to standby.";
             return true;
+        }
+
+        if (RequiresPlayerActionSlot(action) &&
+            string.IsNullOrWhiteSpace(normalizedSlot))
+        {
+            status = $"{FormatPlayerAction(action)} requires slot=<inventorySlot>.";
+            return false;
         }
 
         if (RequiresPlayerActionTarget(action) &&
@@ -220,7 +240,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (target is not { Valid: true } actionTarget)
         {
-            if (TryExecutePlayerAction(agent, action, null, out var actionStatus))
+            if (TryExecutePlayerAction(agent, action, null, normalizedSlot, out var actionStatus))
             {
                 ClearPendingPlayerAction(rescue, actionStatus);
                 StandbyAtAssignedShuttle(agent, rescue, htn);
@@ -391,7 +411,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             }
         }
 
-        var succeeded = TryExecutePlayerAction(uid, action, target, out var status);
+        var succeeded = TryExecutePlayerAction(uid, action, target, null, out var status);
         FinishPendingPlayerAction(
             uid,
             rescue,
@@ -405,6 +425,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         EntityUid uid,
         LuaMRescuePlayerActionKind action,
         EntityUid? target,
+        string? slot,
         out string status)
     {
         switch (action)
@@ -585,6 +606,79 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                     : $"could not buckle {FormatEntityRef(buckledEntity)} to {FormatEntityRef(strapUid)}";
                 return buckled;
             }
+            case LuaMRescuePlayerActionKind.EquipSlot:
+            {
+                if (string.IsNullOrWhiteSpace(slot))
+                {
+                    status = "slot missing";
+                    return false;
+                }
+
+                if (!TryComp<InventoryComponent>(uid, out var inventory))
+                {
+                    status = "agent has no inventory";
+                    return false;
+                }
+
+                if (!TryComp<HandsComponent>(uid, out var hands) ||
+                    hands.ActiveHandEntity is not { Valid: true } held)
+                {
+                    status = "active hand is empty";
+                    return false;
+                }
+
+                if (_inventory.TryGetSlotEntity(uid, slot, out var existing, inventory))
+                {
+                    status = $"slot {slot} already holds {FormatEntityRef(existing)}";
+                    return false;
+                }
+
+                var equipped = _inventory.TryEquip(uid, held, slot, silent: true, inventory: inventory);
+                status = equipped
+                    ? $"equipped {FormatEntityRef(held)} to slot {slot}"
+                    : $"could not equip {FormatEntityRef(held)} to slot {slot}";
+                return equipped;
+            }
+            case LuaMRescuePlayerActionKind.UnequipSlot:
+            {
+                if (string.IsNullOrWhiteSpace(slot))
+                {
+                    status = "slot missing";
+                    return false;
+                }
+
+                if (!TryComp<InventoryComponent>(uid, out var inventory))
+                {
+                    status = "agent has no inventory";
+                    return false;
+                }
+
+                if (!_inventory.TryGetSlotEntity(uid, slot, out var slotEntity, inventory))
+                {
+                    status = $"slot {slot} is empty or unavailable";
+                    return false;
+                }
+
+                if (!TryComp<HandsComponent>(uid, out var hands) ||
+                    !_hands.TryGetEmptyHand(uid, out _, hands))
+                {
+                    status = "no empty hand for unequipped item";
+                    return false;
+                }
+
+                if (!_inventory.TryUnequip(uid, slot, out var removed, silent: true, inventory: inventory) ||
+                    removed is not { Valid: true } removedUid)
+                {
+                    status = $"could not unequip {FormatEntityRef(slotEntity)} from slot {slot}";
+                    return false;
+                }
+
+                var pickedUp = _hands.TryPickupAnyHand(uid, removedUid, handsComp: hands);
+                status = pickedUp
+                    ? $"unequipped {FormatEntityRef(removedUid)} from slot {slot}"
+                    : $"unequipped {FormatEntityRef(removedUid)} from slot {slot} but could not take it into hand";
+                return pickedUp;
+            }
             default:
                 status = "unsupported player action";
                 return false;
@@ -611,6 +705,35 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             or LuaMRescuePlayerActionKind.Buckle;
     }
 
+    private static bool RequiresPlayerActionSlot(LuaMRescuePlayerActionKind action)
+    {
+        return action is LuaMRescuePlayerActionKind.EquipSlot
+            or LuaMRescuePlayerActionKind.UnequipSlot;
+    }
+
+    private static string? NormalizeInventorySlot(string? slot)
+    {
+        if (string.IsNullOrWhiteSpace(slot))
+            return null;
+
+        var trimmed = slot.Trim();
+        return trimmed.ToLowerInvariant() switch
+        {
+            "outer" or "outer-clothing" or "outer_clothing" or "outerclothing" or "suit" => "outerClothing",
+            "suit-storage" or "suit_storage" or "suitstorage" => "suitstorage",
+            "pocket-1" or "pocket_1" => "pocket1",
+            "pocket-2" or "pocket_2" => "pocket2",
+            "uniform" => "jumpsuit",
+            "backpack" => "back",
+            "idcard" or "id-card" or "id_card" => "id",
+            "left-armband" or "left_armband" => "leftarmband",
+            "right-armband" or "right_armband" => "rightarmband",
+            "helmet-cover" or "helmet_cover" => "helmetcover",
+            "helmet-attachment" or "helmet_attachment" => "helmetattachment",
+            _ => trimmed,
+        };
+    }
+
     private static string FormatPlayerAction(LuaMRescuePlayerActionKind action)
     {
         return action switch
@@ -623,6 +746,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             LuaMRescuePlayerActionKind.Pull => "pull",
             LuaMRescuePlayerActionKind.StopPull => "stop-pull",
             LuaMRescuePlayerActionKind.Buckle => "buckle",
+            LuaMRescuePlayerActionKind.EquipSlot => "equip-slot",
+            LuaMRescuePlayerActionKind.UnequipSlot => "unequip-slot",
             _ => "none",
         };
     }
@@ -1797,6 +1922,7 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
     private const string ActionKey = "action";
     private const string AgentKey = "agent";
     private const string TargetKey = "target";
+    private const string SlotKey = "slot";
     private const string AllAgentsValue = "all";
     private const string NearestAgentValue = "nearest";
 
@@ -1810,7 +1936,27 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
         "pull",
         "stop-pull",
         "buckle",
+        "equip-slot",
+        "unequip-slot",
         "clear",
+    ];
+
+    private static readonly string[] SlotNames =
+    [
+        "belt",
+        "back",
+        "suitstorage",
+        "outerClothing",
+        "pocket1",
+        "pocket2",
+        "jumpsuit",
+        "id",
+        "mask",
+        "gloves",
+        "head",
+        "eyes",
+        "ears",
+        "neck",
     ];
 
     [Dependency] private readonly IEntityManager _entities = default!;
@@ -1819,8 +1965,8 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
     public string Command => "luam_rescue_action";
     public string Description => "Orders active LuaM rescue agents to perform player-like interactions.";
     public string Help =>
-        $"Usage: {Command} {ActionKey}=<interact|alt|use|pickup|drop|pull|stop-pull|buckle|clear> " +
-        $"[agent=<entity|{NearestAgentValue}|{AllAgentsValue}>] [target=<entity|player>]";
+        $"Usage: {Command} {ActionKey}=<interact|alt|use|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|clear> " +
+        $"[agent=<entity|{NearestAgentValue}|{AllAgentsValue}>] [target=<entity|player>] [slot=<inventorySlot>]";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
     {
@@ -1832,14 +1978,24 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
         if (string.IsNullOrWhiteSpace(actionArg) ||
             !TryParseAction(actionArg, out var action))
         {
-            shell.WriteError($"Pass {ActionKey}=<interact|alt|use|pickup|drop|pull|stop-pull|buckle|clear>.");
+            shell.WriteError($"Pass {ActionKey}=<interact|alt|use|pickup|drop|pull|stop-pull|buckle|equip-slot|unequip-slot|clear>.");
             return;
         }
 
         var actionWasFirstPositional = positional.Length > 0 &&
                                        positional[0].Equals(actionArg, StringComparison.OrdinalIgnoreCase);
-        var targetArg = GetValue(args, TargetKey) ??
+        var explicitTargetArg = GetValue(args, TargetKey);
+        var targetArg = explicitTargetArg ??
                         positional.Skip(actionWasFirstPositional ? 1 : 0).FirstOrDefault();
+        var slotArg = GetValue(args, SlotKey);
+        if (string.IsNullOrWhiteSpace(slotArg) &&
+            ActionRequiresSlot(action) &&
+            explicitTargetArg == null)
+        {
+            slotArg = targetArg;
+            targetArg = null;
+        }
+
         var agentArg = GetValue(args, AgentKey);
 
         if (!TryResolveAgents(shell, agentArg, out var agents, out var error))
@@ -1863,10 +2019,17 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             return;
         }
 
+        if (ActionRequiresSlot(action) &&
+            string.IsNullOrWhiteSpace(slotArg))
+        {
+            shell.WriteError($"{FormatAction(action)} requires {SlotKey}=<inventorySlot>.");
+            return;
+        }
+
         var system = _entities.System<LuaMRescueAgentSystem>();
         foreach (var agent in agents)
         {
-            if (system.TryOrderPlayerAction(agent, action, target, out var status))
+            if (system.TryOrderPlayerAction(agent, action, target, slotArg, out var status))
                 shell.WriteLine(status);
             else
                 shell.WriteError(status);
@@ -1881,20 +2044,24 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             return CompletionResult.FromHintOptions(
                 ActionNames.Select(action => $"{ActionKey}={action}")
                     .Concat(names)
+                    .Concat(SlotNames.Select(slot => $"{SlotKey}={slot}"))
                     .Concat([
                         $"{AgentKey}={NearestAgentValue}",
                         $"{AgentKey}={AllAgentsValue}",
                         $"{TargetKey}=",
+                        $"{SlotKey}=",
                     ]),
                 "rescue player action option");
         }
 
         return CompletionResult.FromHintOptions(
             ActionNames.Select(action => $"{ActionKey}={action}")
+                .Concat(SlotNames.Select(slot => $"{SlotKey}={slot}"))
                 .Concat([
                     $"{AgentKey}={NearestAgentValue}",
                     $"{AgentKey}={AllAgentsValue}",
                     $"{TargetKey}=",
+                    $"{SlotKey}=",
                 ]),
             "rescue player action option");
     }
@@ -2060,6 +2227,8 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             "pull" or "drag" => LuaMRescuePlayerActionKind.Pull,
             "stop-pull" or "stoppull" or "unpull" or "release" => LuaMRescuePlayerActionKind.StopPull,
             "buckle" or "strap" or "seat" => LuaMRescuePlayerActionKind.Buckle,
+            "equip-slot" or "equipslot" or "equip" or "wear" => LuaMRescuePlayerActionKind.EquipSlot,
+            "unequip-slot" or "unequipslot" or "unequip" or "take-slot" or "draw-slot" => LuaMRescuePlayerActionKind.UnequipSlot,
             "clear" or "cancel" or "standby" => LuaMRescuePlayerActionKind.None,
             _ => LuaMRescuePlayerActionKind.None,
         };
@@ -2079,6 +2248,12 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             or LuaMRescuePlayerActionKind.Buckle;
     }
 
+    private static bool ActionRequiresSlot(LuaMRescuePlayerActionKind action)
+    {
+        return action is LuaMRescuePlayerActionKind.EquipSlot
+            or LuaMRescuePlayerActionKind.UnequipSlot;
+    }
+
     private static string FormatAction(LuaMRescuePlayerActionKind action)
     {
         return action switch
@@ -2091,6 +2266,8 @@ public sealed class LuaMRescueActionCommand : IConsoleCommand
             LuaMRescuePlayerActionKind.Pull => "pull",
             LuaMRescuePlayerActionKind.StopPull => "stop-pull",
             LuaMRescuePlayerActionKind.Buckle => "buckle",
+            LuaMRescuePlayerActionKind.EquipSlot => "equip-slot",
+            LuaMRescuePlayerActionKind.UnequipSlot => "unequip-slot",
             _ => "clear",
         };
     }
