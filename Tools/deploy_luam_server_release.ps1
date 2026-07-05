@@ -12,7 +12,9 @@ param(
     [switch]$Force,
     [switch]$DryRun,
     [switch]$SkipPostVerify,
-    [switch]$AllowClientZipRestore
+    [switch]$AllowClientZipRestore,
+    [string]$RemoteDataDir = "",
+    [switch]$RequireDataBackup
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,6 +89,28 @@ function Invoke-RemoteBash {
     $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
     $encoded = [Convert]::ToBase64String($utf8NoBom.GetBytes($Script))
     Invoke-CheckedNative ssh $SshTarget "printf %s $encoded | base64 -d | bash"
+}
+
+function Normalize-RemoteAbsolutePath {
+    param(
+        [string]$Path,
+        [string]$Name = "Remote path"
+    )
+
+    $normalized = ($Path.Trim() -replace "\\", "/").TrimEnd("/")
+    if ($normalized -eq "") {
+        return ""
+    }
+
+    if (-not $normalized.StartsWith("/")) {
+        throw "$Name must be an absolute Linux path: $Path"
+    }
+
+    if ($normalized -eq "/") {
+        throw "$Name cannot be the filesystem root."
+    }
+
+    return $normalized
 }
 
 function Get-RemoteFreezePolicy {
@@ -259,6 +283,29 @@ if ([string]::IsNullOrWhiteSpace($Tag)) {
     throw "Deployment tag is empty after sanitizing."
 }
 
+$normalizedBaseDir = Normalize-RemoteAbsolutePath -Path $BaseDir -Name "BaseDir"
+if ([string]::IsNullOrWhiteSpace($normalizedBaseDir)) {
+    throw "BaseDir cannot be empty."
+}
+
+$BaseDir = $normalizedBaseDir
+$normalizedRemoteDataDir = Normalize-RemoteAbsolutePath -Path $RemoteDataDir -Name "RemoteDataDir"
+if ($RequireDataBackup -and [string]::IsNullOrWhiteSpace($normalizedRemoteDataDir)) {
+    throw "RequireDataBackup was set, but RemoteDataDir is empty. Pass the live server data directory explicitly."
+}
+
+if (-not [string]::IsNullOrWhiteSpace($normalizedRemoteDataDir)) {
+    $forbiddenDataDirs = @(
+        $normalizedBaseDir,
+        "$normalizedBaseDir/server",
+        "$normalizedBaseDir/deploy-staging",
+        "$normalizedBaseDir/backups"
+    )
+    if ($forbiddenDataDirs -contains $normalizedRemoteDataDir) {
+        throw "RemoteDataDir points at a deploy/control directory instead of a server data directory: $normalizedRemoteDataDir"
+    }
+}
+
 $remoteZip = "$BaseDir/deploy-staging/$packageName"
 $freezePolicy = Get-RemoteFreezePolicy
 $plan = [ordered]@{
@@ -273,6 +320,8 @@ $plan = [ordered]@{
     tag = $Tag
     service = $ServiceName
     base_dir = $BaseDir
+    remote_data_dir = $normalizedRemoteDataDir
+    require_data_backup = [bool]$RequireDataBackup
 }
 
 if ($DryRun) {
@@ -300,6 +349,7 @@ Invoke-CheckedNative scp $resolvedPackage "${SshTarget}:$remoteZip"
 $forceValue = if ($Force) { "1" } else { "0" }
 $skipPostVerifyValue = if ($SkipPostVerify) { "1" } else { "0" }
 $allowClientZipRestoreValue = if ($AllowClientZipRestore) { "1" } else { "0" }
+$requireDataBackupValue = if ($RequireDataBackup) { "1" } else { "0" }
 $remoteScript = @"
 set -euo pipefail
 
@@ -308,15 +358,38 @@ service_name=$(ConvertTo-ShellSingleQuoted $ServiceName)
 zip_path=$(ConvertTo-ShellSingleQuoted $remoteZip)
 expected_sha=$(ConvertTo-ShellSingleQuoted $localHash)
 tag=$(ConvertTo-ShellSingleQuoted $Tag)
+remote_data_dir=$(ConvertTo-ShellSingleQuoted $normalizedRemoteDataDir)
 force_deploy=$forceValue
 skip_post_verify=$skipPostVerifyValue
 allow_client_zip_restore=$allowClientZipRestoreValue
+require_data_backup=$requireDataBackupValue
 
 server_dir="`$base_dir/server"
 stage_dir="`$base_dir/deploy-staging/server-`$tag"
 backup_dir="`$base_dir/backups/server-`$tag"
 failed_dir="`$base_dir/backups/server-`$tag-failed"
 config_backup="`$base_dir/backups/server_config-before-`$tag.toml"
+data_backup=""
+
+if [ "`$require_data_backup" = "1" ] && [ -z "`$remote_data_dir" ]; then
+  echo "Data backup is required, but remote_data_dir is empty." >&2
+  exit 15
+fi
+
+if [ -n "`$remote_data_dir" ]; then
+  case "`$remote_data_dir" in
+    /*) ;;
+    *)
+      echo "Remote data dir must be absolute: `$remote_data_dir" >&2
+      exit 16
+      ;;
+  esac
+
+  if [ "`$remote_data_dir" = "/" ] || [ "`$remote_data_dir" = "`$base_dir" ] || [ "`$remote_data_dir" = "`$server_dir" ] || [ "`$remote_data_dir" = "`$base_dir/deploy-staging" ] || [ "`$remote_data_dir" = "`$base_dir/backups" ]; then
+    echo "Remote data dir points at a deploy/control directory: `$remote_data_dir" >&2
+    exit 17
+  fi
+fi
 
 if [ ! -f "`$zip_path" ]; then
   echo "Package not found on remote: `$zip_path" >&2
@@ -432,6 +505,13 @@ if [ -e "`$failed_dir" ]; then
   failed_dir="`$failed_dir-`$(date +%H%M%S)"
 fi
 
+if [ -n "`$remote_data_dir" ]; then
+  data_backup="`$base_dir/backups/data-`$tag.tar.gz"
+  if [ -e "`$data_backup" ]; then
+    data_backup="`$base_dir/backups/data-`$tag-`$(date +%H%M%S).tar.gz"
+  fi
+fi
+
 rollback() {
   echo "Start verification failed; rolling back to `$backup_dir" >&2
   sudo systemctl stop "`$service_name" || true
@@ -449,6 +529,22 @@ rollback() {
 
 echo "deploy-step=stop-service"
 sudo systemctl stop "`$service_name"
+if [ -n "`$remote_data_dir" ]; then
+  if [ ! -d "`$remote_data_dir" ]; then
+    if [ "`$require_data_backup" = "1" ]; then
+      echo "Required remote data dir does not exist: `$remote_data_dir" >&2
+      sudo systemctl start "`$service_name" || true
+      exit 18
+    fi
+    echo "deploy-step=backup-data-skipped-missing"
+  else
+    echo "deploy-step=backup-data"
+    sudo tar -C "`$(dirname -- "`$remote_data_dir")" -czf "`$data_backup" "`$(basename -- "`$remote_data_dir")" || {
+      sudo systemctl start "`$service_name" || true
+      exit 19
+    }
+  fi
+fi
 echo "deploy-step=swap-server"
 sudo mv "`$server_dir" "`$backup_dir"
 sudo mv "`$stage_dir" "`$server_dir"
@@ -474,6 +570,9 @@ fi
 echo "deployed_tag=`$tag"
 echo "backup_dir=`$backup_dir"
 echo "config_backup=`$config_backup"
+if [ -n "`$data_backup" ]; then
+  echo "data_backup=`$data_backup"
+fi
 sha256sum "`$server_dir/Content.Client.zip"
 "@
 
@@ -497,4 +596,6 @@ if (-not $SkipPostVerify) {
     package_sha256 = $localHash
     remote_zip = $remoteZip
     tag = $Tag
+    remote_data_dir = $normalizedRemoteDataDir
+    require_data_backup = [bool]$RequireDataBackup
 } | ConvertTo-Json -Depth 6
