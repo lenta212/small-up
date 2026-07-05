@@ -381,6 +381,40 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(traderAction.VesselId, Is.EqualTo("Hammerhead"));
             Assert.That(traderAction.RequiresConfirmation, Is.True);
 
+            Assert.That(
+                director.TryResolveAiBaseAdminRequest(
+                    "open ai robots mine resources and build the ai base",
+                    out var developAction,
+                    out var developError),
+                Is.True);
+            Assert.That(developError, Is.EqualTo(string.Empty));
+            Assert.That(developAction.Kind, Is.EqualTo("develop"));
+            Assert.That(developAction.RequiresConfirmation, Is.True);
+
+            Assert.That(
+                director.TryResolveAiBaseAdminRequest(
+                    "dispatch AI miner Hammerhead",
+                    out var minerAction,
+                    out var minerError),
+                Is.True);
+            Assert.That(minerError, Is.EqualTo(string.Empty));
+            Assert.That(minerAction.Kind, Is.EqualTo("ship"));
+            Assert.That(minerAction.Role, Is.EqualTo("miner"));
+            Assert.That(minerAction.VesselId, Is.EqualTo("Hammerhead"));
+            Assert.That(minerAction.RequiresConfirmation, Is.True);
+
+            Assert.That(
+                director.TryResolveAiBaseAdminRequest(
+                    "dispatch AI builder Hammerhead",
+                    out var builderAction,
+                    out var builderError),
+                Is.True);
+            Assert.That(builderError, Is.EqualTo(string.Empty));
+            Assert.That(builderAction.Kind, Is.EqualTo("ship"));
+            Assert.That(builderAction.Role, Is.EqualTo("builder"));
+            Assert.That(builderAction.VesselId, Is.EqualTo("Hammerhead"));
+            Assert.That(builderAction.RequiresConfirmation, Is.True);
+
             var blockedCreate = await director.AdminChatAsync(
                 admin,
                 "create ai base",
@@ -611,6 +645,10 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(json, Does.Contain("GPS [withheld]"));
             Assert.That(json, Does.Contain("token=[redacted]"));
             Assert.That(json, Does.Contain("[redacted-id]"));
+            Assert.That(json, Does.Contain("ai_base_create"));
+            Assert.That(json, Does.Contain("ai_base_mine"));
+            Assert.That(json, Does.Contain("ai_base_build"));
+            Assert.That(json, Does.Contain("ai_base_develop"));
             Assert.That(json, Does.Not.Contain(admin.Name));
             Assert.That(json, Does.Not.Contain(admin.UserId.ToString()));
             Assert.That(json, Does.Not.Contain("123, 456"));

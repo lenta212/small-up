@@ -784,6 +784,13 @@ def main() -> int:
         "LuaMAiDirectorAdminMode",
         "AllowedEntityPrototypeIds",
         "AllowedSectorCommandIds",
+        "ai_base_create",
+        "ai_base_mine",
+        "ai_base_build",
+        "ai_base_develop",
+        "DispatchAiBaseRoleShipAsync",
+        "DispatchAiBaseDevelopmentAsync",
+        "IsAiBaseRobotDevelopmentRequest",
         "AdminModeEnabled",
         "SpawnChatEntityAsync",
         "RunChatSectorCommandAsync",
@@ -1196,6 +1203,14 @@ def main() -> int:
     assert_contains(ai_director, "IsSpawnableRawShipMapFile", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "BuildRawShipMapBuildId", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "vessel.ShuttlePath", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "ai_base_mine", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "ai_base_build", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "ai_base_develop", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "DispatchAiBaseDevelopmentAsync", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "DispatchAiBaseRoleShipAsync", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "IsAiBaseRobotDevelopmentRequest", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "HasAiBaseMiningIntent", "LuaMSectorAiDirectorSystem")
+    assert_contains(ai_director, "HasAiBaseBuildIntent", "LuaMSectorAiDirectorSystem")
 
     ai_admin_chat_test = (ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMAiDirectorAdminChatTest.cs").read_text(encoding="utf-8")
     for required_test_marker in [
@@ -1206,6 +1221,11 @@ def main() -> int:
         "allowServerActions: false",
         "LuaMAiDirectorGameMasterMode",
         "GameMasterModeEnabled",
+        "ai_base_mine",
+        "ai_base_build",
+        "ai_base_develop",
+        "open ai robots mine resources and build the ai base",
+        "dispatch AI builder Hammerhead",
         "Server-flag confirmed action",
         "LuaMAiDirectorGatewayUrl",
         "Что ты можешь делать на сервере?",
@@ -2146,6 +2166,12 @@ def main() -> int:
         "disable_auto_ai",
         "spawn_entity",
         "run_sector_command",
+        "ai_base_create",
+        "ai_base_mine",
+        "ai_base_build",
+        "ai_base_develop",
+        "wants_ai_base_mining",
+        "wants_ai_base_building",
         "run_admin_command",
         "send_sector_message",
         "allowedEntityPrototypeIds",
@@ -2235,6 +2261,8 @@ def main() -> int:
         "store-slot",
         "take-storage",
         "take-target-storage",
+        "ai_base_develop",
+        "aiBaseDevelopChat",
         "slot=<slot>",
         "item=<name|prototype|entity>",
         "dangerChat",

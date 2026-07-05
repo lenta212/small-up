@@ -316,6 +316,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         "clear_condition",
         "resolve_open_lead",
         "cleanup_markers",
+        "ai_base_status",
+        "ai_base_create",
+        "ai_base_mine",
+        "ai_base_build",
+        "ai_base_develop",
+        "ai_base_logistics",
         "spawn_ship",
         "spawn_monolith_kit",
         "spawn_sector_paper_pack",
@@ -2277,7 +2283,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         commandId = ResolveAllowedSectorCommandId(commandId);
         return commandId switch
         {
-            "" or "status" or "history" => false,
+            "" or "status" or "history" or "ai_base_status" => false,
             _ => true,
         };
     }
@@ -2558,6 +2564,21 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 return await ResolveOpenLeadAsync(admin, originalMessage, command);
             case "cleanup_markers":
                 return await CleanupDynamicMarkersAsync();
+            case "ai_base_status":
+                return _stories.BuildAiBaseStatusText();
+            case "ai_base_create":
+                return await ExecuteAiBaseAdminActionAsync(
+                    admin,
+                    new AiBaseAdminAction("create", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true),
+                    originalMessage);
+            case "ai_base_mine":
+                return await DispatchAiBaseRoleShipAsync(admin, "miner", originalMessage, command.Instruction);
+            case "ai_base_build":
+                return await DispatchAiBaseRoleShipAsync(admin, "builder", originalMessage, command.Instruction);
+            case "ai_base_develop":
+                return await DispatchAiBaseDevelopmentAsync(admin, originalMessage, command.Instruction);
+            case "ai_base_logistics":
+                return await DispatchAiBaseRoleShipAsync(admin, "hauler", originalMessage, command.Instruction);
             case "spawn_ship":
                 return await SpawnShipNearAdminAsync(
                     admin,
@@ -3553,6 +3574,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                     var anchor = EnsureAiBaseAnchorNearAdmin(admin, $"{DirectorActor} / admin {admin.Name}");
                     return $"{memory}\n{anchor}";
                 });
+            case "develop":
+                return await DispatchAiBaseDevelopmentAsync(admin, originalMessage, action.VesselId);
             case "ship":
             {
                 var vesselId = string.IsNullOrWhiteSpace(action.VesselId)
@@ -3592,6 +3615,49 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             default:
                 return "AI base command was not recognized by the local handler.";
         }
+    }
+
+    private async Task<string> DispatchAiBaseDevelopmentAsync(
+        ICommonSession admin,
+        string originalMessage,
+        string instruction)
+    {
+        var baseText = string.IsNullOrWhiteSpace(instruction)
+            ? originalMessage
+            : $"{originalMessage} {instruction}";
+        var create = await ExecuteAiBaseAdminActionAsync(
+            admin,
+            new AiBaseAdminAction("create", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true),
+            baseText);
+        var miner = await DispatchAiBaseRoleShipAsync(admin, "miner", originalMessage, instruction);
+        var builder = await DispatchAiBaseRoleShipAsync(admin, "builder", originalMessage, instruction);
+
+        return $"AI base development command accepted: OpenAI contour is assigning mining and builder drones.\n{create}\n{miner}\n{builder}";
+    }
+
+    private async Task<string> DispatchAiBaseRoleShipAsync(
+        ICommonSession admin,
+        string role,
+        string originalMessage,
+        string instruction)
+    {
+        var text = string.IsNullOrWhiteSpace(instruction)
+            ? originalMessage
+            : $"{originalMessage} {instruction}";
+
+        if (!TryResolveAiShipBuild(text, out var shipBuild, out var vesselError))
+        {
+            if (!string.IsNullOrWhiteSpace(vesselError))
+                return vesselError;
+
+            if (!TryGetSpawnableAdminShipBuildById(DefaultAiShipSpawnVessel, out shipBuild))
+                return $"Не удалось выбрать корабль ИИ по умолчанию: build {DefaultAiShipSpawnVessel} не найден или не имеет shuttle grid.";
+        }
+
+        return await ExecuteAiBaseAdminActionAsync(
+            admin,
+            new AiBaseAdminAction("ship", role, shipBuild.Id, shipBuild.DisplayName, RequiresConfirmation: true),
+            text);
     }
 
     private string EnsureAiBaseAnchorNearAdmin(ICommonSession admin, string actor)
@@ -3634,20 +3700,29 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (string.IsNullOrWhiteSpace(message) || !IsAiBaseRequest(message))
             return false;
 
+        if (IsAiBaseRobotDevelopmentRequest(message))
+        {
+            action = new AiBaseAdminAction("develop", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true);
+            return true;
+        }
+
         if (IsAiBaseStatusRequest(message))
         {
             action = new AiBaseAdminAction("status", string.Empty, string.Empty, string.Empty, RequiresConfirmation: false);
             return true;
         }
 
-        if (IsAiBaseCreateRequest(message))
+        var hasShipRole = TryResolveAiBaseShipRole(message, out var role);
+        if (!hasShipRole)
         {
-            action = new AiBaseAdminAction("create", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true);
-            return true;
-        }
+            if (IsAiBaseCreateRequest(message))
+            {
+                action = new AiBaseAdminAction("create", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true);
+                return true;
+            }
 
-        if (!TryResolveAiBaseShipRole(message, out var role))
             return false;
+        }
 
         if (!TryResolveAiShipBuild(message, out var shipBuild, out var vesselError))
         {
@@ -3725,6 +3800,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (HasAiBaseSubject(message))
             return true;
 
+        if (HasAiBaseAutomationSubject(message) &&
+            (HasAiBaseMiningIntent(message) || HasAiBaseBuildIntent(message)))
+        {
+            return true;
+        }
+
         return ContainsAny(
             message,
             "ai trader",
@@ -3732,6 +3813,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             "ai supply",
             "ai logistics",
             "ai cargo",
+            "ai miner",
+            "ai mining",
+            "ai builder",
+            "ai construction",
             "ии торгов",
             "ии-торгов",
             "торговец ии",
@@ -3740,6 +3825,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             "снабженец ии",
             "ии логист",
             "ии-логист",
+            "ии шахт",
+            "ии добы",
+            "ии стро",
+            "шахтер ии",
+            "шахтёр ии",
+            "строитель ии",
             "корабли ии торг",
             "корабль ии торг",
             "корабли ии снабж",
@@ -3764,6 +3855,86 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             "склад ии",
             "логистика ии",
             "логистику ии");
+    }
+
+    private static bool HasAiBaseAutomationSubject(string message)
+    {
+        return HasAiBaseSubject(message) || ContainsAny(
+            message,
+            "open ai",
+            "openai",
+            "ai robot",
+            "ai robots",
+            "ai drone",
+            "ai drones",
+            "robot",
+            "robots",
+            "drone",
+            "drones",
+            "робот",
+            "роботы",
+            "дрон",
+            "дроны",
+            "ии робот",
+            "роботы ии",
+            "ии дрон",
+            "дроны ии",
+            "контур ии");
+    }
+
+    private static bool HasAiBaseMiningIntent(string message)
+    {
+        return ContainsAny(
+            message,
+            "mine",
+            "mining",
+            "miner",
+            "extract",
+            "extraction",
+            "ore",
+            "ores",
+            "prospect",
+            "salvage",
+            "добы",
+            "шахт",
+            "руд",
+            "копай",
+            "копать");
+    }
+
+    private static bool HasAiBaseBuildIntent(string message)
+    {
+        return ContainsAny(
+            message,
+            "build",
+            "builder",
+            "construct",
+            "construction",
+            "repair",
+            "expand",
+            "develop",
+            "outpost",
+            "стро",
+            "постро",
+            "ремонт",
+            "развер",
+            "осну",
+            "расшир");
+    }
+
+    private static bool IsAiBaseRobotMiningRequest(string message)
+    {
+        return HasAiBaseAutomationSubject(message) && HasAiBaseMiningIntent(message);
+    }
+
+    private static bool IsAiBaseRobotBuildRequest(string message)
+    {
+        return HasAiBaseAutomationSubject(message) && HasAiBaseBuildIntent(message);
+    }
+
+    private static bool IsAiBaseRobotDevelopmentRequest(string message)
+    {
+        return IsAiBaseRobotMiningRequest(message) && IsAiBaseRobotBuildRequest(message);
     }
 
     private static bool IsAiBaseStatusRequest(string message)
@@ -3806,6 +3977,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (ContainsAny(message, "scout", "recon", "развед"))
         {
             role = "scout";
+            return true;
+        }
+
+        if (HasAiBaseMiningIntent(message))
+        {
+            role = "miner";
             return true;
         }
 
@@ -4728,6 +4905,36 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return true;
         }
 
+        if (IsAiBaseRobotDevelopmentRequest(message))
+        {
+            commandId = "ai_base_develop";
+            return true;
+        }
+
+        if (IsAiBaseRobotMiningRequest(message))
+        {
+            commandId = "ai_base_mine";
+            return true;
+        }
+
+        if (IsAiBaseRobotBuildRequest(message))
+        {
+            commandId = "ai_base_build";
+            return true;
+        }
+
+        if (IsAiBaseStatusRequest(message))
+        {
+            commandId = "ai_base_status";
+            return true;
+        }
+
+        if (IsAiBaseCreateRequest(message))
+        {
+            commandId = "ai_base_create";
+            return true;
+        }
+
         if (ContainsAny(
                 message,
                 "ai_radio",
@@ -5451,7 +5658,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             $"Канал админки LuaM AI активен: {gateway}\n" +
             $"{adminMode} {gameMasterMode} {autoMode}\n\n" +
             "Без внешнего API доступны: статус, история, событие рядом с выбранным игроком, подпространственные врата, синтетический контур, условия сектора, очистка меток, закрытие зацепки, набор Монолита и пакет бумажных задач.\n" +
-            "AI-база работает локально: создай AI базу, покажи склад AI базы, вызови AI торговца/снабженца/разведчика/строителя. Логистический корабль спавнится рядом с админом и обновляет склад базы после подтверждения.\n" +
+            "AI-база работает локально: создай AI базу, покажи склад AI базы, вызови AI торговца/снабженца/разведчика/шахтера/строителя или прикажи OpenAI-роботам добывать ресурсы и строить базу. Логистический корабль спавнится рядом с админом, получает дронов по роли и обновляет склад базы после подтверждения.\n" +
             "Также локально доступен подтверждаемый запрос: создать любой shipyard/shuttle ship build рядом с текущей позицией администратора по ID или имени, например Baeg, Hammerhead, Twilight, QJ490. Если имя не указано, используется Baeg. Команду можно повторять для новых экземпляров.\n" +
             "Через gateway дополнительно доступны свободные вопросы админа, review влияния/процессов, выбор одного безопасного действия из whitelist и генерация события по текстовой инструкции.";
     }
