@@ -50,6 +50,12 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs"), Encoding.UTF8);
 
+        Assert.That(source, Does.Contain("SubscribeLocalEvent<MobStateChangedEvent>(OnMobStateChanged)"));
+        Assert.That(source, Does.Contain("TryDispatchAutomaticDeathSignal(ev.Target)"));
+        Assert.That(source, Does.Contain("HasComp<ActorComponent>(target)"));
+        Assert.That(source, Does.Contain("AutomaticDeathSignalCooldownSeconds"));
+        Assert.That(source, Does.Contain("TryResolveAutomaticDeathSignalStation"));
+        Assert.That(source, Does.Contain("spawnTeam: true"));
         Assert.That(source, Does.Contain("DeathSignalFlag"));
         Assert.That(source, Does.Contain("--death-signal"));
         Assert.That(source, Does.Contain("requires target=<entity|player> so Aibolit can report who it is flying to"));

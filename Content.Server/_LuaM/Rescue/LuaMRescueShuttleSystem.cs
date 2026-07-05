@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Content.Server._NF.Shipyard.Systems;
@@ -9,6 +11,7 @@ using Content.Server.Shuttles.Components;
 using Content.Server.Station.Systems;
 using Content.Shared._NF.Shipyard.Prototypes;
 using Content.Shared.Administration;
+using Content.Shared.Mobs;
 using Content.Shared.Radio;
 using Content.Shared.Station.Components;
 using Robust.Server.GameObjects;
@@ -17,12 +20,14 @@ using Robust.Shared.Console;
 using Robust.Shared.Map;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
+using Robust.Shared.Timing;
 
 namespace Content.Server._LuaM.Rescue;
 
 public sealed class LuaMRescueShuttleSystem : EntitySystem
 {
     public const string DefaultVessel = "Triage";
+    private const double AutomaticDeathSignalCooldownSeconds = 180;
     private static readonly ProtoId<RadioChannelPrototype> MedicalRadioChannel = "Medical";
 
     [Dependency] private readonly ShipyardSystem _shipyard = default!;
@@ -32,6 +37,105 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
     [Dependency] private readonly LuaMRescueTeamSystem _rescueTeam = default!;
     [Dependency] private readonly NPCSystem _npc = default!;
     [Dependency] private readonly RadioSystem _radio = default!;
+    [Dependency] private readonly IPrototypeManager _prototypes = default!;
+    [Dependency] private readonly IGameTiming _timing = default!;
+
+    private readonly Dictionary<EntityUid, TimeSpan> _automaticDeathSignalCooldowns = new();
+
+    public override void Initialize()
+    {
+        base.Initialize();
+
+        SubscribeLocalEvent<MobStateChangedEvent>(OnMobStateChanged);
+    }
+
+    private void OnMobStateChanged(MobStateChangedEvent ev)
+    {
+        if (ev.OldMobState == MobState.Dead ||
+            ev.NewMobState != MobState.Dead)
+        {
+            return;
+        }
+
+        TryDispatchAutomaticDeathSignal(ev.Target);
+    }
+
+    private bool TryDispatchAutomaticDeathSignal(EntityUid target)
+    {
+        if (Deleted(target) ||
+            !HasComp<ActorComponent>(target) ||
+            HasComp<LuaMRescueAgentComponent>(target) ||
+            HasComp<LuaMRescueEscortComponent>(target))
+        {
+            return false;
+        }
+
+        PruneAutomaticDeathSignalCooldowns();
+
+        var now = _timing.CurTime;
+        if (_automaticDeathSignalCooldowns.TryGetValue(target, out var until) &&
+            until > now)
+        {
+            return false;
+        }
+
+        _automaticDeathSignalCooldowns[target] = now + TimeSpan.FromSeconds(AutomaticDeathSignalCooldownSeconds);
+
+        if (!_prototypes.TryIndex<VesselPrototype>(DefaultVessel, out var vessel) ||
+            !TryResolveAutomaticDeathSignalStation(target, out var station))
+        {
+            return false;
+        }
+
+        return TryDispatchRescueShuttle(
+            station,
+            vessel,
+            target,
+            controller: null,
+            spawnAgent: true,
+            spawnTeam: true,
+            control: false,
+            routeToTarget: true,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _);
+    }
+
+    private void PruneAutomaticDeathSignalCooldowns()
+    {
+        if (_automaticDeathSignalCooldowns.Count == 0)
+            return;
+
+        var now = _timing.CurTime;
+        foreach (var target in _automaticDeathSignalCooldowns
+                     .Where(entry => Deleted(entry.Key) || entry.Value <= now)
+                     .Select(entry => entry.Key)
+                     .ToArray())
+        {
+            _automaticDeathSignalCooldowns.Remove(target);
+        }
+    }
+
+    private bool TryResolveAutomaticDeathSignalStation(EntityUid target, out EntityUid station)
+    {
+        if (_station.GetOwningStation(target) is { Valid: true } owningStation)
+        {
+            station = owningStation;
+            return true;
+        }
+
+        var stations = _station.GetStationsSet();
+        if (stations.Count == 1)
+        {
+            station = stations.First();
+            return true;
+        }
+
+        station = default;
+        return false;
+    }
 
     public bool TryDispatchRescueShuttle(
         EntityUid station,
