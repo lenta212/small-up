@@ -257,6 +257,8 @@ def main() -> int:
         "Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs",
         "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs",
         "Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs",
+        "Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs",
+        "Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs",
         "Content.Server/_LuaM/Sector/LuaMSectorAiDirectorSystem.cs",
         "Content.Server/_LuaM/Sector/LuaMSectorCommands.cs",
         "Content.Server/_LuaM/Sector/LuaMDistressBeaconComponent.cs",
@@ -2101,6 +2103,10 @@ def main() -> int:
         "luam_rescue_order",
         "luam_rescue_shuttle",
         "luam_rescue_status",
+        "autonomous rescue escort team",
+        "Tourniquet",
+        "Kostyl",
+        "Zaslon",
         "take medical supplies from accessible nearby storage",
         "take-target-storage",
         "store collected medical supplies",
@@ -3194,6 +3200,7 @@ def main() -> int:
     assert_contains(rescue_agent_system, "autoTreat=", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "autoEvac=", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "autoSupply=", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "BuildRescueTeamStatusLines", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "skippedSupply=", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "standby-on-shuttle", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "standby-return-to-shuttle", "LuaMRescueAgentSystem")
@@ -3320,6 +3327,26 @@ def main() -> int:
     assert_contains(rescue_agent_component, "SkippedSupplyTargets", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "SkippedDeliveryTargets", "LuaMRescueAgentComponent")
 
+    rescue_team_component = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs").read_text(encoding="utf-8")
+    assert_contains(rescue_team_component, "LuaMRescueTeamComponent", "LuaMRescueTeamComponent")
+    assert_contains(rescue_team_component, "LuaMRescueEscortComponent", "LuaMRescueEscortComponent")
+    assert_contains(rescue_team_component, "LuaMRescueEscortRole", "LuaMRescueEscortRole")
+    assert_contains(rescue_team_component, "Tourniquet", "LuaMRescueEscortRole")
+    assert_contains(rescue_team_component, "Kostyl", "LuaMRescueEscortRole")
+    assert_contains(rescue_team_component, "Zaslon", "LuaMRescueEscortRole")
+    assert_contains(rescue_team_component, "LuaMRescueTeamPhase", "LuaMRescueTeamPhase")
+    assert_contains(rescue_team_component, "LuaMRescueEscortDuty", "LuaMRescueEscortDuty")
+
+    rescue_team_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs").read_text(encoding="utf-8")
+    assert_contains(rescue_team_system, "SpawnEscortTeam", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "BuildRescueTeamStatusLines", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "UpdateEscortDuty", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "GetEscortDuty", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "SetEscortFollowTarget", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "TrySendInGameICMessage", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "Медицинская зона", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "Пациент внутри периметра", "LuaMRescueTeamSystem")
+
     rescue_shuttle_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs").read_text(encoding="utf-8")
     assert_contains(rescue_shuttle_system, 'DefaultVessel = "Triage"', "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, 'Command => "luam_rescue_shuttle"', "LuaMRescueShuttleCommand")
@@ -3341,6 +3368,9 @@ def main() -> int:
     assert_contains(rescue_shuttle_system, "rescue.AssignedShuttleAnchor = anchor", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "rescue.AssignedShuttleConsole = autopilotConsole", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "rescue.AssignedReturnTarget = returnTarget", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "SpawnEscortTeam", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "NoTeamFlag", "LuaMRescueShuttleCommand")
+    assert_contains(rescue_shuttle_system, "autonomous escorts", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "LuaM Rescue", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "AdminFlags.Server", "LuaMRescueShuttleCommand")
 
@@ -3371,6 +3401,17 @@ def main() -> int:
     assert_equal(htn["rootTask"]["task"], "LuaMRescueCompound", "LuaMRescueAgent.htn.rootTask")
     assert_equal(htn["blackboard"]["NavInteract"], True, "LuaMRescueAgent.htn.NavInteract")
     assert_contains(htn["blackboard"], "MedibotInjectRange", "LuaMRescueAgent.htn.blackboard")
+
+    rescue_escort = prototypes["LuaMRescueEscort"]
+    assert_equal(rescue_escort["parent"], "MobHuman", "LuaMRescueEscort.parent")
+    assert_equal(component(rescue_escort, "LuaMRescueEscort")["type"], "LuaMRescueEscort", "LuaMRescueEscort.component")
+    assert_equal(component(rescue_escort, "Loadout")["prototypes"], ["ParamedicGear"], "LuaMRescueEscort.loadout")
+    assert_equal(component(rescue_escort, "NpcFactionMember")["factions"], ["NanoTrasen"], "LuaMRescueEscort.faction")
+    component(rescue_escort, "InputMover")
+    component(rescue_escort, "MobMover")
+    escort_htn = component(rescue_escort, "HTN")
+    assert_equal(escort_htn["rootTask"]["task"], "LuaMRescueCompound", "LuaMRescueEscort.htn.rootTask")
+    assert_equal(escort_htn["blackboard"]["NavInteract"], True, "LuaMRescueEscort.htn.NavInteract")
 
     rescue_compound = prototypes["LuaMRescueCompound"]
     assert_equal(rescue_compound["type"], "htnCompound", "LuaMRescueCompound.type")

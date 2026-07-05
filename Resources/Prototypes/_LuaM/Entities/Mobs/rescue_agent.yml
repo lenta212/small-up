@@ -43,3 +43,37 @@
       MaximumIdleTime: !type:Single
         1.5
       NavInteract: true
+
+- type: entity
+  parent: MobHuman
+  id: LuaMRescueEscort
+  name: LuaM rescue escort
+  suffix: LuaM, Autonomous Escort
+  description: Автономный сопровождающий спасательной группы LuaM.
+  components:
+  - type: RandomHumanoidAppearance
+    randomizeName: false
+  - type: Loadout
+    prototypes:
+    - ParamedicGear
+  - type: NpcFactionMember
+    factions:
+    - NanoTrasen
+  - type: InputMover
+  - type: MobMover
+  - type: LuaMRescueEscort
+  - type: HTN
+    rootTask:
+      task: LuaMRescueCompound
+    blackboard:
+      FollowCloseRange: !type:Single
+        1.75
+      FollowRange: !type:Single
+        5.0
+      IdleRange: !type:Single
+        4.0
+      MinimumIdleTime: !type:Single
+        0.5
+      MaximumIdleTime: !type:Single
+        1.5
+      NavInteract: true

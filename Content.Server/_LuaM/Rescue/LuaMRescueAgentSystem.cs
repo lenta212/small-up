@@ -84,6 +84,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly VendingMachineSystem _vending = default!;
     [Dependency] private readonly IPrototypeManager _prototype = default!;
     [Dependency] private readonly PathfindingSystem _pathfinding = default!;
+    [Dependency] private readonly LuaMRescueTeamSystem _rescueTeam = default!;
 
     public override void Update(float frameTime)
     {
@@ -143,6 +144,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             lines.Add(BuildRescueStatusLine(uid, rescue));
         }
 
+        lines.AddRange(_rescueTeam.BuildRescueTeamStatusLines());
         return lines;
     }
 
@@ -4587,7 +4589,7 @@ public sealed class LuaMRescueStatusCommand : IConsoleCommand
             return;
         }
 
-        shell.WriteLine($"LuaM rescue agents: {lines.Count}");
+        shell.WriteLine($"LuaM rescue telemetry: {lines.Count}");
         foreach (var line in lines)
         {
             shell.WriteLine(line);

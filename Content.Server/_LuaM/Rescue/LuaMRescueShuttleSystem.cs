@@ -26,6 +26,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
     [Dependency] private readonly StationSystem _station = default!;
     [Dependency] private readonly MetaDataSystem _metaData = default!;
     [Dependency] private readonly LuaMRescueAgentSystem _rescueAgent = default!;
+    [Dependency] private readonly LuaMRescueTeamSystem _rescueTeam = default!;
     [Dependency] private readonly NPCSystem _npc = default!;
 
     public bool TryDispatchRescueShuttle(
@@ -34,16 +35,19 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         EntityUid? followTarget,
         ICommonSession? controller,
         bool spawnAgent,
+        bool spawnTeam,
         bool control,
         bool routeToTarget,
         out EntityUid? shuttle,
         out EntityUid? agent,
         out EntityUid? autopilotConsole,
+        out int escortCount,
         out string status)
     {
         shuttle = null;
         agent = null;
         autopilotConsole = null;
+        escortCount = 0;
         status = string.Empty;
 
         if (!HasComp<StationDataComponent>(station))
@@ -79,7 +83,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
 
         if (!spawnAgent)
         {
-            status = BuildStatus(shuttleName, deployedAgent: false, routeRequested: routeToTarget && followTarget != null, routed);
+            status = BuildStatus(shuttleName, deployedAgent: false, deployedEscorts: 0, routeRequested: routeToTarget && followTarget != null, routed);
             return true;
         }
 
@@ -96,7 +100,13 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         rescue.AssignedTarget = followTarget;
         Dirty(agent.Value, rescue);
 
-        status = BuildStatus(shuttleName, deployedAgent: true, routeRequested: routeToTarget && followTarget != null, routed);
+        if (spawnTeam)
+        {
+            var escorts = _rescueTeam.SpawnEscortTeam(agent.Value, anchor, followTarget, shuttle, anchor);
+            escortCount = escorts.Count;
+        }
+
+        status = BuildStatus(shuttleName, deployedAgent: true, deployedEscorts: escortCount, routeRequested: routeToTarget && followTarget != null, routed);
         return true;
     }
 
@@ -114,12 +124,16 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         return true;
     }
 
-    private static string BuildStatus(string shuttleName, bool deployedAgent, bool routeRequested, bool routed)
+    private static string BuildStatus(string shuttleName, bool deployedAgent, int deployedEscorts, bool routeRequested, bool routed)
     {
         var status = $"Purchased rescue shuttle {shuttleName}";
 
         if (deployedAgent)
-            status += " and deployed a LuaM rescue agent";
+        {
+            status += deployedEscorts > 0
+                ? $" and deployed a LuaM rescue agent with {deployedEscorts} autonomous escorts"
+                : " and deployed a LuaM rescue agent";
+        }
 
         if (routeRequested)
             status += routed
@@ -198,6 +212,7 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
 {
     private const string ControlFlag = "--control";
     private const string NoAgentFlag = "--no-agent";
+    private const string NoTeamFlag = "--no-team";
     private const string NoAutopilotFlag = "--no-autopilot";
 
     [Dependency] private readonly IEntityManager _entities = default!;
@@ -207,12 +222,13 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
     public string Command => "luam_rescue_shuttle";
     public string Description => "Purchases a LuaM rescue shuttle and optionally deploys a rescue agent aboard it.";
     public string Help =>
-        $"Usage: {Command} [station=<stationEntity>] [vessel={LuaMRescueShuttleSystem.DefaultVessel}] [target=<entity|player>] [{ControlFlag}] [{NoAgentFlag}] [{NoAutopilotFlag}]";
+        $"Usage: {Command} [station=<stationEntity>] [vessel={LuaMRescueShuttleSystem.DefaultVessel}] [target=<entity|player>] [{ControlFlag}] [{NoAgentFlag}] [{NoTeamFlag}] [{NoAutopilotFlag}]";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
     {
         var control = args.Any(arg => arg.Equals(ControlFlag, StringComparison.OrdinalIgnoreCase));
         var spawnAgent = !args.Any(arg => arg.Equals(NoAgentFlag, StringComparison.OrdinalIgnoreCase));
+        var spawnTeam = spawnAgent && !args.Any(arg => arg.Equals(NoTeamFlag, StringComparison.OrdinalIgnoreCase));
         var routeToTarget = !args.Any(arg => arg.Equals(NoAutopilotFlag, StringComparison.OrdinalIgnoreCase));
 
         if (control && shell.Player == null)
@@ -252,11 +268,13 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
                 target,
                 shell.Player,
                 spawnAgent,
+                spawnTeam,
                 control,
                 routeToTarget,
                 out var shuttle,
                 out var agent,
                 out var autopilotConsole,
+                out var escortCount,
                 out var status))
         {
             shell.WriteError(status);
@@ -273,7 +291,7 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
             ? _entities.GetNetEntity(autopilotUid).ToString()
             : "none";
 
-        shell.WriteLine($"{status} shuttle={shuttleNet}; agent={agentNet}; autopilotConsole={autopilotNet}; vessel={vessel.ID}.");
+        shell.WriteLine($"{status} shuttle={shuttleNet}; agent={agentNet}; escorts={escortCount}; autopilotConsole={autopilotNet}; vessel={vessel.ID}.");
     }
 
     public CompletionResult GetCompletion(IConsoleShell shell, string[] args)
@@ -285,6 +303,7 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
                 "target=",
                 ControlFlag,
                 NoAgentFlag,
+                NoTeamFlag,
                 NoAutopilotFlag,
             ],
             "rescue shuttle option");
