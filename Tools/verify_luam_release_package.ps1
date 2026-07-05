@@ -257,6 +257,8 @@ try {
         "Resources/Prototypes/_LuaM/Entities/Objects/Monolith/artifacts.yml",
         "Resources/Prototypes/_LuaM/Entities/Objects/Devices/cartridges.yml",
         "Resources/Prototypes/_Mono/Entities/Markers/Spawners/shuttles.yml",
+        "Resources/Prototypes/_Mono/Shipyard/triage.yml",
+        "Resources/Maps/_Mono/Shuttles/triage.yml",
         "Resources/Prototypes/_NF/Entities/Mobs/NPCs/mob_hostile_rogue_ai.yml",
         "server_config.remote.toml",
         "Resources/Prototypes/InventoryTemplates/human_inventory_template.yml",

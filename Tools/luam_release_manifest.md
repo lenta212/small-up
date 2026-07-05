@@ -61,6 +61,8 @@ LuaM file groups that must be in the release/package snapshot:
 - `Resources/ServerInfo/Intro.txt`
 - `server_config.remote.toml`
 - `Resources/Prototypes/_Mono/Entities/Markers/Spawners/shuttles.yml`
+- `Resources/Prototypes/_Mono/Shipyard/triage.yml`
+- `Resources/Maps/_Mono/Shuttles/triage.yml`
 - LuaM-linked admin tab, Bounty Contracts, Bank/Payroll locale, LateJoin, cartridge, research, role-time, pinpointer, synthetic-control, clothing/underwear slot, rogue AI, character profile, and test-harness files listed in `Tools\check_luam_release_ready.ps1`.
 - `Tools/luam_ai_gateway.py`
 - `Tools/summarize_luam_ai_audit.py`
