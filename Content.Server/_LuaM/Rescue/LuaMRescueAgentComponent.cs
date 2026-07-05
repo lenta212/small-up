@@ -22,6 +22,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public EntityUid? AssignedReturnTarget;
 
     [DataField]
+    public EntityUid? ShuttleRoutedTarget;
+
+    [DataField]
     public EntityUid? EvacuatingTarget;
 
     [DataField]
@@ -35,6 +38,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     [DataField]
     public bool PreferStasisBedDelivery = true;
+
+    [DataField]
+    public bool AutoRouteShuttleToTargets = true;
 
     [DataField]
     public bool AutoReturnShuttle = true;

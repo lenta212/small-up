@@ -143,13 +143,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         EntityUid uid,
         float searchRange,
         LuaMRescueAgentComponent rescue,
-        out EntityUid target)
+        out EntityUid target,
+        EntityUid? excludedTarget = null)
     {
         target = default;
         var bestScore = float.MinValue;
 
         foreach (var candidate in _lookup.GetEntitiesInRange(uid, searchRange))
         {
+            if (candidate == excludedTarget)
+                continue;
+
             if (!IsEvacuationCandidate(uid, candidate, rescue, searchRange, out var score))
                 continue;
 
@@ -248,10 +252,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (rescue.EvacuatingTarget != target)
         {
             rescue.ShuttleReturnRouted = false;
+            rescue.ShuttleRoutedTarget = null;
             rescue.AssignedPatientStrap = null;
         }
 
         rescue.EvacuatingTarget = target;
+        TryRouteShuttleToTarget(uid, rescue, target);
 
         if (!IsWithinRange(uid, target, rescue.EvacuationStartRange))
         {
@@ -424,6 +430,31 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         htn.Blackboard.Remove<Angle>(shuttleConsole.AutopilotRotationKey);
         _npc.WakeNPC(console, htn);
         rescue.ShuttleReturnRouted = true;
+        rescue.ShuttleRoutedTarget = null;
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool TryRouteShuttleToTarget(EntityUid uid, LuaMRescueAgentComponent rescue, EntityUid target)
+    {
+        if (!rescue.AutoRouteShuttleToTargets ||
+            IsOnAssignedShuttle(target, rescue) ||
+            IsEvacuationComplete(target, rescue) ||
+            rescue.ShuttleRoutedTarget == target ||
+            rescue.AssignedShuttleConsole is not { Valid: true } console ||
+            Deleted(console) ||
+            Deleted(target) ||
+            !TryComp<ShuttleConsoleComponent>(console, out var shuttleConsole) ||
+            !TryComp<HTNComponent>(console, out var htn))
+        {
+            return false;
+        }
+
+        _npc.SetBlackboard(console, shuttleConsole.AutopilotTargetKey, new EntityCoordinates(target, Vector2.Zero), htn);
+        htn.Blackboard.Remove<Angle>(shuttleConsole.AutopilotRotationKey);
+        _npc.WakeNPC(console, htn);
+        rescue.ShuttleRoutedTarget = target;
+        rescue.ShuttleReturnRouted = false;
         Dirty(uid, rescue);
         return true;
     }
@@ -439,7 +470,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private void CompleteEvacuation(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
     {
         StopPullingTarget(uid, target);
-        TryRouteShuttleHome(uid, rescue);
+        rescue.ShuttleRoutedTarget = null;
+        if (!HasPendingEvacuationTarget(uid, rescue, target))
+            TryRouteShuttleHome(uid, rescue);
+        else
+            rescue.ShuttleReturnRouted = false;
+
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
@@ -457,6 +493,11 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         return IsOnAssignedShuttle(target, rescue) ||
                IsAtAssignedShuttleAnchor(target, rescue);
+    }
+
+    private bool HasPendingEvacuationTarget(EntityUid uid, LuaMRescueAgentComponent rescue, EntityUid completedTarget)
+    {
+        return TryFindEvacuationTarget(uid, rescue.SearchRange, rescue, out _, completedTarget);
     }
 
     private bool TryFindPatientDeliveryStrap(
