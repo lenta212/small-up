@@ -1,6 +1,9 @@
 using System.Linq;
+using System.Numerics;
 using Content.Server._NF.Shipyard.Systems;
 using Content.Server.Administration;
+using Content.Server.NPC.HTN;
+using Content.Server.NPC.Systems;
 using Content.Server.Shuttles.Components;
 using Content.Server.Station.Systems;
 using Content.Shared._NF.Shipyard.Prototypes;
@@ -9,6 +12,7 @@ using Content.Shared.Station.Components;
 using Robust.Server.GameObjects;
 using Robust.Server.Player;
 using Robust.Shared.Console;
+using Robust.Shared.Map;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 
@@ -22,6 +26,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
     [Dependency] private readonly StationSystem _station = default!;
     [Dependency] private readonly MetaDataSystem _metaData = default!;
     [Dependency] private readonly LuaMRescueAgentSystem _rescueAgent = default!;
+    [Dependency] private readonly NPCSystem _npc = default!;
 
     public bool TryDispatchRescueShuttle(
         EntityUid station,
@@ -30,12 +35,15 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         ICommonSession? controller,
         bool spawnAgent,
         bool control,
+        bool routeToTarget,
         out EntityUid? shuttle,
         out EntityUid? agent,
+        out EntityUid? autopilotConsole,
         out string status)
     {
         shuttle = null;
         agent = null;
+        autopilotConsole = null;
         status = string.Empty;
 
         if (!HasComp<StationDataComponent>(station))
@@ -55,9 +63,16 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         if (_station.GetOwningStation(shuttle.Value) is { Valid: true } shuttleStation)
             _station.RenameStation(shuttleStation, shuttleName, loud: false);
 
+        var routed = false;
+        if (routeToTarget &&
+            followTarget is { Valid: true } routeTarget)
+        {
+            routed = TrySetAutopilotTarget(shuttle.Value, routeTarget, out autopilotConsole);
+        }
+
         if (!spawnAgent)
         {
-            status = $"Purchased rescue shuttle {shuttleName}.";
+            status = BuildStatus(shuttleName, deployedAgent: false, routeRequested: routeToTarget && followTarget != null, routed);
             return true;
         }
 
@@ -72,8 +87,61 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         rescue.AssignedTarget = followTarget;
         Dirty(agent.Value, rescue);
 
-        status = $"Purchased rescue shuttle {shuttleName} and deployed a LuaM rescue agent.";
+        status = BuildStatus(shuttleName, deployedAgent: true, routeRequested: routeToTarget && followTarget != null, routed);
         return true;
+    }
+
+    public bool TrySetAutopilotTarget(EntityUid shuttle, EntityUid target, out EntityUid? autopilotConsole)
+    {
+        autopilotConsole = null;
+
+        if (!TryFindAutopilotConsole(shuttle, out var console, out var shuttleConsole, out var htn))
+            return false;
+
+        _npc.SetBlackboard(console, shuttleConsole.AutopilotTargetKey, new EntityCoordinates(target, Vector2.Zero), htn);
+        htn.Blackboard.Remove<Angle>(shuttleConsole.AutopilotRotationKey);
+        _npc.WakeNPC(console, htn);
+        autopilotConsole = console;
+        return true;
+    }
+
+    private static string BuildStatus(string shuttleName, bool deployedAgent, bool routeRequested, bool routed)
+    {
+        var status = $"Purchased rescue shuttle {shuttleName}";
+
+        if (deployedAgent)
+            status += " and deployed a LuaM rescue agent";
+
+        if (routeRequested)
+            status += routed
+                ? " with autopilot routed to the rescue target"
+                : " but autopilot routing was unavailable";
+
+        return status + ".";
+    }
+
+    private bool TryFindAutopilotConsole(
+        EntityUid shuttle,
+        out EntityUid console,
+        out ShuttleConsoleComponent shuttleConsole,
+        out HTNComponent htn)
+    {
+        var consoleQuery = EntityQueryEnumerator<ShuttleConsoleComponent, HTNComponent, TransformComponent>();
+        while (consoleQuery.MoveNext(out var uid, out var consoleComp, out var htnComp, out var xform))
+        {
+            if (xform.GridUid != shuttle)
+                continue;
+
+            console = uid;
+            shuttleConsole = consoleComp;
+            htn = htnComp;
+            return true;
+        }
+
+        console = default;
+        shuttleConsole = default!;
+        htn = default!;
+        return false;
     }
 
     private bool TryFindShuttleAnchor(EntityUid shuttle, out EntityUid anchor)
@@ -108,6 +176,7 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
 {
     private const string ControlFlag = "--control";
     private const string NoAgentFlag = "--no-agent";
+    private const string NoAutopilotFlag = "--no-autopilot";
 
     [Dependency] private readonly IEntityManager _entities = default!;
     [Dependency] private readonly IPlayerManager _players = default!;
@@ -116,12 +185,13 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
     public string Command => "luam_rescue_shuttle";
     public string Description => "Purchases a LuaM rescue shuttle and optionally deploys a rescue agent aboard it.";
     public string Help =>
-        $"Usage: {Command} [station=<stationEntity>] [vessel={LuaMRescueShuttleSystem.DefaultVessel}] [target=<entity|player>] [{ControlFlag}] [{NoAgentFlag}]";
+        $"Usage: {Command} [station=<stationEntity>] [vessel={LuaMRescueShuttleSystem.DefaultVessel}] [target=<entity|player>] [{ControlFlag}] [{NoAgentFlag}] [{NoAutopilotFlag}]";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
     {
         var control = args.Any(arg => arg.Equals(ControlFlag, StringComparison.OrdinalIgnoreCase));
         var spawnAgent = !args.Any(arg => arg.Equals(NoAgentFlag, StringComparison.OrdinalIgnoreCase));
+        var routeToTarget = !args.Any(arg => arg.Equals(NoAutopilotFlag, StringComparison.OrdinalIgnoreCase));
 
         if (control && shell.Player == null)
         {
@@ -154,7 +224,18 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
         }
 
         var system = _entities.System<LuaMRescueShuttleSystem>();
-        if (!system.TryDispatchRescueShuttle(station, vessel, target, shell.Player, spawnAgent, control, out var shuttle, out var agent, out var status))
+        if (!system.TryDispatchRescueShuttle(
+                station,
+                vessel,
+                target,
+                shell.Player,
+                spawnAgent,
+                control,
+                routeToTarget,
+                out var shuttle,
+                out var agent,
+                out var autopilotConsole,
+                out var status))
         {
             shell.WriteError(status);
             return;
@@ -166,8 +247,11 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
         var agentNet = agent is { Valid: true } agentUid
             ? _entities.GetNetEntity(agentUid).ToString()
             : "none";
+        var autopilotNet = autopilotConsole is { Valid: true } autopilotUid
+            ? _entities.GetNetEntity(autopilotUid).ToString()
+            : "none";
 
-        shell.WriteLine($"{status} shuttle={shuttleNet}; agent={agentNet}; vessel={vessel.ID}.");
+        shell.WriteLine($"{status} shuttle={shuttleNet}; agent={agentNet}; autopilotConsole={autopilotNet}; vessel={vessel.ID}.");
     }
 
     public CompletionResult GetCompletion(IConsoleShell shell, string[] args)
@@ -179,6 +263,7 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
                 "target=",
                 ControlFlag,
                 NoAgentFlag,
+                NoAutopilotFlag,
             ],
             "rescue shuttle option");
     }
