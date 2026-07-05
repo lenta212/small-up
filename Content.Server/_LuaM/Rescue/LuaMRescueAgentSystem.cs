@@ -139,6 +139,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return "follow-target";
         }
 
+        if (rescue.AssignedShuttle is { Valid: true } shuttle &&
+            !Deleted(shuttle))
+        {
+            return IsOnAssignedShuttle(uid, rescue)
+                ? "standby-on-shuttle"
+                : "standby-return-to-shuttle";
+        }
+
         if (rescue.ShuttleReturnRouted)
             return "shuttle-return-home";
 
@@ -218,7 +226,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
-        ClearFollowTarget(uid, rescue, htn);
+        StandbyAtAssignedShuttle(uid, rescue, htn);
     }
 
     private bool TryFindRescueTarget(
@@ -303,7 +311,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue.AssignedTarget = null;
             rescue.AssignedPatientStrap = null;
             ResetTargetProgress(rescue);
-            ClearFollowTarget(uid, rescue, htn);
+            StandbyAtAssignedShuttle(uid, rescue, htn);
             Dirty(uid, rescue);
             return false;
         }
@@ -314,6 +322,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             StopPullingTarget(uid, target);
             rescue.EvacuatingTarget = null;
             ResetTargetProgress(rescue);
+            StandbyAtAssignedShuttle(uid, rescue, htn);
             Dirty(uid, rescue);
             return false;
         }
@@ -721,7 +730,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         else
             rescue.ShuttleReturnRouted = false;
 
-        ClearFollowTarget(uid, rescue, htn);
+        StandbyAtAssignedShuttle(uid, rescue, htn);
         Dirty(uid, rescue);
     }
 
@@ -746,7 +755,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
-        ClearFollowTarget(uid, rescue, htn);
+        StandbyAtAssignedShuttle(uid, rescue, htn);
         Dirty(uid, rescue);
     }
 
@@ -927,6 +936,27 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         _npc.WakeNPC(uid, htn);
         Dirty(uid, rescue);
         return true;
+    }
+
+    private void StandbyAtAssignedShuttle(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    {
+        rescue.EvacuatingTarget = null;
+        rescue.AssignedTarget = null;
+        rescue.AssignedPatientStrap = null;
+
+        if (CanUseAssignedShuttle(rescue))
+        {
+            TryRouteShuttleHome(uid, rescue);
+
+            if (!IsOnAssignedShuttle(uid, rescue) &&
+                SetFollowShuttle(uid, rescue, htn))
+            {
+                return;
+            }
+        }
+
+        ClearFollowTarget(uid, rescue, htn);
+        Dirty(uid, rescue);
     }
 
     private bool TryGetShuttleAnchorCoordinates(LuaMRescueAgentComponent rescue, out EntityCoordinates coordinates)
