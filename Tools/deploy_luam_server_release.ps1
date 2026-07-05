@@ -13,6 +13,7 @@ param(
     [switch]$DryRun,
     [switch]$SkipPostVerify,
     [switch]$AllowClientZipRestore,
+    [string]$RemoteConfigPath = "",
     [string]$RemoteDataDir = "",
     [switch]$RequireDataBackup
 )
@@ -289,6 +290,17 @@ if ([string]::IsNullOrWhiteSpace($normalizedBaseDir)) {
 }
 
 $BaseDir = $normalizedBaseDir
+$serverConfigDefaultPath = "$BaseDir/server/server_config.toml"
+$normalizedRemoteConfigPath = if ([string]::IsNullOrWhiteSpace($RemoteConfigPath)) {
+    $serverConfigDefaultPath
+} else {
+    Normalize-RemoteAbsolutePath -Path $RemoteConfigPath -Name "RemoteConfigPath"
+}
+
+if ($normalizedRemoteConfigPath -in @($normalizedBaseDir, "$normalizedBaseDir/server", "$normalizedBaseDir/deploy-staging", "$normalizedBaseDir/backups")) {
+    throw "RemoteConfigPath points at a deploy/control directory instead of server_config.toml: $normalizedRemoteConfigPath"
+}
+
 $normalizedRemoteDataDir = Normalize-RemoteAbsolutePath -Path $RemoteDataDir -Name "RemoteDataDir"
 if ($RequireDataBackup -and [string]::IsNullOrWhiteSpace($normalizedRemoteDataDir)) {
     throw "RequireDataBackup was set, but RemoteDataDir is empty. Pass the live server data directory explicitly."
@@ -320,6 +332,7 @@ $plan = [ordered]@{
     tag = $Tag
     service = $ServiceName
     base_dir = $BaseDir
+    remote_config_path = $normalizedRemoteConfigPath
     remote_data_dir = $normalizedRemoteDataDir
     require_data_backup = [bool]$RequireDataBackup
 }
@@ -358,6 +371,7 @@ service_name=$(ConvertTo-ShellSingleQuoted $ServiceName)
 zip_path=$(ConvertTo-ShellSingleQuoted $remoteZip)
 expected_sha=$(ConvertTo-ShellSingleQuoted $localHash)
 tag=$(ConvertTo-ShellSingleQuoted $Tag)
+remote_config_path=$(ConvertTo-ShellSingleQuoted $normalizedRemoteConfigPath)
 remote_data_dir=$(ConvertTo-ShellSingleQuoted $normalizedRemoteDataDir)
 force_deploy=$forceValue
 skip_post_verify=$skipPostVerifyValue
@@ -369,7 +383,33 @@ stage_dir="`$base_dir/deploy-staging/server-`$tag"
 backup_dir="`$base_dir/backups/server-`$tag"
 failed_dir="`$base_dir/backups/server-`$tag-failed"
 config_backup="`$base_dir/backups/server_config-before-`$tag.toml"
+config_sha256=""
 data_backup=""
+
+if [ -z "`$remote_config_path" ]; then
+  echo "Remote config path is empty." >&2
+  exit 20
+fi
+
+case "`$remote_config_path" in
+  /*) ;;
+  *)
+    echo "Remote config path must be absolute: `$remote_config_path" >&2
+    exit 21
+    ;;
+esac
+
+if [ "`$remote_config_path" = "/" ] || [ "`$remote_config_path" = "`$base_dir" ] || [ "`$remote_config_path" = "`$server_dir" ] || [ "`$remote_config_path" = "`$base_dir/deploy-staging" ] || [ "`$remote_config_path" = "`$base_dir/backups" ]; then
+  echo "Remote config path points at a deploy/control directory: `$remote_config_path" >&2
+  exit 22
+fi
+
+if [ ! -f "`$remote_config_path" ]; then
+  echo "Remote server config not found: `$remote_config_path" >&2
+  exit 23
+fi
+
+config_sha256=`$(sudo sha256sum "`$remote_config_path" | awk '{print `$1}')
 
 if [ "`$require_data_backup" = "1" ] && [ -z "`$remote_data_dir" ]; then
   echo "Data backup is required, but remote_data_dir is empty." >&2
@@ -493,8 +533,8 @@ if [ -f "`$stage_dir/Robust.Packaging" ]; then
 fi
 
 echo "deploy-step=copy-config"
-sudo cp "`$server_dir/server_config.toml" "`$config_backup"
-sudo cp "`$server_dir/server_config.toml" "`$stage_dir/server_config.toml"
+sudo cp "`$remote_config_path" "`$config_backup"
+sudo cp "`$remote_config_path" "`$stage_dir/server_config.toml"
 sudo chown -R monolith:monolith "`$stage_dir"
 
 if [ -e "`$backup_dir" ]; then
@@ -570,6 +610,7 @@ fi
 echo "deployed_tag=`$tag"
 echo "backup_dir=`$backup_dir"
 echo "config_backup=`$config_backup"
+echo "config_sha256=`$config_sha256"
 if [ -n "`$data_backup" ]; then
   echo "data_backup=`$data_backup"
 fi
@@ -596,6 +637,7 @@ if (-not $SkipPostVerify) {
     package_sha256 = $localHash
     remote_zip = $remoteZip
     tag = $Tag
+    remote_config_path = $normalizedRemoteConfigPath
     remote_data_dir = $normalizedRemoteDataDir
     require_data_backup = [bool]$RequireDataBackup
 } | ConvertTo-Json -Depth 6
