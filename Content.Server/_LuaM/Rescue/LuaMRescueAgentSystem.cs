@@ -2333,7 +2333,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         if (!TryComp<MobStateComponent>(target, out var mobState) ||
-            mobState.CurrentState == MobState.Dead)
+            mobState.CurrentState == MobState.Dead &&
+            !IsDeadPatientRecoveryTarget(target, rescue, mobState))
         {
             StopPullingTarget(uid, target);
             rescue.EvacuatingTarget = null;
@@ -3052,15 +3053,29 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             IsTargetTemporarilySkipped(target, rescue) ||
             IsEvacuationComplete(target, rescue) ||
             !TryComp<MobStateComponent>(target, out var mobState) ||
-            !TryComp<DamageableComponent>(target, out var damage) ||
-            !HasComp<PullableComponent>(target) ||
-            mobState.CurrentState == MobState.Dead)
+            !HasComp<PullableComponent>(target))
         {
             return false;
         }
 
+        if (mobState.CurrentState == MobState.Dead)
+            return IsDeadPatientRecoveryTarget(target, rescue, mobState);
+
+        if (!TryComp<DamageableComponent>(target, out var damage))
+            return false;
+
         return mobState.CurrentState == MobState.Critical ||
                damage.TotalDamage.Float() >= rescue.EvacuationMinDamage;
+    }
+
+    private bool IsDeadPatientRecoveryTarget(EntityUid target, LuaMRescueAgentComponent rescue, MobStateComponent mobState)
+    {
+        return rescue.RecoverDeadPatientsToShuttle &&
+               mobState.CurrentState == MobState.Dead &&
+               (rescue.EvacuatingTarget == target ||
+                rescue.AssignedTarget == target ||
+                rescue.TaskPatientTarget == target ||
+                HasComp<ActorComponent>(target));
     }
 
     private bool IsEvacuationCandidate(
@@ -3087,8 +3102,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (!TryComp<MobStateComponent>(candidate, out var mobState) ||
-            !TryComp<DamageableComponent>(candidate, out var damage))
+        if (!TryComp<MobStateComponent>(candidate, out var mobState))
         {
             return false;
         }
@@ -3096,7 +3110,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryGetNavigationSelectionPenalty(rescuer, candidate, SharedInteractionSystem.InteractionRange, out var navPenalty))
             return false;
 
-        score = damage.TotalDamage.Float() - distance - navPenalty;
+        score = 0f - distance - navPenalty;
+        if (TryComp<DamageableComponent>(candidate, out var damage))
+            score += damage.TotalDamage.Float();
+
+        if (mobState.CurrentState == MobState.Dead)
+            score += 1500f;
+
         if (mobState.CurrentState == MobState.Critical)
             score += 1000f;
 

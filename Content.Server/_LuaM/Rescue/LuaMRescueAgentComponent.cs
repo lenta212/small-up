@@ -37,6 +37,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool EvacuateTargetsToShuttle = true;
 
     [DataField]
+    public bool RecoverDeadPatientsToShuttle = true;
+
+    [DataField]
     public bool BucklePatientsOnShuttle = true;
 
     [DataField]

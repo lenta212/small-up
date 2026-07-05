@@ -65,6 +65,22 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAgentRecoversDeadPatientsToShuttleWithoutAutoRelease()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("RecoverDeadPatientsToShuttle = true"));
+        Assert.That(source, Does.Contain("IsDeadPatientRecoveryTarget"));
+        Assert.That(source, Does.Contain("return IsDeadPatientRecoveryTarget(target, rescue, mobState);"));
+        Assert.That(source, Does.Contain("rescue.AssignedTarget == target"));
+        Assert.That(source, Does.Contain("HasComp<ActorComponent>(target)"));
+        Assert.That(source, Does.Contain("score += 1500f"));
+        Assert.That(source, Does.Contain("holding dead onboard patient"));
+        Assert.That(source, Does.Contain("mobState.CurrentState == MobState.Dead ||"));
+    }
+
+    [Test]
     public void RescueTeamThreatDetectionUsesObserverFaction()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
