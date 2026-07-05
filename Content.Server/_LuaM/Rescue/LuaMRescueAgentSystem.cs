@@ -2239,6 +2239,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
+        if (TryReleaseStabilizedPatientOnShuttle(uid, rescue, htn))
+            return;
+
         StandbyAtAssignedShuttle(uid, rescue, htn);
     }
 
@@ -3562,6 +3565,151 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         return IsOnAssignedShuttle(target, rescue) ||
                IsAtAssignedShuttleAnchor(target, rescue);
+    }
+
+    private bool TryReleaseStabilizedPatientOnShuttle(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (!rescue.AutoReleaseStabilizedPatients)
+            return false;
+
+        if (!TryFindStabilizedShuttlePatient(rescue, out var patient, out var patientStrap, out var buckle, out var status))
+        {
+            if (!string.IsNullOrWhiteSpace(status))
+                rescue.LastAutoEvacuationStatus = status;
+
+            return false;
+        }
+
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.DeliveringPatient,
+            patient,
+            patientStrap,
+            $"releasing stabilized {FormatEntityRef(patient)} from {FormatEntityRef(patientStrap)}");
+
+        if (!IsWithinRange(uid, patientStrap, rescue.AutoReleaseRange))
+        {
+            rescue.LastAutoEvacuationStatus = $"moving to release stabilized {FormatEntityRef(patient)} from {FormatEntityRef(patientStrap)}";
+            SetFollowDeliveryStrap(uid, rescue, htn, patientStrap);
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        var oldStrap = buckle.BuckledTo;
+        var unbuckled = _buckle.TryUnbuckle(patient, uid, buckle, popup: false);
+        rescue.LastAutoEvacuationStatus = unbuckled
+            ? $"released stabilized {FormatEntityRef(patient)} from {FormatEntityRef(oldStrap)}"
+            : $"could not release stabilized {FormatEntityRef(patient)} from {FormatEntityRef(oldStrap)}";
+
+        if (unbuckled)
+        {
+            if (rescue.AssignedPatientStrap == patientStrap)
+                rescue.AssignedPatientStrap = null;
+
+            ClearFollowTarget(uid, rescue, htn);
+        }
+        else
+        {
+            SetFollowDeliveryStrap(uid, rescue, htn, patientStrap);
+        }
+
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool TryFindStabilizedShuttlePatient(
+        LuaMRescueAgentComponent rescue,
+        out EntityUid patient,
+        out EntityUid patientStrap,
+        out BuckleComponent buckle,
+        out string status)
+    {
+        patient = default;
+        patientStrap = default;
+        buckle = default!;
+        status = string.Empty;
+
+        if (rescue.AssignedShuttle is not { Valid: true } shuttle ||
+            Deleted(shuttle))
+        {
+            return false;
+        }
+
+        var holdingStatus = string.Empty;
+        var query = EntityQueryEnumerator<StrapComponent, TransformComponent>();
+        while (query.MoveNext(out var strapUid, out var strap, out var xform))
+        {
+            if (xform.GridUid != shuttle ||
+                !IsAssignedShuttlePatientStrap(strapUid, rescue))
+            {
+                continue;
+            }
+
+            foreach (var buckled in strap.BuckledEntities)
+            {
+                if (Deleted(buckled) ||
+                    !TryComp<BuckleComponent>(buckled, out var buckledComp) ||
+                    buckledComp.BuckledTo != strapUid)
+                {
+                    continue;
+                }
+
+                if (IsPatientStableForRelease(buckled, rescue, out var patientStatus))
+                {
+                    patient = buckled;
+                    patientStrap = strapUid;
+                    buckle = buckledComp;
+                    status = patientStatus;
+                    return true;
+                }
+
+                if (string.IsNullOrWhiteSpace(holdingStatus))
+                    holdingStatus = patientStatus;
+            }
+        }
+
+        status = holdingStatus;
+        return false;
+    }
+
+    private bool IsPatientStableForRelease(
+        EntityUid patient,
+        LuaMRescueAgentComponent rescue,
+        out string status)
+    {
+        status = string.Empty;
+
+        if (!TryComp<MobStateComponent>(patient, out var mobState))
+        {
+            status = $"holding onboard patient {FormatEntityRef(patient)} without mob state";
+            return false;
+        }
+
+        if (mobState.CurrentState == MobState.Dead)
+        {
+            status = $"holding dead onboard patient {FormatEntityRef(patient)}";
+            return false;
+        }
+
+        if (mobState.CurrentState == MobState.Critical)
+        {
+            status = $"holding critical onboard patient {FormatEntityRef(patient)}";
+            return false;
+        }
+
+        if (TryComp<DamageableComponent>(patient, out var damageable) &&
+            damageable.TotalDamage.Float() > rescue.AutoReleaseMaxDamage)
+        {
+            status = $"holding onboard patient {FormatEntityRef(patient)} with damage {damageable.TotalDamage.Float():0.0}";
+            return false;
+        }
+
+        status = $"stabilized onboard patient {FormatEntityRef(patient)}";
+        return true;
     }
 
     private bool HasPendingEvacuationTarget(EntityUid uid, LuaMRescueAgentComponent rescue, EntityUid completedTarget)

@@ -1,0 +1,20 @@
+- type: startingGear
+  id: LuaMRescueTeamGear
+  equipment:
+    back: ClothingBackpackERTMedical
+    shoes: ClothingShoesBootsCombatFilled
+    head: ClothingHeadHelmetBasic
+    eyes: ClothingEyesHudMedical
+    gloves: ClothingHandsGlovesCombat
+    outerClothing: ClothingOuterArmorBasicSlim
+    id: ParamedicPDA
+    ears: ClothingHeadsetMedical
+    belt: ClothingBeltMedicalEMTFilled
+  inhand:
+  - WeaponLaserCarbine
+  storage:
+    back:
+    - EmergencyRollerBedSpawnFolded
+    - MedkitCombatFilled
+    - OmnizineChemistryBottle
+    - EpinephrineChemistryBottle

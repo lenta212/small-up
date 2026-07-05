@@ -9,7 +9,7 @@
     randomizeName: false
   - type: Loadout
     prototypes:
-    - ParamedicGear
+    - LuaMRescueTeamGear
   - type: NpcFactionMember
     factions:
     - NanoTrasen
@@ -55,7 +55,7 @@
     randomizeName: false
   - type: Loadout
     prototypes:
-    - ParamedicGear
+    - LuaMRescueTeamGear
   - type: NpcFactionMember
     factions:
     - NanoTrasen

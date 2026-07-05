@@ -52,6 +52,9 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public EntityUid? ThreatTarget;
 
     [DataField]
+    public EntityUid? CrowdTarget;
+
+    [DataField]
     public EntityUid? RouteBlockerTarget;
 
     [DataField]
@@ -147,6 +150,9 @@ public sealed partial class LuaMRescueEscortComponent : Component
 
     [DataField]
     public EntityUid? ThreatTarget;
+
+    [DataField]
+    public EntityUid? CrowdTarget;
 
     [DataField]
     public EntityUid? RouteBlockerTarget;

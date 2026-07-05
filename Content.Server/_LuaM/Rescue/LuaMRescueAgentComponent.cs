@@ -46,6 +46,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool PreferStasisBedDelivery = true;
 
     [DataField]
+    public bool AutoReleaseStabilizedPatients = true;
+
+    [DataField]
     public bool AutoTreatWithCarriedItems = true;
 
     [DataField]
@@ -104,6 +107,12 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     [DataField]
     public float EvacuationMinDamage = 50f;
+
+    [DataField]
+    public float AutoReleaseMaxDamage = 5f;
+
+    [DataField]
+    public float AutoReleaseRange = 1.5f;
 
     [DataField]
     public float TargetStallSeconds = 20f;

@@ -4,10 +4,12 @@ using Content.Server._NF.Shipyard.Systems;
 using Content.Server.Administration;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Systems;
+using Content.Server.Radio.EntitySystems;
 using Content.Server.Shuttles.Components;
 using Content.Server.Station.Systems;
 using Content.Shared._NF.Shipyard.Prototypes;
 using Content.Shared.Administration;
+using Content.Shared.Radio;
 using Content.Shared.Station.Components;
 using Robust.Server.GameObjects;
 using Robust.Server.Player;
@@ -21,6 +23,7 @@ namespace Content.Server._LuaM.Rescue;
 public sealed class LuaMRescueShuttleSystem : EntitySystem
 {
     public const string DefaultVessel = "Triage";
+    private static readonly ProtoId<RadioChannelPrototype> MedicalRadioChannel = "Medical";
 
     [Dependency] private readonly ShipyardSystem _shipyard = default!;
     [Dependency] private readonly StationSystem _station = default!;
@@ -28,6 +31,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
     [Dependency] private readonly LuaMRescueAgentSystem _rescueAgent = default!;
     [Dependency] private readonly LuaMRescueTeamSystem _rescueTeam = default!;
     [Dependency] private readonly NPCSystem _npc = default!;
+    [Dependency] private readonly RadioSystem _radio = default!;
 
     public bool TryDispatchRescueShuttle(
         EntityUid station,
@@ -106,8 +110,24 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             escortCount = escorts.Count;
         }
 
+        if (followTarget is { Valid: true } dispatchTarget &&
+            !Deleted(dispatchTarget))
+        {
+            SendDispatchRadio(agent.Value, dispatchTarget);
+        }
+
         status = BuildStatus(shuttleName, deployedAgent: true, deployedEscorts: escortCount, routeRequested: routeToTarget && followTarget != null, routed);
         return true;
+    }
+
+    private void SendDispatchRadio(EntityUid agent, EntityUid target)
+    {
+        var targetName = Name(target);
+        _radio.SendRadioMessage(
+            agent,
+            $"Медсигнал смерти принят. Вылетаю к {targetName}.",
+            MedicalRadioChannel,
+            agent);
     }
 
     public bool TrySetAutopilotTarget(EntityUid shuttle, EntityUid target, out EntityUid? autopilotConsole)
