@@ -480,7 +480,7 @@ If the admin explicitly asks for a LuaM rescue shuttle, Triage rescue ship, resc
 If the admin explicitly asks to create or spawn a Baeg, shuttle, ship, or named vessel near them, prefer run_sector_command with sectorCommandId spawn_ship when it is present in allowedSectorCommandIds. Keep the vessel name/ID in instruction. Do not map this request to spawn_entity.
 If the admin explicitly asks for LuaM rescue agent status, choose run_admin_command with "luam_rescue_status" when it is present in allowedAdminCommandNames.
 If the admin explicitly asks to order an existing LuaM rescue agent to help, follow, or rescue a target, choose run_admin_command with "luam_rescue_order target=<target>" or "luam_rescue_order clear" only when luam_rescue_order is present in allowedAdminCommandNames. Do not invent hidden coordinates or unsafe commands.
-If the admin explicitly asks an existing LuaM rescue agent to interact, alt-interact, use a held item, pick up an item, equip the active hand item into an inventory slot, unequip an inventory slot into a free hand, pull/drag a target, stop pulling, buckle the currently pulled entity to a strap/bed, or drop an item, choose run_admin_command with "luam_rescue_action action=<interact|alt|use|pickup|drop|pull|stop-pull|buckle> target=<target>", a targetless "luam_rescue_action action=<drop|stop-pull>", or "luam_rescue_action action=<equip-slot|unequip-slot> slot=<slot>" only when luam_rescue_action is present in allowedAdminCommandNames. Do not invent targets. Common slots are belt, back, suitstorage, outerClothing, pocket1, pocket2, jumpsuit, id, mask, gloves, head, eyes, ears, and neck.
+If the admin explicitly asks an existing LuaM rescue agent to interact, alt-interact, use a held item, pick up an item, equip the active hand item into an inventory slot, unequip an inventory slot into a free hand, store the active hand item into storage worn in a slot, take an item from storage worn in a slot, pull/drag a target, stop pulling, buckle the currently pulled entity to a strap/bed, or drop an item, choose run_admin_command with "luam_rescue_action action=<interact|alt|use|pickup|drop|pull|stop-pull|buckle> target=<target>", a targetless "luam_rescue_action action=<drop|stop-pull>", "luam_rescue_action action=<equip-slot|unequip-slot|store-slot|take-storage> slot=<slot>", or "luam_rescue_action action=take-storage slot=<slot> item=<name|prototype|entity>" only when luam_rescue_action is present in allowedAdminCommandNames. Do not invent targets. Common slots are belt, back, suitstorage, outerClothing, pocket1, pocket2, jumpsuit, id, mask, gloves, head, eyes, ears, and neck.
 Для clear_sector_condition используй conditionId из контекста activeConditionIds, если администратор не указал новый id.
 Для resolve_open_lead заполни resolutionNote короткой русской причиной закрытия.
 Для spawn_entity используй entityPrototypeId только из allowedEntityPrototypeIds, entityCount 1..5.
@@ -2060,6 +2060,30 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
                 return slot
         return ""
 
+    def detect_rescue_item() -> str:
+        item_aliases = {
+            "first aid": "medkit",
+            "medkit": "medkit",
+            "medipen": "medipen",
+            "hypospray": "hypospray",
+            "ointment": "ointment",
+            "gauze": "gauze",
+            "bandage": "gauze",
+            "bruise": "bruise",
+            "burn": "burn",
+            "health analyzer": "analyzer",
+            "analyzer": "analyzer",
+            "welder": "welder",
+            "wrench": "wrench",
+            "crowbar": "crowbar",
+            "screwdriver": "screwdriver",
+            "tool": "tool",
+        }
+        for phrase, item in item_aliases.items():
+            if phrase in lowered:
+                return item
+        return ""
+
     wants_world_pressure = any(word in lowered for word in (
         "усиль",
         "влия",
@@ -2087,6 +2111,10 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
     wants_rescue = any(word in lowered for word in ("rescue", "luam_rescue", "rescuer", "triage", "спас", "эвак", "триаж"))
     wants_rescue_shuttle = wants_rescue and any(word in lowered for word in ("shuttle", "ship", "vessel", "triage", "шатл", "шаттл", "кораб", "судн"))
     rescue_slot = detect_rescue_slot()
+    rescue_item = detect_rescue_item()
+    wants_rescue_storage_take = any(phrase in lowered for phrase in ("take from", "take out", "get from", "draw from", "retrieve")) or (
+        bool(rescue_item) and any(word in lowered for word in ("take", "get", "draw", "retrieve"))
+    )
     wants_personal_pressure = any(word in lowered for word in (
         "рядом со мной",
         "рядом с мной",
@@ -2139,7 +2167,17 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
         action = "run_admin_command"
         admin_command = "luam_rescue_order clear"
         reply = "AI provider is temporarily unavailable. Clearing the current LuaM rescue agent order locally."
-    elif wants_rescue and rescue_slot and any(word in lowered for word in ("unequip", "remove", "draw", "take from", "take out", "get from")) and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_action"):
+    elif wants_rescue and rescue_slot and wants_rescue_storage_take and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_action"):
+        action = "run_admin_command"
+        admin_command = f"luam_rescue_action action=take-storage slot={rescue_slot}"
+        if rescue_item:
+            admin_command += f" item={rescue_item}"
+        reply = "AI provider is temporarily unavailable. Ordering the LuaM rescue agent to take an item from storage locally."
+    elif wants_rescue and rescue_slot and any(word in lowered for word in ("store", "stow", "put away", "put into", "place in")) and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_action"):
+        action = "run_admin_command"
+        admin_command = f"luam_rescue_action action=store-slot slot={rescue_slot}"
+        reply = "AI provider is temporarily unavailable. Ordering the LuaM rescue agent to store its active hand item locally."
+    elif wants_rescue and rescue_slot and any(word in lowered for word in ("unequip", "remove", "take off")) and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_action"):
         action = "run_admin_command"
         admin_command = f"luam_rescue_action action=unequip-slot slot={rescue_slot}"
         reply = "AI provider is temporarily unavailable. Ordering the LuaM rescue agent to unequip an inventory slot locally."
