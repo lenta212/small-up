@@ -55,6 +55,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoPickupNearbyMedicalSupplies = true;
 
     [DataField]
+    public bool AutoTakeNearbyStoredMedicalSupplies = true;
+
+    [DataField]
     public bool AutoStowHeldItemsForTreatment = true;
 
     [DataField]
@@ -207,6 +210,8 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     public EntityUid? PendingVendingDispensedItem;
 
+    public EntityUid? PendingStorageTakenItem;
+
     [DataField]
     public string Role = "rescue";
 }
@@ -227,6 +232,7 @@ public enum LuaMRescuePlayerActionKind : byte
     UnequipSlot,
     StoreSlot,
     TakeStorage,
+    TakeTargetStorage,
     Treat,
     Vend,
 }

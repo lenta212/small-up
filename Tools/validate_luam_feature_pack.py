@@ -2084,6 +2084,8 @@ def main() -> int:
         "luam_rescue_order",
         "luam_rescue_shuttle",
         "luam_rescue_status",
+        "take medical supplies from accessible nearby storage",
+        "take-target-storage",
         "store collected medical supplies",
         "inputSafetyFlags",
         "aiMemoryBrief",
@@ -2190,6 +2192,7 @@ def main() -> int:
         "vend",
         "store-slot",
         "take-storage",
+        "take-target-storage",
         "slot=<slot>",
         "item=<name|prototype|entity>",
         "dangerChat",
@@ -3091,7 +3094,7 @@ def main() -> int:
     assert_contains(rescue_agent_system, "UpdatePendingPlayerAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryExecutePlayerAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "LuaMRescueActionCommand", "LuaMRescueActionCommand")
-    assert_contains(rescue_agent_system, "<interact|alt|use|treat|vend|pickup|drop|pull|stop-pull|buckle|unbuckle|equip-slot|unequip-slot|store-slot|take-storage|clear>", "LuaMRescueActionCommand")
+    assert_contains(rescue_agent_system, "<interact|alt|use|treat|vend|pickup|drop|pull|stop-pull|buckle|unbuckle|equip-slot|unequip-slot|store-slot|take-storage|take-target-storage|clear>", "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, "slot=<inventorySlot>", "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, "item=<name|prototype|entity>", "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, "InteractUsing", "LuaMRescueAgentSystem")
@@ -3213,6 +3216,11 @@ def main() -> int:
     assert_contains(rescue_agent_system, "TryAutoUnbucklePatientForEvacuation", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryFindPatientDeliveryStrap", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "SetFollowDeliveryStrap", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryStartAutoTakeNearbyStoredMedicalSupply", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryFindNearbyStoredMedicalSupply", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryTakeItemFromTargetStorage", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "StorageInteractAttemptEvent", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TakeTargetStorage", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryAutoStoreCollectedMedicalSupply", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "kept collected supply", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryHandleStalledDeliveryTarget", "LuaMRescueAgentSystem")
@@ -3256,6 +3264,7 @@ def main() -> int:
     assert_contains(rescue_agent_component, "AutoTreatWithCarriedItems = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoAnalyzeBeforeTreatment = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoPickupNearbyMedicalSupplies = true", "LuaMRescueAgentComponent")
+    assert_contains(rescue_agent_component, "AutoTakeNearbyStoredMedicalSupplies = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoStowHeldItemsForTreatment = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoStoreCollectedMedicalSupplies = true", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "AutoResupplyFromVending = true", "LuaMRescueAgentComponent")
@@ -3289,6 +3298,7 @@ def main() -> int:
     assert_contains(rescue_agent_component, "PendingVendingStarted", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "PendingVendingProduct", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "PendingVendingDispensedItem", "LuaMRescueAgentComponent")
+    assert_contains(rescue_agent_component, "PendingStorageTakenItem", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "SkippedTargets", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "SkippedSupplyTargets", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "SkippedDeliveryTargets", "LuaMRescueAgentComponent")
