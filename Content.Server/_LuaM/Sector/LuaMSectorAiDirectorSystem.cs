@@ -185,6 +185,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         "luam_sector_status",
         "luam_rescue_action",
         "luam_rescue_order",
+        "luam_rescue_shuttle",
         "luam_rescue_status",
     ];
 

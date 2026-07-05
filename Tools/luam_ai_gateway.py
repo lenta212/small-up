@@ -345,6 +345,7 @@ ALLOWED_ADMIN_COMMAND_NAMES: tuple[str, ...] = (
     "luam_sector_status",
     "luam_rescue_action",
     "luam_rescue_order",
+    "luam_rescue_shuttle",
     "luam_rescue_status",
 )
 FORBIDDEN_ADMIN_COMMAND_PREFIXES: tuple[str, ...] = (
@@ -475,6 +476,7 @@ enable_auto_ai, world pressure и максимальная опасность д
 Если администратор просит быть проводником его воли или включает максимальную опасность, предпочитай run_sector_command с sectorCommandId admin_will_max_danger, если он есть в allowedSectorCommandIds.
 If the admin asks to create pressure, conditions, danger, panic, or an event around themselves, near the selected player, or around a specific human target, prefer run_sector_command with sectorCommandId personal_pressure.
 If that request also asks for maximum danger, panic, administrator will, or anything-can-happen escalation, prefer sectorCommandId personal_max_danger.
+If the admin explicitly asks for a LuaM rescue shuttle, Triage rescue ship, rescue operator shuttle, спасательный шаттл, or спасательный корабль, choose run_admin_command with "luam_rescue_shuttle" or "luam_rescue_shuttle target=<target>" only when luam_rescue_shuttle is present in allowedAdminCommandNames.
 If the admin explicitly asks to create or spawn a Baeg, shuttle, ship, or named vessel near them, prefer run_sector_command with sectorCommandId spawn_ship when it is present in allowedSectorCommandIds. Keep the vessel name/ID in instruction. Do not map this request to spawn_entity.
 If the admin explicitly asks for LuaM rescue agent status, choose run_admin_command with "luam_rescue_status" when it is present in allowedAdminCommandNames.
 If the admin explicitly asks to order an existing LuaM rescue agent to help, follow, or rescue a target, choose run_admin_command with "luam_rescue_order target=<target>" or "luam_rescue_order clear" only when luam_rescue_order is present in allowedAdminCommandNames. Do not invent hidden coordinates or unsafe commands.
@@ -2051,7 +2053,8 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
         any(word in lowered for word in ("baeg", "shuttle", " ship", "ship ", "shipyard", "vessel", "кораб", "шатл", "шаттл", "шип"))
         and any(word in lowered for word in ("spawn", "create", "summon", "call", "need", "want", "give", "near", "nearby", "next to", "beside", "создай", "создавай", "сделай", "заспавн", "вызови", "дай", "выдай", "нужен", "нужна", "нужно", "хочу", "доставь", "подгони", "рядом", "возле", "около"))
     )
-    wants_rescue = any(word in lowered for word in ("rescue", "luam_rescue", "rescuer"))
+    wants_rescue = any(word in lowered for word in ("rescue", "luam_rescue", "rescuer", "triage", "спас", "эвак", "триаж"))
+    wants_rescue_shuttle = wants_rescue and any(word in lowered for word in ("shuttle", "ship", "vessel", "triage", "шатл", "шаттл", "кораб", "судн"))
     wants_personal_pressure = any(word in lowered for word in (
         "рядом со мной",
         "рядом с мной",
@@ -2092,6 +2095,10 @@ def build_fallback_command_response(context: dict[str, Any], reason: str) -> dic
     if asks_capabilities:
         action = "none"
         reply = build_capability_reply()
+    elif wants_rescue_shuttle and not any(word in lowered for word in ("status", "state")) and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_shuttle"):
+        action = "run_admin_command"
+        admin_command = "luam_rescue_shuttle"
+        reply = "AI provider is temporarily unavailable. Dispatching a local LuaM Triage rescue shuttle."
     elif wants_rescue and any(word in lowered for word in ("status", "state")) and is_allowed("run_admin_command") and choose_allowed_admin_command("luam_rescue_status"):
         action = "run_admin_command"
         admin_command = "luam_rescue_status"
