@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Content.Server._LuaM.Sector;
@@ -158,7 +159,45 @@ public sealed class LuaMSectorPlayerBriefingTest
         Assert.That(tasks[0].Objective, Does.Contain("Сгенерировать зацепку"));
     }
 
-    private static LuaMSectorStatusSnapshot BuildStatus()
+    [Test]
+    public void QuestTasksAddRescueFollowUpWhenAfterActionHadBlockers()
+    {
+        var status = BuildStatus(
+            recentHistory:
+            [
+                new LuaMSectorHistoryStatus(
+                    "Rescue",
+                    new ProtoId<LuaMSectorStoryPrototype>("LuaMSectorRescueAfterAction"),
+                    "Triage shuttle",
+                    "LuaM Rescue",
+                    "treatment=stable; evacuation=secured onboard; blockers=threat/crowd/route=0/1/1; blockers=2; scene=route pressure; playerContribution=unverified; teamStatus=available"),
+            ]);
+
+        var tasks = LuaMSectorPlayerBriefing.BuildQuestTasks(
+            status,
+            null,
+            new LuaMSectorAutomationUiEntry
+            {
+                CanRequestDynamicEvent = true,
+                RequestBlockReason = "ready",
+            },
+            [],
+            [],
+            [],
+            [],
+            4);
+
+        var followUp = tasks.Single(task => task.TaskId.StartsWith("rescue-followup", StringComparison.Ordinal));
+        Assert.That(followUp.TaskId, Does.Contain("LuaMSectorRescueAfterAction"));
+        Assert.That(followUp.Title, Does.Contain("rescue"));
+        Assert.That(followUp.Objective, Does.Contain("threat/crowd/route=0/1/1"));
+        Assert.That(followUp.Objective, Does.Contain("blockers=2"));
+        Assert.That(followUp.Location, Is.EqualTo("Triage shuttle"));
+        Assert.That(followUp.TurnIn, Does.Contain("LuaM"));
+        Assert.That(followUp.Active, Is.True);
+    }
+
+    private static LuaMSectorStatusSnapshot BuildStatus(LuaMSectorHistoryStatus[]? recentHistory = null)
     {
         return new LuaMSectorStatusSnapshot(
             totalStories: 4,
@@ -209,7 +248,7 @@ public sealed class LuaMSectorPlayerBriefingTest
                     requiredValue: 500,
                     currentValue: 450),
             ],
-            recentHistory:
+            recentHistory: recentHistory ??
             [
                 new LuaMSectorHistoryStatus(
                     "BlackBox",

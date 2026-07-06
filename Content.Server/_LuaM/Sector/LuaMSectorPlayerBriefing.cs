@@ -310,6 +310,27 @@ public static class LuaMSectorPlayerBriefing
                 active: true);
         }
 
+        var rescueFollowUp = FindLatestRescueBlockerFollowUp(status.RecentHistory);
+        if (rescueFollowUp != null)
+        {
+            var blockers = ExtractRescueBlockersSummary(rescueFollowUp.Summary);
+            AddTask(
+                tasks,
+                $"rescue-followup-{rescueFollowUp.Story}",
+                "Follow-up",
+                "Проверь rescue-коридор после операции Айболита",
+                string.IsNullOrWhiteSpace(blockers)
+                    ? "После rescue-операции остались помехи. Проверь место, освободи проход и отметь результат через LuaM-отчет."
+                    : $"После rescue-операции остались помехи: {blockers}. Освободи проход, доступ или опасную сторону.",
+                string.IsNullOrWhiteSpace(rescueFollowUp.Title)
+                    ? "Последняя rescue-сцена"
+                    : rescueFollowUp.Title,
+                "Подай полевой отчет или закрой связанный маршрут через LuaM-терминал после расчистки.",
+                "Снижает повторные блоки rescue-группы",
+                priority: 4,
+                active: true);
+        }
+
         var preferred = preferredProcesses
             .OrderByDescending(process => process.CanRequestNow)
             .ThenByDescending(process => process.Unlocked)
@@ -328,7 +349,7 @@ public static class LuaMSectorPlayerBriefing
                 string.IsNullOrWhiteSpace(preferred.Vessel) ? "Терминал LuaM" : preferred.Vessel,
                 "После запроса появится основная карточка с маршрутом и маркером.",
                 $"{preferred.ReputationTarget}: {preferred.CurrentReputation}/{preferred.RequiredReputation}; награда {preferred.BaseReward}+{preferred.ReputationBonus}",
-                priority: 4,
+                priority: 5,
                 active: preferred.CanRequestNow);
         }
 
@@ -344,7 +365,7 @@ public static class LuaMSectorPlayerBriefing
                 string.IsNullOrWhiteSpace(pendingInsurance.Vessel) ? "Страховой терминал LuaM" : pendingInsurance.Vessel,
                 "Нажми «Печать талона» у этого дела, затем на бумаге выбери «Подать доказательство LuaM».",
                 $"Запрошено: {pendingInsurance.RequestedAmount}",
-                priority: 5,
+                priority: 6,
                 active: true);
         }
 
@@ -362,7 +383,7 @@ public static class LuaMSectorPlayerBriefing
                 string.IsNullOrWhiteSpace(pendingRegistry.Vessel) ? "Реестр LuaM" : pendingRegistry.Vessel,
                 "Нажми «Печать чартера» у записи, затем на бумаге выбери «Подать доказательство LuaM».",
                 pendingRegistry.ServiceLine,
-                priority: 6,
+                priority: 7,
                 active: true);
         }
 
@@ -384,7 +405,7 @@ public static class LuaMSectorPlayerBriefing
                 lockedLead.RequiredTarget,
                 "Закрывай задания сектора для этой службы или фракции.",
                 $"{lockedLead.CurrentValue}/{lockedLead.RequiredValue}",
-                priority: 7,
+                priority: 8,
                 active: remaining == 0);
         }
 
@@ -396,6 +417,73 @@ public static class LuaMSectorPlayerBriefing
             .ThenBy(task => task.Title)
             .Take(Math.Max(1, maxTasks))
             .ToArray();
+    }
+
+    private static LuaMSectorHistoryStatus? FindLatestRescueBlockerFollowUp(IReadOnlyList<LuaMSectorHistoryStatus> history)
+    {
+        return history.FirstOrDefault(entry =>
+            string.Equals(entry.Category, "Rescue", StringComparison.OrdinalIgnoreCase) &&
+            HasActionableRescueBlockers(entry.Summary));
+    }
+
+    private static bool HasActionableRescueBlockers(string summary)
+    {
+        var blockers = ExtractRescueBlockersSummary(summary);
+        if (string.IsNullOrWhiteSpace(blockers) ||
+            blockers.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+            blockers.Equals("team scene memory unavailable", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var normalized = blockers.Replace(" ", string.Empty);
+        if (!normalized.StartsWith("threat/crowd/route=0/0/0", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var blockerCount = ExtractSummaryField(blockers, "blockers");
+        return !string.IsNullOrWhiteSpace(blockerCount) &&
+               !blockerCount.Equals("0", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ExtractRescueBlockersSummary(string summary)
+    {
+        if (string.IsNullOrWhiteSpace(summary))
+            return string.Empty;
+
+        var marker = "blockers=";
+        var start = summary.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+            return string.Empty;
+
+        start += marker.Length;
+        var end = summary.IndexOf("; playerContribution=", start, StringComparison.OrdinalIgnoreCase);
+        if (end < 0)
+            end = summary.IndexOf("; teamStatus=", start, StringComparison.OrdinalIgnoreCase);
+        if (end < 0)
+            end = summary.Length;
+
+        return summary[start..end].Trim();
+    }
+
+    private static string ExtractSummaryField(string summary, string field)
+    {
+        if (string.IsNullOrWhiteSpace(summary) ||
+            string.IsNullOrWhiteSpace(field))
+        {
+            return string.Empty;
+        }
+
+        var marker = $"{field}=";
+        var start = summary.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+            return string.Empty;
+
+        start += marker.Length;
+        var end = summary.IndexOf(';', start);
+        if (end < 0)
+            end = summary.Length;
+
+        return summary[start..end].Trim();
     }
 
     public static string ExtractEventRouteLocation(LuaMSectorStoryRecord record)
