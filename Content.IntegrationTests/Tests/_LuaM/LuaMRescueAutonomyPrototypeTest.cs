@@ -281,6 +281,33 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueTeamAnnouncesPhaseBarksForReadablePlayerScene()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("LastAnnouncedPhase"));
+        Assert.That(component, Does.Contain("LastPhaseAnnouncementStatus"));
+        Assert.That(component, Does.Contain("NextPhaseAnnouncementAt"));
+        Assert.That(source, Does.Contain("TeamPhaseAnnouncementCooldownSeconds"));
+        Assert.That(source, Does.Contain("TrySayTeamPhaseLine"));
+        Assert.That(source, Does.Contain("SetTeamPhaseAnnouncementStatus"));
+        Assert.That(source, Does.Contain("TryBuildTeamPhaseLine"));
+        Assert.That(source, Does.Contain("phase-bark:"));
+        Assert.That(source, Does.Contain("phaseBark={team.LastPhaseAnnouncementStatus}"));
+        Assert.That(source, Does.Contain("LuaMRescueTeamPhase.SecureScene"));
+        Assert.That(source, Does.Contain("LuaMRescueTeamPhase.Triage"));
+        Assert.That(source, Does.Contain("LuaMRescueTeamPhase.EvacuateToShuttle"));
+        Assert.That(source, Does.Contain("LuaMRescueTeamPhase.Handoff"));
+        Assert.That(source, Does.Contain("LuaMRescueEscortRole.Kostyl"));
+        Assert.That(source, Does.Contain("LuaMRescueEscortRole.Tourniquet"));
+        Assert.That(source, Does.Contain("\\u041f\\u0435\\u0440\\u0438\\u043c\\u0435\\u0442\\u0440 \\u0432\\u0437\\u044f\\u0442"));
+        Assert.That(source, Does.Contain("\\u041f\\u0430\\u0446\\u0438\\u0435\\u043d\\u0442 \\u043d\\u0430\\u0439\\u0434\\u0435\\u043d"));
+        Assert.That(source, Does.Contain("\\u041a\\u043e\\u0441\\u0442\\u044b\\u043b\\u044c \\u0438\\u0434\\u0435\\u0442"));
+        Assert.That(source, Does.Contain("\\u0421\\u0435\\u043a\\u0442\\u043e\\u0440 \\u043e\\u0442\\u043f\\u0443\\u0441\\u043a\\u0430\\u0435\\u043c"));
+    }
+
+    [Test]
     public void RescueTeamThreatDetectionUsesObserverFaction()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);

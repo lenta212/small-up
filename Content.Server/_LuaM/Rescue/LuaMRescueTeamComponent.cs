@@ -46,6 +46,15 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public string LastStatus = "none";
 
     [DataField]
+    public LuaMRescueTeamPhase LastAnnouncedPhase = LuaMRescueTeamPhase.Idle;
+
+    [DataField]
+    public string LastPhaseAnnouncementStatus = "none";
+
+    [DataField]
+    public TimeSpan NextPhaseAnnouncementAt;
+
+    [DataField]
     public EntityUid? TriageCoverConfirmedPatient;
 
     [DataField]

@@ -36,6 +36,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double SceneMemoryReinforceSeconds = 18;
     private const double HandoffPhaseHoldSeconds = 6;
     private const double SortiePlanHoldSeconds = 4;
+    private const double TeamPhaseAnnouncementCooldownSeconds = 10;
     private const double TriageCoverConfirmCooldownSeconds = 8;
     private const double EscortDutyHoldSeconds = 2;
     private const double EscortDutyActionIntervalSeconds = 2;
@@ -116,6 +117,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.SortiePlanTransitions = 0;
         team.LastSortiePlanStatus = $"plan {FormatPlan(team.SortiePlan)} after dispatch";
         team.LastStatus = "autonomous rescue team deployed";
+        team.LastAnnouncedPhase = LuaMRescueTeamPhase.Idle;
+        team.LastPhaseAnnouncementStatus = "phase-bark pending";
+        team.NextPhaseAnnouncementAt = _timing.CurTime;
         team.CrowdTarget = null;
         team.RouteBlockerTarget = null;
         team.LastMemoryDigest = "memory clear";
@@ -163,7 +167,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"threat={FormatEntityRef(team.ThreatTarget)}; crowd={team.NearbyCrowd}; crowdTarget={FormatEntityRef(team.CrowdTarget)}; " +
                 $"blockers={team.NearbyBlockers}; blockerTarget={FormatEntityRef(team.RouteBlockerTarget)}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffRecord}; " +
-                $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; last={team.LastStatus}");
+                $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
+                $"phaseBark={team.LastPhaseAnnouncementStatus}; last={team.LastStatus}");
         }
 
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
@@ -199,6 +204,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"pressure(threat/crowd/route)={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffDigest}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
+                $"phaseBark={team.LastPhaseAnnouncementStatus}; " +
                 "identities=withheld; coordinates=withheld.");
         }
 
@@ -349,6 +355,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         changed |= PruneTeamEscorts(team);
+        changed |= TrySayTeamPhaseLine(uid, team, phase);
         team.SceneScanAccumulator += frameTime;
         if (team.SceneScanAccumulator >= team.SceneScanInterval)
         {
@@ -561,6 +568,81 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         team.LastTriageCoverStatus = status;
         return true;
+    }
+
+    private bool TrySayTeamPhaseLine(EntityUid leader, LuaMRescueTeamComponent team, LuaMRescueTeamPhase phase)
+    {
+        if (team.LastAnnouncedPhase == phase)
+            return false;
+
+        var now = _timing.CurTime;
+        if (now < team.NextPhaseAnnouncementAt)
+        {
+            var wait = Math.Max(0, (int) Math.Ceiling((team.NextPhaseAnnouncementAt - now).TotalSeconds));
+            return SetTeamPhaseAnnouncementStatus(team, $"phase-bark waiting: {FormatPhase(phase)} in {wait}s");
+        }
+
+        if (!TryBuildTeamPhaseLine(phase, out var preferredRole, out var line))
+        {
+            team.LastAnnouncedPhase = phase;
+            team.NextPhaseAnnouncementAt = now;
+            return SetTeamPhaseAnnouncementStatus(team, $"phase-bark skipped: {FormatPhase(phase)}");
+        }
+
+        var speaker = leader;
+        var speakerLabel = "aibolit";
+        if (preferredRole is { } role &&
+            TryFindEscortByRole(team, role, out var escortUid, out var escort))
+        {
+            speaker = escortUid;
+            speakerLabel = FormatRole(escort.Role);
+        }
+
+        if (!Deleted(speaker))
+            _chat.TrySendInGameICMessage(speaker, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
+
+        team.LastAnnouncedPhase = phase;
+        team.NextPhaseAnnouncementAt = now + TimeSpan.FromSeconds(TeamPhaseAnnouncementCooldownSeconds);
+        return SetTeamPhaseAnnouncementStatus(team, $"phase-bark:{FormatPhase(phase)} speaker={speakerLabel}");
+    }
+
+    private static bool SetTeamPhaseAnnouncementStatus(LuaMRescueTeamComponent team, string status)
+    {
+        if (string.Equals(team.LastPhaseAnnouncementStatus, status, StringComparison.Ordinal))
+            return false;
+
+        team.LastPhaseAnnouncementStatus = status;
+        return true;
+    }
+
+    private static bool TryBuildTeamPhaseLine(
+        LuaMRescueTeamPhase phase,
+        out LuaMRescueEscortRole? preferredRole,
+        out string line)
+    {
+        preferredRole = null;
+        line = phase switch
+        {
+            LuaMRescueTeamPhase.Dispatch => "\u0412\u044b\u0435\u0437\u0434 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d. \u0413\u0440\u0443\u043f\u043f\u0430 \u0410\u0439\u0431\u043e\u043b\u0438\u0442\u0430 \u0432 \u0440\u0430\u0431\u043e\u0442\u0435.",
+            LuaMRescueTeamPhase.EnRoute => "\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u0434\u043e \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430 \u043f\u043e\u0447\u0442\u0438 \u043f\u0440\u044f\u043c\u043e\u0439. \u041f\u043e\u0447\u0442\u0438 - \u044d\u0442\u043e \u043c\u0435\u0434\u0438\u0446\u0438\u043d\u0441\u043a\u0438\u0439 \u0442\u0435\u0440\u043c\u0438\u043d.",
+            LuaMRescueTeamPhase.SecureScene => "\u041f\u0435\u0440\u0438\u043c\u0435\u0442\u0440 \u0432\u0437\u044f\u0442. \u0410\u0439\u0431\u043e\u043b\u0438\u0442 \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442.",
+            LuaMRescueTeamPhase.Triage => "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043d\u0430\u0439\u0434\u0435\u043d. \u041d\u0430\u0447\u0438\u043d\u0430\u044e \u0441\u0442\u0430\u0431\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u044e.",
+            LuaMRescueTeamPhase.TreatOnSite => "\u041b\u0435\u0447\u0435\u043d\u0438\u0435 \u0438\u0434\u0435\u0442. \u041f\u0430\u043d\u0438\u043a\u0430 \u043d\u0435 \u0432\u0445\u043e\u0434\u0438\u0442 \u0432 \u043d\u0430\u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0435.",
+            LuaMRescueTeamPhase.PrepareEvacuation => "\u041b\u0435\u0447\u0435\u043d\u0438\u0435 \u043d\u0430 \u043c\u0435\u0441\u0442\u0435 \u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u043e. \u0412\u0435\u0437\u0435\u043c \u043a \u043e\u0431\u043e\u0440\u0443\u0434\u043e\u0432\u0430\u043d\u0438\u044e.",
+            LuaMRescueTeamPhase.EvacuateToShuttle => "\u041a\u043e\u0441\u0442\u044b\u043b\u044c \u0438\u0434\u0435\u0442. \u0423\u0441\u0442\u0443\u043f\u0438\u0442\u0435 \u043c\u0435\u0434\u0438\u0446\u0438\u043d\u0435 \u043d\u0430 \u043d\u043e\u0433\u0430\u0445.",
+            LuaMRescueTeamPhase.Handoff => "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043f\u043e\u0434 \u043d\u0430\u0431\u043b\u044e\u0434\u0435\u043d\u0438\u0435\u043c. \u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u043c\u0441\u044f.",
+            LuaMRescueTeamPhase.ReturnOrExtract => "\u0421\u0435\u043a\u0442\u043e\u0440 \u043e\u0442\u043f\u0443\u0441\u043a\u0430\u0435\u043c. \u0421 \u043f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0435\u043d\u0438\u0435\u043c.",
+            _ => string.Empty,
+        };
+
+        preferredRole = phase switch
+        {
+            LuaMRescueTeamPhase.EnRoute or LuaMRescueTeamPhase.EvacuateToShuttle => LuaMRescueEscortRole.Kostyl,
+            LuaMRescueTeamPhase.SecureScene or LuaMRescueTeamPhase.ReturnOrExtract => LuaMRescueEscortRole.Tourniquet,
+            _ => null,
+        };
+
+        return !string.IsNullOrWhiteSpace(line);
     }
 
     private static LuaMRescueEscortRole SelectTriageCoverRole(LuaMRescueTeamComponent team, string decisionKey)
