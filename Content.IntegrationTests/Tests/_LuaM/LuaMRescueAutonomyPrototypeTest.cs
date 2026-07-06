@@ -441,6 +441,10 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("LuaMRescueTeamPhase.ReturnOrExtract"));
         Assert.That(source, Does.Contain("plan return-to-shuttle: extraction phase"));
         Assert.That(source, Does.Contain("returning or extracting"));
+        Assert.That(source, Does.Contain("TryRunReturnToShuttleAction"));
+        Assert.That(source, Does.Contain("return-to-shuttle moving to"));
+        Assert.That(source, Does.Contain("return-to-shuttle ready at"));
+        Assert.That(source, Does.Contain("return-to-shuttle no shuttle target"));
     }
 
     [Test]

@@ -795,7 +795,40 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             return;
         }
 
+        if (duty == LuaMRescueEscortDuty.ReturnToShuttle)
+        {
+            TryRunReturnToShuttleAction(uid, escort, followTarget);
+            return;
+        }
+
         escort.LastDutyActionStatus = $"watch {FormatDuty(duty)}";
+    }
+
+    private void TryRunReturnToShuttleAction(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        EntityUid? followTarget)
+    {
+        var shuttleTarget = ValidOrNull(escort.ShuttleAnchor) ??
+                            ValidOrNull(escort.Shuttle) ??
+                            ValidOrNull(followTarget);
+        if (shuttleTarget is not { Valid: true } target)
+        {
+            escort.LastDutyActionStatus = "return-to-shuttle no shuttle target";
+            return;
+        }
+
+        if (IsWithinRange(uid, target, 2.5f))
+        {
+            var status = $"return-to-shuttle ready at {FormatEntityRef(target)}";
+            if (!string.Equals(escort.LastDutyActionStatus, status, StringComparison.Ordinal))
+                escort.DutyActions++;
+
+            escort.LastDutyActionStatus = status;
+            return;
+        }
+
+        escort.LastDutyActionStatus = $"return-to-shuttle moving to {FormatEntityRef(target)}";
     }
 
     private void TryRunThreatScreenAction(
