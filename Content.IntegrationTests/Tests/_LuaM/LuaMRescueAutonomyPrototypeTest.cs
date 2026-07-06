@@ -178,12 +178,18 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("AutoCommsCooldown = 10f"));
         Assert.That(component, Does.Contain("NextAutoCommsAt"));
         Assert.That(component, Does.Contain("LastAutoCommsKey"));
+        Assert.That(component, Does.Contain("ArrivalReportedTarget"));
+        Assert.That(component, Does.Contain("LastArrivalReportStatus"));
         Assert.That(source, Does.Contain("SubscribeLocalEvent<MobStateComponent, TargetDefibrillatedEvent>(OnTargetDefibrillated)"));
         Assert.That(source, Does.Contain("TrySendRescueStatusComms"));
+        Assert.That(source, Does.Contain("TryReportPatientArrival"));
+        Assert.That(source, Does.Contain("patient-arrival:"));
+        Assert.That(source, Does.Contain("ClearArrivalReportTarget"));
         Assert.That(source, Does.Contain("_chat.TrySendInGameICMessage"));
         Assert.That(source, Does.Contain("_radio.SendRadioMessage"));
         Assert.That(source, Does.Contain("MedicalRadioChannel"));
         Assert.That(source, Does.Contain("autoComms={rescue.LastAutoCommsKey}"));
+        Assert.That(source, Does.Contain("arrival={rescue.LastArrivalReportStatus}"));
         Assert.That(source, Does.Contain("defib-start:"));
         Assert.That(source, Does.Contain("defib-success:"));
         Assert.That(source, Does.Contain("defib-failed:"));
@@ -197,6 +203,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("patient-release:"));
         Assert.That(source, Does.Contain("hasPendingEvacuationTarget"));
         Assert.That(source, Does.Contain("\u0414\u0435\u0444\u0438\u0431\u0440\u0438\u043b\u043b\u044f\u0446\u0438\u044f {Name(target)} \u043d\u0430\u0447\u0430\u0442\u0430. \u041d\u0435 \u0442\u0440\u043e\u0433\u0430\u0439\u0442\u0435 \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430."));
+        Assert.That(source, Does.Contain("\\u041f\\u0430\\u0446\\u0438\\u0435\\u043d\\u0442 {Name(target)} \\u043d\\u0430\\u0439\\u0434\\u0435\\u043d"));
         Assert.That(source, Does.Contain("\u041f\u0443\u043b\u044c\u0441 {targetName} \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d. \u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0430\u044e \u0441\u0442\u0430\u0431\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u044e."));
         Assert.That(source, Does.Contain("\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u041d\u0430\u0447\u0438\u043d\u0430\u044e \u0440\u0435\u0430\u043d\u0438\u043c\u0430\u0446\u0438\u043e\u043d\u043d\u044b\u0439 \u0446\u0438\u043a\u043b."));
         Assert.That(source, Does.Contain("\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(patient)} \u0441\u0442\u0430\u0431\u0438\u043b\u0435\u043d. \u041e\u0442\u043f\u0443\u0441\u043a\u0430\u044e \u0441 \u0431\u043e\u0440\u0442\u0430."));

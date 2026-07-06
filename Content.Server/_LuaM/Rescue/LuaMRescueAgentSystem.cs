@@ -380,6 +380,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoDefib={rescue.LastAutoDefibStatus}; " +
                $"autoEvac={rescue.LastAutoEvacuationStatus}; " +
+               $"arrival={rescue.LastArrivalReportStatus}; " +
                $"autoComms={rescue.LastAutoCommsKey}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
@@ -466,6 +467,40 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.DeathSignalTarget = null;
         rescue.DeathSignalDispatchReported = false;
+    }
+
+    private void TryReportPatientArrival(EntityUid uid, LuaMRescueAgentComponent rescue, EntityUid target)
+    {
+        if (rescue.ArrivalReportedTarget == target ||
+            Deleted(target) ||
+            IsOnAssignedShuttle(target, rescue) ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            !IsWithinRange(uid, target, Math.Max(rescue.PlayerActionRange, rescue.EvacuationStartRange)))
+        {
+            return;
+        }
+
+        var state = mobState.CurrentState switch
+        {
+            MobState.Dead => "\u0431\u0435\u0437 \u043f\u0443\u043b\u044c\u0441\u0430",
+            MobState.Critical => "\u043a\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u043e\u0435",
+            _ => "\u0436\u0438\u0432",
+        };
+
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"patient-arrival:{target}",
+            $"\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430\u0439\u0434\u0435\u043d. \u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435: {state}. \u041d\u0430\u0447\u0438\u043d\u0430\u044e \u0441\u0442\u0430\u0431\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u044e.");
+        rescue.ArrivalReportedTarget = target;
+        rescue.LastArrivalReportStatus = $"reported arrival at {FormatEntityRef(target)} state={mobState.CurrentState}";
+        Dirty(uid, rescue);
+    }
+
+    private void ClearArrivalReportTarget(LuaMRescueAgentComponent rescue, EntityUid target)
+    {
+        if (rescue.ArrivalReportedTarget == target)
+            rescue.ArrivalReportedTarget = null;
     }
 
     private string GetRescuePhase(EntityUid uid, LuaMRescueAgentComponent rescue)
@@ -674,6 +709,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             BuildPatientTreatmentResult(patient, rescue),
             "stabilized on site; no evacuation required",
             "returning to standby");
+        ClearArrivalReportTarget(rescue, patient);
         ClearDeathSignalTarget(rescue, patient);
         ClearRescueTask(uid, rescue, $"patient {FormatEntityRef(patient)} no longer needs rescue");
         return false;
@@ -2472,6 +2508,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         HTNComponent htn,
         EntityUid target)
     {
+        TryReportPatientArrival(uid, rescue, target);
+
         if (ShouldEvacuateBeforeTreatment(uid, target, rescue))
         {
             return TryStartOrContinueEvacuation(uid, rescue, htn, target) ||
@@ -4036,6 +4074,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         StopPullingTarget(uid, target);
         ClearRescueTask(uid, rescue, $"skipped stalled target {FormatEntityRef(target)}");
+        ClearArrivalReportTarget(rescue, target);
         ClearDeathSignalTarget(rescue, target);
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
@@ -4141,6 +4180,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
+        ClearArrivalReportTarget(rescue, target);
         ClearDeathSignalTarget(rescue, target);
         StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget);
         Dirty(uid, rescue);
@@ -4699,6 +4739,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
+        rescue.ArrivalReportedTarget = null;
         rescue.DeathSignalTarget = null;
         rescue.DeathSignalDispatchReported = false;
 
