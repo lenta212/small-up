@@ -542,6 +542,15 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         "aibolit",
     ];
 
+    private static readonly string[] AibolitRadioPhraseBundles =
+    [
+        "identity: Айболит отвечает как автономный медик LuaM, без шуток и без лишнего лора.",
+        "lore: секторная память LuaM хранит коридоры спасения, медсигналы смерти и follow-up после эвакуации.",
+        "protocol: реальный вылет начинается только от медсигнала смерти или LuaM rescue order; радио само по себе не телепортирует бота.",
+        "radio-style: короткая фраза подтверждения, затем текущий статус, затем один практический приказ экипажу.",
+        "crew-tone: спокойно, по делу, просить держать коридор чистым, не трогать пациента и не перекрывать борт.",
+    ];
+
     [Dependency] private IConfigurationManager _cfg = default!;
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private IPlayerManager _players = default!;
@@ -2111,13 +2120,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (IsAibolitRadioHelpRequest(normalized))
             return BuildAibolitRadioHelpResult();
 
+        var rescueStatus = _rescueAgents.BuildRescueRadioStatus();
         if (IsAibolitRadioStatusRequest(normalized))
-            return _rescueAgents.BuildRescueRadioStatus();
+            return BuildAibolitRadioLinkedFallback("status", rescueStatus);
 
         if (IsAibolitRadioHelpMeRequest(normalized))
-            return $"Вызов принят, держите медканал свободным. {_rescueAgents.BuildRescueRadioStatus()} Для фактической переброски используйте медсигнал смерти или rescue order через LuaM.";
+            return BuildAibolitRadioLinkedFallback(
+                "help",
+                $"{rescueStatus} Для фактической переброски используйте медсигнал смерти или LuaM rescue order.");
 
-        return $"Принял обращение. {_rescueAgents.BuildRescueRadioStatus()}";
+        return BuildAibolitRadioLinkedFallback("ack", rescueStatus);
     }
 
     public void AdminSetEnabled(bool enabled)
@@ -5979,6 +5991,35 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return "По медканалу обращайтесь: 'Айболит, статус', 'Айболит, где цель', 'Айболит, нужна помощь'. Отвечаю в этот же радиоканал; фактические приказы боту остаются через медсигнал смерти или LuaM rescue order.";
     }
 
+    private static string BuildAibolitRadioLinkedFallback(string mode, string status)
+    {
+        var prefix = mode switch
+        {
+            "status" => "Медканал чистый, докладываю.",
+            "help" => "Вызов услышал, держите медканал свободным.",
+            _ => "Принял обращение, остаюсь на медканале.",
+        };
+        var lore = "Секторная память LuaM держит rescue-коридор и последние медсигналы.";
+        var instruction = mode == "help"
+            ? "Не трогайте пациента без угрозы, очистите проход и ждите подтвержденный сигнал."
+            : "Держите проход к борту чистым и не перекрывайте медицинскую зону.";
+
+        return TrimForChat($"{prefix} {lore} {status} {instruction}", 280);
+    }
+
+    private static string[] BuildAibolitRadioPhraseBundles(string safeStatus, string safeFallback)
+    {
+        return AibolitRadioPhraseBundles
+            .Concat([
+                $"current-status: {safeStatus}",
+                $"local-fallback-style: {safeFallback}",
+            ])
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Select(line => TrimForChat(line, 220))
+            .Take(8)
+            .ToArray();
+    }
+
     private static bool IsPlayerAiHelpRequest(string normalized)
     {
         return ContainsAny(
@@ -9193,6 +9234,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             TargetUserId = string.Empty,
             SelectedTemplateId = "aibolit-radio",
             AdminModeEnabled = false,
+            PhraseBundles = BuildAibolitRadioPhraseBundles(safeStatus, safeFallback),
             AllowedActions = ["none"],
             AllowedAdminCommandNames = [],
             AllowedTemplateIds = [],
@@ -10136,6 +10178,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         public string TargetUserId { get; set; } = string.Empty;
         public string SelectedTemplateId { get; set; } = string.Empty;
         public bool AdminModeEnabled { get; set; }
+        public string[] PhraseBundles { get; set; } = [];
         public string[] AllowedActions { get; set; } = [];
         public string[] AllowedAdminCommandNames { get; set; } = [];
         public string[] AllowedTemplateIds { get; set; } = [];

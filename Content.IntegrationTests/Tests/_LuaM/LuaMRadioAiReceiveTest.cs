@@ -161,6 +161,8 @@ public sealed class LuaMRadioAiReceiveTest
                 Assert.That(tokens.Count, Is.GreaterThanOrEqualTo(1));
                 Assert.That(actors.Values, Does.Contain("\u0410\u0439\u0431\u043e\u043b\u0438\u0442"));
                 Assert.That(payloads.Keys.Any(key => key.Contains("\u0410\u0439\u0431\u043e\u043b\u0438\u0442 \u043d\u0430 \u0441\u0432\u044f\u0437\u0438.", StringComparison.Ordinal)), Is.True);
+                Assert.That(payloads.Keys.Any(key => key.Contains("Медканал чистый", StringComparison.Ordinal)), Is.True);
+                Assert.That(payloads.Keys.Any(key => key.Contains("Секторная память LuaM", StringComparison.Ordinal)), Is.True);
             });
         }
         finally
@@ -239,6 +241,10 @@ public sealed class LuaMRadioAiReceiveTest
                 Assert.That(handler.Calls, Is.EqualTo(1));
                 Assert.That(handler.LastRequest?.RequestUri?.AbsolutePath, Is.EqualTo("/chat"));
                 Assert.That(handler.LastBody, Does.Contain("aibolit-radio"));
+                Assert.That(handler.LastBody, Does.Contain("phraseBundles"));
+                Assert.That(handler.LastBody, Does.Contain("radio-style"));
+                Assert.That(handler.LastBody, Does.Contain("current-status"));
+                Assert.That(handler.LastBody, Does.Contain("local-fallback-style"));
                 Assert.That(handler.LastBody, Does.Contain("\"allowedActions\":[\"none\"]"));
                 Assert.That(tokens.Count, Is.GreaterThanOrEqualTo(1));
                 Assert.That(actors.Values, Does.Contain("\u0410\u0439\u0431\u043e\u043b\u0438\u0442"));

@@ -897,6 +897,10 @@ def run_anthropic_mock_test() -> dict[str, object]:
                 "message": "ИИ статус",
                 "targetUserId": SENSITIVE_TARGET_UUID,
                 "allowedActions": ["none", "send_sector_message"],
+                "phraseBundles": [
+                    "radio-style: короткая фраза подтверждения, затем статус",
+                    f"crew-tone: держать коридор чистым; token={SENSITIVE_TEST_TOKEN}",
+                ],
                 "allowedTemplateIds": [],
                 "target": {
                     "userId": SENSITIVE_TARGET_UUID,
@@ -1023,6 +1027,7 @@ def run_anthropic_mock_test() -> dict[str, object]:
 
         requests = mock.requests  # type: ignore[attr-defined]
         assert len(requests) == 5
+        saw_phrase_bundles = False
         for recorded in requests:
             headers = recorded["headers"]
             body = recorded["body"]
@@ -1067,6 +1072,7 @@ def run_anthropic_mock_test() -> dict[str, object]:
                 assert "route blockers" in body["system"]
                 assert "short sortie memory digest" in body["system"]
                 assert "recent threat pressure" in body["system"]
+                assert "context.phraseBundles" in body["system"]
                 assert "auto-analyze" in body["system"]
                 assert "accessible nearby storage" in body["system"]
                 assert "stow held items" in body["system"]
@@ -1081,6 +1087,12 @@ def run_anthropic_mock_test() -> dict[str, object]:
                 assert "unbuckle" in body["system"]
                 assert "slot=<slot>" in body["system"]
                 assert "item=<name|prototype|entity>" in body["system"]
+            if context.get("phraseBundles"):
+                saw_phrase_bundles = True
+                assert context["phraseBundles"] == [
+                    "radio-style: короткая фраза подтверждения, затем статус",
+                    "crew-tone: держать коридор чистым; token=[redacted]",
+                ]
             if "allowedAdminCommandNames" in context:
                 assert "luam_sector_status" in context["allowedAdminCommandNames"]
                 assert "luam_rescue_status" in context["allowedAdminCommandNames"]
@@ -1089,6 +1101,7 @@ def run_anthropic_mock_test() -> dict[str, object]:
                 assert "luam_rescue_shuttle" in context["allowedAdminCommandNames"]
                 assert "shutdown" not in context["allowedAdminCommandNames"]
             assert_provider_context_minimized(context)
+        assert saw_phrase_bundles
 
         assert "test-anthropic-key" not in audit_text
         assert SENSITIVE_TEST_TOKEN not in audit_text
