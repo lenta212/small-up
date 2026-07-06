@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Content.Server._LuaM.Sector;
+using Content.Shared._CorvaxNext.Silicons.Borgs.Components;
 using Content.Shared._Crescent.DroneControl;
 using Content.Shared._EinsteinEngines.Silicon.Components;
 using Content.Server.Chat.Systems;
@@ -2043,16 +2044,22 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         return IsHostileToObserver(observer, candidate) ||
             IsActiveCombatant(observer, candidate) ||
-            HasComp<LuaMAiDroneTaskComponent>(candidate);
+            HasImmediateRescueSyntheticControl(candidate);
     }
 
     private bool IsSyntheticRescueActor(EntityUid candidate)
     {
-        return HasComp<LuaMAiDroneTaskComponent>(candidate) ||
-            HasComp<DroneControlComponent>(candidate) ||
+        return HasImmediateRescueSyntheticControl(candidate) ||
             HasComp<SiliconComponent>(candidate) ||
             HasComp<BorgChassisComponent>(candidate) ||
             _tag.HasTag(candidate, BotTag);
+    }
+
+    private bool HasImmediateRescueSyntheticControl(EntityUid candidate)
+    {
+        return HasComp<LuaMAiDroneTaskComponent>(candidate) ||
+            HasComp<DroneControlComponent>(candidate) ||
+            HasComp<AiRemoteControllerComponent>(candidate);
     }
 
     private bool IsFriendlyToObserver(EntityUid observer, EntityUid candidate)

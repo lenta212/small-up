@@ -373,11 +373,14 @@ public sealed class LuaMRescueAutonomyPrototypeTest
 
         Assert.That(source, Does.Contain("IsPrioritySyntheticThreat"));
         Assert.That(source, Does.Contain("IsSyntheticRescueActor"));
+        Assert.That(source, Does.Contain("HasImmediateRescueSyntheticControl"));
         Assert.That(source, Does.Contain("LuaMAiDroneTaskComponent"));
         Assert.That(source, Does.Contain("DroneControlComponent"));
+        Assert.That(source, Does.Contain("AiRemoteControllerComponent"));
         Assert.That(source, Does.Contain("SiliconComponent"));
         Assert.That(source, Does.Contain("BorgChassisComponent"));
         Assert.That(source, Does.Contain("_tag.HasTag(candidate, BotTag)"));
+        Assert.That(source, Does.Contain("HasImmediateRescueSyntheticControl(candidate);"));
         Assert.That(source, Does.Contain("var syntheticThreat = IsPrioritySyntheticThreat(observer, candidate);"));
         Assert.That(source, Does.Contain("if (hostile || syntheticThreat)"));
         Assert.That(source, Does.Contain("if (hostile || syntheticThreat || activeCombatant)"));
