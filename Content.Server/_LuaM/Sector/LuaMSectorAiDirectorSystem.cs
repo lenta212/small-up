@@ -574,6 +574,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private TimeSpan _nextAttempt;
     private TimeSpan _nextWorldPulse;
     private bool _requestInFlight;
+    private bool _aibolitRadioGatewayInFlight;
     private int _worldPulseCount;
     private int _aiBaseAutonomousShipCursor;
     private TimeSpan _nextLocalBridgePoll;
@@ -8124,6 +8125,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (addressKind == RadioAiAddressKind.Rescue)
         {
             var rescueResult = HandleAibolitRadioRequest(session, request, $"radio {args.Channel.ID}");
+            if (TryStartAibolitRadioGatewayReply(
+                    args,
+                    session,
+                    request,
+                    $"radio {args.Channel.ID}",
+                    rescueResult))
+            {
+                return;
+            }
+
             SendAiRadioReply(
                 args,
                 $"{RescueRadioReplyPrefix} {rescueResult}",
@@ -8209,6 +8220,141 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             language: language);
 
         _sawmill.Info($"{actor}: AI radio message on {channel.ID}: {message}");
+    }
+
+    private bool TryStartAibolitRadioGatewayReply(
+        RadioReceiveEvent request,
+        ICommonSession session,
+        string radioRequest,
+        string source,
+        string localFallback)
+    {
+        if (string.IsNullOrWhiteSpace(_cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl)))
+            return false;
+
+        if (_requestInFlight || _aibolitRadioGatewayInFlight)
+            return false;
+
+        if (TryRejectUnsafeAdminChatRequest(radioRequest, out var unsafeReason))
+        {
+            RecordGatewayUnsafeInputBlock($"aibolit radio: {unsafeReason}");
+            return false;
+        }
+
+        _aibolitRadioGatewayInFlight = true;
+        _ = SendAibolitRadioGatewayReplyAsync(
+            request.RadioSource,
+            request.Channel,
+            request.Language,
+            session,
+            radioRequest,
+            source,
+            localFallback);
+        return true;
+    }
+
+    private async Task SendAibolitRadioGatewayReplyAsync(
+        EntityUid radioSource,
+        RadioChannelPrototype channel,
+        LanguagePrototype? language,
+        ICommonSession session,
+        string radioRequest,
+        string source,
+        string localFallback)
+    {
+        var actor = $"{RescueRadioActor} / gateway radio {channel.ID} / {session.Name}";
+        var gatewayStartSequence = _gatewayOutcomeSequence;
+        var reply = localFallback;
+
+        try
+        {
+            var gatewayReply = await RequestGatewayAibolitRadioAsync(session, radioRequest, source, localFallback);
+            if (!string.IsNullOrWhiteSpace(gatewayReply))
+                reply = gatewayReply;
+        }
+        catch (GatewayBudgetRejectedException e)
+        {
+            _sawmill.Warning($"Aibolit radio gateway blocked by budget: {e.Message}");
+        }
+        catch (JsonException e)
+        {
+            _sawmill.Warning($"Aibolit radio gateway rejected provider output: {e.GetType().Name}");
+        }
+        catch (NotSupportedException e)
+        {
+            _sawmill.Warning($"Aibolit radio gateway rejected unsupported provider output: {e.GetType().Name}");
+        }
+        catch (Exception e)
+        {
+            RecordGatewayTransportFailureIfMissingSince(gatewayStartSequence, "aibolit radio", "transport error");
+            _sawmill.Warning($"Aibolit radio gateway failed: {e.Message}");
+        }
+
+        try
+        {
+            await RunOnMainThread(() =>
+                SendAiRadioMessageFromSource(
+                    radioSource,
+                    channel,
+                    $"{RescueRadioReplyPrefix} {reply}",
+                    actor,
+                    language,
+                    RescueRadioActor));
+        }
+        finally
+        {
+            _aibolitRadioGatewayInFlight = false;
+        }
+    }
+
+    private async Task<string?> RequestGatewayAibolitRadioAsync(
+        ICommonSession session,
+        string radioRequest,
+        string source,
+        string localFallback)
+    {
+        var gatewayUrl = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl).Trim();
+        if (string.IsNullOrWhiteSpace(gatewayUrl))
+            return null;
+
+        if (!TryConsumeGatewayBudget("aibolit radio", out var budgetReason))
+            throw new GatewayBudgetRejectedException(budgetReason);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(GetTimeout()));
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildGatewayChatUri(gatewayUrl));
+        var token = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayToken).Trim();
+        if (!string.IsNullOrWhiteSpace(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var gatewayRequest = BuildGatewayAibolitRadioRequest(session, radioRequest, source, localFallback);
+        RecordGatewayRequestShape("aibolit radio", "/chat", gatewayRequest);
+        request.Content = JsonContent.Create(gatewayRequest, options: JsonOptions);
+
+        using var response = await SendGatewayRequestAsync(request, cts, "aibolit radio");
+        if (!response.IsSuccessStatusCode)
+        {
+            RecordGatewayTransportFailure("aibolit radio", $"http {(int) response.StatusCode}");
+            throw new InvalidOperationException($"gateway returned {(int) response.StatusCode} {response.ReasonPhrase}");
+        }
+
+        var command = await ReadGatewayJsonAsync<LuaMAiGatewayChatResponse>(
+            response.Content,
+            "aibolit radio",
+            cts.Token);
+        if (command == null)
+            return null;
+
+        var action = command.Action.Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(action) &&
+            !action.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            RecordGatewayProviderOutputBlock(
+                GatewayBlockCategoryForbiddenAction,
+                $"aibolit radio provider selected forbidden action '{action}'");
+            return null;
+        }
+
+        return TrimForChat(command.Reply, 220);
     }
 
     private void MarkAiRadioPayload(string channelId, string message)
@@ -9012,6 +9158,92 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             Target = BuildGatewayPlayerContext(PickTarget(targetUserId)),
             Sector = BuildGatewaySectorContext(status, mapNodes, synthetic, activePlayers, hasOpenLead, openLead, mapNodes.Length),
         };
+    }
+
+    private LuaMAiGatewayChatRequest BuildGatewayAibolitRadioRequest(
+        ICommonSession session,
+        string radioRequest,
+        string source,
+        string localFallback)
+    {
+        var status = _stories.GetStatusSnapshot();
+        var mapNodes = _dynamicEvents.BuildSectorMapUiEntries();
+        var synthetic = BuildSyntheticControlSnapshot(arm: false);
+        var hasOpenLead = _stories.TryGetOpenRuntimeDistressStory(out var openStory) && openStory != null;
+        var openLead = hasOpenLead
+            ? $"{openStory!.Title}: {openStory.Hazard}"
+            : string.Empty;
+        var activePlayers = CountActivePlayers();
+        var safeRequest = SanitizeGatewayContextTextAudited(radioRequest, 260);
+        var safeStatus = SanitizeGatewayContextTextAudited(
+            RedactPlayerIdentitiesForGateway(_rescueAgents.BuildRescueRadioStatus()),
+            420);
+        var safeFallback = SanitizeGatewayContextTextAudited(
+            RedactPlayerIdentitiesForGateway(localFallback),
+            420);
+        var safeSource = SanitizeGatewayContextTextAudited(source, 80);
+
+        return new LuaMAiGatewayChatRequest
+        {
+            Version = 1,
+            Goal = "Answer as the autonomous medical responder Aibolit in Russian. Return only JSON matching the chat schema. Use action \"none\" only. Keep the radio reply under 220 characters, mention the current rescue status when relevant, do not invent deployments, and if asked to dispatch physically say that real dispatch requires a death signal or LuaM rescue order.",
+            Language = "ru-RU",
+            AdminName = "radio operator",
+            Message = $"aibolit radio request: {safeRequest}; source={safeSource}; rescueStatus={safeStatus}; localFallback={safeFallback}",
+            TargetUserId = string.Empty,
+            SelectedTemplateId = "aibolit-radio",
+            AdminModeEnabled = false,
+            AllowedActions = ["none"],
+            AllowedAdminCommandNames = [],
+            AllowedTemplateIds = [],
+            AllowedEntityPrototypeIds = [],
+            AllowedSectorCommandIds = [],
+            AllowedRadioChannelIds = [],
+            ActiveConditionIds = status.Conditions
+                .Where(condition => condition.Active)
+                .OrderByDescending(condition => condition.Severity)
+                .ThenBy(condition => condition.ConditionId)
+                .Select(condition => condition.ConditionId)
+                .ToArray(),
+            Target = BuildGatewayRadioOperatorContext(session),
+            Sector = BuildGatewaySectorContext(status, mapNodes, synthetic, activePlayers, hasOpenLead, openLead, mapNodes.Length),
+        };
+    }
+
+    private LuaMAiGatewayPlayerContext BuildGatewayRadioOperatorContext(ICommonSession session)
+    {
+        var canTarget = session.AttachedEntity is { Valid: true } player &&
+                        !HasComp<GhostComponent>(player);
+
+        return new LuaMAiGatewayPlayerContext
+        {
+            Name = "radio operator",
+            Status = session.Status.ToString(),
+            CanTarget = canTarget,
+        };
+    }
+
+    private string RedactPlayerIdentitiesForGateway(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        foreach (var session in _players.Sessions)
+        {
+            text = ReplaceGatewayIdentity(text, session.Name);
+            if (session.AttachedEntity is { Valid: true } player)
+                text = ReplaceGatewayIdentity(text, Name(player));
+        }
+
+        return text;
+    }
+
+    private static string ReplaceGatewayIdentity(string text, string identity)
+    {
+        identity = identity.Trim();
+        return identity.Length < 3
+            ? text
+            : text.Replace(identity, "operator", StringComparison.OrdinalIgnoreCase);
     }
 
     private LuaMAiGatewayPlayerContext BuildGatewayPlayerContext(AiTarget? target)
