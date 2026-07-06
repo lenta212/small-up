@@ -380,6 +380,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoDefib={rescue.LastAutoDefibStatus}; " +
                $"autoEvac={rescue.LastAutoEvacuationStatus}; " +
+               $"routeHold={rescue.LastRouteBlockHoldStatus}; " +
                $"arrival={rescue.LastArrivalReportStatus}; " +
                $"triageDecision={rescue.LastTriageDecisionStatus}; " +
                $"autoComms={rescue.LastAutoCommsKey}; " +
@@ -2863,6 +2864,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        if (TryHoldRouteBlockedEvacuation(uid, target, rescue, htn))
+            return true;
+
         if (UpdateTargetProgress(uid, target, rescue))
         {
             if (TryHandleStalledDeliveryTarget(uid, target, rescue, htn))
@@ -3728,6 +3732,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                team.RecentThreatMemories > 0;
     }
 
+    private static bool HasRescueTeamRoutePressure(LuaMRescueTeamComponent team)
+    {
+        return team.RouteBlockerTarget is { Valid: true } ||
+               team.NearbyBlockers >= 2;
+    }
+
     private bool IsDeadPatientRecoveryTarget(EntityUid target, LuaMRescueAgentComponent rescue, MobStateComponent mobState)
     {
         return rescue.RecoverDeadPatientsToShuttle &&
@@ -4017,6 +4027,154 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return IsWithinRange(target, patientStrap, buckle.Range);
     }
 
+    private bool TryHoldRouteBlockedEvacuation(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (!rescue.HoldPositionOnBlockedEvacuation ||
+            rescue.RouteBlockHoldSeconds <= 0f ||
+            !IsPullingTarget(uid, target) ||
+            !TryComp<LuaMRescueTeamComponent>(uid, out var team) ||
+            !HasRescueTeamRoutePressure(team) ||
+            !TryGetActiveDeliveryGoal(rescue, out var progressGoal))
+        {
+            ClearRouteBlockHold(rescue);
+            return false;
+        }
+
+        if (rescue.RouteBlockHelpRequested &&
+            rescue.RouteBlockHoldTarget == target &&
+            rescue.RouteBlockHoldGoal == progressGoal)
+        {
+            return false;
+        }
+
+        var now = _timing.CurTime;
+        if (rescue.RouteBlockHoldTarget != target ||
+            rescue.RouteBlockHoldGoal != progressGoal)
+        {
+            rescue.RouteBlockHoldTarget = target;
+            rescue.RouteBlockHoldGoal = progressGoal;
+            rescue.RouteBlockHoldStartedAt = now;
+            rescue.RouteBlockHelpRequested = false;
+            rescue.LastRouteBlockHoldStatus = $"hold-position route blocked; target={FormatEntityRef(target)}; goal={FormatEntityRef(progressGoal)}";
+
+            TrySendRescueStatusComms(
+                uid,
+                rescue,
+                $"route-blocked-hold:{target}:{progressGoal}",
+                $"\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u044d\u0432\u0430\u043a\u0443\u0430\u0446\u0438\u0438 \u0437\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d. \u0414\u0435\u0440\u0436\u0443 \u043f\u043e\u0437\u0438\u0446\u0438\u044e \u0441 {Name(target)}; \u043d\u0443\u0436\u0435\u043d \u043a\u043e\u0440\u0438\u0434\u043e\u0440 \u043a \u0448\u0430\u0442\u0442\u043b\u0443.");
+        }
+
+        var elapsed = Math.Max(0f, (float) (now - rescue.RouteBlockHoldStartedAt).TotalSeconds);
+        if (elapsed < rescue.RouteBlockHoldSeconds)
+        {
+            rescue.LastAutoEvacuationStatus =
+                $"hold-position route blocked for {elapsed:0.0}/{rescue.RouteBlockHoldSeconds:0.0}s; {team.LastSceneStatus}; {team.LastMemoryDigest}";
+            rescue.LastRouteBlockHoldStatus =
+                $"holding; target={FormatEntityRef(target)}; goal={FormatEntityRef(progressGoal)}; elapsed={elapsed:0.0}/{rescue.RouteBlockHoldSeconds:0.0}s";
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.DeliveringPatient,
+                target,
+                progressGoal,
+                $"hold-position route blocked for {FormatEntityRef(target)}");
+            SetFollowTarget(uid, rescue, htn, target);
+            return true;
+        }
+
+        rescue.RouteBlockHelpRequested = true;
+        return TryRerouteBlockedDeliveryTarget(uid, target, rescue, htn, progressGoal);
+    }
+
+    private bool TryGetActiveDeliveryGoal(LuaMRescueAgentComponent rescue, out EntityUid goal)
+    {
+        if (rescue.AssignedPatientStrap is { Valid: true } patientStrap &&
+            !Deleted(patientStrap))
+        {
+            goal = patientStrap;
+            return true;
+        }
+
+        if (rescue.AssignedShuttleAnchor is { Valid: true } anchor &&
+            !Deleted(anchor))
+        {
+            goal = anchor;
+            return true;
+        }
+
+        if (rescue.AssignedShuttle is { Valid: true } shuttle &&
+            !Deleted(shuttle))
+        {
+            goal = shuttle;
+            return true;
+        }
+
+        goal = default;
+        return false;
+    }
+
+    private bool TryRerouteBlockedDeliveryTarget(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid blockedGoal)
+    {
+        if (rescue.AssignedPatientStrap == blockedGoal)
+        {
+            TemporarilySkipDeliveryTarget(rescue, blockedGoal, "route blocked hold-position");
+            ResetTargetProgress(rescue);
+
+            if (TryFindPatientDeliveryStrap(rescue, out var replacementStrap, out _))
+            {
+                rescue.AssignedPatientStrap = replacementStrap;
+                rescue.LastAutoEvacuationStatus =
+                    $"rerouting blocked evacuation of {FormatEntityRef(target)} to alternate delivery target {FormatEntityRef(replacementStrap)}";
+                rescue.LastRouteBlockHoldStatus =
+                    $"reroute alternate; target={FormatEntityRef(target)}; blockedGoal={FormatEntityRef(blockedGoal)}; replacement={FormatEntityRef(replacementStrap)}";
+
+                TrySendRescueStatusComms(
+                    uid,
+                    rescue,
+                    $"route-blocked-reroute:{target}:{blockedGoal}:{replacementStrap}",
+                    $"\u041a\u043e\u0440\u0438\u0434\u043e\u0440 \u043d\u0435 \u043e\u0442\u043a\u0440\u044b\u0442. \u041c\u0435\u043d\u044f\u044e \u0442\u043e\u0447\u043a\u0443 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438 {Name(target)}.");
+
+                SetRescueTask(
+                    uid,
+                    rescue,
+                    LuaMRescueTaskStage.DeliveringPatient,
+                    target,
+                    replacementStrap,
+                    $"rerouting blocked evacuation of {FormatEntityRef(target)} to {FormatEntityRef(replacementStrap)}");
+                return SetFollowDeliveryStrap(uid, rescue, htn, replacementStrap);
+            }
+        }
+
+        rescue.LastAutoEvacuationStatus =
+            $"route blocked for {FormatEntityRef(target)}; requesting corridor help and falling back to shuttle delivery";
+        rescue.LastRouteBlockHoldStatus =
+            $"request-help; target={FormatEntityRef(target)}; blockedGoal={FormatEntityRef(blockedGoal)}; fallback=shuttle";
+
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"route-blocked-help:{target}:{blockedGoal}",
+            $"\u0411\u043b\u043e\u043a \u043c\u0430\u0440\u0448\u0440\u0443\u0442\u0430 \u043d\u0435 \u0441\u043d\u044f\u0442. \u041d\u0443\u0436\u043d\u0430 \u043f\u043e\u043c\u043e\u0449\u044c \u0441 \u043a\u043e\u0440\u0438\u0434\u043e\u0440\u043e\u043c \u0438\u043b\u0438 \u0434\u043e\u0441\u0442\u0443\u043f\u043e\u043c \u043a \u0448\u0430\u0442\u0442\u043b\u0443; \u043f\u0440\u043e\u0431\u0443\u044e \u0440\u0435\u0437\u0435\u0440\u0432\u043d\u044b\u0439 \u0432\u044b\u0432\u043e\u0437.");
+
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.DeliveringPatient,
+            target,
+            rescue.AssignedShuttleAnchor ?? rescue.AssignedShuttle,
+            $"requesting route help for blocked evacuation of {FormatEntityRef(target)}");
+        return SetFollowShuttle(uid, rescue, htn);
+    }
+
     private bool TryHandleStalledDeliveryTarget(
         EntityUid uid,
         EntityUid target,
@@ -4233,6 +4391,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.ProgressGoal = null;
         rescue.LastProgressDistance = float.PositiveInfinity;
         rescue.TargetStallAccumulator = 0f;
+        ClearRouteBlockHold(rescue);
+    }
+
+    private static void ClearRouteBlockHold(LuaMRescueAgentComponent rescue)
+    {
+        rescue.RouteBlockHoldTarget = null;
+        rescue.RouteBlockHoldGoal = null;
+        rescue.RouteBlockHoldStartedAt = TimeSpan.Zero;
+        rescue.RouteBlockHelpRequested = false;
+        rescue.LastRouteBlockHoldStatus = "none";
     }
 
     private void CompleteEvacuation(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
@@ -4847,6 +5015,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.LastTriageDecisionKey = "none";
         rescue.DeathSignalTarget = null;
         rescue.DeathSignalDispatchReported = false;
+        ClearRouteBlockHold(rescue);
 
         if (CanUseAssignedShuttle(rescue))
         {

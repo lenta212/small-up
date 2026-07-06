@@ -131,6 +131,34 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAgentHoldsAndRequestsHelpWhenEvacuationRouteIsBlocked()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("HoldPositionOnBlockedEvacuation = true"));
+        Assert.That(component, Does.Contain("RouteBlockHoldSeconds = 4f"));
+        Assert.That(component, Does.Contain("RouteBlockHoldTarget"));
+        Assert.That(component, Does.Contain("RouteBlockHoldGoal"));
+        Assert.That(component, Does.Contain("RouteBlockHelpRequested"));
+        Assert.That(component, Does.Contain("LastRouteBlockHoldStatus"));
+        Assert.That(source, Does.Contain("TryHoldRouteBlockedEvacuation"));
+        Assert.That(source, Does.Contain("HasRescueTeamRoutePressure"));
+        Assert.That(source, Does.Contain("team.RouteBlockerTarget is { Valid: true }"));
+        Assert.That(source, Does.Contain("team.NearbyBlockers >= 2"));
+        Assert.That(source, Does.Contain("TryGetActiveDeliveryGoal"));
+        Assert.That(source, Does.Contain("TryRerouteBlockedDeliveryTarget"));
+        Assert.That(source, Does.Contain("hold-position route blocked"));
+        Assert.That(source, Does.Contain("route-blocked-hold:"));
+        Assert.That(source, Does.Contain("route-blocked-reroute:"));
+        Assert.That(source, Does.Contain("route-blocked-help:"));
+        Assert.That(source, Does.Contain("requesting route help"));
+        Assert.That(source, Does.Contain("routeHold={rescue.LastRouteBlockHoldStatus}"));
+        Assert.That(source, Does.Contain("\\u041c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u044d\\u0432\\u0430\\u043a\\u0443\\u0430\\u0446\\u0438\\u0438 \\u0437\\u0430\\u0431\\u043b\\u043e\\u043a\\u0438\\u0440\\u043e\\u0432\\u0430\\u043d"));
+        Assert.That(source, Does.Contain("\\u041d\\u0443\\u0436\\u043d\\u0430 \\u043f\\u043e\\u043c\\u043e\\u0449\\u044c \\u0441 \\u043a\\u043e\\u0440\\u0438\\u0434\\u043e\\u0440\\u043e\\u043c"));
+    }
+
+    [Test]
     public void RescueAgentOnlyReroutesToCloserHigherAcuityPatients()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);

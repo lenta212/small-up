@@ -142,6 +142,12 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float TargetStallSeconds = 20f;
 
     [DataField]
+    public bool HoldPositionOnBlockedEvacuation = true;
+
+    [DataField]
+    public float RouteBlockHoldSeconds = 4f;
+
+    [DataField]
     public float TargetSkipSeconds = 45f;
 
     [DataField]
@@ -211,6 +217,17 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float LastProgressDistance = float.PositiveInfinity;
 
     public float TargetStallAccumulator;
+
+    public EntityUid? RouteBlockHoldTarget;
+
+    public EntityUid? RouteBlockHoldGoal;
+
+    public TimeSpan RouteBlockHoldStartedAt;
+
+    public bool RouteBlockHelpRequested;
+
+    [DataField]
+    public string LastRouteBlockHoldStatus = "none";
 
     [DataField]
     public LuaMRescuePlayerActionKind PendingPlayerAction = LuaMRescuePlayerActionKind.None;
