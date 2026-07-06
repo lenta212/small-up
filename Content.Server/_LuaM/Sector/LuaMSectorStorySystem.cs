@@ -16,6 +16,7 @@ using Content.Shared.MassMedia.Components;
 using Content.Shared.MassMedia.Systems;
 using Robust.Shared.ContentPack;
 using Robust.Shared.Prototypes;
+using Robust.Shared.Timing;
 using Robust.Shared.Utility;
 
 namespace Content.Server._LuaM.Sector;
@@ -31,6 +32,8 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     private const int AiBaseTradeLogLimit = 12;
     private const int AiBaseAutofixLogLimit = 16;
     private const int RescueAfterActionLimit = 16;
+    public const int RescueAfterActionCooldownSeconds = 90;
+    public const int RescueAfterActionBlockedCooldownSeconds = 180;
 
     private static readonly ResPath PersistenceDirectory = new("/luam");
     private static readonly ResPath PersistencePath = PersistenceDirectory / "sector_memory.json";
@@ -65,6 +68,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     [Dependency] private BankSystem _bank = default!;
     [Dependency] private GameTicker _ticker = default!;
     [Dependency] private IResourceManager _resource = default!;
+    [Dependency] private IGameTiming _timing = default!;
 
     public override void Initialize()
     {
@@ -192,6 +196,32 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             return "AI base memory is not available.";
 
         return BuildAiBaseStatusText(memory.AiBase);
+    }
+
+    public bool TryGetActiveRescueCooldown(out int remainingSeconds, out string status)
+    {
+        remainingSeconds = 0;
+        status = "none";
+
+        if (!TryGetMemory(out var memory))
+        {
+            status = "rescue cooldown memory unavailable";
+            return false;
+        }
+
+        var state = memory.AiBase;
+        status = string.IsNullOrWhiteSpace(state.LastRescueCooldownStatus)
+            ? "none"
+            : state.LastRescueCooldownStatus;
+
+        if (!IsRescueCooldownActive(state, _timing.CurTime))
+            return false;
+
+        remainingSeconds = Math.Max(
+            1,
+            (int) Math.Ceiling((state.NextRescueDispatchAllowedAt - _timing.CurTime).TotalSeconds));
+        status = $"{status}; remaining={remainingSeconds}s";
+        return true;
     }
 
     public IReadOnlyList<LuaMAiBaseCompensationEntry> BuildAiBaseCompensationPlan()
@@ -485,7 +515,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             memory.RescueAfterActions.RemoveRange(0, memory.RescueAfterActions.Count - RescueAfterActionLimit);
 
         TryAutoClearLatestRescueFollowUpFromAfterAction(memory, entry, out var clearedEntry);
-        UpdateAiBaseMedicalStatus(memory.AiBase, entry, memory.RescueAfterActions.Count);
+        UpdateAiBaseMedicalStatus(memory.AiBase, entry, memory.RescueAfterActions.Count, _timing.CurTime);
 
         SaveMemory(memory);
 
@@ -1875,8 +1905,12 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             state.LastRescueMedicalStatus = "none";
         if (string.IsNullOrWhiteSpace(state.LastRescueMedicalLocation))
             state.LastRescueMedicalLocation = "none";
+        if (string.IsNullOrWhiteSpace(state.LastRescueCooldownStatus))
+            state.LastRescueCooldownStatus = "none";
         state.RescueMedicalOperations = Math.Max(0, state.RescueMedicalOperations);
         state.LastRescueAfterActionSequence = Math.Max(0, state.LastRescueAfterActionSequence);
+        state.LastRescueCooldownSequence = Math.Max(0, state.LastRescueCooldownSequence);
+        state.LastRescueCooldownSeconds = Math.Max(0, state.LastRescueCooldownSeconds);
 
         foreach (var (resource, amount) in AiBaseInitialInventory)
         {
@@ -2508,7 +2542,8 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     private static void UpdateAiBaseMedicalStatus(
         LuaMAiBaseState state,
         LuaMSectorRescueAfterActionEntry entry,
-        int retainedAfterActionCount)
+        int retainedAfterActionCount,
+        TimeSpan now)
     {
         EnsureAiBaseDefaults(state);
 
@@ -2532,6 +2567,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             $"evacuation={entry.EvacuationResult}; blockers={blockerStatus}; " +
             $"location={state.LastRescueMedicalLocation}; team={entry.TeamStatus}",
             256);
+        UpdateAiBaseRescueCooldown(state, entry, now);
     }
 
     private static string BuildAiBaseMedicalStatusText(LuaMAiBaseState state)
@@ -2546,7 +2582,43 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         var followUp = state.LastRescueMedicalFollowUpPending
             ? "follow-up pending"
             : "no open rescue follow-up";
-        return $"ops={state.RescueMedicalOperations}; last={state.LastRescueMedicalStatus}; {followUp}.";
+        var cooldown = string.IsNullOrWhiteSpace(state.LastRescueCooldownStatus) ||
+                       state.LastRescueCooldownStatus.Equals("none", StringComparison.OrdinalIgnoreCase)
+            ? "rescue cooldown=none"
+            : state.LastRescueCooldownStatus;
+        return $"ops={state.RescueMedicalOperations}; last={state.LastRescueMedicalStatus}; {followUp}; {cooldown}.";
+    }
+
+    private static void UpdateAiBaseRescueCooldown(
+        LuaMAiBaseState state,
+        LuaMSectorRescueAfterActionEntry entry,
+        TimeSpan now)
+    {
+        var hasOpenFollowUp = state.LastRescueMedicalFollowUpPending;
+        var cooldownSeconds = hasOpenFollowUp
+            ? RescueAfterActionBlockedCooldownSeconds
+            : RescueAfterActionCooldownSeconds;
+        var reason = hasOpenFollowUp
+            ? "follow-up pending"
+            : "after-action complete";
+
+        state.LastRescueCooldownSequence = entry.Sequence;
+        state.LastRescueCooldownSeconds = cooldownSeconds;
+        state.LastRescueCooldownStartedAt = now;
+        state.NextRescueDispatchAllowedAt = now + TimeSpan.FromSeconds(cooldownSeconds);
+        state.LastRescueCooldownStatus =
+            $"rescue cooldown: sequence={entry.Sequence}; hold={cooldownSeconds}s; reason={reason}";
+    }
+
+    private static bool IsRescueCooldownActive(LuaMAiBaseState state, TimeSpan now)
+    {
+        if (state.LastRescueCooldownSeconds <= 0 ||
+            state.LastRescueCooldownStartedAt > now)
+        {
+            return false;
+        }
+
+        return state.NextRescueDispatchAllowedAt > now;
     }
 
     private static bool TryAutoClearLatestRescueFollowUpFromAfterAction(
@@ -2694,6 +2766,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             LastRescueMedicalStatus = state.LastRescueMedicalStatus,
             LastRescueMedicalLocation = state.LastRescueMedicalLocation,
             LastRescueMedicalFollowUpPending = state.LastRescueMedicalFollowUpPending,
+            LastRescueCooldownSequence = state.LastRescueCooldownSequence,
+            LastRescueCooldownSeconds = state.LastRescueCooldownSeconds,
+            LastRescueCooldownStartedAt = state.LastRescueCooldownStartedAt,
+            NextRescueDispatchAllowedAt = state.NextRescueDispatchAllowedAt,
+            LastRescueCooldownStatus = state.LastRescueCooldownStatus,
             Inventory = state.Inventory.Select(CloneAiBaseInventoryEntry).ToList(),
             Needs = state.Needs.Select(CloneAiBaseNeedEntry).ToList(),
             TradeLog = state.TradeLog.Select(CloneAiBaseTradeEntry).ToList(),
@@ -3014,6 +3091,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             LastRescueMedicalStatus = state.LastRescueMedicalStatus,
             LastRescueMedicalLocation = state.LastRescueMedicalLocation,
             LastRescueMedicalFollowUpPending = state.LastRescueMedicalFollowUpPending,
+            LastRescueCooldownSequence = state.LastRescueCooldownSequence,
+            LastRescueCooldownSeconds = state.LastRescueCooldownSeconds,
+            LastRescueCooldownStartedAt = state.LastRescueCooldownStartedAt,
+            NextRescueDispatchAllowedAt = state.NextRescueDispatchAllowedAt,
+            LastRescueCooldownStatus = state.LastRescueCooldownStatus,
             Inventory = state.Inventory
                 .Select(entry => new LuaMAiBasePersistedInventoryEntry
                 {
@@ -3075,6 +3157,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             LastRescueMedicalStatus = state.LastRescueMedicalStatus,
             LastRescueMedicalLocation = state.LastRescueMedicalLocation,
             LastRescueMedicalFollowUpPending = state.LastRescueMedicalFollowUpPending,
+            LastRescueCooldownSequence = state.LastRescueCooldownSequence,
+            LastRescueCooldownSeconds = state.LastRescueCooldownSeconds,
+            LastRescueCooldownStartedAt = state.LastRescueCooldownStartedAt,
+            NextRescueDispatchAllowedAt = state.NextRescueDispatchAllowedAt,
+            LastRescueCooldownStatus = state.LastRescueCooldownStatus,
             Inventory = state.Inventory
                 .Select(entry => new LuaMAiBaseInventoryEntry
                 {
@@ -3251,6 +3338,11 @@ public sealed class LuaMAiBasePersistedState
     public string LastRescueMedicalStatus { get; set; } = "none";
     public string LastRescueMedicalLocation { get; set; } = "none";
     public bool LastRescueMedicalFollowUpPending { get; set; }
+    public int LastRescueCooldownSequence { get; set; }
+    public int LastRescueCooldownSeconds { get; set; }
+    public TimeSpan LastRescueCooldownStartedAt { get; set; }
+    public TimeSpan NextRescueDispatchAllowedAt { get; set; }
+    public string LastRescueCooldownStatus { get; set; } = "none";
     public List<LuaMAiBasePersistedInventoryEntry> Inventory { get; set; } = new();
     public List<LuaMAiBasePersistedNeedEntry> Needs { get; set; } = new();
     public List<LuaMAiBasePersistedTradeEntry> TradeLog { get; set; } = new();

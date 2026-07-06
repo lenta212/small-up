@@ -239,6 +239,14 @@ public sealed class LuaMSectorStoryTest
             Assert.That(state.LastRescueMedicalStatus, Does.Contain("follow-up pending"));
             Assert.That(state.LastRescueMedicalLocation, Is.EqualTo("Medbay A"));
             Assert.That(state.LastRescueMedicalFollowUpPending, Is.True);
+            Assert.That(state.LastRescueCooldownSequence, Is.EqualTo(rescueEntry.Sequence));
+            Assert.That(state.LastRescueCooldownSeconds, Is.EqualTo(LuaMSectorStorySystem.RescueAfterActionBlockedCooldownSeconds));
+            Assert.That(state.LastRescueCooldownStartedAt, Is.LessThan(state.NextRescueDispatchAllowedAt));
+            Assert.That(state.LastRescueCooldownStatus, Does.Contain("rescue cooldown"));
+            Assert.That(state.LastRescueCooldownStatus, Does.Contain("follow-up pending"));
+            Assert.That(storySystem.TryGetActiveRescueCooldown(out var remainingCooldown, out var cooldownStatus), Is.True);
+            Assert.That(remainingCooldown, Is.GreaterThan(0));
+            Assert.That(cooldownStatus, Does.Contain("rescue cooldown"));
 
             var status = storySystem.BuildAiBaseStatusText();
             Assert.That(status, Does.Contain("LuaM autonomous supply base"));
@@ -246,6 +254,7 @@ public sealed class LuaMSectorStoryTest
             Assert.That(status, Does.Contain("Compensation plan:"));
             Assert.That(status, Does.Contain("Medical status:"));
             Assert.That(status, Does.Contain("follow-up pending"));
+            Assert.That(status, Does.Contain("rescue cooldown"));
             Assert.That(status, Does.Contain("Recent logistics:"));
             Assert.That(status, Does.Contain("Recent autofix:"));
 
@@ -275,6 +284,7 @@ public sealed class LuaMSectorStoryTest
             Assert.That(exportedJson, Does.Contain("TradeLog"));
             Assert.That(exportedJson, Does.Contain("AutofixLog"));
             Assert.That(exportedJson, Does.Contain("LastRescueMedicalStatus"));
+            Assert.That(exportedJson, Does.Contain("LastRescueCooldownStatus"));
 
             Assert.That(storySystem.TryExportMemorySnapshot(out snapshot), Is.True);
         });
@@ -298,6 +308,9 @@ public sealed class LuaMSectorStoryTest
             Assert.That(restored.LastRescueAfterActionSequence, Is.EqualTo(1));
             Assert.That(restored.LastRescueMedicalStatus, Does.Contain("critical stabilized"));
             Assert.That(restored.LastRescueMedicalFollowUpPending, Is.True);
+            Assert.That(restored.LastRescueCooldownSequence, Is.EqualTo(1));
+            Assert.That(restored.LastRescueCooldownSeconds, Is.EqualTo(LuaMSectorStorySystem.RescueAfterActionBlockedCooldownSeconds));
+            Assert.That(restored.LastRescueCooldownStatus, Does.Contain("rescue cooldown"));
             Assert.That(restored.TradeLog.Any(entry => entry.Vessel.Contains("Baeg", StringComparison.OrdinalIgnoreCase)), Is.True);
             Assert.That(restored.TradeLog.Any(entry => entry.Vessel.Contains("Hammerhead", StringComparison.OrdinalIgnoreCase)), Is.False);
 

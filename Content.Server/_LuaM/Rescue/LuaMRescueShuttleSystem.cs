@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using Content.Server._LuaM.Sector;
 using Content.Server._NF.Shipyard.Systems;
 using Content.Server.Administration;
 using Content.Server.NPC.HTN;
@@ -35,6 +36,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
     [Dependency] private readonly MetaDataSystem _metaData = default!;
     [Dependency] private readonly LuaMRescueAgentSystem _rescueAgent = default!;
     [Dependency] private readonly LuaMRescueTeamSystem _rescueTeam = default!;
+    [Dependency] private readonly LuaMSectorStorySystem _sectorStory = default!;
     [Dependency] private readonly NPCSystem _npc = default!;
     [Dependency] private readonly RadioSystem _radio = default!;
     [Dependency] private readonly IPrototypeManager _prototypes = default!;
@@ -179,6 +181,17 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         if (!HasComp<StationDataComponent>(station))
         {
             status = "Target is not a station.";
+            return false;
+        }
+
+        if (!deathSignal &&
+            spawnAgent &&
+            spawnTeam &&
+            _sectorStory.TryGetActiveRescueCooldown(out var remainingSeconds, out var cooldownStatus))
+        {
+            status =
+                $"Rescue dispatch cooldown active for {remainingSeconds}s after the last after-action: {cooldownStatus}. " +
+                "Use --death-signal for a confirmed death signal or wait before launching another full rescue team.";
             return false;
         }
 

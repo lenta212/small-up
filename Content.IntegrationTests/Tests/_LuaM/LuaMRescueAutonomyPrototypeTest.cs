@@ -100,6 +100,32 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAfterActionCooldownBlocksRepeatedFullDispatches()
+    {
+        var shuttle = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs"), Encoding.UTF8);
+        var sectorMemory = File.ReadAllText(FullPath("Content.Server/_LuaM/Sector/LuaMSectorMemoryComponent.cs"), Encoding.UTF8);
+        var sectorStory = File.ReadAllText(FullPath("Content.Server/_LuaM/Sector/LuaMSectorStorySystem.cs"), Encoding.UTF8);
+        var sectorStoryTest = File.ReadAllText(FullPath("Content.IntegrationTests/Tests/_LuaM/LuaMSectorStoryTest.cs"), Encoding.UTF8);
+
+        Assert.That(sectorMemory, Does.Contain("LastRescueCooldownSequence"));
+        Assert.That(sectorMemory, Does.Contain("NextRescueDispatchAllowedAt"));
+        Assert.That(sectorMemory, Does.Contain("LastRescueCooldownStatus"));
+        Assert.That(sectorStory, Does.Contain("RescueAfterActionCooldownSeconds"));
+        Assert.That(sectorStory, Does.Contain("RescueAfterActionBlockedCooldownSeconds"));
+        Assert.That(sectorStory, Does.Contain("UpdateAiBaseRescueCooldown"));
+        Assert.That(sectorStory, Does.Contain("TryGetActiveRescueCooldown"));
+        Assert.That(sectorStory, Does.Contain("IsRescueCooldownActive"));
+        Assert.That(sectorStory, Does.Contain("state.LastRescueCooldownStatus ="));
+        Assert.That(sectorStory, Does.Contain("rescue cooldown: sequence={entry.Sequence}"));
+        Assert.That(shuttle, Does.Contain("LuaMSectorStorySystem _sectorStory"));
+        Assert.That(shuttle, Does.Contain("_sectorStory.TryGetActiveRescueCooldown"));
+        Assert.That(shuttle, Does.Contain("Use --death-signal for a confirmed death signal"));
+        Assert.That(shuttle, Does.Contain("!deathSignal &&"));
+        Assert.That(sectorStoryTest, Does.Contain("TryGetActiveRescueCooldown"));
+        Assert.That(sectorStoryTest, Does.Contain("LastRescueCooldownStatus"));
+    }
+
+    [Test]
     public void RescueAgentRecoversDeadPatientsToShuttleWithoutAutoRelease()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);

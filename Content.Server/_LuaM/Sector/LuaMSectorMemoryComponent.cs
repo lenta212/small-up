@@ -376,6 +376,21 @@ public sealed partial class LuaMAiBaseState
     public bool LastRescueMedicalFollowUpPending;
 
     [DataField]
+    public int LastRescueCooldownSequence;
+
+    [DataField]
+    public int LastRescueCooldownSeconds;
+
+    [DataField]
+    public TimeSpan LastRescueCooldownStartedAt;
+
+    [DataField]
+    public TimeSpan NextRescueDispatchAllowedAt;
+
+    [DataField]
+    public string LastRescueCooldownStatus = "none";
+
+    [DataField]
     public List<LuaMAiBaseInventoryEntry> Inventory = new();
 
     [DataField]
