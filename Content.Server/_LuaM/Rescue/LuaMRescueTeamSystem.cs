@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using Content.Server._LuaM.Sector;
 using Content.Server.Chat.Systems;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
@@ -56,6 +57,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     [Dependency] private readonly NpcFactionSystem _factions = default!;
     [Dependency] private readonly PullingSystem _pulling = default!;
     [Dependency] private readonly SharedCombatModeSystem _combatMode = default!;
+    [Dependency] private readonly LuaMSectorStorySystem _sectorStory = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
     private readonly HashSet<EntityUid> _sceneEntities = new();
@@ -231,6 +233,17 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             $"after-action record #{team.HandoffRecords}: patient=withheld; location={location}; " +
             $"treatment={treatmentResult}; evacuation={evacuationResult}; blockers={blockers}; " +
             $"playerContribution={playerContribution}; teamStatus={teamStatus}; identities=withheld; coordinates=withheld";
+
+        _sectorStory.TryRecordRescueAfterAction(
+            "LuaM Rescue",
+            "withheld",
+            location,
+            treatmentResult,
+            evacuationResult,
+            blockers,
+            playerContribution,
+            teamStatus,
+            out _);
 
         Dirty(leader, team);
         return true;

@@ -48,6 +48,9 @@ public sealed partial class LuaMSectorMemoryComponent : Component
     public List<LuaMSectorConditionEntry> SectorConditions = new();
 
     [DataField]
+    public List<LuaMSectorRescueAfterActionEntry> RescueAfterActions = new();
+
+    [DataField]
     public LuaMAiBaseState AiBase = new();
 }
 
@@ -89,6 +92,9 @@ public sealed partial class LuaMSectorMemorySnapshot
 
     [DataField]
     public List<LuaMSectorConditionEntry> SectorConditions = new();
+
+    [DataField]
+    public List<LuaMSectorRescueAfterActionEntry> RescueAfterActions = new();
 
     [DataField]
     public LuaMAiBaseState AiBase = new();
@@ -288,6 +294,40 @@ public sealed partial class LuaMSectorConditionEntry
 
     [DataField]
     public bool Active = true;
+}
+
+[DataDefinition]
+public sealed partial class LuaMSectorRescueAfterActionEntry
+{
+    [DataField]
+    public int Sequence;
+
+    [DataField]
+    public string Actor = "LuaM Rescue";
+
+    [DataField]
+    public string Patient = "withheld";
+
+    [DataField]
+    public string Location = string.Empty;
+
+    [DataField]
+    public string TreatmentResult = string.Empty;
+
+    [DataField]
+    public string EvacuationResult = string.Empty;
+
+    [DataField]
+    public string Blockers = string.Empty;
+
+    [DataField]
+    public string PlayerContribution = string.Empty;
+
+    [DataField]
+    public string TeamStatus = string.Empty;
+
+    [DataField]
+    public string Summary = string.Empty;
 }
 
 [DataDefinition]

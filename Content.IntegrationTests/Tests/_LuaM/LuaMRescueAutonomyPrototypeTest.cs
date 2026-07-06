@@ -50,6 +50,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     public void RescueShuttleAnnouncesDeathSignalDispatchOverMedicalRadio()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs"), Encoding.UTF8);
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
+        var agent = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
 
         Assert.That(source, Does.Contain("SubscribeLocalEvent<MobStateChangedEvent>(OnMobStateChanged)"));
         Assert.That(source, Does.Contain("TryDispatchAutomaticDeathSignal(ev.Target)"));
@@ -57,12 +59,24 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("AutomaticDeathSignalCooldownSeconds"));
         Assert.That(source, Does.Contain("TryResolveAutomaticDeathSignalStation"));
         Assert.That(source, Does.Contain("spawnTeam: true"));
+        Assert.That(source, Does.Contain("deathSignal: true"));
         Assert.That(source, Does.Contain("DeathSignalFlag"));
         Assert.That(source, Does.Contain("--death-signal"));
         Assert.That(source, Does.Contain("requires target=<entity|player> so Aibolit can report who it is flying to"));
+        Assert.That(source, Does.Contain("bool deathSignal"));
+        Assert.That(source, Does.Contain("rescue.DeathSignalTarget = deathSignalTarget"));
+        Assert.That(source, Does.Contain("deathSignal &&"));
         Assert.That(source, Does.Contain("\u041c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u0441\u043c\u0435\u0440\u0442\u0438 \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a {targetName}."));
         Assert.That(source, Does.Contain("_radio.SendRadioMessage("));
         Assert.That(source, Does.Contain("MedicalRadioChannel"));
+        Assert.That(component, Does.Contain("DeathSignalTarget"));
+        Assert.That(component, Does.Contain("DeathSignalDispatchReported"));
+        Assert.That(agent, Does.Contain("TryReportDeathSignalDispatch"));
+        Assert.That(agent, Does.Contain("death-signal-dispatch:"));
+        Assert.That(agent, Does.Contain("deathSignal={FormatEntityRef(rescue.DeathSignalTarget)}"));
+        Assert.That(agent, Does.Contain("mobState.CurrentState != MobState.Dead"));
+        Assert.That(agent, Does.Contain("ClearDeathSignalTarget"));
+        Assert.That(agent, Does.Contain("\\u041c\\u0435\\u0434\\u0441\\u0438\\u0433\\u043d\\u0430\\u043b \\u0441\\u043c\\u0435\\u0440\\u0442\\u0438 \\u043f\\u0440\\u0438\\u043d\\u044f\\u0442"));
     }
 
     [Test]
@@ -217,6 +231,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
         var agent = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
         var team = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+        var sectorMemory = File.ReadAllText(FullPath("Content.Server/_LuaM/Sector/LuaMSectorMemoryComponent.cs"), Encoding.UTF8);
+        var sectorStory = File.ReadAllText(FullPath("Content.Server/_LuaM/Sector/LuaMSectorStorySystem.cs"), Encoding.UTF8);
 
         Assert.That(component, Does.Contain("LastHandoffPatient"));
         Assert.That(component, Does.Contain("LastHandoffRecord"));
@@ -232,6 +248,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(team, Does.Contain("teamStatus="));
         Assert.That(team, Does.Contain("handoff={team.LastHandoffRecord}"));
         Assert.That(team, Does.Contain("handoff={team.LastHandoffDigest}"));
+        Assert.That(team, Does.Contain("TryRecordRescueAfterAction"));
         Assert.That(agent, Does.Contain("RecordRescueHandoff"));
         Assert.That(agent, Does.Contain("stabilized on site; no evacuation required"));
         Assert.That(agent, Does.Contain("secured onboard; return route requested"));
@@ -239,6 +256,16 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(agent, Does.Contain("aborted after stalled target"));
         Assert.That(agent, Does.Contain("BuildHandoffBlockerSummary"));
         Assert.That(agent, Does.Contain("BuildPatientTreatmentResult"));
+        Assert.That(sectorMemory, Does.Contain("LuaMSectorRescueAfterActionEntry"));
+        Assert.That(sectorMemory, Does.Contain("RescueAfterActions"));
+        Assert.That(sectorStory, Does.Contain("TryRecordRescueAfterAction"));
+        Assert.That(sectorStory, Does.Contain("RescueAfterActionLimit"));
+        Assert.That(sectorStory, Does.Contain("LuaMSectorPersistedRescueAfterAction"));
+        Assert.That(sectorStory, Does.Contain("ToPersistedRescueAfterAction"));
+        Assert.That(sectorStory, Does.Contain("FromPersistedRescueAfterAction"));
+        Assert.That(sectorStory, Does.Contain("LuaMSectorRescueAfterActionRecordedEvent"));
+        Assert.That(sectorStory, Does.Contain("\"Rescue\""));
+        Assert.That(sectorStory, Does.Contain("RescueAfterActionStoryId"));
     }
 
     [Test]

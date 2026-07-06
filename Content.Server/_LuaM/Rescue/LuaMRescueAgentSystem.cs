@@ -373,6 +373,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
                $"taskStage={FormatRescueTaskStage(rescue.TaskStage)}; " +
                $"taskPatient={FormatEntityRef(rescue.TaskPatientTarget)}; taskSupply={FormatEntityRef(rescue.TaskSupplyTarget)}; " +
+               $"deathSignal={FormatEntityRef(rescue.DeathSignalTarget)}; " +
                $"taskLast={rescue.LastTaskStatus}; " +
                $"skipped={rescue.SkippedTargets.Count}; skippedSupply={rescue.SkippedSupplyTargets.Count}; " +
                $"skippedDelivery={rescue.SkippedDeliveryTargets.Count}; " +
@@ -436,6 +437,35 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             _radio.SendRadioMessage(uid, message, MedicalRadioChannel, uid);
 
         Dirty(uid, rescue);
+    }
+
+    private void TryReportDeathSignalDispatch(EntityUid uid, LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.DeathSignalDispatchReported ||
+            rescue.DeathSignalTarget is not { Valid: true } target ||
+            Deleted(target) ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            mobState.CurrentState != MobState.Dead)
+        {
+            return;
+        }
+
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"death-signal-dispatch:{target}",
+            $"\u041c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u0441\u043c\u0435\u0440\u0442\u0438 \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a {Name(target)}.");
+        rescue.DeathSignalDispatchReported = true;
+        Dirty(uid, rescue);
+    }
+
+    private void ClearDeathSignalTarget(LuaMRescueAgentComponent rescue, EntityUid target)
+    {
+        if (rescue.DeathSignalTarget != target)
+            return;
+
+        rescue.DeathSignalTarget = null;
+        rescue.DeathSignalDispatchReported = false;
     }
 
     private string GetRescuePhase(EntityUid uid, LuaMRescueAgentComponent rescue)
@@ -644,6 +674,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             BuildPatientTreatmentResult(patient, rescue),
             "stabilized on site; no evacuation required",
             "returning to standby");
+        ClearDeathSignalTarget(rescue, patient);
         ClearRescueTask(uid, rescue, $"patient {FormatEntityRef(patient)} no longer needs rescue");
         return false;
     }
@@ -2348,6 +2379,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         PruneSkippedDeliveryTargets(rescue);
         PruneAnalyzedTargets(rescue);
         PruneRescueTaskMemory(uid, rescue);
+        TryReportDeathSignalDispatch(uid, rescue);
 
         if (UpdateEvacuation(uid, rescue, htn))
             return;
@@ -4004,6 +4036,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         StopPullingTarget(uid, target);
         ClearRescueTask(uid, rescue, $"skipped stalled target {FormatEntityRef(target)}");
+        ClearDeathSignalTarget(rescue, target);
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
@@ -4108,6 +4141,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
+        ClearDeathSignalTarget(rescue, target);
         StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget);
         Dirty(uid, rescue);
     }
@@ -4665,6 +4699,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
+        rescue.DeathSignalTarget = null;
+        rescue.DeathSignalDispatchReported = false;
 
         if (CanUseAssignedShuttle(rescue))
         {

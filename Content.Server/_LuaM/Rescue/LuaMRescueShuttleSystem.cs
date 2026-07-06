@@ -96,6 +96,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             spawnTeam: true,
             control: false,
             routeToTarget: true,
+            deathSignal: true,
             out _,
             out _,
             out _,
@@ -146,6 +147,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         bool spawnTeam,
         bool control,
         bool routeToTarget,
+        bool deathSignal,
         out EntityUid? shuttle,
         out EntityUid? agent,
         out EntityUid? autopilotConsole,
@@ -206,6 +208,12 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         rescue.AssignedShuttleConsole = autopilotConsole;
         rescue.AssignedReturnTarget = returnTarget;
         rescue.AssignedTarget = followTarget;
+        if (deathSignal &&
+            followTarget is { Valid: true } deathSignalTarget)
+        {
+            rescue.DeathSignalTarget = deathSignalTarget;
+            rescue.DeathSignalDispatchReported = false;
+        }
         Dirty(agent.Value, rescue);
 
         if (spawnTeam)
@@ -214,7 +222,8 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             escortCount = escorts.Count;
         }
 
-        if (followTarget is { Valid: true } dispatchTarget &&
+        if (deathSignal &&
+            followTarget is { Valid: true } dispatchTarget &&
             !Deleted(dispatchTarget))
         {
             SendDispatchRadio(agent.Value, dispatchTarget);
@@ -403,6 +412,7 @@ public sealed class LuaMRescueShuttleCommand : IConsoleCommand
                 spawnTeam,
                 control,
                 routeToTarget,
+                deathSignal,
                 out var shuttle,
                 out var agent,
                 out var autopilotConsole,

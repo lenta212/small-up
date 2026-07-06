@@ -33,6 +33,7 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
         SubscribeLocalEvent<LuaMSectorCompanyRegisteredEvent>(OnSectorStatusChanged);
         SubscribeLocalEvent<LuaMSectorShipRegisteredEvent>(OnSectorStatusChanged);
         SubscribeLocalEvent<LuaMSectorConditionChangedEvent>(OnSectorStatusChanged);
+        SubscribeLocalEvent<LuaMSectorRescueAfterActionRecordedEvent>(OnSectorStatusChanged);
 
         Subs.BuiEvents<LuaMSectorLeadReportComponent>(LuaMSectorTerminalUiKey.Key, subs =>
         {

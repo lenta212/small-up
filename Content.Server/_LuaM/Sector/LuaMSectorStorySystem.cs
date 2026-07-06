@@ -26,8 +26,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     public const int ReputationRewardCap = 3000;
     public const int RecentHistoryLimit = 8;
     public const string RuntimeDistressStoryPrefix = "LuaMSectorRuntimeDistress";
+    public const string RescueAfterActionStoryId = "LuaMSectorRescueAfterAction";
+    private static readonly ProtoId<LuaMSectorStoryPrototype> RescueAfterActionStory = new(RescueAfterActionStoryId);
     private const int AiBaseTradeLogLimit = 12;
     private const int AiBaseAutofixLogLimit = 16;
+    private const int RescueAfterActionLimit = 16;
 
     private static readonly ResPath PersistenceDirectory = new("/luam");
     private static readonly ResPath PersistencePath = PersistenceDirectory / "sector_memory.json";
@@ -420,6 +423,78 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         return $"AI base autofix memory {status}: #{state.AutofixLog[^1].Attempt} {state.AutofixLog[^1].Issue} via {state.AutofixLog[^1].CommandId}.";
     }
 
+    public bool TryRecordRescueAfterAction(
+        string actor,
+        string patient,
+        string location,
+        string treatmentResult,
+        string evacuationResult,
+        string blockers,
+        string playerContribution,
+        string teamStatus,
+        out LuaMSectorRescueAfterActionEntry? entry)
+    {
+        entry = null;
+
+        if (!TryGetMemory(out var memory))
+            return false;
+
+        actor = Trim(actor, 64);
+        patient = Trim(patient, 64);
+        location = Trim(location, 128);
+        treatmentResult = Trim(treatmentResult, 192);
+        evacuationResult = Trim(evacuationResult, 192);
+        blockers = Trim(blockers, 192);
+        playerContribution = Trim(playerContribution, 128);
+        teamStatus = Trim(teamStatus, 128);
+
+        if (string.IsNullOrWhiteSpace(actor))
+            actor = "LuaM Rescue";
+
+        if (string.IsNullOrWhiteSpace(patient))
+            patient = "withheld";
+
+        if (string.IsNullOrWhiteSpace(blockers))
+            blockers = "none";
+
+        if (string.IsNullOrWhiteSpace(playerContribution))
+            playerContribution = "unverified";
+
+        if (string.IsNullOrWhiteSpace(teamStatus))
+            teamStatus = "available";
+
+        var nextSequence = memory.RescueAfterActions.Count == 0
+            ? 1
+            : memory.RescueAfterActions.Max(action => action.Sequence) + 1;
+        var summary =
+            $"treatment={treatmentResult}; evacuation={evacuationResult}; blockers={blockers}; " +
+            $"playerContribution={playerContribution}; teamStatus={teamStatus}";
+
+        entry = new LuaMSectorRescueAfterActionEntry
+        {
+            Sequence = nextSequence,
+            Actor = actor,
+            Patient = patient,
+            Location = location,
+            TreatmentResult = treatmentResult,
+            EvacuationResult = evacuationResult,
+            Blockers = blockers,
+            PlayerContribution = playerContribution,
+            TeamStatus = teamStatus,
+            Summary = Trim(summary, 384),
+        };
+
+        memory.RescueAfterActions.Add(entry);
+        if (memory.RescueAfterActions.Count > RescueAfterActionLimit)
+            memory.RescueAfterActions.RemoveRange(0, memory.RescueAfterActions.Count - RescueAfterActionLimit);
+
+        SaveMemory(memory);
+
+        var ev = new LuaMSectorRescueAfterActionRecordedEvent(CloneRescueAfterActionEntry(entry));
+        RaiseLocalEvent(ev);
+        return true;
+    }
+
     public IReadOnlyList<LuaMSectorStoryRecord> GetActiveHazards()
     {
         return GetRecords(record => !record.Resolved && !string.IsNullOrWhiteSpace(record.Hazard));
@@ -741,6 +816,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         snapshot.CompanyRegistry = memory.CompanyRegistry.Select(CloneRegistryEntry).ToList();
         snapshot.ShipRegistry = memory.ShipRegistry.Select(CloneRegistryEntry).ToList();
         snapshot.SectorConditions = memory.SectorConditions.Select(CloneConditionEntry).ToList();
+        snapshot.RescueAfterActions = memory.RescueAfterActions.Select(CloneRescueAfterActionEntry).ToList();
         snapshot.AiBase = CloneAiBaseState(memory.AiBase);
         return true;
     }
@@ -762,6 +838,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         memory.CompanyRegistry = snapshot.CompanyRegistry.Select(CloneRegistryEntry).ToList();
         memory.ShipRegistry = snapshot.ShipRegistry.Select(CloneRegistryEntry).ToList();
         memory.SectorConditions = snapshot.SectorConditions.Select(CloneConditionEntry).ToList();
+        memory.RescueAfterActions = snapshot.RescueAfterActions.Select(CloneRescueAfterActionEntry).ToList();
         memory.AiBase = CloneAiBaseState(snapshot.AiBase);
         SaveMemory(memory);
         return true;
@@ -948,6 +1025,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         memory.CompanyRegistry.Clear();
         memory.ShipRegistry.Clear();
         memory.SectorConditions.Clear();
+        memory.RescueAfterActions.Clear();
         memory.AiBase = new LuaMAiBaseState();
 
         EnsureRecords(memory);
@@ -1438,6 +1516,12 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             AddHistory(entries, titles, i, 5, "Ship", entry.Story, entry.Actor, entry.Note);
         }
 
+        for (var i = 0; i < memory.RescueAfterActions.Count; i++)
+        {
+            var entry = memory.RescueAfterActions[i];
+            AddHistory(entries, titles, entry.Sequence, 6, "Rescue", RescueAfterActionStory, entry.Actor, entry.Summary);
+        }
+
         return entries
             .OrderByDescending(entry => entry.Index)
             .ThenBy(entry => entry.Priority)
@@ -1660,6 +1744,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             CompanyRegistry = memory.CompanyRegistry.Select(ToPersistedRegistryEntry).ToList(),
             ShipRegistry = memory.ShipRegistry.Select(ToPersistedRegistryEntry).ToList(),
             SectorConditions = memory.SectorConditions.Select(ToPersistedConditionEntry).ToList(),
+            RescueAfterActions = memory.RescueAfterActions.Select(ToPersistedRescueAfterAction).ToList(),
             AiBase = ToPersistedAiBase(memory.AiBase),
         };
     }
@@ -1683,6 +1768,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         memory.CompanyRegistry = persisted.CompanyRegistry.Select(FromPersistedRegistryEntry).ToList();
         memory.ShipRegistry = persisted.ShipRegistry.Select(FromPersistedRegistryEntry).ToList();
         memory.SectorConditions = persisted.SectorConditions.Select(FromPersistedConditionEntry).ToList();
+        memory.RescueAfterActions = persisted.RescueAfterActions?.Select(FromPersistedRescueAfterAction).ToList() ?? new();
         memory.AiBase = FromPersistedAiBase(persisted.AiBase);
     }
 
@@ -2330,6 +2416,23 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         };
     }
 
+    private static LuaMSectorRescueAfterActionEntry CloneRescueAfterActionEntry(LuaMSectorRescueAfterActionEntry entry)
+    {
+        return new LuaMSectorRescueAfterActionEntry
+        {
+            Sequence = entry.Sequence,
+            Actor = entry.Actor,
+            Patient = entry.Patient,
+            Location = entry.Location,
+            TreatmentResult = entry.TreatmentResult,
+            EvacuationResult = entry.EvacuationResult,
+            Blockers = entry.Blockers,
+            PlayerContribution = entry.PlayerContribution,
+            TeamStatus = entry.TeamStatus,
+            Summary = entry.Summary,
+        };
+    }
+
     private static LuaMAiBaseState CloneAiBaseState(LuaMAiBaseState state)
     {
         return new LuaMAiBaseState
@@ -2605,6 +2708,40 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         };
     }
 
+    private static LuaMSectorPersistedRescueAfterAction ToPersistedRescueAfterAction(LuaMSectorRescueAfterActionEntry entry)
+    {
+        return new LuaMSectorPersistedRescueAfterAction
+        {
+            Sequence = entry.Sequence,
+            Actor = entry.Actor,
+            Patient = entry.Patient,
+            Location = entry.Location,
+            TreatmentResult = entry.TreatmentResult,
+            EvacuationResult = entry.EvacuationResult,
+            Blockers = entry.Blockers,
+            PlayerContribution = entry.PlayerContribution,
+            TeamStatus = entry.TeamStatus,
+            Summary = entry.Summary,
+        };
+    }
+
+    private static LuaMSectorRescueAfterActionEntry FromPersistedRescueAfterAction(LuaMSectorPersistedRescueAfterAction entry)
+    {
+        return new LuaMSectorRescueAfterActionEntry
+        {
+            Sequence = entry.Sequence,
+            Actor = entry.Actor,
+            Patient = string.IsNullOrWhiteSpace(entry.Patient) ? "withheld" : entry.Patient,
+            Location = entry.Location,
+            TreatmentResult = entry.TreatmentResult,
+            EvacuationResult = entry.EvacuationResult,
+            Blockers = entry.Blockers,
+            PlayerContribution = entry.PlayerContribution,
+            TeamStatus = entry.TeamStatus,
+            Summary = entry.Summary,
+        };
+    }
+
     private static LuaMAiBasePersistedState ToPersistedAiBase(LuaMAiBaseState state)
     {
         return new LuaMAiBasePersistedState
@@ -2729,6 +2866,7 @@ public sealed class LuaMSectorPersistedMemory
     public List<LuaMSectorPersistedRegistryEntry> CompanyRegistry { get; set; } = new();
     public List<LuaMSectorPersistedRegistryEntry> ShipRegistry { get; set; } = new();
     public List<LuaMSectorPersistedConditionEntry> SectorConditions { get; set; } = new();
+    public List<LuaMSectorPersistedRescueAfterAction> RescueAfterActions { get; set; } = new();
     public LuaMAiBasePersistedState AiBase { get; set; } = new();
 }
 
@@ -2814,6 +2952,20 @@ public sealed class LuaMSectorPersistedConditionEntry
     public string Summary { get; set; } = string.Empty;
     public string Actor { get; set; } = string.Empty;
     public bool Active { get; set; } = true;
+}
+
+public sealed class LuaMSectorPersistedRescueAfterAction
+{
+    public int Sequence { get; set; }
+    public string Actor { get; set; } = "LuaM Rescue";
+    public string Patient { get; set; } = "withheld";
+    public string Location { get; set; } = string.Empty;
+    public string TreatmentResult { get; set; } = string.Empty;
+    public string EvacuationResult { get; set; } = string.Empty;
+    public string Blockers { get; set; } = string.Empty;
+    public string PlayerContribution { get; set; } = string.Empty;
+    public string TeamStatus { get; set; } = string.Empty;
+    public string Summary { get; set; } = string.Empty;
 }
 
 public sealed class LuaMAiBasePersistedState
@@ -2905,3 +3057,5 @@ public readonly record struct LuaMSectorCompanyRegisteredEvent(LuaMSectorRegistr
 public readonly record struct LuaMSectorShipRegisteredEvent(LuaMSectorRegistryEntry Entry);
 
 public readonly record struct LuaMSectorConditionChangedEvent(LuaMSectorConditionEntry Entry);
+
+public readonly record struct LuaMSectorRescueAfterActionRecordedEvent(LuaMSectorRescueAfterActionEntry Entry);

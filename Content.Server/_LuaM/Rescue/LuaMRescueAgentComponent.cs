@@ -25,6 +25,12 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public EntityUid? AssignedReturnTarget;
 
     [DataField]
+    public EntityUid? DeathSignalTarget;
+
+    [DataField]
+    public bool DeathSignalDispatchReported;
+
+    [DataField]
     public EntityUid? ShuttleRoutedTarget;
 
     [DataField]
