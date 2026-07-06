@@ -1572,8 +1572,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         escort.LastDutyActionStatus = syntheticThreat
             ? !IsWithinRange(uid, threatUid, EscortThreatScreenRange)
-                ? $"threat-screen advancing to synthetic {FormatEntityRef(threatUid)}"
-                : $"threat-screen engaging synthetic {FormatEntityRef(threatUid)}"
+                ? $"threat-screen advancing to synthetic {FormatEntityRef(threatUid)}; immediate synthetic cleanup"
+                : $"threat-screen engaging synthetic {FormatEntityRef(threatUid)}; immediate synthetic cleanup"
             : !IsWithinRange(uid, threatUid, EscortThreatScreenRange)
                 ? $"threat-screen advancing to hostile {FormatEntityRef(threatUid)}"
                 : $"threat-screen engaging hostile {FormatEntityRef(threatUid)}";
@@ -2301,13 +2301,16 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         var origin = Transform(anchorUid).MapPosition;
         var hostileCount = 0;
+        var syntheticThreatCount = 0;
         var combatantCount = 0;
         var crowdCount = 0;
         var blockerCount = 0;
         EntityUid? threatTarget = null;
+        EntityUid? syntheticThreatTarget = null;
         EntityUid? crowdTarget = null;
         EntityUid? routeBlockerTarget = null;
         var threatDistance = float.MaxValue;
+        var syntheticThreatDistance = float.MaxValue;
         var crowdDistance = float.MaxValue;
         var routeBlockerDistance = float.MaxValue;
 
@@ -2337,11 +2340,22 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             var activeCombatant = !hostile && !syntheticThreat && IsActiveCombatant(observer, candidate);
 
             if (hostile || syntheticThreat)
+            {
                 hostileCount++;
+                if (syntheticThreat)
+                    syntheticThreatCount++;
+            }
             else if (activeCombatant)
                 combatantCount++;
 
             var distance = (candidateXform.MapPosition.Position - origin.Position).LengthSquared();
+
+            if (syntheticThreat &&
+                distance < syntheticThreatDistance)
+            {
+                syntheticThreatDistance = distance;
+                syntheticThreatTarget = candidate;
+            }
 
             if (hostile || syntheticThreat || activeCombatant)
             {
@@ -2371,10 +2385,10 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         _sceneEntities.Clear();
 
-        var summary = BuildSceneSummary(hostileCount, combatantCount, crowdCount, blockerCount);
+        var summary = BuildSceneSummary(hostileCount, syntheticThreatCount, combatantCount, crowdCount, blockerCount);
         return new LuaMRescueSceneSnapshot(
             anchorUid,
-            ValidOrNull(threatTarget),
+            ValidOrNull(syntheticThreatTarget) ?? ValidOrNull(threatTarget),
             ValidOrNull(crowdTarget),
             ValidOrNull(routeBlockerTarget),
             hostileCount,
@@ -2813,8 +2827,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         return team.NearbyBlockers >= RouteBlockerThreshold || team.RecentRouteMemories > 0;
     }
 
-    private static string BuildSceneSummary(int hostiles, int combatants, int crowd, int blockers)
+    private static string BuildSceneSummary(int hostiles, int syntheticThreats, int combatants, int crowd, int blockers)
     {
+        if (syntheticThreats > 0)
+            return $"threat synthetic={syntheticThreats} hostiles={hostiles} combatants={combatants} crowd={crowd} blockers={blockers}";
+
         if (hostiles > 0)
             return $"threat hostiles={hostiles} combatants={combatants} crowd={crowd} blockers={blockers}";
 

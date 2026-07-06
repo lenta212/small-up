@@ -635,12 +635,20 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("_tag.HasTag(candidate, BotTag)"));
         Assert.That(source, Does.Contain("HasImmediateRescueSyntheticControl(candidate);"));
         Assert.That(source, Does.Contain("var syntheticThreat = IsPrioritySyntheticThreat(observer, candidate);"));
+        Assert.That(source, Does.Contain("var syntheticThreatCount = 0;"));
+        Assert.That(source, Does.Contain("EntityUid? syntheticThreatTarget = null;"));
+        Assert.That(source, Does.Contain("syntheticThreatCount++;"));
+        Assert.That(source, Does.Contain("syntheticThreatTarget = candidate;"));
+        Assert.That(source, Does.Contain("ValidOrNull(syntheticThreatTarget) ?? ValidOrNull(threatTarget)"));
+        Assert.That(source, Does.Contain("BuildSceneSummary(hostileCount, syntheticThreatCount, combatantCount, crowdCount, blockerCount)"));
+        Assert.That(source, Does.Contain("threat synthetic={syntheticThreats}"));
         Assert.That(source, Does.Contain("if (hostile || syntheticThreat)"));
         Assert.That(source, Does.Contain("if (hostile || syntheticThreat || activeCombatant)"));
         Assert.That(source, Does.Contain("var syntheticThreat = IsPrioritySyntheticThreat(uid, threatUid);"));
         Assert.That(source, Does.Contain("!IsHostileToObserver(uid, threatUid) && !syntheticThreat"));
         Assert.That(source, Does.Contain("threat-screen advancing to synthetic"));
         Assert.That(source, Does.Contain("threat-screen engaging synthetic"));
+        Assert.That(source, Does.Contain("immediate synthetic cleanup"));
     }
 
     [Test]
