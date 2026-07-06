@@ -137,15 +137,21 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
-    public void RescueAgentKeepsShuttleForwardForPendingEvacuationTargets()
+    public void RescueAgentKeepsShuttleForwardForPendingRescueTargets()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
 
-        Assert.That(source, Does.Contain("var hasPendingEvacuationTarget = HasPendingEvacuationTarget(uid, rescue, target);"));
-        Assert.That(source, Does.Contain("allowAutoReturn: !hasPendingEvacuationTarget"));
+        Assert.That(source, Does.Contain("var hasPendingRescueTarget = HasPendingRescueTarget(uid, rescue, target);"));
+        Assert.That(source, Does.Contain("HasPendingRescueTarget"));
+        Assert.That(source, Does.Contain("HasPendingEvacuationTarget(uid, rescue, completedTarget)"));
+        Assert.That(source, Does.Contain("TryComp<MedibotComponent>(uid, out var medibot)"));
+        Assert.That(source, Does.Contain("TryFindRescueTarget(uid, rescue.SearchRange, rescue, medibot, out _, completedTarget)"));
+        Assert.That(source, Does.Contain("EntityUid? excludedTarget = null"));
+        Assert.That(source, Does.Contain("candidate == excludedTarget"));
+        Assert.That(source, Does.Contain("allowAutoReturn: !hasPendingRescueTarget"));
         Assert.That(source, Does.Contain("holding shuttle forward after evacuation"));
         Assert.That(source, Does.Contain("holding shuttle forward after skipping"));
-        Assert.That(source, Does.Contain("pending evacuation target detected"));
+        Assert.That(source, Does.Contain("pending rescue target detected"));
         Assert.That(source, Does.Contain("bool allowAutoReturn = true"));
         Assert.That(source, Does.Contain("if (allowAutoReturn)"));
     }
@@ -281,8 +287,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("needs onboard treatment"));
         Assert.That(source, Does.Contain("CompleteReleasedPatientCare"));
         Assert.That(source, Does.Contain("released stabilized {FormatEntityRef(patient)}; ready for next rescue"));
-        Assert.That(source, Does.Contain("holding shuttle forward after release of {FormatEntityRef(patient)}; pending evacuation target detected"));
-        Assert.That(source, Does.Contain("StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget)"));
+        Assert.That(source, Does.Contain("holding shuttle forward after release of {FormatEntityRef(patient)}; pending rescue target detected"));
+        Assert.That(source, Does.Contain("StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget)"));
         Assert.That(source, Does.Contain("TrySayOnboardAction"));
         Assert.That(source, Does.Contain("TrySayRescueAction"));
         Assert.That(source, Does.Contain("onboard-action:{step}:{patient}"));
@@ -329,7 +335,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("dead-recovery"));
         Assert.That(source, Does.Contain("unsafe-evacuation"));
         Assert.That(source, Does.Contain("onsite-treatment"));
-        Assert.That(source, Does.Contain("hasPendingEvacuationTarget"));
+        Assert.That(source, Does.Contain("hasPendingRescueTarget"));
         Assert.That(source, Does.Contain("\u0414\u0435\u0444\u0438\u0431\u0440\u0438\u043b\u043b\u044f\u0446\u0438\u044f {Name(target)} \u043d\u0430\u0447\u0430\u0442\u0430. \u041d\u0435 \u0442\u0440\u043e\u0433\u0430\u0439\u0442\u0435 \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430."));
         Assert.That(source, Does.Contain("\\u041f\\u0430\\u0446\\u0438\\u0435\\u043d\\u0442 {Name(target)} \\u043d\\u0430\\u0439\\u0434\\u0435\\u043d"));
         Assert.That(source, Does.Contain("\\u0422\\u0440\\u0438\\u0430\\u0436 {name}:"));

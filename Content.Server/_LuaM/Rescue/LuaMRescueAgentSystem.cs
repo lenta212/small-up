@@ -2641,13 +2641,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         float searchRange,
         LuaMRescueAgentComponent rescue,
         MedibotComponent medibot,
-        out EntityUid target)
+        out EntityUid target,
+        EntityUid? excludedTarget = null)
     {
         target = default;
         var bestScore = float.MinValue;
 
         foreach (var candidate in _lookup.GetEntitiesInRange(uid, searchRange))
         {
+            if (candidate == excludedTarget)
+                continue;
+
             if (IsTargetTemporarilySkipped(candidate, rescue))
                 continue;
 
@@ -4423,16 +4427,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.ShuttleRoutedTarget = null;
         ResetTargetProgress(rescue);
 
-        var hasPendingEvacuationTarget = HasPendingEvacuationTarget(uid, rescue, target);
-        if (!hasPendingEvacuationTarget)
+        var hasPendingRescueTarget = HasPendingRescueTarget(uid, rescue, target);
+        if (!hasPendingRescueTarget)
             TryRouteShuttleHome(uid, rescue);
         else
         {
             rescue.ShuttleReturnRouted = false;
-            rescue.LastAutoEvacuationStatus = $"holding shuttle forward after skipping {FormatEntityRef(target)}; pending evacuation target detected";
+            rescue.LastAutoEvacuationStatus = $"holding shuttle forward after skipping {FormatEntityRef(target)}; pending rescue target detected";
         }
 
-        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget);
+        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget);
         Dirty(uid, rescue);
     }
 
@@ -4508,8 +4512,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.ShuttleRoutedTarget = null;
         ResetTargetProgress(rescue);
-        var hasPendingEvacuationTarget = HasPendingEvacuationTarget(uid, rescue, target);
-        if (!hasPendingEvacuationTarget)
+        var hasPendingRescueTarget = HasPendingRescueTarget(uid, rescue, target);
+        if (!hasPendingRescueTarget)
             rescue.LastAutoEvacuationStatus = $"completed evacuation of {FormatEntityRef(target)}; return route requested";
 
         if (!TryComp<MobStateComponent>(target, out var onboardMobState) ||
@@ -4521,7 +4525,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 onboardMobState?.CurrentState == MobState.Critical
                     ? "critical; treatment continuing"
                     : "observation; awaiting stable release");
-            ReportLivingPatientOnboardStatus(uid, rescue, target, onboardMobState, hasPendingEvacuationTarget);
+            ReportLivingPatientOnboardStatus(uid, rescue, target, onboardMobState, hasPendingRescueTarget);
         }
 
         RecordRescueHandoff(
@@ -4529,17 +4533,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue,
             target,
             BuildPatientTreatmentResult(target, rescue),
-            hasPendingEvacuationTarget
-                ? "secured onboard; pending evacuation target detected"
+            hasPendingRescueTarget
+                ? "secured onboard; pending rescue target detected"
                 : "secured onboard; return route requested",
-            hasPendingEvacuationTarget ? "redeploying to next patient" : "returning to shuttle base");
+            hasPendingRescueTarget ? "redeploying to next patient" : "returning to shuttle base");
 
-        if (!hasPendingEvacuationTarget)
+        if (!hasPendingRescueTarget)
             TryRouteShuttleHome(uid, rescue);
         else
         {
             rescue.ShuttleReturnRouted = false;
-            rescue.LastAutoEvacuationStatus = $"holding shuttle forward after evacuation of {FormatEntityRef(target)}; pending evacuation target detected";
+            rescue.LastAutoEvacuationStatus = $"holding shuttle forward after evacuation of {FormatEntityRef(target)}; pending rescue target detected";
         }
 
         rescue.EvacuatingTarget = null;
@@ -4548,7 +4552,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         ClearArrivalReportTarget(rescue, target);
         ClearTriageDecisionTarget(rescue, target);
         ClearDeathSignalTarget(rescue, target);
-        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget);
+        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget);
         Dirty(uid, rescue);
     }
 
@@ -4557,7 +4561,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         LuaMRescueAgentComponent rescue,
         EntityUid target,
         MobStateComponent? mobState,
-        bool hasPendingEvacuationTarget)
+        bool hasPendingRescueTarget)
     {
         if (mobState?.CurrentState == MobState.Critical)
         {
@@ -4569,7 +4573,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
-        var followUp = hasPendingEvacuationTarget
+        var followUp = hasPendingRescueTarget
             ? "\u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0430\u044e \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0439 \u0432\u044b\u0437\u043e\u0432."
             : "\u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u043c\u0441\u044f.";
         TrySendRescueStatusComms(
@@ -4865,18 +4869,18 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         ClearDeathSignalTarget(rescue, patient);
         ResetTargetProgress(rescue);
 
-        var hasPendingEvacuationTarget = HasPendingEvacuationTarget(uid, rescue, patient);
-        if (!hasPendingEvacuationTarget)
+        var hasPendingRescueTarget = HasPendingRescueTarget(uid, rescue, patient);
+        if (!hasPendingRescueTarget)
         {
             rescue.LastAutoEvacuationStatus = $"released stabilized {FormatEntityRef(patient)}; ready for next rescue";
         }
         else
         {
             rescue.ShuttleReturnRouted = false;
-            rescue.LastAutoEvacuationStatus = $"holding shuttle forward after release of {FormatEntityRef(patient)}; pending evacuation target detected";
+            rescue.LastAutoEvacuationStatus = $"holding shuttle forward after release of {FormatEntityRef(patient)}; pending rescue target detected";
         }
 
-        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget);
+        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget);
     }
 
     private void RecordRescueHandoff(
@@ -5292,6 +5296,15 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private bool HasPendingEvacuationTarget(EntityUid uid, LuaMRescueAgentComponent rescue, EntityUid completedTarget)
     {
         return TryFindEvacuationTarget(uid, rescue.SearchRange, rescue, out _, completedTarget);
+    }
+
+    private bool HasPendingRescueTarget(EntityUid uid, LuaMRescueAgentComponent rescue, EntityUid completedTarget)
+    {
+        if (HasPendingEvacuationTarget(uid, rescue, completedTarget))
+            return true;
+
+        return TryComp<MedibotComponent>(uid, out var medibot) &&
+               TryFindRescueTarget(uid, rescue.SearchRange, rescue, medibot, out _, completedTarget);
     }
 
     private bool TryFindPatientDeliveryStrap(
