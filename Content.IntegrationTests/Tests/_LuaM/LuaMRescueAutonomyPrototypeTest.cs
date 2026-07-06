@@ -214,6 +214,20 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAgentAutoAcquireIgnoresMinorScratchTargets()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("AutoAcquireMinDamage = 5f"));
+        Assert.That(source, Does.Contain("TryFindRescueTarget"));
+        Assert.That(source, Does.Contain("if (!HasAutoAcquireAcuity(candidate, rescue))"));
+        Assert.That(source, Does.Contain("HasAutoAcquireAcuity"));
+        Assert.That(source, Does.Contain("mobState.CurrentState == MobState.Critical"));
+        Assert.That(source, Does.Contain("damage.TotalDamage.Float() >= rescue.AutoAcquireMinDamage"));
+    }
+
+    [Test]
     public void RescueAgentAutoDefibsDeadPatientsWithStandardDefibrillatorSystem()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);

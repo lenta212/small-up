@@ -58,6 +58,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoAcquireTargets = true;
 
     [DataField]
+    public float AutoAcquireMinDamage = 5f;
+
+    [DataField]
     public bool EvacuateTargetsToShuttle = true;
 
     [DataField]

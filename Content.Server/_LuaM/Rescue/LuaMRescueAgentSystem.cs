@@ -2658,6 +2658,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (!IsRescueCandidate(uid, candidate, medibot, requireRange: true, searchRange, out var score))
                 continue;
 
+            if (!HasAutoAcquireAcuity(candidate, rescue))
+                continue;
+
             if (score <= bestScore)
                 continue;
 
@@ -3756,6 +3759,18 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             score += 1000f;
 
         return true;
+    }
+
+    private bool HasAutoAcquireAcuity(EntityUid target, LuaMRescueAgentComponent rescue)
+    {
+        if (!TryComp<MobStateComponent>(target, out var mobState))
+            return false;
+
+        if (mobState.CurrentState == MobState.Critical)
+            return true;
+
+        return TryComp<DamageableComponent>(target, out var damage) &&
+               damage.TotalDamage.Float() >= rescue.AutoAcquireMinDamage;
     }
 
     private bool NeedsEvacuation(EntityUid uid, EntityUid target, LuaMRescueAgentComponent rescue)
