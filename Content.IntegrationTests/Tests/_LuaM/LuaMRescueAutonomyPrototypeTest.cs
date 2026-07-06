@@ -539,10 +539,24 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     public void RescueEscortsActivelyScreenHostileThreatTargets()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
 
         Assert.That(source, Does.Contain("TryRunThreatScreenAction"));
         Assert.That(source, Does.Contain("EscortThreatScreenRange = 7f"));
         Assert.That(source, Does.Contain("duty != LuaMRescueEscortDuty.ThreatScreen"));
+        Assert.That(component, Does.Contain("LastWeaponReadinessStatus"));
+        Assert.That(source, Does.Contain("EscortCombatStorageSlotPriority"));
+        Assert.That(source, Does.Contain("TryEnsureEscortWeaponReady"));
+        Assert.That(source, Does.Contain("IsEscortCombatReadinessDuty"));
+        Assert.That(source, Does.Contain("TrySelectHeldEscortWeapon"));
+        Assert.That(source, Does.Contain("TryTakeStoredEscortWeapon"));
+        Assert.That(source, Does.Contain("TryMakeRoomForEscortWeapon"));
+        Assert.That(source, Does.Contain("TrySelectStoredEscortWeapon"));
+        Assert.That(source, Does.Contain("HasComp<GunComponent>(item)"));
+        Assert.That(source, Does.Contain("weapon={escort.LastWeaponReadinessStatus}"));
+        Assert.That(source, Does.Contain("weapon-ready held"));
+        Assert.That(source, Does.Contain("no empty hand for stored weapon"));
+        Assert.That(source, Does.Contain("stowed {FormatEntityRef(held)}"));
         Assert.That(source, Does.Contain("NPCBlackboard.CurrentOrderedTarget"));
         Assert.That(source, Does.Contain("_combatMode.SetInCombatMode(uid, true, combat)"));
         Assert.That(source, Does.Contain("IsHostileToObserver(uid, threatUid)"));

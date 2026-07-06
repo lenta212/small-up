@@ -191,6 +191,9 @@ public sealed partial class LuaMRescueEscortComponent : Component
     public string LastDutyActionStatus = "none";
 
     [DataField]
+    public string LastWeaponReadinessStatus = "none";
+
+    [DataField]
     public string LastCrewHelpStatus = "none";
 
     [DataField]

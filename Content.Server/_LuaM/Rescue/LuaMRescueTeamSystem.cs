@@ -7,12 +7,15 @@ using Content.Shared._CorvaxNext.Silicons.Borgs.Components;
 using Content.Shared._Crescent.DroneControl;
 using Content.Shared._EinsteinEngines.Silicon.Components;
 using Content.Server.Chat.Systems;
+using Content.Server.Hands.Systems;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Systems;
 using Content.Shared.Buckle.Components;
 using Content.Shared.Chat;
 using Content.Shared.CombatMode;
+using Content.Shared.Hands.Components;
+using Content.Shared.Inventory;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Movement.Pulling.Components;
@@ -20,7 +23,10 @@ using Content.Shared.Movement.Pulling.Systems;
 using Content.Shared.NPC.Components;
 using Content.Shared.NPC.Systems;
 using Content.Shared.Silicons.Borgs.Components;
+using Content.Shared.Storage;
+using Content.Shared.Storage.EntitySystems;
 using Content.Shared.Tag;
+using Content.Shared.Weapons.Ranged.Components;
 using Robust.Server.GameObjects;
 using Robust.Shared.Map;
 using Robust.Shared.Physics;
@@ -63,13 +69,24 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         (LuaMRescueEscortRole.Zaslon, new Vector2(0f, -1.25f)),
     ];
 
+    private static readonly string[] EscortCombatStorageSlotPriority =
+    [
+        "back",
+        "belt",
+        "suitstorage",
+        "outerClothing",
+    ];
+
     [Dependency] private readonly NPCSystem _npc = default!;
     [Dependency] private readonly ChatSystem _chat = default!;
     [Dependency] private readonly MetaDataSystem _metaData = default!;
     [Dependency] private readonly EntityLookupSystem _lookup = default!;
     [Dependency] private readonly NpcFactionSystem _factions = default!;
+    [Dependency] private readonly HandsSystem _hands = default!;
+    [Dependency] private readonly InventorySystem _inventory = default!;
     [Dependency] private readonly PullingSystem _pulling = default!;
     [Dependency] private readonly SharedCombatModeSystem _combatMode = default!;
+    [Dependency] private readonly SharedStorageSystem _storage = default!;
     [Dependency] private readonly LuaMSectorStorySystem _sectorStory = default!;
     [Dependency] private readonly TagSystem _tag = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
@@ -204,7 +221,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"leader={FormatEntityRef(escort.Leader)}; patient={FormatEntityRef(escort.Patient)}; " +
                 $"threat={FormatEntityRef(escort.ThreatTarget)}; crowdTarget={FormatEntityRef(escort.CrowdTarget)}; " +
                 $"blockerTarget={FormatEntityRef(escort.RouteBlockerTarget)}; " +
-                $"scene={escort.LastSceneStatus}; action={escort.LastDutyActionStatus}; " +
+                $"scene={escort.LastSceneStatus}; weapon={escort.LastWeaponReadinessStatus}; action={escort.LastDutyActionStatus}; " +
                 $"crewHelp={escort.LastCrewHelpStatus}; memory={escort.LastMemoryDigest}; last={escort.LastDutyStatus}");
         }
 
@@ -316,6 +333,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         escort.SortiePlan = LuaMRescueSortiePlan.Standby;
         escort.LastDutyStatus = "deployed";
         escort.LastDutyActionStatus = "deployed";
+        escort.LastWeaponReadinessStatus = "deployed";
         escort.LastCrewHelpStatus = "none";
         escort.LastCrewHelpKey = "none";
         escort.DutyActions = 0;
@@ -507,7 +525,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var dutyAge = GetEscortDutyAgeSeconds(escort);
         var status = $"{FormatRole(escort.Role)} plan={FormatPlan(escort.SortiePlan)} duty={FormatDuty(escort.CurrentDuty)} " +
             $"age={dutyAge}s transitions={escort.DutyTransitions} focus={FormatEntityRef(followTarget)} " +
-            $"action={escort.LastDutyActionStatus} crewHelp={escort.LastCrewHelpStatus} actions={escort.DutyActions}";
+            $"weapon={escort.LastWeaponReadinessStatus} action={escort.LastDutyActionStatus} " +
+            $"crewHelp={escort.LastCrewHelpStatus} actions={escort.DutyActions}";
 
         if (candidateDuty != escort.CurrentDuty)
         {
@@ -772,6 +791,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (duty != LuaMRescueEscortDuty.ThreatScreen)
             htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
 
+        if (IsEscortCombatReadinessDuty(duty))
+            TryEnsureEscortWeaponReady(uid, escort, duty);
+        else
+            escort.LastWeaponReadinessStatus = $"weapon-ready not required for {FormatDuty(duty)}";
+
         if (duty == LuaMRescueEscortDuty.ThreatScreen)
         {
             TryRunThreatScreenAction(uid, escort, htn, followTarget);
@@ -803,6 +827,263 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         escort.LastDutyActionStatus = $"watch {FormatDuty(duty)}";
+    }
+
+    private bool TryEnsureEscortWeaponReady(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty duty)
+    {
+        if (!TryComp<HandsComponent>(uid, out var hands))
+        {
+            escort.LastWeaponReadinessStatus = $"weapon-ready failed for {FormatDuty(duty)}: no hands";
+            return false;
+        }
+
+        if (TrySelectHeldEscortWeapon(uid, hands, out var heldWeapon))
+        {
+            escort.LastWeaponReadinessStatus = $"weapon-ready held {FormatEntityRef(heldWeapon)} for {FormatDuty(duty)}";
+            return true;
+        }
+
+        if (TryTakeStoredEscortWeapon(uid, hands, out var storedWeapon, out var takeStatus))
+        {
+            escort.LastWeaponReadinessStatus = $"weapon-ready stored {FormatEntityRef(storedWeapon)} for {FormatDuty(duty)}; {takeStatus}";
+            return true;
+        }
+
+        if (!takeStatus.StartsWith("no empty hand for stored weapon", StringComparison.Ordinal))
+        {
+            escort.LastWeaponReadinessStatus = $"weapon-ready failed for {FormatDuty(duty)}: {takeStatus}";
+            return false;
+        }
+
+        if (!TryMakeRoomForEscortWeapon(uid, hands, out var stowStatus))
+        {
+            escort.LastWeaponReadinessStatus = $"weapon-ready failed for {FormatDuty(duty)}: {takeStatus}; {stowStatus}";
+            return false;
+        }
+
+        if (TryTakeStoredEscortWeapon(uid, hands, out storedWeapon, out takeStatus))
+        {
+            escort.LastWeaponReadinessStatus = $"weapon-ready stored {FormatEntityRef(storedWeapon)} for {FormatDuty(duty)}; {stowStatus}; {takeStatus}";
+            return true;
+        }
+
+        escort.LastWeaponReadinessStatus = $"weapon-ready failed for {FormatDuty(duty)}: {stowStatus}; {takeStatus}";
+        return false;
+    }
+
+    private bool TrySelectHeldEscortWeapon(EntityUid uid, HandsComponent hands, out EntityUid weapon)
+    {
+        weapon = default;
+
+        if (hands.ActiveHandEntity is { Valid: true } activeHeld &&
+            IsEscortCombatWeapon(activeHeld))
+        {
+            weapon = activeHeld;
+            return true;
+        }
+
+        foreach (var hand in hands.Hands.Values)
+        {
+            if (hand.HeldEntity is not { Valid: true } held ||
+                !IsEscortCombatWeapon(held))
+            {
+                continue;
+            }
+
+            if (!_hands.TrySelect(uid, held, hands))
+                continue;
+
+            weapon = held;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryTakeStoredEscortWeapon(
+        EntityUid uid,
+        HandsComponent hands,
+        out EntityUid weapon,
+        out string status)
+    {
+        weapon = default;
+        status = "no combat storage slot found";
+        EntityUid weaponStorageUid = default;
+        StorageComponent weaponStorage = default!;
+
+        foreach (var slot in EscortCombatStorageSlotPriority)
+        {
+            if (!TryResolveEscortStorageSlot(uid, slot, out var storageUid, out var storage, out status))
+                continue;
+
+            if (!TrySelectStoredEscortWeapon(storage, out weapon))
+            {
+                status = $"{FormatEntityRef(storageUid)} in slot {slot} has no combat weapon";
+                continue;
+            }
+
+            weaponStorageUid = storageUid;
+            weaponStorage = storage;
+            break;
+        }
+
+        if (weapon is not { Valid: true })
+            return false;
+
+        if (!_hands.TryGetEmptyHand(uid, out var emptyHand, hands))
+        {
+            status = "no empty hand for stored weapon";
+            return false;
+        }
+
+        if (!weaponStorage.Container.Contains(weapon))
+        {
+            status = $"{FormatEntityRef(weapon)} is no longer in {FormatEntityRef(weaponStorageUid)}";
+            return false;
+        }
+
+        if (!_hands.TryPickup(uid, weapon, emptyHand, handsComp: hands))
+        {
+            status = $"could not take weapon {FormatEntityRef(weapon)} from {FormatEntityRef(weaponStorageUid)}";
+            return false;
+        }
+
+        _hands.TrySelect(uid, weapon, hands);
+        status = $"took weapon {FormatEntityRef(weapon)} from {FormatEntityRef(weaponStorageUid)}";
+        return true;
+    }
+
+    private bool TryMakeRoomForEscortWeapon(EntityUid uid, HandsComponent hands, out string status)
+    {
+        if (_hands.TryGetEmptyHand(uid, out _, hands))
+        {
+            status = "empty hand already available";
+            return true;
+        }
+
+        status = "no stowable hand item for stored weapon";
+        foreach (var hand in EnumerateEscortHandsForStow(hands))
+        {
+            if (hand.HeldEntity is not { Valid: true } held ||
+                IsEscortCombatWeapon(held))
+            {
+                continue;
+            }
+
+            foreach (var slot in EscortCombatStorageSlotPriority)
+            {
+                if (!TryResolveEscortStorageSlot(uid, slot, out var storageUid, out var storage, out _))
+                    continue;
+
+                if (!_storage.CanInsert(storageUid, held, out var reason, storage))
+                {
+                    status = reason == null
+                        ? $"could not stow {FormatEntityRef(held)} in {FormatEntityRef(storageUid)}"
+                        : $"could not stow {FormatEntityRef(held)} in {FormatEntityRef(storageUid)}: {reason}";
+                    continue;
+                }
+
+                if (!_hands.TryDrop(uid, hand, handsComp: hands))
+                {
+                    status = $"could not free hand by dropping {FormatEntityRef(held)}";
+                    continue;
+                }
+
+                if (_storage.Insert(storageUid, held, out _, out _, user: uid, storageComp: storage))
+                {
+                    status = $"stowed {FormatEntityRef(held)} in {FormatEntityRef(storageUid)} from hand";
+                    return true;
+                }
+
+                _hands.TryPickup(uid, held, hand, handsComp: hands);
+                status = $"could not stow {FormatEntityRef(held)} in {FormatEntityRef(storageUid)}";
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryResolveEscortStorageSlot(
+        EntityUid uid,
+        string slot,
+        out EntityUid storageUid,
+        out StorageComponent storage,
+        out string status)
+    {
+        storageUid = default;
+        storage = default!;
+        status = string.Empty;
+
+        if (!TryComp<InventoryComponent>(uid, out var inventory))
+        {
+            status = "escort has no inventory";
+            return false;
+        }
+
+        if (!_inventory.TryGetSlotEntity(uid, slot, out var slotEntity, inventory) ||
+            slotEntity is not { Valid: true } slotItem)
+        {
+            status = $"slot {slot} is empty or unavailable";
+            return false;
+        }
+
+        if (!TryComp<StorageComponent>(slotItem, out var storageComp))
+        {
+            status = $"{FormatEntityRef(slotItem)} in slot {slot} is not storage";
+            return false;
+        }
+
+        storageUid = slotItem;
+        storage = storageComp;
+        return true;
+    }
+
+    private bool TrySelectStoredEscortWeapon(StorageComponent storage, out EntityUid weapon)
+    {
+        weapon = default;
+
+        var contained = storage.Container.ContainedEntities;
+        for (var i = contained.Count - 1; i >= 0; i--)
+        {
+            var candidate = contained[i];
+            if (!IsEscortCombatWeapon(candidate))
+                continue;
+
+            weapon = candidate;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsEscortCombatWeapon(EntityUid item)
+    {
+        return !Deleted(item) && HasComp<GunComponent>(item);
+    }
+
+    private static bool IsEscortCombatReadinessDuty(LuaMRescueEscortDuty duty)
+    {
+        return duty is LuaMRescueEscortDuty.ThreatScreen
+            or LuaMRescueEscortDuty.SecureScene
+            or LuaMRescueEscortDuty.EvacuationCorridor
+            or LuaMRescueEscortDuty.CrowdControl;
+    }
+
+    private static IEnumerable<Hand> EnumerateEscortHandsForStow(HandsComponent hands)
+    {
+        if (hands.ActiveHand != null)
+            yield return hands.ActiveHand;
+
+        foreach (var hand in hands.Hands.Values)
+        {
+            if (hand == hands.ActiveHand)
+                continue;
+
+            yield return hand;
+        }
     }
 
     private void TryRunReturnToShuttleAction(
