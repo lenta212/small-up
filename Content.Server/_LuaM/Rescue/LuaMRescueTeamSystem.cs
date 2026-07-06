@@ -49,6 +49,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double SortiePlanHoldSeconds = 4;
     private const double TeamPhaseAnnouncementCooldownSeconds = 10;
     private const double TeamSharedSpeechCooldownSeconds = 6;
+    private const int TeamRecentLineMemoryLimit = 8;
+    private const double TeamRecentLineMemorySeconds = 90;
     private const double ThreatNeutralizedReportCooldownSeconds = 6;
     private const double TriageCoverConfirmCooldownSeconds = 8;
     private const double CrewHelpRequestCooldownSeconds = 12;
@@ -205,6 +207,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         while (teamQuery.MoveNext(out var uid, out var team))
         {
             PruneTeamEscorts(team);
+            PruneTeamSpeechMemory(team, _timing.CurTime);
             lines.Add(
                 $"team={team.TeamId}; leader={FormatEntityRef(uid)}; phase={FormatPhase(team.Phase)}; " +
                 $"plan={FormatPlan(team.SortiePlan)}; planAge={GetSortiePlanAgeSeconds(team)}s; planTransitions={team.SortiePlanTransitions}; " +
@@ -217,7 +220,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"crewHelpAck={team.LastCrewHelpAcknowledgementStatus}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
                 $"threatClear={team.LastThreatNeutralizedStatus}; " +
-                $"phaseBark={team.LastPhaseAnnouncementStatus}; speech={team.LastSharedSpeechStatus}; last={team.LastStatus}");
+                $"phaseBark={team.LastPhaseAnnouncementStatus}; speech={team.LastSharedSpeechStatus}; " +
+                $"lastLine={team.LastTeamLineKey}; recentLines={team.RecentTeamLines.Count}; last={team.LastStatus}");
         }
 
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
@@ -245,6 +249,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var teamQuery = EntityQueryEnumerator<LuaMRescueTeamComponent>();
         while (teamQuery.MoveNext(out _, out var team))
         {
+            PruneTeamSpeechMemory(team, _timing.CurTime);
             var escortCount = team.Escorts.Count(escort => escort.Valid && !Deleted(escort));
             lines.Add(
                 $"ADMIN_ONLY: rescue sortie digest: team={team.TeamId}; autonomy=escort-group; " +
@@ -257,6 +262,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
                 $"threatClear={team.LastThreatNeutralizedStatus}; " +
                 $"phaseBark={team.LastPhaseAnnouncementStatus}; speech={team.LastSharedSpeechStatus}; " +
+                $"lastLine={team.LastTeamLineKey}; recentLines={team.RecentTeamLines.Count}; " +
                 "identities=withheld; coordinates=withheld.");
         }
 
@@ -331,19 +337,21 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         var now = _timing.CurTime;
+        var line = "\u042d\u043a\u0438\u043f\u0430\u0436, \u043f\u043e\u043c\u043e\u0449\u044c \u0437\u0430\u0441\u0447\u0438\u0442\u0430\u043d\u0430. \u041a\u043e\u0440\u0438\u0434\u043e\u0440 \u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b.";
         if (!TryReserveTeamSpeech(
                 leader,
                 team,
                 $"crew-help-ack:{team.HandoffRecords}",
                 now,
-                out var speechStatusChanged))
+                out var speechStatusChanged,
+                line))
         {
             return speechStatusChanged;
         }
 
         _chat.TrySendInGameICMessage(
             leader,
-            "\u042d\u043a\u0438\u043f\u0430\u0436, \u043f\u043e\u043c\u043e\u0449\u044c \u0437\u0430\u0441\u0447\u0438\u0442\u0430\u043d\u0430. \u041a\u043e\u0440\u0438\u0434\u043e\u0440 \u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b.",
+            line,
             InGameICChatType.Speak,
             hideChat: false,
             hideLog: true);
@@ -784,7 +792,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 team,
                 $"phase:{FormatPhase(phase)}",
                 now,
-                out var speechStatusChanged))
+                out var speechStatusChanged,
+                line))
         {
             return SetTeamPhaseAnnouncementStatus(
                        team,
@@ -807,8 +816,20 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         LuaMRescueTeamComponent team,
         string key,
         TimeSpan now,
-        out bool statusChanged)
+        out bool statusChanged,
+        string? line = null)
     {
+        PruneTeamSpeechMemory(team, now);
+        var normalizedLine = NormalizeTeamLine(line);
+        if (!string.IsNullOrWhiteSpace(normalizedLine) &&
+            IsRecentTeamLine(team, normalizedLine))
+        {
+            statusChanged = SetTeamSharedSpeechStatus(
+                team,
+                $"shared-speech repeated line suppressed: {key}; speaker={FormatEntityRef(speaker)}; recent={team.RecentTeamLines.Count}");
+            return false;
+        }
+
         if (now < team.NextSharedSpeechAt)
         {
             var wait = Math.Max(0, (int) Math.Ceiling((team.NextSharedSpeechAt - now).TotalSeconds));
@@ -819,10 +840,64 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         team.NextSharedSpeechAt = now + TimeSpan.FromSeconds(TeamSharedSpeechCooldownSeconds);
+        if (!string.IsNullOrWhiteSpace(normalizedLine))
+            RecordTeamSpeechLine(team, key, normalizedLine, now);
         statusChanged = SetTeamSharedSpeechStatus(
             team,
-            $"shared-speech:{key}; speaker={FormatEntityRef(speaker)}; cooldown={TeamSharedSpeechCooldownSeconds:0}s");
+            $"shared-speech:{key}; speaker={FormatEntityRef(speaker)}; cooldown={TeamSharedSpeechCooldownSeconds:0}s; recentLines={team.RecentTeamLines.Count}");
         return true;
+    }
+
+    private static void PruneTeamSpeechMemory(LuaMRescueTeamComponent team, TimeSpan now)
+    {
+        if (team.RecentTeamLines.Count == 0)
+            return;
+
+        team.RecentTeamLines.RemoveAll(entry =>
+            string.IsNullOrWhiteSpace(entry.Line) ||
+            entry.ExpiresAt <= now);
+    }
+
+    private static bool IsRecentTeamLine(LuaMRescueTeamComponent team, string normalizedLine)
+    {
+        return team.RecentTeamLines.Any(entry =>
+            string.Equals(entry.Line, normalizedLine, StringComparison.Ordinal));
+    }
+
+    private static void RecordTeamSpeechLine(
+        LuaMRescueTeamComponent team,
+        string key,
+        string normalizedLine,
+        TimeSpan now)
+    {
+        team.LastTeamLine = normalizedLine;
+        team.LastTeamLineKey = key;
+        team.LastTeamLineAt = now;
+
+        team.RecentTeamLines.RemoveAll(entry =>
+            string.Equals(entry.Line, normalizedLine, StringComparison.Ordinal));
+        team.RecentTeamLines.Add(new LuaMRescueTeamSpeechMemoryEntry
+        {
+            Key = key,
+            Line = normalizedLine,
+            SpokenAt = now,
+            ExpiresAt = now + TimeSpan.FromSeconds(TeamRecentLineMemorySeconds),
+        });
+
+        if (team.RecentTeamLines.Count > TeamRecentLineMemoryLimit)
+        {
+            team.RecentTeamLines.RemoveRange(
+                0,
+                team.RecentTeamLines.Count - TeamRecentLineMemoryLimit);
+        }
+    }
+
+    private static string NormalizeTeamLine(string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line))
+            return string.Empty;
+
+        return line.ReplaceLineEndings(" ").Trim();
     }
 
     private static bool SetTeamSharedSpeechStatus(LuaMRescueTeamComponent team, string status)
@@ -1590,6 +1665,16 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.NextCrewHelpRequestAt > now)
         {
             return false;
+        }
+
+        if (TryGetEscortLeaderTeam(escort, out var leader, out var team))
+        {
+            var reserved = TryReserveTeamSpeech(uid, team, $"crew-help:{key}", now, out var speechStatusChanged, line);
+            if (speechStatusChanged)
+                Dirty(leader, team);
+
+            if (!reserved)
+                return false;
         }
 
         escort.LastCrewHelpKey = key;
@@ -3159,7 +3244,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         {
             var now = _timing.CurTime;
             var key = $"duty:{FormatRole(escort.Role)}:{FormatDuty(duty)}";
-            var reserved = TryReserveTeamSpeech(uid, team, key, now, out var speechStatusChanged);
+            var reserved = TryReserveTeamSpeech(uid, team, key, now, out var speechStatusChanged, line);
             if (speechStatusChanged)
                 Dirty(leader, team);
 

@@ -64,6 +64,18 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public TimeSpan NextSharedSpeechAt;
 
     [DataField]
+    public string LastTeamLine = "none";
+
+    [DataField]
+    public string LastTeamLineKey = "none";
+
+    [DataField]
+    public TimeSpan LastTeamLineAt;
+
+    [DataField]
+    public List<LuaMRescueTeamSpeechMemoryEntry> RecentTeamLines = new();
+
+    [DataField]
     public string LastReturnOrExtractReasonStatus = "none";
 
     [DataField]
@@ -337,6 +349,22 @@ public sealed class LuaMRescueSceneMemoryEntry
     public TimeSpan LastSeen;
     public TimeSpan ExpiresAt;
     public string Status = string.Empty;
+}
+
+[DataDefinition]
+public sealed partial class LuaMRescueTeamSpeechMemoryEntry
+{
+    [DataField]
+    public string Key = string.Empty;
+
+    [DataField]
+    public string Line = string.Empty;
+
+    [DataField]
+    public TimeSpan SpokenAt;
+
+    [DataField]
+    public TimeSpan ExpiresAt;
 }
 
 public enum LuaMRescueScenePressure : byte

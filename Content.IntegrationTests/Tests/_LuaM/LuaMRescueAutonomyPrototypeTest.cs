@@ -493,10 +493,18 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("NextPhaseAnnouncementAt"));
         Assert.That(component, Does.Contain("LastSharedSpeechStatus"));
         Assert.That(component, Does.Contain("NextSharedSpeechAt"));
+        Assert.That(component, Does.Contain("LastTeamLine"));
+        Assert.That(component, Does.Contain("LastTeamLineKey"));
+        Assert.That(component, Does.Contain("RecentTeamLines"));
+        Assert.That(component, Does.Contain("LuaMRescueTeamSpeechMemoryEntry"));
         Assert.That(source, Does.Contain("TeamPhaseAnnouncementCooldownSeconds"));
         Assert.That(source, Does.Contain("TeamSharedSpeechCooldownSeconds = 6"));
+        Assert.That(source, Does.Contain("TeamRecentLineMemorySeconds"));
         Assert.That(source, Does.Contain("TrySayTeamPhaseLine"));
         Assert.That(source, Does.Contain("TryReserveTeamSpeech"));
+        Assert.That(source, Does.Contain("PruneTeamSpeechMemory"));
+        Assert.That(source, Does.Contain("RecordTeamSpeechLine"));
+        Assert.That(source, Does.Contain("shared-speech repeated line suppressed"));
         Assert.That(source, Does.Contain("SetTeamSharedSpeechStatus"));
         Assert.That(source, Does.Contain("shared-speech waiting: {key}"));
         Assert.That(source, Does.Contain("shared-speech:{key}"));
@@ -508,6 +516,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("somber={somberScene}"));
         Assert.That(source, Does.Contain("phaseBark={team.LastPhaseAnnouncementStatus}"));
         Assert.That(source, Does.Contain("speech={team.LastSharedSpeechStatus}"));
+        Assert.That(source, Does.Contain("lastLine={team.LastTeamLineKey}"));
+        Assert.That(source, Does.Contain("recentLines={team.RecentTeamLines.Count}"));
         Assert.That(source, Does.Contain("LuaMRescueTeamPhase.SecureScene"));
         Assert.That(source, Does.Contain("LuaMRescueTeamPhase.Triage"));
         Assert.That(source, Does.Contain("LuaMRescueTeamPhase.EvacuateToShuttle"));
@@ -553,12 +563,15 @@ public sealed class LuaMRescueAutonomyPrototypeTest
 
         Assert.That(source, Does.Contain("TryGetEscortLeaderTeam"));
         Assert.That(source, Does.Contain("var key = $\"duty:{FormatRole(escort.Role)}:{FormatDuty(duty)}\""));
-        Assert.That(source, Does.Contain("TryReserveTeamSpeech(uid, team, key, now, out var speechStatusChanged)"));
+        Assert.That(source, Does.Contain("TryReserveTeamSpeech(uid, team, key, now, out var speechStatusChanged, line)"));
         Assert.That(source, Does.Contain("Dirty(leader, team)"));
         Assert.That(source, Does.Contain("if (!reserved)"));
         Assert.That(source, Does.Contain("return;"));
         Assert.That(source, Does.Contain("shared-speech:{key}"));
         Assert.That(source, Does.Contain("cooldown={TeamSharedSpeechCooldownSeconds:0}s"));
+        Assert.That(source, Does.Contain("NormalizeTeamLine"));
+        Assert.That(source, Does.Contain("IsRecentTeamLine"));
+        Assert.That(source, Does.Contain("TeamRecentLineMemoryLimit"));
     }
 
     [Test]
