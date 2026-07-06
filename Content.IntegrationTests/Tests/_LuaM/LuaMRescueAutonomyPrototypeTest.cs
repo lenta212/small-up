@@ -228,6 +228,24 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAgentReportsMovedAndLostPatientTargets()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("LastTargetTrackingStatus"));
+        Assert.That(source, Does.Contain("UpdateTargetTrackingStatus(uid, rescue, htn);"));
+        Assert.That(source, Does.Contain("targetTrack={rescue.LastTargetTrackingStatus}"));
+        Assert.That(source, Does.Contain("target_lost:"));
+        Assert.That(source, Does.Contain("target_moved:"));
+        Assert.That(source, Does.Contain("distance > rescue.SearchRange"));
+        Assert.That(source, Does.Contain("ClearFollowTarget(uid, rescue, htn)"));
+        Assert.That(source, Does.Contain("ClearArrivalReportTarget(rescue, target)"));
+        Assert.That(source, Does.Contain("ClearTriageDecisionTarget(rescue, target)"));
+        Assert.That(source, Does.Contain("ClearDeathSignalTarget(rescue, target)"));
+    }
+
+    [Test]
     public void RescueAgentAutoDefibsDeadPatientsWithStandardDefibrillatorSystem()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);

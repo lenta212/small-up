@@ -237,6 +237,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     [DataField]
     public string LastTaskStatus = "none";
 
+    [DataField]
+    public string LastTargetTrackingStatus = "none";
+
     public EntityUid? ProgressTarget;
 
     public EntityUid? ProgressGoal;

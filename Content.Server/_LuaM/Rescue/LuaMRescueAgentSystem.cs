@@ -373,6 +373,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
                $"taskStage={FormatRescueTaskStage(rescue.TaskStage)}; " +
                $"taskPatient={FormatEntityRef(rescue.TaskPatientTarget)}; taskSupply={FormatEntityRef(rescue.TaskSupplyTarget)}; " +
+               $"targetTrack={rescue.LastTargetTrackingStatus}; " +
                $"deathSignal={FormatEntityRef(rescue.DeathSignalTarget)}; " +
                $"taskLast={rescue.LastTaskStatus}; " +
                $"skipped={rescue.SkippedTargets.Count}; skippedSupply={rescue.SkippedSupplyTargets.Count}; " +
@@ -2520,6 +2521,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         PruneAnalyzedTargets(rescue);
         PruneRescueTaskMemory(uid, rescue);
         TryReportDeathSignalDispatch(uid, rescue);
+        UpdateTargetTrackingStatus(uid, rescue, htn);
 
         if (UpdateEvacuation(uid, rescue, htn))
             return;
@@ -2756,6 +2758,54 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         target = default;
         return false;
+    }
+
+    private void UpdateTargetTrackingStatus(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    {
+        if (!TryGetActivePatientTarget(rescue, out var target))
+        {
+            SetTargetTrackingStatus(uid, rescue, "target_tracking: none");
+            return;
+        }
+
+        if (Deleted(target))
+        {
+            if (rescue.EvacuatingTarget == target)
+                rescue.EvacuatingTarget = null;
+
+            if (rescue.AssignedTarget == target)
+                ClearFollowTarget(uid, rescue, htn);
+
+            ClearArrivalReportTarget(rescue, target);
+            ClearTriageDecisionTarget(rescue, target);
+            ClearDeathSignalTarget(rescue, target);
+            ResetTargetProgress(rescue);
+            SetTargetTrackingStatus(uid, rescue, $"target_lost: {FormatEntityRef(target)}");
+            return;
+        }
+
+        if (!TryGetDistance(uid, target, out var distance))
+        {
+            SetTargetTrackingStatus(uid, rescue, $"target_lost: {FormatEntityRef(target)}; no shared route distance");
+            return;
+        }
+
+        if (distance > rescue.SearchRange)
+        {
+            SetTargetTrackingStatus(uid, rescue, $"target_moved: {FormatEntityRef(target)} outside search range");
+            return;
+        }
+
+        SetTargetTrackingStatus(uid, rescue, $"target_tracking: {FormatEntityRef(target)} in range");
+    }
+
+    private void SetTargetTrackingStatus(EntityUid uid, LuaMRescueAgentComponent rescue, string status)
+    {
+        if (string.Equals(rescue.LastTargetTrackingStatus, status, StringComparison.Ordinal))
+            return;
+
+        rescue.LastTargetTrackingStatus = status;
+        Dirty(uid, rescue);
     }
 
     private bool TryGetRescueTargetPriority(
