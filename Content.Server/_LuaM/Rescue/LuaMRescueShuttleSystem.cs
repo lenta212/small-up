@@ -160,6 +160,22 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         escortCount = 0;
         status = string.Empty;
 
+        if (deathSignal)
+        {
+            if (!spawnAgent)
+            {
+                status = "Death signal dispatch requires a rescue agent so Aibolit can report who it is flying to.";
+                return false;
+            }
+
+            if (followTarget is not { Valid: true } reportTarget ||
+                Deleted(reportTarget))
+            {
+                status = "Death signal dispatch requires target=<entity|player> so Aibolit can report who it is flying to.";
+                return false;
+            }
+        }
+
         if (!HasComp<StationDataComponent>(station))
         {
             status = "Target is not a station.";

@@ -812,23 +812,56 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var shuttleTarget = ValidOrNull(escort.ShuttleAnchor) ??
                             ValidOrNull(escort.Shuttle) ??
                             ValidOrNull(followTarget);
+        var releasedPull = TryReleaseReturnPull(uid, shuttleTarget, out var released);
+        if (releasedPull)
+            escort.DutyActions++;
+
         if (shuttleTarget is not { Valid: true } target)
         {
-            escort.LastDutyActionStatus = "return-to-shuttle no shuttle target";
+            escort.LastDutyActionStatus = releasedPull
+                ? $"return-to-shuttle released pull {FormatEntityRef(released)}; no shuttle target"
+                : "return-to-shuttle no shuttle target";
             return;
         }
 
         if (IsWithinRange(uid, target, 2.5f))
         {
-            var status = $"return-to-shuttle ready at {FormatEntityRef(target)}";
-            if (!string.Equals(escort.LastDutyActionStatus, status, StringComparison.Ordinal))
+            var status = releasedPull
+                ? $"return-to-shuttle released pull {FormatEntityRef(released)}; ready at {FormatEntityRef(target)}"
+                : $"return-to-shuttle ready at {FormatEntityRef(target)}";
+            if (!releasedPull &&
+                !string.Equals(escort.LastDutyActionStatus, status, StringComparison.Ordinal))
+            {
                 escort.DutyActions++;
+            }
 
             escort.LastDutyActionStatus = status;
             return;
         }
 
-        escort.LastDutyActionStatus = $"return-to-shuttle moving to {FormatEntityRef(target)}";
+        escort.LastDutyActionStatus = releasedPull
+            ? $"return-to-shuttle released pull {FormatEntityRef(released)}; moving to {FormatEntityRef(target)}"
+            : $"return-to-shuttle moving to {FormatEntityRef(target)}";
+    }
+
+    private bool TryReleaseReturnPull(EntityUid uid, EntityUid? shuttleTarget, out EntityUid released)
+    {
+        released = default;
+
+        if (!TryComp<PullerComponent>(uid, out var puller) ||
+            puller.Pulling is not { Valid: true } pulled ||
+            Deleted(pulled) ||
+            shuttleTarget is { Valid: true } target && pulled == target ||
+            !TryComp<PullableComponent>(pulled, out var pullable))
+        {
+            return false;
+        }
+
+        if (!_pulling.TryStopPull(pulled, pullable, uid))
+            return false;
+
+        released = pulled;
+        return true;
     }
 
     private void TryRunThreatScreenAction(

@@ -64,8 +64,11 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("--death-signal"));
         Assert.That(source, Does.Contain("requires target=<entity|player> so Aibolit can report who it is flying to"));
         Assert.That(source, Does.Contain("bool deathSignal"));
+        Assert.That(source, Does.Contain("Death signal dispatch requires a rescue agent so Aibolit can report who it is flying to."));
+        Assert.That(source, Does.Contain("Death signal dispatch requires target=<entity|player> so Aibolit can report who it is flying to."));
         Assert.That(source, Does.Contain("rescue.DeathSignalTarget = deathSignalTarget"));
         Assert.That(source, Does.Contain("deathSignal &&"));
+        Assert.That(source, Does.Contain("SendDispatchRadio(agent.Value, dispatchTarget);"));
         Assert.That(source, Does.Contain("\u041c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u0441\u043c\u0435\u0440\u0442\u0438 \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 {targetName}."));
         Assert.That(source, Does.Contain("_radio.SendRadioMessage("));
         Assert.That(source, Does.Contain("MedicalRadioChannel"));
@@ -442,6 +445,10 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("plan return-to-shuttle: extraction phase"));
         Assert.That(source, Does.Contain("returning or extracting"));
         Assert.That(source, Does.Contain("TryRunReturnToShuttleAction"));
+        Assert.That(source, Does.Contain("TryReleaseReturnPull"));
+        Assert.That(source, Does.Contain("puller.Pulling is not { Valid: true } pulled"));
+        Assert.That(source, Does.Contain("_pulling.TryStopPull(pulled, pullable, uid)"));
+        Assert.That(source, Does.Contain("return-to-shuttle released pull"));
         Assert.That(source, Does.Contain("return-to-shuttle moving to"));
         Assert.That(source, Does.Contain("return-to-shuttle ready at"));
         Assert.That(source, Does.Contain("return-to-shuttle no shuttle target"));
