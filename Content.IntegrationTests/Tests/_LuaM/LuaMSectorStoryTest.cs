@@ -218,6 +218,8 @@ public sealed class LuaMSectorStoryTest
             state = storySystem.GetAiBaseState();
             Assert.That(state.AutofixLog, Has.Count.EqualTo(1));
             Assert.That(state.AutofixLog[0].CommandId, Is.EqualTo("ai_base_mine"));
+            Assert.That(state.BehaviorMode, Is.Not.Empty);
+            Assert.That(state.BehaviorDirective, Is.Not.Empty);
 
             Assert.That(storySystem.TryRecordRescueAfterAction(
                 "LuaM Rescue",
@@ -244,12 +246,21 @@ public sealed class LuaMSectorStoryTest
             Assert.That(state.LastRescueCooldownStartedAt, Is.LessThan(state.NextRescueDispatchAllowedAt));
             Assert.That(state.LastRescueCooldownStatus, Does.Contain("rescue cooldown"));
             Assert.That(state.LastRescueCooldownStatus, Does.Contain("follow-up pending"));
+            Assert.That(state.BehaviorMode, Is.EqualTo("medical-followup"));
+            Assert.That(state.BehaviorFocusResource, Is.EqualTo("medicine"));
+            Assert.That(state.BehaviorFocusRole, Is.EqualTo("medic"));
+            Assert.That(state.BehaviorDirective, Does.Contain("rescue follow-up"));
+            Assert.That(state.BehaviorReason, Does.Contain("Medbay A"));
+            Assert.That(state.LastBehaviorTrigger, Is.EqualTo("rescue-after-action"));
+            Assert.That(state.BehaviorRevision, Is.GreaterThan(0));
             Assert.That(storySystem.TryGetActiveRescueCooldown(out var remainingCooldown, out var cooldownStatus), Is.True);
             Assert.That(remainingCooldown, Is.GreaterThan(0));
             Assert.That(cooldownStatus, Does.Contain("rescue cooldown"));
 
             var status = storySystem.BuildAiBaseStatusText();
             Assert.That(status, Does.Contain("LuaM autonomous supply base"));
+            Assert.That(status, Does.Contain("Behavior:"));
+            Assert.That(status, Does.Contain("medical-followup"));
             Assert.That(status, Does.Contain("Needs:"));
             Assert.That(status, Does.Contain("Compensation plan:"));
             Assert.That(status, Does.Contain("Medical status:"));
@@ -283,6 +294,8 @@ public sealed class LuaMSectorStoryTest
             Assert.That(exportedJson, Does.Contain("fuel"));
             Assert.That(exportedJson, Does.Contain("TradeLog"));
             Assert.That(exportedJson, Does.Contain("AutofixLog"));
+            Assert.That(exportedJson, Does.Contain("BehaviorMode"));
+            Assert.That(exportedJson, Does.Contain("medical-followup"));
             Assert.That(exportedJson, Does.Contain("LastRescueMedicalStatus"));
             Assert.That(exportedJson, Does.Contain("LastRescueCooldownStatus"));
 
@@ -311,6 +324,10 @@ public sealed class LuaMSectorStoryTest
             Assert.That(restored.LastRescueCooldownSequence, Is.EqualTo(1));
             Assert.That(restored.LastRescueCooldownSeconds, Is.EqualTo(LuaMSectorStorySystem.RescueAfterActionBlockedCooldownSeconds));
             Assert.That(restored.LastRescueCooldownStatus, Does.Contain("rescue cooldown"));
+            Assert.That(restored.BehaviorMode, Is.EqualTo("medical-followup"));
+            Assert.That(restored.BehaviorFocusResource, Is.EqualTo("medicine"));
+            Assert.That(restored.BehaviorFocusRole, Is.EqualTo("medic"));
+            Assert.That(restored.LastBehaviorTrigger, Is.EqualTo("rescue-after-action"));
             Assert.That(restored.TradeLog.Any(entry => entry.Vessel.Contains("Baeg", StringComparison.OrdinalIgnoreCase)), Is.True);
             Assert.That(restored.TradeLog.Any(entry => entry.Vessel.Contains("Hammerhead", StringComparison.OrdinalIgnoreCase)), Is.False);
 
@@ -410,12 +427,21 @@ public sealed class LuaMSectorStoryTest
                 Is.EqualTo(new[] { "repair", "repair", "logistics", "guard" }));
             Assert.That(LuaMAiLogisticsShipSystem.BuildCrewManifest("miner", "Baeg"),
                 Is.EqualTo(new[] { "miner", "miner", "logistics", "repair", "scout" }));
+            Assert.That(LuaMAiLogisticsShipSystem.BuildCrewManifest("builder", "Baeg", "medical-followup", "medicine"),
+                Is.EqualTo(new[] { "repair", "repair", "logistics", "guard", "medic" }));
+            Assert.That(LuaMAiLogisticsShipSystem.BuildCrewManifest("builder", "Baeg", "extraction", "ore"),
+                Is.EqualTo(new[] { "repair", "repair", "logistics", "guard", "miner" }));
+            Assert.That(LuaMAiLogisticsShipSystem.BuildCrewManifest("builder", "Baeg", "crew-support", "food"),
+                Is.EqualTo(new[] { "repair", "repair", "logistics", "guard", "service" }));
             var baegProfile = LuaMAiLogisticsShipSystem.BuildCrewProfile("builder", "Baeg");
             Assert.That(baegProfile.ProfileId, Is.EqualTo("builder:light-shuttle"));
             Assert.That(baegProfile.ManifestSource, Is.EqualTo("profile:builder:light-shuttle"));
             Assert.That(baegProfile.Summary, Does.Contain("repair-first"));
             Assert.That(baegProfile.StationPlan, Has.Count.EqualTo(4));
             Assert.That(baegProfile.StationPlan[0], Does.Contain("engineering/hull access"));
+            var behaviorProfile = LuaMAiLogisticsShipSystem.BuildCrewProfile("builder", "Baeg", "medical-followup", "medicine");
+            Assert.That(behaviorProfile.ProfileId, Is.EqualTo("builder:light-shuttle:medical-followup:medicine"));
+            Assert.That(behaviorProfile.Summary, Does.Contain("behavior doctrine medical-followup focused on medicine"));
             var qjProfile = LuaMAiLogisticsShipSystem.BuildCrewProfile("miner", "QJ490");
             Assert.That(qjProfile.ProfileId, Is.EqualTo("miner:carrier"));
             Assert.That(qjProfile.Manifest, Is.EqualTo(new[] { "miner", "miner", "miner", "logistics", "repair", "guard" }));
@@ -428,13 +454,18 @@ public sealed class LuaMSectorStoryTest
         {
             var logistics = entManager.GetComponent<LuaMAiLogisticsShipComponent>(aiShip);
             Assert.That(logistics.CrewRoleManifest, Is.EqualTo(new[] { "repair", "repair", "logistics", "guard" }));
-            Assert.That(logistics.CrewManifestSource, Is.EqualTo("profile:builder:light-shuttle"));
-            Assert.That(logistics.CrewProfileId, Is.EqualTo("builder:light-shuttle"));
+            Assert.That(logistics.CrewManifestSource, Is.EqualTo("profile:builder:light-shuttle:bootstrap:base"));
+            Assert.That(logistics.CrewProfileId, Is.EqualTo("builder:light-shuttle:bootstrap:base"));
             Assert.That(logistics.CrewProfileSummary, Does.Contain("repair-first"));
+            Assert.That(logistics.CrewProfileSummary, Does.Contain("behavior doctrine bootstrap focused on base"));
+            Assert.That(logistics.BaseBehaviorMode, Is.EqualTo("bootstrap"));
+            Assert.That(logistics.BaseBehaviorFocusResource, Is.EqualTo("base"));
+            Assert.That(logistics.BaseBehaviorDirective, Does.Contain("deploy base anchor"));
             Assert.That(logistics.CrewStationPlan, Has.Count.EqualTo(4));
             Assert.That(logistics.CrewStationPlan[0], Does.Contain("repair:"));
             Assert.That(logistics.LastCrewReport, Does.Contain("AI ship crew active 4/4"));
-            Assert.That(logistics.LastCrewReport, Does.Contain("profile builder:light-shuttle"));
+            Assert.That(logistics.LastCrewReport, Does.Contain("profile builder:light-shuttle:bootstrap:base"));
+            Assert.That(logistics.LastCrewReport, Does.Contain("doctrine bootstrap/base"));
             Assert.That(logistics.CrewSpawnAttempts, Is.EqualTo(4));
 
             var roleCounts = new Dictionary<string, int>();
@@ -458,6 +489,8 @@ public sealed class LuaMSectorStoryTest
                 Assert.That(drone.DisplayName, Is.EqualTo("Z-22 Baeg [Baeg]"));
                 Assert.That(drone.CrewAssignment, Does.Contain("builder ship crew"));
                 Assert.That(drone.CrewStation, Is.Not.Empty);
+                Assert.That(drone.BaseBehaviorMode, Is.EqualTo("bootstrap"));
+                Assert.That(drone.BaseBehaviorFocusResource, Is.EqualTo("base"));
                 Assert.That(dronePrototype, Is.EqualTo(drone.DroneRole switch
                 {
                     "repair" => "LuaMAiRepairDrone",
@@ -468,6 +501,7 @@ public sealed class LuaMSectorStoryTest
                 if (drone.DroneRole == "repair")
                     Assert.That(drone.CrewStation, Does.Contain("engineering/hull access"));
                 Assert.That(drone.CrewDirective, Does.Contain("Z-22 Baeg [Baeg]"));
+                Assert.That(drone.CrewDirective, Does.Contain("doctrine bootstrap/base"));
                 Assert.That(drone.CrewPriority, Is.GreaterThan(0));
                 Assert.That(drone.HasCrewHome, Is.True);
                 Assert.That(drone.LastCrewHomeAction, Is.EqualTo("home_station_assigned"));
@@ -505,6 +539,7 @@ public sealed class LuaMSectorStoryTest
             Assert.That(shipText, Does.Contain("Crew manifest").Or.Contain("Манифест экипажа"));
             Assert.That(shipText, Does.Contain("Crew profile").Or.Contain("Профиль экипажа"));
             Assert.That(shipText, Does.Contain("builder:light-shuttle"));
+            Assert.That(shipText, Does.Contain("bootstrap/base"));
             Assert.That(shipText, Does.Contain("engineering/hull access"));
             Assert.That(shipText, Does.Contain("4/4"));
             Assert.That(shipText, Does.Contain("repair").Or.Contain("ремонт"));

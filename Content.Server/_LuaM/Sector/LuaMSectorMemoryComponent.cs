@@ -361,6 +361,30 @@ public sealed partial class LuaMAiBaseState
     public int TradeCycles;
 
     [DataField]
+    public string BehaviorMode = "bootstrap";
+
+    [DataField]
+    public string BehaviorFocusResource = "base";
+
+    [DataField]
+    public string BehaviorFocusRole = "builder";
+
+    [DataField]
+    public string BehaviorDirective = "deploy base anchor and start the first logistics cycle";
+
+    [DataField]
+    public string BehaviorReason = "ai base not deployed";
+
+    [DataField]
+    public string LastBehaviorTrigger = "initial";
+
+    [DataField]
+    public int BehaviorRevision;
+
+    [DataField]
+    public TimeSpan BehaviorUpdatedAt;
+
+    [DataField]
     public int RescueMedicalOperations;
 
     [DataField]

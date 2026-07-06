@@ -230,16 +230,19 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
             ? string.IsNullOrWhiteSpace(ship.VesselId) ? "AI ship" : ship.VesselId
             : ship.DisplayName;
         var station = string.IsNullOrWhiteSpace(drone.CrewStation) ? "assigned station" : drone.CrewStation;
+        var doctrine = string.IsNullOrWhiteSpace(drone.BaseBehaviorMode)
+            ? string.Empty
+            : $" doctrine {drone.BaseBehaviorMode}/{drone.BaseBehaviorFocusResource};";
 
         return role switch
         {
-            RoleRepair => $"{droneId} duty #{drone.CrewDutyCycles}: repair check at {station} on {shipName}; hull access stable.",
-            RoleLogistics => $"{droneId} duty #{drone.CrewDutyCycles}: cargo relay at {station} on {shipName}; supply route balanced.",
-            RoleGuard => $"{droneId} duty #{drone.CrewDutyCycles}: airlock screen at {station} on {shipName}; perimeter clear.",
-            RoleScout => $"{droneId} duty #{drone.CrewDutyCycles}: sensor sweep at {station} on {shipName}; approach route refreshed.",
-            RoleMedic => $"{droneId} duty #{drone.CrewDutyCycles}: triage cache check at {station} on {shipName}; evacuation path marked.",
-            RoleService => $"{droneId} duty #{drone.CrewDutyCycles}: crew support sweep at {station} on {shipName}; service route open.",
-            _ => $"{droneId} duty #{drone.CrewDutyCycles}: ore bay check at {station} on {shipName}; mining route queued.",
+            RoleRepair => $"{droneId} duty #{drone.CrewDutyCycles}: repair check at {station} on {shipName};{doctrine} hull access stable.",
+            RoleLogistics => $"{droneId} duty #{drone.CrewDutyCycles}: cargo relay at {station} on {shipName};{doctrine} supply route balanced.",
+            RoleGuard => $"{droneId} duty #{drone.CrewDutyCycles}: airlock screen at {station} on {shipName};{doctrine} perimeter clear.",
+            RoleScout => $"{droneId} duty #{drone.CrewDutyCycles}: sensor sweep at {station} on {shipName};{doctrine} approach route refreshed.",
+            RoleMedic => $"{droneId} duty #{drone.CrewDutyCycles}: triage cache check at {station} on {shipName};{doctrine} evacuation path marked.",
+            RoleService => $"{droneId} duty #{drone.CrewDutyCycles}: crew support sweep at {station} on {shipName};{doctrine} service route open.",
+            _ => $"{droneId} duty #{drone.CrewDutyCycles}: ore bay check at {station} on {shipName};{doctrine} mining route queued.",
         };
     }
 

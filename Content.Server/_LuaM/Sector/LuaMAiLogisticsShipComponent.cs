@@ -34,6 +34,15 @@ public sealed partial class LuaMAiLogisticsShipComponent : Component
     public string CrewProfileSummary = string.Empty;
 
     [DataField]
+    public string BaseBehaviorMode = string.Empty;
+
+    [DataField]
+    public string BaseBehaviorFocusResource = string.Empty;
+
+    [DataField]
+    public string BaseBehaviorDirective = string.Empty;
+
+    [DataField]
     public List<string> CrewStationPlan = new();
 
     [DataField]

@@ -37,6 +37,12 @@ public sealed partial class LuaMAiMiningDroneComponent : Component
     public string CrewDirective = string.Empty;
 
     [DataField]
+    public string BaseBehaviorMode = string.Empty;
+
+    [DataField]
+    public string BaseBehaviorFocusResource = string.Empty;
+
+    [DataField]
     public int CrewPriority;
 
     [DataField]

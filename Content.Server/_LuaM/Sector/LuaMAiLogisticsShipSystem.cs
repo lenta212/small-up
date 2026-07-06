@@ -174,7 +174,10 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
         var profile = string.IsNullOrWhiteSpace(logistics.CrewProfileId)
             ? "unprofiled"
             : logistics.CrewProfileId;
-        logistics.LastCrewReport = $"AI ship crew active {existingTotal + created}/{desiredRoles.Count}; created {created}; {placementText}; profile {profile}; manifest {string.Join(",", desiredRoles)}";
+        var behaviorText = string.IsNullOrWhiteSpace(logistics.BaseBehaviorMode)
+            ? "doctrine pending"
+            : $"doctrine {logistics.BaseBehaviorMode}/{logistics.BaseBehaviorFocusResource}";
+        logistics.LastCrewReport = $"AI ship crew active {existingTotal + created}/{desiredRoles.Count}; created {created}; {placementText}; profile {profile}; {behaviorText}; manifest {string.Join(",", desiredRoles)}";
         return logistics.LastCrewReport;
     }
 
@@ -194,29 +197,52 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
             return;
         }
 
-        var profile = BuildCrewProfile(logistics.Role, logistics.VesselId);
+        var aiBase = _stories.GetAiBaseState();
+        var profile = BuildCrewProfile(
+            logistics.Role,
+            logistics.VesselId,
+            aiBase.BehaviorMode,
+            aiBase.BehaviorFocusResource);
         logistics.CrewRoleManifest = profile.Manifest.ToList();
         logistics.CrewManifestSource = profile.ManifestSource;
         logistics.CrewProfileId = profile.ProfileId;
         logistics.CrewProfileSummary = profile.Summary;
+        logistics.BaseBehaviorMode = aiBase.BehaviorMode;
+        logistics.BaseBehaviorFocusResource = aiBase.BehaviorFocusResource;
+        logistics.BaseBehaviorDirective = aiBase.BehaviorDirective;
         logistics.CrewStationPlan = profile.StationPlan.ToList();
     }
 
-    public static List<string> BuildCrewManifest(string shipRole, string vesselId)
+    public static List<string> BuildCrewManifest(
+        string shipRole,
+        string vesselId,
+        string behaviorMode = "",
+        string behaviorFocusResource = "")
     {
-        return BuildCrewProfile(shipRole, vesselId).Manifest.ToList();
+        return BuildCrewProfile(shipRole, vesselId, behaviorMode, behaviorFocusResource).Manifest.ToList();
     }
 
-    public static LuaMAiShipCrewProfile BuildCrewProfile(string shipRole, string vesselId)
+    public static LuaMAiShipCrewProfile BuildCrewProfile(
+        string shipRole,
+        string vesselId,
+        string behaviorMode = "",
+        string behaviorFocusResource = "")
     {
         var role = NormalizeShipRole(shipRole);
         var vesselClass = ClassifyCrewVessel(vesselId);
-        var manifest = BuildCrewManifestForProfile(role, vesselClass);
-        var profileId = $"{role}:{vesselClass}";
+        var normalizedBehaviorMode = NormalizeBehaviorMode(behaviorMode);
+        var normalizedFocus = NormalizeBehaviorFocus(behaviorFocusResource);
+        var manifest = ApplyBehaviorToManifest(
+            BuildCrewManifestForProfile(role, vesselClass),
+            normalizedBehaviorMode,
+            normalizedFocus);
+        var profileId = string.IsNullOrWhiteSpace(normalizedBehaviorMode)
+            ? $"{role}:{vesselClass}"
+            : $"{role}:{vesselClass}:{normalizedBehaviorMode}:{normalizedFocus}";
         return new LuaMAiShipCrewProfile(
             profileId,
             $"profile:{profileId}",
-            BuildCrewProfileSummary(role, vesselClass),
+            BuildCrewProfileSummary(role, vesselClass, normalizedBehaviorMode, normalizedFocus),
             manifest,
             BuildCrewStationPlan(manifest, vesselClass));
     }
@@ -243,6 +269,86 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
                 : ["medic", "logistics", "repair", "guard"],
             "service" => ["service", "logistics", "repair", "scout"],
             _ => ["logistics", "repair", "guard", "scout"],
+        };
+    }
+
+    private static List<string> ApplyBehaviorToManifest(
+        List<string> manifest,
+        string behaviorMode,
+        string focusResource)
+    {
+        manifest = manifest
+            .Select(NormalizeCrewRole)
+            .Where(role => role != "any")
+            .Take(MaxAiShipCrewDrones)
+            .ToList();
+
+        void EnsureRole(string role)
+        {
+            role = NormalizeCrewRole(role);
+            if (string.IsNullOrWhiteSpace(role) || role == "any" || manifest.Contains(role, StringComparer.OrdinalIgnoreCase))
+                return;
+
+            if (manifest.Count < MaxAiShipCrewDrones)
+            {
+                manifest.Add(role);
+                return;
+            }
+
+            manifest[^1] = role;
+        }
+
+        switch (behaviorMode)
+        {
+            case "medical-followup":
+                EnsureRole("medic");
+                EnsureRole("logistics");
+                EnsureRole("guard");
+                break;
+            case "critical-recovery":
+            case "logistics-start":
+            case "balanced-logistics":
+                EnsureRole("logistics");
+                EnsureRole(RoleForBehaviorFocus(focusResource));
+                break;
+            case "extraction":
+                EnsureRole("miner");
+                EnsureRole("logistics");
+                break;
+            case "construction":
+                EnsureRole("repair");
+                EnsureRole("logistics");
+                break;
+            case "medical-support":
+                EnsureRole("medic");
+                EnsureRole("logistics");
+                break;
+            case "crew-support":
+                EnsureRole("service");
+                EnsureRole("logistics");
+                break;
+            case "stable-watch":
+                EnsureRole("scout");
+                EnsureRole("guard");
+                break;
+        }
+
+        return manifest
+            .Take(MaxAiShipCrewDrones)
+            .ToList();
+    }
+
+    private static string RoleForBehaviorFocus(string focusResource)
+    {
+        return NormalizeBehaviorFocus(focusResource) switch
+        {
+            "ore" => "miner",
+            "hull-parts" or "electronics" => "repair",
+            "medicine" => "medic",
+            "food" => "service",
+            "security" => "guard",
+            "route-data" => "scout",
+            _ => "logistics",
         };
     }
 
@@ -317,7 +423,9 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
         drone.DroneId = $"{role}-{_random.Next(1000, 9999)}";
         drone.CrewAssignment = $"{NormalizeShipRole(logistics.Role)} ship crew #{index + 1}";
         drone.CrewStation = PickCrewStation(role, index, logistics.CrewStationPlan);
-        drone.CrewDirective = BuildCrewDirective(role, drone.DisplayName);
+        drone.BaseBehaviorMode = logistics.BaseBehaviorMode;
+        drone.BaseBehaviorFocusResource = logistics.BaseBehaviorFocusResource;
+        drone.CrewDirective = BuildCrewDirective(role, drone.DisplayName, drone.BaseBehaviorMode, drone.BaseBehaviorFocusResource);
         drone.CrewPriority = PickCrewPriority(role);
         drone.State = "ship_crew_launch";
 
@@ -542,10 +650,14 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
         };
     }
 
-    private static string BuildCrewDirective(string role, string displayName)
+    private static string BuildCrewDirective(
+        string role,
+        string displayName,
+        string behaviorMode = "",
+        string behaviorFocusResource = "")
     {
         var origin = string.IsNullOrWhiteSpace(displayName) ? "AI ship" : displayName;
-        return role switch
+        var directive = role switch
         {
             "repair" => $"inspect hull access and keep {origin} operational",
             "logistics" => $"move supplies between {origin} and the AI base",
@@ -555,6 +667,10 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
             "service" => $"support crew traffic and non-critical requests on {origin}",
             _ => $"run ore cycles for {origin}",
         };
+
+        return string.IsNullOrWhiteSpace(behaviorMode)
+            ? directive
+            : $"{directive}; base doctrine {behaviorMode}/{behaviorFocusResource}";
     }
 
     private static int PickCrewPriority(string role)
@@ -615,9 +731,13 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
         };
     }
 
-    private static string BuildCrewProfileSummary(string role, string vesselClass)
+    private static string BuildCrewProfileSummary(
+        string role,
+        string vesselClass,
+        string behaviorMode = "",
+        string behaviorFocusResource = "")
     {
-        return role switch
+        var summary = role switch
         {
             "builder" => $"repair-first crew profile for {vesselClass} vessel: hull access, cargo relay, and airlock watch stay covered",
             "miner" => $"mining crew profile for {vesselClass} vessel: ore handling, repair cover, and route scouting stay active",
@@ -627,6 +747,30 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
             "medic" => $"medical crew profile for {vesselClass} vessel: triage, evacuation route, and escort cover stay active",
             "service" => $"service crew profile for {vesselClass} vessel: crew support, logistics, repair, and route hints stay active",
             _ => $"hauler crew profile for {vesselClass} vessel: supply relay, repair cover, perimeter watch, and route scouting stay active",
+        };
+
+        return string.IsNullOrWhiteSpace(behaviorMode)
+            ? summary
+            : $"{summary}; behavior doctrine {behaviorMode} focused on {behaviorFocusResource}";
+    }
+
+    private static string NormalizeBehaviorMode(string value)
+    {
+        value = (value ?? string.Empty).Trim().ToLowerInvariant();
+        return value switch
+        {
+            "bootstrap" or "logistics-start" or "medical-followup" or "critical-recovery" or "extraction" or "construction" or "medical-support" or "crew-support" or "balanced-logistics" or "stable-watch" => value,
+            _ => string.Empty,
+        };
+    }
+
+    private static string NormalizeBehaviorFocus(string value)
+    {
+        value = (value ?? string.Empty).Trim().ToLowerInvariant();
+        return value switch
+        {
+            "ore" or "hull-parts" or "electronics" or "medicine" or "food" or "fuel" or "security" or "route-data" or "base" => value,
+            _ => string.IsNullOrWhiteSpace(value) ? "general" : value,
         };
     }
 

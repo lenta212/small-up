@@ -182,7 +182,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         if (!TryGetMemory(out var memory))
             return "AI base memory is not available.";
 
-        var state = EnsureAiBaseState(memory, actor, out var createdNow);
+        var state = EnsureAiBaseState(memory, actor, _timing.CurTime, out var createdNow);
         SaveMemory(memory);
 
         return createdNow
@@ -269,7 +269,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         if (!TryGetMemory(out var memory))
             return "AI base memory is not available.";
 
-        var state = EnsureAiBaseState(memory, actor, out _);
+        var state = EnsureAiBaseState(memory, actor, _timing.CurTime, out _);
         var normalizedRole = NormalizeAiBaseShipRole(role);
         var delivery = SelectAiBaseDelivery(state, normalizedRole);
         AddAiBaseInventory(state, delivery.Resource, delivery.Amount);
@@ -278,6 +278,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
 
         state.TradeCycles++;
         state.SupplyScore = CalculateAiBaseSupplyScore(state);
+        RefreshAiBaseBehavior(state, _timing.CurTime, $"ship:{normalizedRole}");
 
         var resourceAmount = GetAiBaseInventoryAmount(state, delivery.Resource);
         var target = GetAiBaseNeedTarget(state, delivery.Resource);
@@ -310,7 +311,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             : delivery.CreditDelta > 0
                 ? $" credits +{delivery.CreditDelta};"
                 : $" credits {delivery.CreditDelta};";
-        return $"AI base logistics updated: {summary}; stock {delivery.Resource} {resourceAmount}{targetText};{creditText} supply score {state.SupplyScore}/100.";
+        return $"AI base logistics updated: {summary}; stock {delivery.Resource} {resourceAmount}{targetText};{creditText} supply score {state.SupplyScore}/100; behavior {state.BehaviorMode}/{state.BehaviorFocusResource}: {state.BehaviorDirective}.";
     }
 
     public string RecordAiBaseMiningDroneYield(string actor, string droneId, string vesselId, string displayName, int amount)
@@ -318,12 +319,13 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         if (!TryGetMemory(out var memory))
             return "AI base memory is not available.";
 
-        var state = EnsureAiBaseState(memory, actor, out _);
+        var state = EnsureAiBaseState(memory, actor, _timing.CurTime, out _);
         amount = Math.Clamp(amount, 1, 50);
         AddAiBaseInventory(state, "ore", amount);
 
         state.TradeCycles++;
         state.SupplyScore = CalculateAiBaseSupplyScore(state);
+        RefreshAiBaseBehavior(state, _timing.CurTime, "mining-drone");
 
         var oreAmount = GetAiBaseInventoryAmount(state, "ore");
         var oreTarget = GetAiBaseNeedTarget(state, "ore");
@@ -355,7 +357,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         SaveMemory(memory);
 
         var targetText = oreTarget > 0 ? $"/{oreTarget}" : string.Empty;
-        return $"AI base mining updated: {summary}; stock ore {oreAmount}{targetText}; supply score {state.SupplyScore}/100.";
+        return $"AI base mining updated: {summary}; stock ore {oreAmount}{targetText}; supply score {state.SupplyScore}/100; behavior {state.BehaviorMode}/{state.BehaviorFocusResource}: {state.BehaviorDirective}.";
     }
 
     public string RecordAiBaseDroneTaskContribution(
@@ -371,13 +373,14 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         if (!TryGetMemory(out var memory))
             return "AI base memory is not available.";
 
-        var state = EnsureAiBaseState(memory, actor, out _);
+        var state = EnsureAiBaseState(memory, actor, _timing.CurTime, out _);
         var normalizedRole = NormalizeAiBaseDroneRole(role);
         var delivery = SelectAiBaseDroneTaskDelivery(state, normalizedRole, taskType, zoneType);
         AddAiBaseInventory(state, delivery.Resource, delivery.Amount);
 
         state.TradeCycles++;
         state.SupplyScore = CalculateAiBaseSupplyScore(state);
+        RefreshAiBaseBehavior(state, _timing.CurTime, $"drone-task:{normalizedRole}");
 
         var resourceAmount = GetAiBaseInventoryAmount(state, delivery.Resource);
         var target = GetAiBaseNeedTarget(state, delivery.Resource);
@@ -411,7 +414,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
 
         SaveMemory(memory);
 
-        return $"AI base drone task updated: {summary}; stock {delivery.Resource} {resourceAmount}{targetText}; supply score {state.SupplyScore}/100.";
+        return $"AI base drone task updated: {summary}; stock {delivery.Resource} {resourceAmount}{targetText}; supply score {state.SupplyScore}/100; behavior {state.BehaviorMode}/{state.BehaviorFocusResource}: {state.BehaviorDirective}.";
     }
 
     public string RecordAiBaseAutofixAttempt(
@@ -447,10 +450,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         if (state.AutofixLog.Count > AiBaseAutofixLogLimit)
             state.AutofixLog.RemoveRange(0, state.AutofixLog.Count - AiBaseAutofixLogLimit);
 
+        RefreshAiBaseBehavior(state, _timing.CurTime, $"autofix:{commandId}");
         SaveMemory(memory);
 
         var status = success ? "recorded" : "recorded failed";
-        return $"AI base autofix memory {status}: #{state.AutofixLog[^1].Attempt} {state.AutofixLog[^1].Issue} via {state.AutofixLog[^1].CommandId}.";
+        return $"AI base autofix memory {status}: #{state.AutofixLog[^1].Attempt} {state.AutofixLog[^1].Issue} via {state.AutofixLog[^1].CommandId}; behavior {state.BehaviorMode}/{state.BehaviorFocusResource}.";
     }
 
     public bool TryRecordRescueAfterAction(
@@ -1862,6 +1866,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     private static LuaMAiBaseState EnsureAiBaseState(
         LuaMSectorMemoryComponent memory,
         string actor,
+        TimeSpan now,
         out bool createdNow)
     {
         memory.AiBase ??= new LuaMAiBaseState();
@@ -1874,6 +1879,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
 
         state.Created = true;
         state.SupplyScore = CalculateAiBaseSupplyScore(state);
+        RefreshAiBaseBehavior(state, now, "base-created");
         state.TradeLog.Add(new LuaMAiBaseTradeEntry
         {
             Cycle = state.TradeCycles,
@@ -1967,15 +1973,40 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             .OrderByDescending(entry => entry.Priority)
             .ThenBy(entry => entry.Resource, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        EnsureAiBaseBehaviorDefaults(state);
+    }
+
+    private static void EnsureAiBaseBehaviorDefaults(LuaMAiBaseState state)
+    {
+        state.BehaviorRevision = Math.Max(0, state.BehaviorRevision);
+        var decision = SelectAiBaseBehaviorDecision(state);
+
+        if (string.IsNullOrWhiteSpace(state.BehaviorMode))
+            state.BehaviorMode = decision.Mode;
+        if (string.IsNullOrWhiteSpace(state.BehaviorFocusResource))
+            state.BehaviorFocusResource = decision.FocusResource;
+        if (string.IsNullOrWhiteSpace(state.BehaviorFocusRole))
+            state.BehaviorFocusRole = decision.FocusRole;
+        if (string.IsNullOrWhiteSpace(state.BehaviorDirective))
+            state.BehaviorDirective = decision.Directive;
+        if (string.IsNullOrWhiteSpace(state.BehaviorReason))
+            state.BehaviorReason = decision.Reason;
+        if (string.IsNullOrWhiteSpace(state.LastBehaviorTrigger))
+            state.LastBehaviorTrigger = "defaults";
     }
 
     private static string BuildAiBaseStatusText(LuaMAiBaseState state)
     {
+        EnsureAiBaseDefaults(state);
+        state.SupplyScore = CalculateAiBaseSupplyScore(state);
+
         if (state is not { Created: true })
             return "AI base is not deployed. Use command: create AI base. Compensation plan: deploy physical base anchor, then assign dock/storage/mining/patrol/contact zones.";
 
         var output = new StringBuilder();
         output.AppendLine($"{state.Name} [{state.BaseId}] at {state.Location}: supply score {state.SupplyScore}/100, logistics cycles {state.TradeCycles}.");
+        output.AppendLine($"Behavior: mode={state.BehaviorMode}; focus={state.BehaviorFocusResource}/{state.BehaviorFocusRole}; directive={state.BehaviorDirective}; reason={state.BehaviorReason}; revision={state.BehaviorRevision}; trigger={state.LastBehaviorTrigger}.");
 
         if (state.Needs.Count == 0)
         {
@@ -2020,6 +2051,12 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     {
         if (role == "scout")
             return new AiBaseDelivery("route-data", 1, 0, "mapped a new trade route for later haulers");
+        if (role == "medic")
+            return SelectBoundedNeedDelivery(state, ["medicine"], 18, "delivered medical stock and refreshed triage reserves");
+        if (role == "service")
+            return SelectBoundedNeedDelivery(state, ["food"], 18, "delivered crew support stock and service reserves");
+        if (role == "guard")
+            return new AiBaseDelivery("security", 1, 0, "reinforced patrol coverage and base perimeter confidence");
 
         var need = SelectMostMissingAiBaseNeed(state);
         if (need == null)
@@ -2122,6 +2159,122 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             .ThenByDescending(need => need.Priority)
             .ThenBy(need => need.Resource, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
+    }
+
+    private static AiBaseBehaviorDecision RefreshAiBaseBehavior(
+        LuaMAiBaseState state,
+        TimeSpan now,
+        string trigger)
+    {
+        EnsureAiBaseDefaults(state);
+        state.SupplyScore = CalculateAiBaseSupplyScore(state);
+
+        var decision = SelectAiBaseBehaviorDecision(state);
+        trigger = string.IsNullOrWhiteSpace(trigger) ? "state-refresh" : Trim(trigger, 64);
+        var changed = !state.BehaviorMode.Equals(decision.Mode, StringComparison.OrdinalIgnoreCase) ||
+                      !state.BehaviorFocusResource.Equals(decision.FocusResource, StringComparison.OrdinalIgnoreCase) ||
+                      !state.BehaviorFocusRole.Equals(decision.FocusRole, StringComparison.OrdinalIgnoreCase) ||
+                      !state.BehaviorDirective.Equals(decision.Directive, StringComparison.Ordinal) ||
+                      !state.BehaviorReason.Equals(decision.Reason, StringComparison.Ordinal) ||
+                      !state.LastBehaviorTrigger.Equals(trigger, StringComparison.OrdinalIgnoreCase);
+
+        state.BehaviorMode = decision.Mode;
+        state.BehaviorFocusResource = decision.FocusResource;
+        state.BehaviorFocusRole = decision.FocusRole;
+        state.BehaviorDirective = decision.Directive;
+        state.BehaviorReason = decision.Reason;
+        state.LastBehaviorTrigger = trigger;
+
+        if (changed)
+        {
+            state.BehaviorRevision = Math.Max(0, state.BehaviorRevision) + 1;
+            state.BehaviorUpdatedAt = now;
+        }
+
+        return decision;
+    }
+
+    private static AiBaseBehaviorDecision SelectAiBaseBehaviorDecision(LuaMAiBaseState state)
+    {
+        var topNeed = SelectMostMissingAiBaseNeed(state);
+        var focusResource = topNeed == null ? "route-data" : NormalizeAiBaseResource(topNeed.Resource);
+        var focusRole = PickAiBaseCompensationRole(focusResource);
+        var current = topNeed == null ? 0 : GetAiBaseInventoryAmount(state, topNeed.Resource);
+        var target = topNeed?.Target ?? 0;
+
+        if (!state.Created)
+        {
+            return new AiBaseBehaviorDecision(
+                "bootstrap",
+                "base",
+                "builder",
+                "deploy base anchor, mark dock/storage/mining zones, then start logistics",
+                "aiBaseCreated=false");
+        }
+
+        if (state.LastRescueMedicalFollowUpPending)
+        {
+            return new AiBaseBehaviorDecision(
+                "medical-followup",
+                "medicine",
+                "medic",
+                "hold medicine, medic, logistics, and guard coverage until rescue follow-up is cleared",
+                $"rescue follow-up pending at {state.LastRescueMedicalLocation}");
+        }
+
+        if (state.TradeCycles <= 0)
+        {
+            return new AiBaseBehaviorDecision(
+                "logistics-start",
+                focusResource,
+                focusRole,
+                $"run first supply cycle toward {focusResource} before surplus work",
+                "tradeCycles=0");
+        }
+
+        if (state.SupplyScore < 45)
+        {
+            return new AiBaseBehaviorDecision(
+                "critical-recovery",
+                focusResource,
+                focusRole,
+                $"lock crew and ship priorities on {focusResource} until supply score leaves critical range",
+                $"supplyScore={state.SupplyScore}/100; topNeed={focusResource} {current}/{target}");
+        }
+
+        if (topNeed == null)
+        {
+            return new AiBaseBehaviorDecision(
+                "stable-watch",
+                "route-data",
+                "scout",
+                "keep scout, guard, and surplus trade cycles active while monitoring new deficits",
+                $"all configured needs met; supplyScore={state.SupplyScore}/100");
+        }
+
+        var mode = focusResource switch
+        {
+            "ore" => "extraction",
+            "hull-parts" or "electronics" => "construction",
+            "medicine" => "medical-support",
+            "food" => "crew-support",
+            _ => "balanced-logistics",
+        };
+        var directive = mode switch
+        {
+            "extraction" => "prioritize miners and ore handling; keep logistics drones attached to the mining route",
+            "construction" => "prioritize builders, repair drones, and electronics/hull part stock before expansion",
+            "medical-support" => "prioritize medic drones, medicine stock, and evacuation route markers",
+            "crew-support" => "prioritize service drones, food stock, and low-risk crew support routes",
+            _ => $"balance hauler/trader cycles toward {focusResource}",
+        };
+
+        return new AiBaseBehaviorDecision(
+            mode,
+            focusResource,
+            focusRole,
+            directive,
+            $"topNeed={focusResource} {current}/{target}; supplyScore={state.SupplyScore}/100");
     }
 
     private static IReadOnlyList<LuaMAiBaseCompensationEntry> BuildAiBaseCompensationPlanInternal(LuaMAiBaseState state)
@@ -2257,6 +2410,10 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             "ore" => "miner",
             "hull-parts" => "builder",
             "electronics" => "builder",
+            "medicine" => "medic",
+            "food" => "service",
+            "security" => "guard",
+            "route-data" => "scout",
             "credits" => "trader",
             _ => "hauler",
         };
@@ -2408,6 +2565,13 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     }
 
     private readonly record struct AiBaseDelivery(string Resource, int Amount, int CreditDelta, string Summary);
+
+    private readonly record struct AiBaseBehaviorDecision(
+        string Mode,
+        string FocusResource,
+        string FocusRole,
+        string Directive,
+        string Reason);
 
     private static LuaMSectorStoryRecord CloneRecord(LuaMSectorStoryRecord record)
     {
@@ -2568,6 +2732,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             $"location={state.LastRescueMedicalLocation}; team={entry.TeamStatus}",
             256);
         UpdateAiBaseRescueCooldown(state, entry, now);
+        RefreshAiBaseBehavior(state, now, "rescue-after-action");
     }
 
     private static string BuildAiBaseMedicalStatusText(LuaMAiBaseState state)
@@ -2761,6 +2926,14 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Location = state.Location,
             SupplyScore = state.SupplyScore,
             TradeCycles = state.TradeCycles,
+            BehaviorMode = state.BehaviorMode,
+            BehaviorFocusResource = state.BehaviorFocusResource,
+            BehaviorFocusRole = state.BehaviorFocusRole,
+            BehaviorDirective = state.BehaviorDirective,
+            BehaviorReason = state.BehaviorReason,
+            LastBehaviorTrigger = state.LastBehaviorTrigger,
+            BehaviorRevision = state.BehaviorRevision,
+            BehaviorUpdatedAt = state.BehaviorUpdatedAt,
             RescueMedicalOperations = state.RescueMedicalOperations,
             LastRescueAfterActionSequence = state.LastRescueAfterActionSequence,
             LastRescueMedicalStatus = state.LastRescueMedicalStatus,
@@ -3086,6 +3259,14 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Location = state.Location,
             SupplyScore = state.SupplyScore,
             TradeCycles = state.TradeCycles,
+            BehaviorMode = state.BehaviorMode,
+            BehaviorFocusResource = state.BehaviorFocusResource,
+            BehaviorFocusRole = state.BehaviorFocusRole,
+            BehaviorDirective = state.BehaviorDirective,
+            BehaviorReason = state.BehaviorReason,
+            LastBehaviorTrigger = state.LastBehaviorTrigger,
+            BehaviorRevision = state.BehaviorRevision,
+            BehaviorUpdatedAt = state.BehaviorUpdatedAt,
             RescueMedicalOperations = state.RescueMedicalOperations,
             LastRescueAfterActionSequence = state.LastRescueAfterActionSequence,
             LastRescueMedicalStatus = state.LastRescueMedicalStatus,
@@ -3152,6 +3333,14 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Location = state.Location,
             SupplyScore = state.SupplyScore,
             TradeCycles = state.TradeCycles,
+            BehaviorMode = state.BehaviorMode,
+            BehaviorFocusResource = state.BehaviorFocusResource,
+            BehaviorFocusRole = state.BehaviorFocusRole,
+            BehaviorDirective = state.BehaviorDirective,
+            BehaviorReason = state.BehaviorReason,
+            LastBehaviorTrigger = state.LastBehaviorTrigger,
+            BehaviorRevision = state.BehaviorRevision,
+            BehaviorUpdatedAt = state.BehaviorUpdatedAt,
             RescueMedicalOperations = state.RescueMedicalOperations,
             LastRescueAfterActionSequence = state.LastRescueAfterActionSequence,
             LastRescueMedicalStatus = state.LastRescueMedicalStatus,
@@ -3333,6 +3522,14 @@ public sealed class LuaMAiBasePersistedState
     public string Location { get; set; } = "hidden sector anchorage";
     public int SupplyScore { get; set; }
     public int TradeCycles { get; set; }
+    public string BehaviorMode { get; set; } = "bootstrap";
+    public string BehaviorFocusResource { get; set; } = "base";
+    public string BehaviorFocusRole { get; set; } = "builder";
+    public string BehaviorDirective { get; set; } = "deploy base anchor and start the first logistics cycle";
+    public string BehaviorReason { get; set; } = "ai base not deployed";
+    public string LastBehaviorTrigger { get; set; } = "initial";
+    public int BehaviorRevision { get; set; }
+    public TimeSpan BehaviorUpdatedAt { get; set; }
     public int RescueMedicalOperations { get; set; }
     public int LastRescueAfterActionSequence { get; set; }
     public string LastRescueMedicalStatus { get; set; } = "none";
