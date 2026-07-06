@@ -537,8 +537,10 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     [Test]
     public void RescueTeamClearsCompletedPatientForReturnOrExtract()
     {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
 
+        Assert.That(component, Does.Contain("LastReturnOrExtractReasonStatus"));
         Assert.That(source, Does.Contain("GetActiveRescuePatient"));
         Assert.That(source, Does.Contain("var patient = GetActiveRescuePatient(rescue);"));
         Assert.That(source, Does.Contain("escort.Patient = GetActiveRescuePatient(rescue);"));
@@ -546,6 +548,22 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("LuaMRescueTeamPhase.ReturnOrExtract"));
         Assert.That(source, Does.Contain("plan return-to-shuttle: extraction phase"));
         Assert.That(source, Does.Contain("returning or extracting"));
+        Assert.That(source, Does.Contain("BuildReturnOrExtractReasonStatus"));
+        Assert.That(source, Does.Contain("BuildReturnOrExtractLine"));
+        Assert.That(source, Does.Contain("returnReason={team.LastReturnOrExtractReasonStatus}"));
+        Assert.That(source, Does.Contain("returning or extracting: {returnOrExtractReason}"));
+        Assert.That(source, Does.Contain("reason=route-blocked"));
+        Assert.That(source, Does.Contain("reason=unsafe-scene"));
+        Assert.That(source, Does.Contain("reason=failed-or-aborted"));
+        Assert.That(source, Does.Contain("reason=dead-recovery"));
+        Assert.That(source, Does.Contain("reason=handoff-complete"));
+        Assert.That(source, Does.Contain("HasRouteBlockedStatus"));
+        Assert.That(source, Does.Contain("HasUnsafeStatus"));
+        Assert.That(source, Does.Contain("HasFailedStatus"));
+        Assert.That(source, Does.Contain("HasDeadStatus"));
+        Assert.That(source, Does.Contain("\\u041e\\u0442\\u0445\\u043e\\u0434\\u0438\\u043c: \\u043c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u0437\\u0430\\u0431\\u043b\\u043e\\u043a\\u0438\\u0440\\u043e\\u0432\\u0430\\u043d"));
+        Assert.That(source, Does.Contain("\\u041e\\u0442\\u0445\\u043e\\u0434\\u0438\\u043c: \\u0437\\u043e\\u043d\\u0430 \\u043d\\u0435 \\u0434\\u0435\\u0440\\u0436\\u0438\\u0442\\u0441\\u044f"));
+        Assert.That(source, Does.Contain("\\u041e\\u0442\\u0445\\u043e\\u0434\\u0438\\u043c: \\u0437\\u0430\\u0434\\u0430\\u0447\\u0430 \\u0441\\u043e\\u0440\\u0432\\u0430\\u043d\\u0430"));
         Assert.That(source, Does.Contain("TryRunReturnToShuttleAction"));
         Assert.That(source, Does.Contain("TryReleaseReturnPull"));
         Assert.That(source, Does.Contain("puller.Pulling is not { Valid: true } pulled"));
