@@ -2599,6 +2599,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (TryAutoDefibDeadPatientOnShuttle(uid, rescue, htn))
             return;
 
+        if (TryTreatOnboardPatient(uid, rescue, htn))
+            return;
+
         if (TryReleaseStabilizedPatientOnShuttle(uid, rescue, htn))
             return;
 
@@ -4510,6 +4513,127 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         return IsOnAssignedShuttle(target, rescue) ||
                IsAtAssignedShuttleAnchor(target, rescue);
+    }
+
+    private bool TryTreatOnboardPatient(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (!rescue.AutoTreatWithCarriedItems ||
+            !TryFindOnboardTreatmentPatient(rescue, out var patient, out var patientStrap, out var status))
+        {
+            return false;
+        }
+
+        SetOnboardCareStatus(rescue, patient, $"treatment; {status}");
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.TreatingPatient,
+            patient,
+            patientStrap,
+            $"treating onboard {FormatEntityRef(patient)} at {FormatEntityRef(patientStrap)}");
+
+        if (!IsWithinRange(uid, patient, rescue.PlayerActionRange))
+        {
+            rescue.LastAutoTreatmentStatus = $"moving to onboard treatment {FormatEntityRef(patient)} at {FormatEntityRef(patientStrap)}";
+            SetOnboardCareStatus(rescue, patient, $"treatment; {rescue.LastAutoTreatmentStatus}");
+            TrySayOnboardAction(
+                uid,
+                rescue,
+                patient,
+                "onboard-treatment",
+                "onboard treatment loop",
+                "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043d\u0430 \u0431\u043e\u0440\u0442\u0443, \u0434\u043e\u043b\u0435\u0447\u0438\u0432\u0430\u044e \u0434\u043e \u0432\u044b\u043f\u0443\u0441\u043a\u0430.");
+            SetFollowDeliveryStrap(uid, rescue, htn, patientStrap);
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        TrySayOnboardAction(
+            uid,
+            rescue,
+            patient,
+            "onboard-treatment",
+            "onboard treatment loop",
+            "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043d\u0430 \u0431\u043e\u0440\u0442\u0443, \u0434\u043e\u043b\u0435\u0447\u0438\u0432\u0430\u044e \u0434\u043e \u0432\u044b\u043f\u0443\u0441\u043a\u0430.");
+
+        if (TryAutoTreatTarget(uid, rescue, htn, patient))
+            return true;
+
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool TryFindOnboardTreatmentPatient(
+        LuaMRescueAgentComponent rescue,
+        out EntityUid patient,
+        out EntityUid patientStrap,
+        out string status)
+    {
+        patient = default;
+        patientStrap = default;
+        status = string.Empty;
+
+        if (rescue.AssignedShuttle is not { Valid: true } shuttle ||
+            Deleted(shuttle))
+        {
+            return false;
+        }
+
+        var bestScore = float.MinValue;
+        var query = EntityQueryEnumerator<StrapComponent, TransformComponent>();
+        while (query.MoveNext(out var strapUid, out var strap, out var xform))
+        {
+            if (xform.GridUid != shuttle ||
+                !IsAssignedShuttlePatientStrap(strapUid, rescue))
+            {
+                continue;
+            }
+
+            foreach (var buckled in strap.BuckledEntities)
+            {
+                if (Deleted(buckled) ||
+                    !TryComp<BuckleComponent>(buckled, out var buckle) ||
+                    buckle.BuckledTo != strapUid ||
+                    !TryComp<MobStateComponent>(buckled, out var mobState) ||
+                    mobState.CurrentState == MobState.Dead ||
+                    !TryComp<DamageableComponent>(buckled, out var damageable))
+                {
+                    continue;
+                }
+
+                var totalDamage = damageable.TotalDamage.Float();
+                if (mobState.CurrentState != MobState.Critical &&
+                    totalDamage <= rescue.AutoReleaseMaxDamage)
+                {
+                    continue;
+                }
+
+                if (mobState.CurrentState != MobState.Critical &&
+                    totalDamage < rescue.AutoTreatMinDamage)
+                {
+                    continue;
+                }
+
+                var score = totalDamage;
+                if (mobState.CurrentState == MobState.Critical)
+                    score += 1000f;
+
+                if (score <= bestScore)
+                    continue;
+
+                patient = buckled;
+                patientStrap = strapUid;
+                status = mobState.CurrentState == MobState.Critical
+                    ? $"critical onboard patient {FormatEntityRef(buckled)} needs onboard treatment"
+                    : $"onboard patient {FormatEntityRef(buckled)} damage {totalDamage:0.0} needs onboard treatment";
+                bestScore = score;
+            }
+        }
+
+        return patient != default;
     }
 
     private bool TryReleaseStabilizedPatientOnShuttle(

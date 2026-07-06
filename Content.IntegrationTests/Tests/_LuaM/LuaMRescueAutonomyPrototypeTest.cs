@@ -256,6 +256,11 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("patient-release:"));
         Assert.That(source, Does.Contain("SetOnboardCareStatus"));
         Assert.That(source, Does.Contain("MarkOnboardCareReleased"));
+        Assert.That(source, Does.Contain("if (TryTreatOnboardPatient(uid, rescue, htn))"));
+        Assert.That(source, Does.Contain("TryFindOnboardTreatmentPatient"));
+        Assert.That(source, Does.Contain("TryAutoTreatTarget(uid, rescue, htn, patient)"));
+        Assert.That(source, Does.Contain("treating onboard"));
+        Assert.That(source, Does.Contain("needs onboard treatment"));
         Assert.That(source, Does.Contain("CompleteReleasedPatientCare"));
         Assert.That(source, Does.Contain("released stabilized {FormatEntityRef(patient)}; ready for next rescue"));
         Assert.That(source, Does.Contain("holding shuttle forward after release of {FormatEntityRef(patient)}; pending evacuation target detected"));
@@ -269,11 +274,13 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("\"treating\""));
         Assert.That(source, Does.Contain("\"reanimation\""));
         Assert.That(source, Does.Contain("\"onboard-defib\""));
+        Assert.That(source, Does.Contain("\"onboard-treatment\""));
         Assert.That(source, Does.Contain("\"release-ready\""));
         Assert.That(source, Does.Contain("\"released\""));
         Assert.That(source, Does.Contain("patient secured onboard"));
         Assert.That(source, Does.Contain("critical onboard treatment"));
         Assert.That(source, Does.Contain("onboard treatment and observation"));
+        Assert.That(source, Does.Contain("onboard treatment loop"));
         Assert.That(source, Does.Contain("onboard reanimation cycle"));
         Assert.That(source, Does.Contain("dead recovery defib cycle"));
         Assert.That(source, Does.Contain("patient stable, preparing release"));
