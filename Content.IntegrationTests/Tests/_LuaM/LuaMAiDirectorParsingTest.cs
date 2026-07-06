@@ -17,6 +17,9 @@ public sealed class LuaMAiDirectorParsingTest
     [TestCase("ИИ", "статус")]
     [TestCase("LuaM, route", "route")]
     [TestCase("AI status", "status")]
+    [TestCase("\u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u0441\u0442\u0430\u0442\u0443\u0441", "\u0441\u0442\u0430\u0442\u0443\u0441")]
+    [TestCase("\u0414\u043e\u043a\u0442\u043e\u0440 \u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u0433\u0434\u0435 \u0446\u0435\u043b\u044c", "\u0433\u0434\u0435 \u0446\u0435\u043b\u044c")]
+    [TestCase("Aibolit, route", "route")]
     [TestCase("диспетчер, помоги", "помоги")]
     public void RadioAiRequestRecognizesShortAiMarkers(string message, string expectedRequest)
     {

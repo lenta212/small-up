@@ -62,6 +62,8 @@ namespace Content.Server._LuaM.Sector;
 public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 {
     private const string DirectorActor = "ИИ-диспетчер LuaM";
+    private const string RescueRadioActor = "Айболит";
+    private const string RescueRadioReplyPrefix = "Айболит на связи.";
     private const float RouteEventRadiusMin = 2000f;
     private const float RouteEventRadiusMax = 3000f;
     private const float EventRadiusMin = 14f;
@@ -521,6 +523,25 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
+    private static readonly string[] RadioAiMarkers =
+    [
+        "иишка",
+        "диспетчер",
+        "луам",
+        "luam",
+        "ai",
+        "ии",
+    ];
+
+    private static readonly string[] RescueRadioAiMarkers =
+    [
+        "доктор айболит",
+        "док айболит",
+        "айболит",
+        "аиболит",
+        "aibolit",
+    ];
+
     [Dependency] private IConfigurationManager _cfg = default!;
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private IPlayerManager _players = default!;
@@ -545,6 +566,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     [Dependency] private LuaMAiSupplyDropSystem _supplyDrops = default!;
     [Dependency] private LuaMAiLogisticsShipSystem _logisticsShips = default!;
     [Dependency] private LuaMSectorDynamicEventSystem _dynamicEvents = default!;
+    [Dependency] private LuaMRescueAgentSystem _rescueAgents = default!;
     [Dependency] private LuaMRescueTeamSystem _rescueTeams = default!;
 
     private HttpClient _http = new();
@@ -562,6 +584,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private readonly Dictionary<string, TimeSpan> _recentRadioAiRequests = new();
     private readonly Dictionary<NetUserId, TimeSpan> _nextRadioWorldActionByUser = new();
     private readonly Dictionary<string, TimeSpan> _pendingAiRadioReplyTokens = new();
+    private readonly Dictionary<string, string> _pendingAiRadioReplyActors = new();
     private readonly Dictionary<string, TimeSpan> _recentAiRadioPayloads = new();
     private readonly Queue<TimeSpan> _gatewayBudgetWindow = new();
     private int _gatewayBudgetRoundUsed;
@@ -596,6 +619,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private TimeSpan _gatewayRagSourceShapeAt;
     private int _gatewayRagAllowedSources;
     private int _gatewayRagDeniedSources;
+
+    private enum RadioAiAddressKind
+    {
+        Director,
+        Rescue,
+    }
 
     public override void Initialize()
     {
@@ -2066,6 +2095,28 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return maxDanger
             ? $"Опасность повышена по вашему запросу. {result}"
             : $"Приказ принят. ИИ создал условия вокруг оператора или обновил секторную угрозу. {result}";
+    }
+
+    public string HandleAibolitRadioRequest(ICommonSession player, string rawMessage, string source)
+    {
+        var message = TrimForChat(rawMessage.ReplaceLineEndings(" "), MaxPlayerAiRequestLength);
+        if (string.IsNullOrWhiteSpace(message))
+            return "Медканал получил пустой вызов. Спросите статус, цель, маршрут или помощь.";
+
+        if (TryExtractRadioAiAddressedRequest(message, out var addressedMessage, out _))
+            message = addressedMessage;
+
+        var normalized = message.ToLowerInvariant();
+        if (IsAibolitRadioHelpRequest(normalized))
+            return BuildAibolitRadioHelpResult();
+
+        if (IsAibolitRadioStatusRequest(normalized))
+            return _rescueAgents.BuildRescueRadioStatus();
+
+        if (IsAibolitRadioHelpMeRequest(normalized))
+            return $"Вызов принят, держите медканал свободным. {_rescueAgents.BuildRescueRadioStatus()} Для фактической переброски используйте медсигнал смерти или rescue order через LuaM.";
+
+        return $"Принял обращение. {_rescueAgents.BuildRescueRadioStatus()}";
     }
 
     public void AdminSetEnabled(bool enabled)
@@ -5865,6 +5916,68 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return $"{danger} Запрос оператора {player.Name}: {message}. Дай цель, координаты и короткий приказ, который можно выполнить в секторе.";
     }
 
+    private static bool IsAibolitRadioHelpRequest(string normalized)
+    {
+        return ContainsAny(
+            normalized,
+            "help",
+            "помощь",
+            "как пользоваться",
+            "что писать",
+            "команды");
+    }
+
+    private static bool IsAibolitRadioStatusRequest(string normalized)
+    {
+        return ContainsAny(
+            normalized,
+            "status",
+            "route",
+            "where",
+            "patient",
+            "target",
+            "shuttle",
+            "статус",
+            "сводк",
+            "маршрут",
+            "где",
+            "куда",
+            "цель",
+            "пациент",
+            "шаттл",
+            "борт",
+            "летишь",
+            "летит",
+            "лечишь",
+            "лечит");
+    }
+
+    private static bool IsAibolitRadioHelpMeRequest(string normalized)
+    {
+        return ContainsAny(
+            normalized,
+            "help me",
+            "rescue me",
+            "treat me",
+            "save me",
+            "помоги",
+            "помогите",
+            "спаси",
+            "спасите",
+            "лечи",
+            "лечите",
+            "эвакуируй",
+            "эвак",
+            "умираю",
+            "ранен",
+            "ранена");
+    }
+
+    private static string BuildAibolitRadioHelpResult()
+    {
+        return "По медканалу обращайтесь: 'Айболит, статус', 'Айболит, где цель', 'Айболит, нужна помощь'. Отвечаю в этот же радиоканал; фактические приказы боту остаются через медсигнал смерти или LuaM rescue order.";
+    }
+
     private static bool IsPlayerAiHelpRequest(string normalized)
     {
         return ContainsAny(
@@ -7990,19 +8103,32 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (args.OriginalChatMsg.Message.StartsWith(RadioAiReplyTextPrefix, StringComparison.OrdinalIgnoreCase))
             return;
 
-        if (!TryExtractRadioAiRequest(args.OriginalChatMsg.Message, out var request))
+        if (!TryExtractRadioAiAddressedRequest(args.OriginalChatMsg.Message, out var request, out var addressKind))
             return;
 
         var key = $"{args.Channel.ID}|{args.MessageSource}|{args.RadioSource}|{args.OriginalChatMsg.Message}";
         if (!TryClaimRadioAiRequest(key))
             return;
 
+        var replyName = GetRadioAiReplyName(addressKind);
         if (TryExtractPlayerAiSpeechCommand(request, out var radioSpeech))
         {
             SendAiRadioReply(
                 args,
                 radioSpeech,
-                $"{DirectorActor} / radio speech {args.Channel.ID} / {session.Name}");
+                $"{replyName} / radio speech {args.Channel.ID} / {session.Name}",
+                replyName);
+            return;
+        }
+
+        if (addressKind == RadioAiAddressKind.Rescue)
+        {
+            var rescueResult = HandleAibolitRadioRequest(session, request, $"radio {args.Channel.ID}");
+            SendAiRadioReply(
+                args,
+                $"{RescueRadioReplyPrefix} {rescueResult}",
+                $"{RescueRadioActor} / radio {args.Channel.ID} / {session.Name}",
+                RescueRadioActor);
             return;
         }
 
@@ -8012,7 +8138,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             SendAiRadioReply(
                 args,
                 $"{RadioAiReplyTextPrefix} Физическое воздействие отклонено: канал оператора охлаждается еще {waitSeconds:0} сек. Статус, маршрут и голосовые сообщения доступны без ожидания.",
-                $"{DirectorActor} / radio cooldown {args.Channel.ID} / {session.Name}");
+                $"{DirectorActor} / radio cooldown {args.Channel.ID} / {session.Name}",
+                DirectorActor);
             return;
         }
 
@@ -8020,7 +8147,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         SendAiRadioReply(
             args,
             $"{RadioAiReplyTextPrefix} {result}",
-            $"{DirectorActor} / radio {args.Channel.ID} / {session.Name}");
+            $"{DirectorActor} / radio {args.Channel.ID} / {session.Name}",
+            DirectorActor);
     }
 
     private void OnRadioTransformMessage(ref RadioTransformMessageEvent args)
@@ -8032,16 +8160,19 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             expiresAt <= _timing.CurTime)
         {
             _pendingAiRadioReplyTokens.Remove(token);
+            _pendingAiRadioReplyActors.Remove(token);
             return;
         }
 
+        _pendingAiRadioReplyActors.TryGetValue(token, out var replyName);
         _pendingAiRadioReplyTokens.Remove(token);
-        args.Name = DirectorActor;
+        _pendingAiRadioReplyActors.Remove(token);
+        args.Name = string.IsNullOrWhiteSpace(replyName) ? DirectorActor : replyName;
         args.Message = message;
         args.MessageSource = args.RadioSource;
     }
 
-    private void SendAiRadioReply(RadioReceiveEvent request, string rawMessage, string actor)
+    private void SendAiRadioReply(RadioReceiveEvent request, string rawMessage, string actor, string replyName = DirectorActor)
     {
         var message = TrimForChat(rawMessage.ReplaceLineEndings(" "), 300);
         if (string.IsNullOrWhiteSpace(message))
@@ -8052,7 +8183,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             request.Channel,
             message,
             actor,
-            request.Language);
+            request.Language,
+            replyName);
     }
 
     private void SendAiRadioMessageFromSource(
@@ -8060,10 +8192,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         RadioChannelPrototype channel,
         string message,
         string actor,
-        LanguagePrototype? language = null)
+        LanguagePrototype? language = null,
+        string replyName = DirectorActor)
     {
         var token = Guid.NewGuid().ToString("N");
         _pendingAiRadioReplyTokens[token] = _timing.CurTime + TimeSpan.FromSeconds(RadioAiReplyTokenLifetimeSeconds);
+        _pendingAiRadioReplyActors[token] = string.IsNullOrWhiteSpace(replyName) ? DirectorActor : replyName;
         TrimExpiredAiRadioReplyTokens();
         MarkAiRadioPayload(channel.ID, message);
 
@@ -8130,6 +8264,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                      .ToArray())
         {
             _pendingAiRadioReplyTokens.Remove(expired);
+            _pendingAiRadioReplyActors.Remove(expired);
         }
     }
 
@@ -8211,11 +8346,35 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private static bool TryExtractRadioAiRequest(string message, out string request)
     {
+        return TryExtractRadioAiAddressedRequest(message, out request, out _);
+    }
+
+    private static bool TryExtractRadioAiAddressedRequest(string message, out string request, out RadioAiAddressKind addressKind)
+    {
         request = string.Empty;
+        addressKind = RadioAiAddressKind.Director;
         if (string.IsNullOrWhiteSpace(message))
             return false;
 
-        foreach (var marker in new[] { "иишка", "диспетчер", "луам", "luam", "ai", "ии" })
+        if (TryExtractMarkedRadioAiRequest(message, RescueRadioAiMarkers, out request))
+        {
+            addressKind = RadioAiAddressKind.Rescue;
+            return true;
+        }
+
+        if (TryExtractMarkedRadioAiRequest(message, RadioAiMarkers, out request))
+        {
+            addressKind = RadioAiAddressKind.Director;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryExtractMarkedRadioAiRequest(string message, IReadOnlyList<string> markers, out string request)
+    {
+        request = string.Empty;
+        foreach (var marker in markers)
         {
             var index = IndexOfRadioAiMarker(message, marker);
             if (index < 0)
@@ -8231,6 +8390,13 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         }
 
         return false;
+    }
+
+    private static string GetRadioAiReplyName(RadioAiAddressKind addressKind)
+    {
+        return addressKind == RadioAiAddressKind.Rescue
+            ? RescueRadioActor
+            : DirectorActor;
     }
 
     private static int IndexOfRadioAiMarker(string message, string marker)

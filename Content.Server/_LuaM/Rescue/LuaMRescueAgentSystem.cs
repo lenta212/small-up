@@ -167,6 +167,46 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return lines;
     }
 
+    public string BuildRescueRadioStatus()
+    {
+        var summaries = new List<string>();
+        var agentCount = 0;
+        var query = EntityQueryEnumerator<LuaMRescueAgentComponent>();
+        while (query.MoveNext(out var uid, out var rescue))
+        {
+            agentCount++;
+            if (summaries.Count >= 2)
+                continue;
+
+            var patient = rescue.EvacuatingTarget ??
+                          rescue.AssignedTarget ??
+                          rescue.DeathSignalTarget ??
+                          rescue.TaskPatientTarget;
+            var patientName = FormatRadioEntityName(patient, "цель не назначена");
+            var shuttle = rescue.AssignedShuttle is { Valid: true } assignedShuttle && !Deleted(assignedShuttle)
+                ? "медборт назначен"
+                : "медборт не назначен";
+            var status = SelectRadioStatus(
+                rescue.LastOnboardCareStatus,
+                rescue.LastAutoTreatmentStatus,
+                rescue.LastAutoDefibStatus,
+                rescue.LastAutoEvacuationStatus,
+                rescue.LastShuttleReturnStatus,
+                rescue.LastRouteBlockHoldStatus);
+
+            summaries.Add($"{Name(uid)}: фаза {GetRescuePhase(uid, rescue)}; пациент: {patientName}; {shuttle}; {status}.");
+        }
+
+        if (agentCount == 0)
+            return "медгруппа не развернута; активного Айболита в секторе нет.";
+
+        var extra = agentCount > summaries.Count
+            ? $" Еще активных единиц: {agentCount - summaries.Count}."
+            : string.Empty;
+
+        return $"медгруппа активна: {agentCount}. {string.Join(" ", summaries)}{extra}";
+    }
+
     public bool TryOrderAgent(EntityUid agent, EntityUid? target, out string status)
     {
         status = string.Empty;
@@ -392,6 +432,42 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"autoComms={rescue.LastAutoCommsKey}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
+    }
+
+    private string FormatRadioEntityName(EntityUid? entity, string fallback)
+    {
+        if (entity is not { Valid: true } uid || Deleted(uid))
+            return fallback;
+
+        var name = Name(uid).ReplaceLineEndings(" ").Trim();
+        return string.IsNullOrWhiteSpace(name)
+            ? fallback
+            : TrimRadioStatus(name, 48);
+    }
+
+    private static string SelectRadioStatus(params string[] statuses)
+    {
+        foreach (var status in statuses)
+        {
+            if (string.IsNullOrWhiteSpace(status) ||
+                string.Equals(status, "none", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return $"последний статус: {TrimRadioStatus(status, 96)}";
+        }
+
+        return "ожидаю медсигнал или приказ";
+    }
+
+    private static string TrimRadioStatus(string value, int limit)
+    {
+        var status = value.ReplaceLineEndings(" ").Trim();
+        if (status.Length <= limit)
+            return status;
+
+        return $"{status[..limit].TrimEnd()}...";
     }
 
     private void OnTargetDefibrillated(EntityUid target, MobStateComponent mobState, ref TargetDefibrillatedEvent args)

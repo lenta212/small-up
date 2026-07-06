@@ -798,6 +798,15 @@ def main() -> int:
         "spawn_entity",
         "run_sector_command",
         "send_sector_message",
+        "RescueRadioActor",
+        "RescueRadioReplyPrefix",
+        "RescueRadioAiMarkers",
+        "TryExtractRadioAiAddressedRequest",
+        "HandleAibolitRadioRequest",
+        "BuildAibolitRadioHelpResult",
+        "GetRadioAiReplyName",
+        "_pendingAiRadioReplyActors",
+        "args.Name = string.IsNullOrWhiteSpace(replyName) ? DirectorActor : replyName",
         "run_admin_command",
         "RunAdminConsoleCommandAsync",
         "AllowedAiAdminCommandNames",
@@ -1493,8 +1502,21 @@ def main() -> int:
         "IsUnsafeLocalBridgeCommand",
         "SanitizeLocalBridgeOutboxText",
         "redacted-sensitive-bridge-text",
+        "Aibolit, route",
+        "\\u0410\\u0439\\u0431\\u043e\\u043b\\u0438\\u0442",
     ]:
         assert_contains(ai_director_parsing_test, required_test_marker, "LuaMAiDirectorParsingTest")
+
+    radio_ai_receive_test = (ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMRadioAiReceiveTest.cs").read_text(encoding="utf-8")
+    for required_test_marker in [
+        "RadioAiMarkerTriggersReplyToken",
+        "AibolitRadioMarkerTriggersRescueReplyActor",
+        "_pendingAiRadioReplyTokens",
+        "_pendingAiRadioReplyActors",
+        "\\u0410\\u0439\\u0431\\u043e\\u043b\\u0438\\u0442, \\u0441\\u0442\\u0430\\u0442\\u0443\\u0441",
+        "\\u0410\\u0439\\u0431\\u043e\\u043b\\u0438\\u0442 \\u043d\\u0430 \\u0441\\u0432\\u044f\\u0437\\u0438.",
+    ]:
+        assert_contains(radio_ai_receive_test, required_test_marker, "LuaMRadioAiReceiveTest")
 
     gateway_ship_test = (ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMGatewayShipCommandTest.cs").read_text(encoding="utf-8")
     for required_test_marker in [
@@ -3435,6 +3457,11 @@ def main() -> int:
     assert_contains(rescue_agent_system, "cleared current rescue order", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "BuildRescueStatusLines", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "BuildRescueStatusLine", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "BuildRescueRadioStatus", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "SelectRadioStatus", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "FormatRadioEntityName", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "медгруппа активна", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "медгруппа не развернута", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "GetRescuePhase", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "FormatProgress", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "StandbyAtAssignedShuttle", "LuaMRescueAgentSystem")
