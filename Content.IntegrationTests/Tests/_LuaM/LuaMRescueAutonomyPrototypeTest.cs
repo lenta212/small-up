@@ -212,6 +212,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("TriageReportedTarget"));
         Assert.That(component, Does.Contain("LastTriageDecisionKey"));
         Assert.That(component, Does.Contain("LastTriageDecisionStatus"));
+        Assert.That(component, Does.Contain("OnboardCareTarget"));
+        Assert.That(component, Does.Contain("LastOnboardCareStatus"));
         Assert.That(source, Does.Contain("SubscribeLocalEvent<MobStateComponent, TargetDefibrillatedEvent>(OnTargetDefibrillated)"));
         Assert.That(source, Does.Contain("TrySendRescueStatusComms"));
         Assert.That(source, Does.Contain("TryReportPatientArrival"));
@@ -227,6 +229,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("_radio.SendRadioMessage"));
         Assert.That(source, Does.Contain("MedicalRadioChannel"));
         Assert.That(source, Does.Contain("autoComms={rescue.LastAutoCommsKey}"));
+        Assert.That(source, Does.Contain("onboardCare={rescue.LastOnboardCareStatus}"));
         Assert.That(source, Does.Contain("arrival={rescue.LastArrivalReportStatus}"));
         Assert.That(source, Does.Contain("triageDecision={rescue.LastTriageDecisionStatus}"));
         Assert.That(source, Does.Contain("defib-start:"));
@@ -240,6 +243,13 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("patient-hold-critical:"));
         Assert.That(source, Does.Contain("patient-hold-treatment:"));
         Assert.That(source, Does.Contain("patient-release:"));
+        Assert.That(source, Does.Contain("SetOnboardCareStatus"));
+        Assert.That(source, Does.Contain("MarkOnboardCareReleased"));
+        Assert.That(source, Does.Contain("onboard-care: patient={FormatEntityRef(patient)}"));
+        Assert.That(source, Does.Contain("critical; treatment continuing"));
+        Assert.That(source, Does.Contain("dead recovery; defib cycle pending"));
+        Assert.That(source, Does.Contain("release-ready; {status}"));
+        Assert.That(source, Does.Contain("onboard-care released: patient={FormatEntityRef(patient)}"));
         Assert.That(source, Does.Contain("dead-recovery"));
         Assert.That(source, Does.Contain("unsafe-evacuation"));
         Assert.That(source, Does.Contain("onsite-treatment"));

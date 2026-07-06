@@ -380,6 +380,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoDefib={rescue.LastAutoDefibStatus}; " +
                $"autoEvac={rescue.LastAutoEvacuationStatus}; " +
+               $"onboardCare={rescue.LastOnboardCareStatus}; " +
                $"routeHold={rescue.LastRouteBlockHoldStatus}; " +
                $"arrival={rescue.LastArrivalReportStatus}; " +
                $"triageDecision={rescue.LastTriageDecisionStatus}; " +
@@ -4410,6 +4411,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (TryComp<MobStateComponent>(target, out var mobState) &&
             mobState.CurrentState == MobState.Dead)
         {
+            SetOnboardCareStatus(rescue, target, "dead recovery; defib cycle pending");
             TrySendRescueStatusComms(
                 uid,
                 rescue,
@@ -4426,6 +4428,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryComp<MobStateComponent>(target, out var onboardMobState) ||
             onboardMobState.CurrentState != MobState.Dead)
         {
+            SetOnboardCareStatus(
+                rescue,
+                target,
+                onboardMobState?.CurrentState == MobState.Critical
+                    ? "critical; treatment continuing"
+                    : "observation; awaiting stable release");
             ReportLivingPatientOnboardStatus(uid, rescue, target, onboardMobState, hasPendingEvacuationTarget);
         }
 
@@ -4504,11 +4512,19 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!rescue.AutoReleaseStabilizedPatients)
             return false;
 
-        if (!TryFindStabilizedShuttlePatient(rescue, out var patient, out var patientStrap, out var buckle, out var status))
+        if (!TryFindStabilizedShuttlePatient(
+                rescue,
+                out var patient,
+                out var patientStrap,
+                out var buckle,
+                out var holdingPatient,
+                out var status))
         {
             if (!string.IsNullOrWhiteSpace(status))
             {
                 rescue.LastAutoEvacuationStatus = status;
+                if (holdingPatient.Valid && !Deleted(holdingPatient))
+                    SetOnboardCareStatus(rescue, holdingPatient, $"holding; {status}");
 
                 if (status.StartsWith("holding critical onboard patient", StringComparison.OrdinalIgnoreCase))
                 {
@@ -4539,6 +4555,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        SetOnboardCareStatus(rescue, patient, $"release-ready; {status}");
         SetRescueTask(
             uid,
             rescue,
@@ -4566,6 +4583,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (rescue.AssignedPatientStrap == patientStrap)
                 rescue.AssignedPatientStrap = null;
 
+            MarkOnboardCareReleased(rescue, patient);
             RecordRescueHandoff(
                 uid,
                 rescue,
@@ -4611,6 +4629,18 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             blockers,
             "unverified",
             teamStatus);
+    }
+
+    private void SetOnboardCareStatus(LuaMRescueAgentComponent rescue, EntityUid patient, string status)
+    {
+        rescue.OnboardCareTarget = patient;
+        rescue.LastOnboardCareStatus = $"onboard-care: patient={FormatEntityRef(patient)}; {status}";
+    }
+
+    private void MarkOnboardCareReleased(LuaMRescueAgentComponent rescue, EntityUid patient)
+    {
+        rescue.OnboardCareTarget = null;
+        rescue.LastOnboardCareStatus = $"onboard-care released: patient={FormatEntityRef(patient)}";
     }
 
     private string FormatHandoffLocation(LuaMRescueAgentComponent rescue, EntityUid patient)
@@ -4665,11 +4695,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         out EntityUid patient,
         out EntityUid patientStrap,
         out BuckleComponent buckle,
+        out EntityUid holdingPatient,
         out string status)
     {
         patient = default;
         patientStrap = default;
         buckle = default!;
+        holdingPatient = default;
         status = string.Empty;
 
         if (rescue.AssignedShuttle is not { Valid: true } shuttle ||
@@ -4707,7 +4739,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 }
 
                 if (string.IsNullOrWhiteSpace(holdingStatus))
+                {
                     holdingStatus = patientStatus;
+                    holdingPatient = buckled;
+                }
             }
         }
 
@@ -4731,6 +4766,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        SetOnboardCareStatus(rescue, patient, $"dead recovery; {status}");
         SetRescueTask(
             uid,
             rescue,
@@ -4742,6 +4778,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!IsWithinRange(uid, patientStrap, rescue.PlayerActionRange))
         {
             rescue.LastAutoDefibStatus = $"moving to onboard defibrillation {FormatEntityRef(patient)} at {FormatEntityRef(patientStrap)}";
+            SetOnboardCareStatus(rescue, patient, $"dead recovery; {rescue.LastAutoDefibStatus}");
             SetFollowDeliveryStrap(uid, rescue, htn, patientStrap);
             Dirty(uid, rescue);
             return true;

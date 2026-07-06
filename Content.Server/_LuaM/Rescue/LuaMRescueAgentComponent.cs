@@ -43,6 +43,12 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public EntityUid? EvacuatingTarget;
 
     [DataField]
+    public EntityUid? OnboardCareTarget;
+
+    [DataField]
+    public string LastOnboardCareStatus = "none";
+
+    [DataField]
     public bool AutoAcquireTargets = true;
 
     [DataField]
