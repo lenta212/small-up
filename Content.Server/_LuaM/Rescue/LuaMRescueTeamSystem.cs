@@ -48,6 +48,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double HandoffPhaseHoldSeconds = 6;
     private const double SortiePlanHoldSeconds = 4;
     private const double TeamPhaseAnnouncementCooldownSeconds = 10;
+    private const double TeamSharedSpeechCooldownSeconds = 6;
     private const double ThreatNeutralizedReportCooldownSeconds = 6;
     private const double TriageCoverConfirmCooldownSeconds = 8;
     private const double CrewHelpRequestCooldownSeconds = 12;
@@ -151,6 +152,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.LastAnnouncedSomberScene = false;
         team.LastPhaseAnnouncementStatus = "phase-bark pending";
         team.NextPhaseAnnouncementAt = _timing.CurTime;
+        team.LastSharedSpeechStatus = "shared-speech ready";
+        team.NextSharedSpeechAt = _timing.CurTime;
         team.LastReturnOrExtractReasonStatus = "none";
         team.LastThreatNeutralizedTarget = null;
         team.LastThreatNeutralizedBy = null;
@@ -210,7 +213,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffRecord}; returnReason={team.LastReturnOrExtractReasonStatus}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
                 $"threatClear={team.LastThreatNeutralizedStatus}; " +
-                $"phaseBark={team.LastPhaseAnnouncementStatus}; last={team.LastStatus}");
+                $"phaseBark={team.LastPhaseAnnouncementStatus}; speech={team.LastSharedSpeechStatus}; last={team.LastStatus}");
         }
 
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
@@ -247,7 +250,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffDigest}; returnReason={team.LastReturnOrExtractReasonStatus}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
                 $"threatClear={team.LastThreatNeutralizedStatus}; " +
-                $"phaseBark={team.LastPhaseAnnouncementStatus}; " +
+                $"phaseBark={team.LastPhaseAnnouncementStatus}; speech={team.LastSharedSpeechStatus}; " +
                 "identities=withheld; coordinates=withheld.");
         }
 
@@ -663,13 +666,59 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             speakerLabel = FormatRole(escort.Role);
         }
 
+        if (!TryReserveTeamSpeech(
+                speaker,
+                team,
+                $"phase:{FormatPhase(phase)}",
+                now,
+                out var speechStatusChanged))
+        {
+            return SetTeamPhaseAnnouncementStatus(
+                       team,
+                       $"phase-bark waiting shared speech: {FormatPhase(phase)}; somber={somberScene}") ||
+                   speechStatusChanged;
+        }
+
         if (!Deleted(speaker))
             _chat.TrySendInGameICMessage(speaker, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
 
         team.LastAnnouncedPhase = phase;
         team.LastAnnouncedSomberScene = somberScene;
         team.NextPhaseAnnouncementAt = now + TimeSpan.FromSeconds(TeamPhaseAnnouncementCooldownSeconds);
-        return SetTeamPhaseAnnouncementStatus(team, $"phase-bark:{FormatPhase(phase)} speaker={speakerLabel}; somber={somberScene}");
+        return SetTeamPhaseAnnouncementStatus(team, $"phase-bark:{FormatPhase(phase)} speaker={speakerLabel}; somber={somberScene}") ||
+               speechStatusChanged;
+    }
+
+    private bool TryReserveTeamSpeech(
+        EntityUid speaker,
+        LuaMRescueTeamComponent team,
+        string key,
+        TimeSpan now,
+        out bool statusChanged)
+    {
+        if (now < team.NextSharedSpeechAt)
+        {
+            var wait = Math.Max(0, (int) Math.Ceiling((team.NextSharedSpeechAt - now).TotalSeconds));
+            statusChanged = SetTeamSharedSpeechStatus(
+                team,
+                $"shared-speech waiting: {key} in {wait}s; speaker={FormatEntityRef(speaker)}");
+            return false;
+        }
+
+        team.NextSharedSpeechAt = now + TimeSpan.FromSeconds(TeamSharedSpeechCooldownSeconds);
+        statusChanged = SetTeamSharedSpeechStatus(
+            team,
+            $"shared-speech:{key}; speaker={FormatEntityRef(speaker)}; cooldown={TeamSharedSpeechCooldownSeconds:0}s");
+        return true;
+    }
+
+    private static bool SetTeamSharedSpeechStatus(LuaMRescueTeamComponent team, string status)
+    {
+        if (string.Equals(team.LastSharedSpeechStatus, status, StringComparison.Ordinal))
+            return false;
+
+        team.LastSharedSpeechStatus = status;
+        return true;
     }
 
     private static bool SetTeamPhaseAnnouncementStatus(LuaMRescueTeamComponent team, string status)
@@ -2993,6 +3042,18 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (string.IsNullOrWhiteSpace(line))
             return;
 
+        if (TryGetEscortLeaderTeam(escort, out var leader, out var team))
+        {
+            var now = _timing.CurTime;
+            var key = $"duty:{FormatRole(escort.Role)}:{FormatDuty(duty)}";
+            var reserved = TryReserveTeamSpeech(uid, team, key, now, out var speechStatusChanged);
+            if (speechStatusChanged)
+                Dirty(leader, team);
+
+            if (!reserved)
+                return;
+        }
+
         _chat.TrySendInGameICMessage(uid, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
     }
 
@@ -3038,6 +3099,25 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private bool PruneTeamEscorts(LuaMRescueTeamComponent team)
     {
         return team.Escorts.RemoveAll(escort => !escort.Valid || Deleted(escort)) > 0;
+    }
+
+    private bool TryGetEscortLeaderTeam(
+        LuaMRescueEscortComponent escort,
+        out EntityUid leader,
+        out LuaMRescueTeamComponent team)
+    {
+        leader = default;
+        team = default!;
+
+        if (ValidOrNull(escort.Leader) is not { Valid: true } leaderUid ||
+            !TryComp<LuaMRescueTeamComponent>(leaderUid, out var leaderTeam))
+        {
+            return false;
+        }
+
+        leader = leaderUid;
+        team = leaderTeam;
+        return true;
     }
 
     private bool IsSomberTeamScene(

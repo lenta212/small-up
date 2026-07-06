@@ -394,14 +394,23 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("LastAnnouncedSomberScene"));
         Assert.That(component, Does.Contain("LastPhaseAnnouncementStatus"));
         Assert.That(component, Does.Contain("NextPhaseAnnouncementAt"));
+        Assert.That(component, Does.Contain("LastSharedSpeechStatus"));
+        Assert.That(component, Does.Contain("NextSharedSpeechAt"));
         Assert.That(source, Does.Contain("TeamPhaseAnnouncementCooldownSeconds"));
+        Assert.That(source, Does.Contain("TeamSharedSpeechCooldownSeconds = 6"));
         Assert.That(source, Does.Contain("TrySayTeamPhaseLine"));
+        Assert.That(source, Does.Contain("TryReserveTeamSpeech"));
+        Assert.That(source, Does.Contain("SetTeamSharedSpeechStatus"));
+        Assert.That(source, Does.Contain("shared-speech waiting: {key}"));
+        Assert.That(source, Does.Contain("shared-speech:{key}"));
         Assert.That(source, Does.Contain("SetTeamPhaseAnnouncementStatus"));
         Assert.That(source, Does.Contain("TryBuildTeamPhaseLine"));
         Assert.That(source, Does.Contain("TryBuildTeamPhaseLine(phase, somberScene"));
         Assert.That(source, Does.Contain("phase-bark:"));
+        Assert.That(source, Does.Contain("phase-bark waiting shared speech"));
         Assert.That(source, Does.Contain("somber={somberScene}"));
         Assert.That(source, Does.Contain("phaseBark={team.LastPhaseAnnouncementStatus}"));
+        Assert.That(source, Does.Contain("speech={team.LastSharedSpeechStatus}"));
         Assert.That(source, Does.Contain("LuaMRescueTeamPhase.SecureScene"));
         Assert.That(source, Does.Contain("LuaMRescueTeamPhase.Triage"));
         Assert.That(source, Does.Contain("LuaMRescueTeamPhase.EvacuateToShuttle"));
@@ -438,6 +447,21 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("\\u0423\\u0433\\u0440\\u043e\\u0437\\u0430 \\u043d\\u0430 \\u043c\\u043d\\u0435"));
         Assert.That(source, Does.Contain("Носилки морально готовы"));
         Assert.That(source, Does.Contain("Без пациента скучно"));
+    }
+
+    [Test]
+    public void RescueTeamUsesSharedSpeechGateForDutyBarks()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("TryGetEscortLeaderTeam"));
+        Assert.That(source, Does.Contain("var key = $\"duty:{FormatRole(escort.Role)}:{FormatDuty(duty)}\""));
+        Assert.That(source, Does.Contain("TryReserveTeamSpeech(uid, team, key, now, out var speechStatusChanged)"));
+        Assert.That(source, Does.Contain("Dirty(leader, team)"));
+        Assert.That(source, Does.Contain("if (!reserved)"));
+        Assert.That(source, Does.Contain("return;"));
+        Assert.That(source, Does.Contain("shared-speech:{key}"));
+        Assert.That(source, Does.Contain("cooldown={TeamSharedSpeechCooldownSeconds:0}s"));
     }
 
     [Test]

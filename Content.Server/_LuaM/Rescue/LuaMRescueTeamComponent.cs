@@ -58,6 +58,12 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public TimeSpan NextPhaseAnnouncementAt;
 
     [DataField]
+    public string LastSharedSpeechStatus = "none";
+
+    [DataField]
+    public TimeSpan NextSharedSpeechAt;
+
+    [DataField]
     public string LastReturnOrExtractReasonStatus = "none";
 
     [DataField]
