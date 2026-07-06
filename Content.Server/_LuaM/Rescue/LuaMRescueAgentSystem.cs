@@ -4255,10 +4255,23 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             }
         }
 
+        return TryFallbackToShuttleExtraction(uid, target, rescue, htn, blockedGoal);
+    }
+
+    private bool TryFallbackToShuttleExtraction(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid blockedGoal)
+    {
+        rescue.AssignedPatientStrap = null;
+
+        var fallbackTarget = rescue.AssignedShuttleAnchor ?? rescue.AssignedShuttle;
         rescue.LastAutoEvacuationStatus =
-            $"route blocked for {FormatEntityRef(target)}; requesting corridor help and falling back to shuttle delivery";
+            $"route blocked for {FormatEntityRef(target)}; requesting route help and falling back to shuttle extraction";
         rescue.LastRouteBlockHoldStatus =
-            $"request-help; target={FormatEntityRef(target)}; blockedGoal={FormatEntityRef(blockedGoal)}; fallback=shuttle";
+            $"fallback-extraction; target={FormatEntityRef(target)}; blockedGoal={FormatEntityRef(blockedGoal)}; fallback={FormatEntityRef(fallbackTarget)}";
 
         TrySendRescueStatusComms(
             uid,
@@ -4271,9 +4284,25 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue,
             LuaMRescueTaskStage.DeliveringPatient,
             target,
-            rescue.AssignedShuttleAnchor ?? rescue.AssignedShuttle,
-            $"requesting route help for blocked evacuation of {FormatEntityRef(target)}");
-        return SetFollowShuttle(uid, rescue, htn);
+            fallbackTarget,
+            $"fallback extraction after blocked route for {FormatEntityRef(target)}");
+
+        if (SetFollowShuttle(uid, rescue, htn))
+            return true;
+
+        rescue.LastAutoEvacuationStatus =
+            $"route blocked for {FormatEntityRef(target)}; fallback extraction waiting for shuttle access";
+        rescue.LastRouteBlockHoldStatus =
+            $"fallback-extraction-waiting; target={FormatEntityRef(target)}; blockedGoal={FormatEntityRef(blockedGoal)}; noShuttleFollow";
+
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"route-blocked-extract:{target}:{blockedGoal}",
+            $"\u0420\u0435\u0437\u0435\u0440\u0432\u043d\u044b\u0439 \u0432\u044b\u0432\u043e\u0437 \u043d\u0435 \u043f\u043e\u0441\u0442\u0440\u043e\u0435\u043d. \u0423\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u044e {Name(target)}; \u043d\u0443\u0436\u0435\u043d \u0440\u0443\u0447\u043d\u043e\u0439 \u043a\u043e\u0440\u0438\u0434\u043e\u0440 \u0438\u043b\u0438 \u0434\u043e\u0441\u0442\u0443\u043f \u043a \u0448\u0430\u0442\u0442\u043b\u0443.");
+
+        SetFollowTarget(uid, rescue, htn, target);
+        return true;
     }
 
     private bool TryHandleStalledDeliveryTarget(
@@ -4305,14 +4334,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return SetFollowDeliveryStrap(uid, rescue, htn, replacementStrap);
         }
 
-        SetRescueTask(
-            uid,
-            rescue,
-            LuaMRescueTaskStage.DeliveringPatient,
-            target,
-            rescue.AssignedShuttleAnchor ?? rescue.AssignedShuttle,
-            $"falling back to shuttle delivery for {FormatEntityRef(target)}");
-        return SetFollowShuttle(uid, rescue, htn);
+        return TryFallbackToShuttleExtraction(uid, target, rescue, htn, progressGoal);
     }
 
     private bool UpdateTargetProgress(EntityUid uid, EntityUid target, LuaMRescueAgentComponent rescue)

@@ -180,10 +180,16 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("team.NearbyBlockers >= 2"));
         Assert.That(source, Does.Contain("TryGetActiveDeliveryGoal"));
         Assert.That(source, Does.Contain("TryRerouteBlockedDeliveryTarget"));
+        Assert.That(source, Does.Contain("TryFallbackToShuttleExtraction"));
+        Assert.That(source, Does.Contain("TryFallbackToShuttleExtraction(uid, target, rescue, htn, progressGoal)"));
         Assert.That(source, Does.Contain("hold-position route blocked"));
         Assert.That(source, Does.Contain("route-blocked-hold:"));
         Assert.That(source, Does.Contain("route-blocked-reroute:"));
         Assert.That(source, Does.Contain("route-blocked-help:"));
+        Assert.That(source, Does.Contain("route-blocked-extract:"));
+        Assert.That(source, Does.Contain("rescue.AssignedPatientStrap = null;"));
+        Assert.That(source, Does.Contain("fallback extraction after blocked route"));
+        Assert.That(source, Does.Contain("fallback-extraction-waiting"));
         Assert.That(source, Does.Contain("requesting route help"));
         Assert.That(source, Does.Contain("routeHold={rescue.LastRouteBlockHoldStatus}"));
         Assert.That(source, Does.Contain("\\u041c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u044d\\u0432\\u0430\\u043a\\u0443\\u0430\\u0446\\u0438\\u0438 \\u0437\\u0430\\u0431\\u043b\\u043e\\u043a\\u0438\\u0440\\u043e\\u0432\\u0430\\u043d"));
