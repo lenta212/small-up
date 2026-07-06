@@ -443,6 +443,23 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("threat-screen target neutralized"));
     }
 
+    [Test]
+    public void RescueEscortsDragRouteBlockersToDropoff()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("RouteBlockerDropoffDistance = 3.5f"));
+        Assert.That(source, Does.Contain("TryRunClearRouteAction(uid, escort, htn, followTarget)"));
+        Assert.That(source, Does.Contain("TrySetClearRouteDropoffTarget"));
+        Assert.That(source, Does.Contain("GetClearRouteDropoffDirection"));
+        Assert.That(source, Does.Contain("blockerXform.Coordinates.Offset(direction * RouteBlockerDropoffDistance)"));
+        Assert.That(source, Does.Contain("_npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, dropoff, htn)"));
+        Assert.That(source, Does.Contain("_npc.SetBlackboard(uid, \"FollowCloseRange\", 0.75f, htn)"));
+        Assert.That(source, Does.Contain("_npc.SetBlackboard(uid, \"FollowRange\", 1.5f, htn)"));
+        Assert.That(source, Does.Contain("clear-route dragging"));
+        Assert.That(source, Does.Contain("Vector2.Normalize(away)"));
+    }
+
     private static void AssertLoadout(YamlSequenceNode entities, string prototypeId)
     {
         var entity = FindPrototype(entities, prototypeId);

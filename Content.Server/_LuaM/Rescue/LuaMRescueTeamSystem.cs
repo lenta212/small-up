@@ -49,6 +49,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const float EscortThreatScreenRange = 7f;
     private const float EscortPatientAssistRange = 1.5f;
     private const float EscortCrowdControlRange = 3f;
+    private const float RouteBlockerDropoffDistance = 3.5f;
     private const string BotTag = "Bot";
 
     private static readonly (LuaMRescueEscortRole Role, Vector2 Offset)[] EscortFormation =
@@ -772,7 +773,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (duty == LuaMRescueEscortDuty.ClearRoute)
         {
-            TryRunClearRouteAction(uid, escort, followTarget);
+            TryRunClearRouteAction(uid, escort, htn, followTarget);
             return;
         }
 
@@ -910,6 +911,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private void TryRunClearRouteAction(
         EntityUid uid,
         LuaMRescueEscortComponent escort,
+        HTNComponent htn,
         EntityUid? followTarget)
     {
         var blocker = ValidOrNull(escort.RouteBlockerTarget) ?? ValidOrNull(followTarget);
@@ -940,11 +942,65 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (_pulling.TryStartPull(uid, blockerUid, puller, pullable))
         {
             escort.DutyActions++;
-            escort.LastDutyActionStatus = $"clear-route pulling {FormatEntityRef(blockerUid)}";
+            escort.LastDutyActionStatus = TrySetClearRouteDropoffTarget(uid, escort, htn, blockerUid)
+                ? $"clear-route dragging {FormatEntityRef(blockerUid)} to dropoff"
+                : $"clear-route pulling {FormatEntityRef(blockerUid)}";
             return;
         }
 
         escort.LastDutyActionStatus = $"clear-route pull blocked {FormatEntityRef(blockerUid)}";
+    }
+
+    private bool TrySetClearRouteDropoffTarget(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        HTNComponent htn,
+        EntityUid blockerUid)
+    {
+        if (Deleted(blockerUid) ||
+            !TryComp<TransformComponent>(blockerUid, out var blockerXform))
+        {
+            return false;
+        }
+
+        var direction = GetClearRouteDropoffDirection(escort, blockerXform);
+        if (direction.LengthSquared() <= 0.001f)
+            return false;
+
+        var dropoff = blockerXform.Coordinates.Offset(direction * RouteBlockerDropoffDistance);
+        _npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, dropoff, htn);
+        _npc.SetBlackboard(uid, "FollowCloseRange", 0.75f, htn);
+        _npc.SetBlackboard(uid, "FollowRange", 1.5f, htn);
+        _npc.WakeNPC(uid, htn);
+        return true;
+    }
+
+    private Vector2 GetClearRouteDropoffDirection(
+        LuaMRescueEscortComponent escort,
+        TransformComponent blockerXform)
+    {
+        var anchor = ValidOrNull(escort.SceneAnchor) ??
+                     ValidOrNull(escort.Patient) ??
+                     ValidOrNull(escort.Leader) ??
+                     ValidOrNull(escort.ShuttleAnchor) ??
+                     ValidOrNull(escort.Shuttle);
+
+        if (anchor is { Valid: true } anchorUid &&
+            TryComp<TransformComponent>(anchorUid, out var anchorXform) &&
+            anchorXform.MapID == blockerXform.MapID)
+        {
+            var away = blockerXform.MapPosition.Position - anchorXform.MapPosition.Position;
+            if (away.LengthSquared() > 0.001f)
+                return Vector2.Normalize(away);
+        }
+
+        return escort.Role switch
+        {
+            LuaMRescueEscortRole.Tourniquet => Vector2.UnitY,
+            LuaMRescueEscortRole.Zaslon => -Vector2.UnitY,
+            LuaMRescueEscortRole.Kostyl => -Vector2.UnitX,
+            _ => Vector2.UnitX,
+        };
     }
 
     private static bool ShouldEscortAssistPatientPull(
