@@ -2358,6 +2358,22 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
+        if (TryFindPriorityRescueOverride(uid, rescue, medibot, out var priorityTarget))
+        {
+            if (TryTreatOrEvacuateTarget(uid, rescue, htn, priorityTarget))
+                return;
+
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.FollowingPatient,
+                priorityTarget,
+                null,
+                $"rerouting to closer higher-acuity patient {FormatEntityRef(priorityTarget)}");
+            SetFollowTarget(uid, rescue, htn, priorityTarget);
+            return;
+        }
+
         if (TryResumeRememberedPatientTask(uid, rescue, htn, medibot))
             return;
 
@@ -2461,6 +2477,135 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         return target != default;
+    }
+
+    private bool TryFindPriorityRescueOverride(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        MedibotComponent medibot,
+        out EntityUid target)
+    {
+        target = default;
+
+        if (!TryGetActivePatientTarget(rescue, out var current) ||
+            Deleted(current) ||
+            IsTargetTemporarilySkipped(current, rescue) ||
+            !TryGetRescueTargetPriority(
+                uid,
+                current,
+                rescue,
+                medibot,
+                requireRange: false,
+                rescue.SearchRange,
+                out var currentPriority,
+                out var currentDistance))
+        {
+            return false;
+        }
+
+        var bestScore = float.MinValue;
+        foreach (var candidate in _lookup.GetEntitiesInRange(uid, rescue.SearchRange))
+        {
+            if (candidate == current ||
+                IsTargetTemporarilySkipped(candidate, rescue))
+            {
+                continue;
+            }
+
+            if (!TryGetRescueTargetPriority(
+                    uid,
+                    candidate,
+                    rescue,
+                    medibot,
+                    requireRange: true,
+                    rescue.SearchRange,
+                    out var candidatePriority,
+                    out var candidateDistance))
+            {
+                continue;
+            }
+
+            if (candidatePriority <= currentPriority ||
+                candidateDistance >= currentDistance)
+            {
+                continue;
+            }
+
+            var score = candidatePriority * 1000f - candidateDistance;
+            if (score <= bestScore)
+                continue;
+
+            target = candidate;
+            bestScore = score;
+        }
+
+        return target != default;
+    }
+
+    private bool TryGetActivePatientTarget(LuaMRescueAgentComponent rescue, out EntityUid target)
+    {
+        if (rescue.EvacuatingTarget is { Valid: true } evacuating)
+        {
+            target = evacuating;
+            return true;
+        }
+
+        if (rescue.AssignedTarget is { Valid: true } assigned)
+        {
+            target = assigned;
+            return true;
+        }
+
+        if (rescue.TaskPatientTarget is { Valid: true } remembered)
+        {
+            target = remembered;
+            return true;
+        }
+
+        target = default;
+        return false;
+    }
+
+    private bool TryGetRescueTargetPriority(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        MedibotComponent medibot,
+        bool requireRange,
+        float searchRange,
+        out int priority,
+        out float distance)
+    {
+        priority = 0;
+        distance = float.PositiveInfinity;
+
+        if (!IsRescueCandidate(uid, target, medibot, requireRange, searchRange, out _) ||
+            !TryGetDistance(uid, target, out distance) ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            !TryComp<DamageableComponent>(target, out var damage))
+        {
+            return false;
+        }
+
+        priority = GetRescueTargetAcuity(mobState, damage.TotalDamage.Float(), rescue);
+        return priority > 0;
+    }
+
+    private static int GetRescueTargetAcuity(
+        MobStateComponent mobState,
+        float totalDamage,
+        LuaMRescueAgentComponent rescue)
+    {
+        if (mobState.CurrentState == MobState.Critical)
+            return 4;
+
+        if (totalDamage >= rescue.EvacuationMinDamage)
+            return 3;
+
+        if (totalDamage >= rescue.AutoTreatMinDamage)
+            return 2;
+
+        return 1;
     }
 
     private bool TryFindEvacuationTarget(

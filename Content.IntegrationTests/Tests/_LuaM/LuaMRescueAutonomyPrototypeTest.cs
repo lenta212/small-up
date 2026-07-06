@@ -117,6 +117,23 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAgentOnlyReroutesToCloserHigherAcuityPatients()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("TryFindPriorityRescueOverride"));
+        Assert.That(source, Does.Contain("TryGetActivePatientTarget"));
+        Assert.That(source, Does.Contain("TryGetRescueTargetPriority"));
+        Assert.That(source, Does.Contain("GetRescueTargetAcuity"));
+        Assert.That(source, Does.Contain("candidatePriority <= currentPriority"));
+        Assert.That(source, Does.Contain("candidateDistance >= currentDistance"));
+        Assert.That(source, Does.Contain("rerouting to closer higher-acuity patient"));
+        Assert.That(source, Does.Contain("mobState.CurrentState == MobState.Critical"));
+        Assert.That(source, Does.Contain("totalDamage >= rescue.EvacuationMinDamage"));
+        Assert.That(source, Does.Contain("totalDamage >= rescue.AutoTreatMinDamage"));
+    }
+
+    [Test]
     public void RescueAgentAutoDefibsDeadPatientsWithStandardDefibrillatorSystem()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
