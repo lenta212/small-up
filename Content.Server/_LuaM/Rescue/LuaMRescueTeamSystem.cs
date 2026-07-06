@@ -36,6 +36,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double SceneMemoryReinforceSeconds = 18;
     private const double HandoffPhaseHoldSeconds = 6;
     private const double SortiePlanHoldSeconds = 4;
+    private const double TriageCoverConfirmCooldownSeconds = 8;
     private const double EscortDutyHoldSeconds = 2;
     private const double EscortDutyActionIntervalSeconds = 2;
     private const float EscortDutyActionRange = 1.75f;
@@ -126,6 +127,10 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.HandoffRecords = 0;
         team.LastHandoffRecord = "handoff pending";
         team.LastHandoffDigest = "after-action pending";
+        team.TriageCoverConfirmedPatient = null;
+        team.LastTriageCoverDecisionKey = "none";
+        team.LastTriageCoverStatus = "none";
+        team.NextTriageCoverConfirmAt = _timing.CurTime;
         team.SceneScanAccumulator = team.SceneScanInterval;
         team.Escorts.Clear();
         team.SceneMemory.Clear();
@@ -158,7 +163,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"threat={FormatEntityRef(team.ThreatTarget)}; crowd={team.NearbyCrowd}; crowdTarget={FormatEntityRef(team.CrowdTarget)}; " +
                 $"blockers={team.NearbyBlockers}; blockerTarget={FormatEntityRef(team.RouteBlockerTarget)}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffRecord}; " +
-                $"planStatus={team.LastSortiePlanStatus}; last={team.LastStatus}");
+                $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; last={team.LastStatus}");
         }
 
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
@@ -193,7 +198,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"planTransitions={team.SortiePlanTransitions}; escorts={escortCount}; scene={team.LastSceneStatus}; " +
                 $"pressure(threat/crowd/route)={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffDigest}; " +
-                $"planStatus={team.LastSortiePlanStatus}; identities=withheld; coordinates=withheld.");
+                $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
+                "identities=withheld; coordinates=withheld.");
         }
 
         return lines
@@ -357,6 +363,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         changed |= UpdateSortiePlan(team, phase, patient);
+        changed |= TryConfirmTriageCover(team, rescue, patient);
 
         if (changed)
             Dirty(uid, team);
@@ -476,6 +483,170 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         return $"{status}; {escort.LastSceneStatus}; {escort.LastMemoryDigest}";
+    }
+
+    private bool TryConfirmTriageCover(
+        LuaMRescueTeamComponent team,
+        LuaMRescueAgentComponent rescue,
+        EntityUid? patient)
+    {
+        if (patient is not { Valid: true } patientUid ||
+            Deleted(patientUid) ||
+            rescue.TriageReportedTarget != patientUid ||
+            string.IsNullOrWhiteSpace(rescue.LastTriageDecisionKey) ||
+            rescue.LastTriageDecisionKey == "none")
+        {
+            return ClearTriageCoverConfirmation(team);
+        }
+
+        var decisionKey = rescue.LastTriageDecisionKey;
+        if (team.TriageCoverConfirmedPatient == patientUid &&
+            string.Equals(team.LastTriageCoverDecisionKey, decisionKey, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (_timing.CurTime < team.NextTriageCoverConfirmAt &&
+            team.LastTriageCoverStatus.StartsWith("triage-cover: waiting", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var role = SelectTriageCoverRole(team, decisionKey);
+        if (!TryFindEscortByRole(team, role, out var speaker, out var escort) &&
+            !TryFindAnyEscort(team, out speaker, out escort))
+        {
+            team.LastTriageCoverDecisionKey = decisionKey;
+            team.NextTriageCoverConfirmAt = _timing.CurTime + TimeSpan.FromSeconds(TriageCoverConfirmCooldownSeconds);
+            return SetTriageCoverStatus(team, $"triage-cover: waiting for escort; decision={decisionKey}");
+        }
+
+        var line = BuildTriageCoverLine(escort.Role, decisionKey);
+        if (!string.IsNullOrWhiteSpace(line))
+            _chat.TrySendInGameICMessage(speaker, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
+
+        escort.LastDutyActionStatus = $"triage-cover:{decisionKey} confirming {FormatRole(escort.Role)}";
+        escort.DutyActions++;
+        escort.NextSpeechTime = _timing.CurTime + TimeSpan.FromSeconds(18);
+        Dirty(speaker, escort);
+
+        team.TriageCoverConfirmedPatient = patientUid;
+        team.LastTriageCoverDecisionKey = decisionKey;
+        team.NextTriageCoverConfirmAt = _timing.CurTime + TimeSpan.FromSeconds(TriageCoverConfirmCooldownSeconds);
+
+        return SetTriageCoverStatus(
+            team,
+            $"triage-cover: role={FormatRole(escort.Role)}; decision={decisionKey}; scene={team.LastSceneStatus}");
+    }
+
+    private static bool ClearTriageCoverConfirmation(LuaMRescueTeamComponent team)
+    {
+        if (team.TriageCoverConfirmedPatient == null &&
+            team.LastTriageCoverDecisionKey == "none" &&
+            team.LastTriageCoverStatus == "none")
+        {
+            return false;
+        }
+
+        team.TriageCoverConfirmedPatient = null;
+        team.LastTriageCoverDecisionKey = "none";
+        team.LastTriageCoverStatus = "none";
+        return true;
+    }
+
+    private static bool SetTriageCoverStatus(LuaMRescueTeamComponent team, string status)
+    {
+        if (string.Equals(team.LastTriageCoverStatus, status, StringComparison.Ordinal))
+            return false;
+
+        team.LastTriageCoverStatus = status;
+        return true;
+    }
+
+    private static LuaMRescueEscortRole SelectTriageCoverRole(LuaMRescueTeamComponent team, string decisionKey)
+    {
+        if (HasThreatPressure(team) || decisionKey == "unsafe-evacuation")
+            return LuaMRescueEscortRole.Zaslon;
+
+        if (HasCrowdPressure(team))
+            return LuaMRescueEscortRole.Tourniquet;
+
+        if (HasRoutePressure(team) ||
+            decisionKey == "dead-recovery" ||
+            decisionKey == "critical-evacuation" ||
+            decisionKey == "heavy-evacuation")
+        {
+            return LuaMRescueEscortRole.Kostyl;
+        }
+
+        return LuaMRescueEscortRole.Tourniquet;
+    }
+
+    private bool TryFindEscortByRole(
+        LuaMRescueTeamComponent team,
+        LuaMRescueEscortRole role,
+        out EntityUid uid,
+        out LuaMRescueEscortComponent escort)
+    {
+        foreach (var candidate in team.Escorts)
+        {
+            if (candidate.Valid &&
+                !Deleted(candidate) &&
+                TryComp<LuaMRescueEscortComponent>(candidate, out var candidateEscort) &&
+                candidateEscort.Role == role)
+            {
+                uid = candidate;
+                escort = candidateEscort;
+                return true;
+            }
+        }
+
+        uid = default;
+        escort = default!;
+        return false;
+    }
+
+    private bool TryFindAnyEscort(
+        LuaMRescueTeamComponent team,
+        out EntityUid uid,
+        out LuaMRescueEscortComponent escort)
+    {
+        foreach (var candidate in team.Escorts)
+        {
+            if (candidate.Valid &&
+                !Deleted(candidate) &&
+                TryComp<LuaMRescueEscortComponent>(candidate, out var candidateEscort))
+            {
+                uid = candidate;
+                escort = candidateEscort;
+                return true;
+            }
+        }
+
+        uid = default;
+        escort = default!;
+        return false;
+    }
+
+    private static string BuildTriageCoverLine(LuaMRescueEscortRole role, string decisionKey)
+    {
+        return role switch
+        {
+            LuaMRescueEscortRole.Zaslon when decisionKey == "unsafe-evacuation" =>
+                "\u041e\u043f\u0430\u0441\u043d\u0443\u044e \u0441\u0442\u043e\u0440\u043e\u043d\u0443 \u0434\u0435\u0440\u0436\u0443. \u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u0440\u0430\u0431\u043e\u0442\u0430\u0439.",
+            LuaMRescueEscortRole.Zaslon =>
+                "\u0423\u0433\u0440\u043e\u0437\u0430 \u043d\u0430 \u043c\u043d\u0435. \u041c\u0435\u0434\u0438\u043a \u0437\u0430 \u0441\u043f\u0438\u043d\u043e\u0439.",
+            LuaMRescueEscortRole.Kostyl when decisionKey == "dead-recovery" =>
+                "\u041f\u0435\u0440\u0435\u043d\u043e\u0441 \u0431\u0435\u0440\u0443. \u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043d\u0435 \u043e\u0441\u0442\u0430\u043d\u0435\u0442\u0441\u044f \u0437\u0434\u0435\u0441\u044c.",
+            LuaMRescueEscortRole.Kostyl when decisionKey.EndsWith("evacuation", StringComparison.Ordinal) =>
+                "\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u043a \u0448\u0430\u0442\u0442\u043b\u0443 \u0434\u0435\u0440\u0436\u0443. \u041f\u0430\u0446\u0438\u0435\u043d\u0442\u0430 \u043d\u0435 \u0431\u0440\u043e\u0441\u0430\u0435\u043c.",
+            LuaMRescueEscortRole.Tourniquet when decisionKey == "onsite-treatment" =>
+                "\u041f\u0435\u0440\u0438\u043c\u0435\u0442\u0440 \u0441\u0442\u0430\u0431\u0438\u043b\u0435\u043d. \u0410\u0439\u0431\u043e\u043b\u0438\u0442 \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442.",
+            LuaMRescueEscortRole.Tourniquet =>
+                "\u041c\u0435\u0434\u0438\u0446\u0438\u043d\u0441\u043a\u0430\u044f \u0437\u043e\u043d\u0430 \u0434\u0435\u0440\u0436\u0438\u0442\u0441\u044f. \u041d\u0435 \u043c\u0435\u0448\u0430\u0435\u043c \u0432\u0440\u0430\u0447\u0443.",
+            _ =>
+                "\u041f\u0440\u0438\u043a\u0440\u044b\u0442\u0438\u0435 \u043d\u0430 \u043c\u0435\u0441\u0442\u0435. \u0410\u0439\u0431\u043e\u043b\u0438\u0442 \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442.",
+        };
     }
 
     private void TryRunEscortDutyAction(

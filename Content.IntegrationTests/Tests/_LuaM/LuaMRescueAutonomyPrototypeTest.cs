@@ -224,6 +224,34 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueTeamConfirmsCoverAfterAibolitTriageDecision()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("TriageCoverConfirmedPatient"));
+        Assert.That(component, Does.Contain("LastTriageCoverDecisionKey"));
+        Assert.That(component, Does.Contain("LastTriageCoverStatus"));
+        Assert.That(component, Does.Contain("NextTriageCoverConfirmAt"));
+        Assert.That(source, Does.Contain("TriageCoverConfirmCooldownSeconds"));
+        Assert.That(source, Does.Contain("TryConfirmTriageCover"));
+        Assert.That(source, Does.Contain("rescue.TriageReportedTarget != patientUid"));
+        Assert.That(source, Does.Contain("rescue.LastTriageDecisionKey"));
+        Assert.That(source, Does.Contain("SelectTriageCoverRole"));
+        Assert.That(source, Does.Contain("TryFindEscortByRole"));
+        Assert.That(source, Does.Contain("TryFindAnyEscort"));
+        Assert.That(source, Does.Contain("BuildTriageCoverLine"));
+        Assert.That(source, Does.Contain("triage-cover:"));
+        Assert.That(source, Does.Contain("triageCover={team.LastTriageCoverStatus}"));
+        Assert.That(source, Does.Contain("escort.LastDutyActionStatus = $\"triage-cover:{decisionKey}"));
+        Assert.That(source, Does.Contain("HasThreatPressure(team) || decisionKey == \"unsafe-evacuation\""));
+        Assert.That(source, Does.Contain("decisionKey == \"critical-evacuation\""));
+        Assert.That(source, Does.Contain("decisionKey == \"heavy-evacuation\""));
+        Assert.That(source, Does.Contain("\\u041f\\u0435\\u0440\\u0438\\u043c\\u0435\\u0442\\u0440 \\u0441\\u0442\\u0430\\u0431\\u0438\\u043b\\u0435\\u043d"));
+        Assert.That(source, Does.Contain("\\u041c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u043a \\u0448\\u0430\\u0442\\u0442\\u043b\\u0443"));
+    }
+
+    [Test]
     public void RescueTeamThreatDetectionUsesObserverFaction()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);

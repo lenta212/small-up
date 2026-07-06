@@ -46,6 +46,18 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public string LastStatus = "none";
 
     [DataField]
+    public EntityUid? TriageCoverConfirmedPatient;
+
+    [DataField]
+    public string LastTriageCoverDecisionKey = "none";
+
+    [DataField]
+    public string LastTriageCoverStatus = "none";
+
+    [DataField]
+    public TimeSpan NextTriageCoverConfirmAt;
+
+    [DataField]
     public EntityUid? SceneAnchor;
 
     [DataField]
