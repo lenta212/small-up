@@ -191,6 +191,9 @@ public sealed partial class LuaMRescueEscortComponent : Component
     public string LastDutyActionStatus = "none";
 
     [DataField]
+    public string LastCrewHelpStatus = "none";
+
+    [DataField]
     public int DutyActions;
 
     [DataField]
@@ -246,6 +249,10 @@ public sealed partial class LuaMRescueEscortComponent : Component
     public TimeSpan NextDutyActionAt;
 
     public TimeSpan NextSpeechTime;
+
+    public string LastCrewHelpKey = "none";
+
+    public TimeSpan NextCrewHelpRequestAt;
 }
 
 public enum LuaMRescueEscortRole : byte

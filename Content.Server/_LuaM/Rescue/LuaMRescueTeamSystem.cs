@@ -43,6 +43,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double TeamPhaseAnnouncementCooldownSeconds = 10;
     private const double ThreatNeutralizedReportCooldownSeconds = 6;
     private const double TriageCoverConfirmCooldownSeconds = 8;
+    private const double CrewHelpRequestCooldownSeconds = 12;
     private const double EscortDutyHoldSeconds = 2;
     private const double EscortDutyActionIntervalSeconds = 2;
     private const float EscortDutyActionRange = 1.75f;
@@ -203,7 +204,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"threat={FormatEntityRef(escort.ThreatTarget)}; crowdTarget={FormatEntityRef(escort.CrowdTarget)}; " +
                 $"blockerTarget={FormatEntityRef(escort.RouteBlockerTarget)}; " +
                 $"scene={escort.LastSceneStatus}; action={escort.LastDutyActionStatus}; " +
-                $"memory={escort.LastMemoryDigest}; last={escort.LastDutyStatus}");
+                $"crewHelp={escort.LastCrewHelpStatus}; memory={escort.LastMemoryDigest}; last={escort.LastDutyStatus}");
         }
 
         return lines;
@@ -314,9 +315,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         escort.SortiePlan = LuaMRescueSortiePlan.Standby;
         escort.LastDutyStatus = "deployed";
         escort.LastDutyActionStatus = "deployed";
+        escort.LastCrewHelpStatus = "none";
+        escort.LastCrewHelpKey = "none";
         escort.DutyActions = 0;
         escort.NextDutyActionAt = _timing.CurTime;
         escort.NextSpeechTime = _timing.CurTime;
+        escort.NextCrewHelpRequestAt = _timing.CurTime;
 
         _metaData.SetEntityName(uid, GetRoleName(role));
 
@@ -502,7 +506,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var dutyAge = GetEscortDutyAgeSeconds(escort);
         var status = $"{FormatRole(escort.Role)} plan={FormatPlan(escort.SortiePlan)} duty={FormatDuty(escort.CurrentDuty)} " +
             $"age={dutyAge}s transitions={escort.DutyTransitions} focus={FormatEntityRef(followTarget)} " +
-            $"action={escort.LastDutyActionStatus} actions={escort.DutyActions}";
+            $"action={escort.LastDutyActionStatus} crewHelp={escort.LastCrewHelpStatus} actions={escort.DutyActions}";
 
         if (candidateDuty != escort.CurrentDuty)
         {
@@ -910,6 +914,35 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             : $"\u0423\u0433\u0440\u043e\u0437\u0430 {targetName} \u043d\u0435\u0439\u0442\u0440\u0430\u043b\u0438\u0437\u043e\u0432\u0430\u043d\u0430. \u041f\u0435\u0440\u0438\u043c\u0435\u0442\u0440 \u0434\u0435\u0440\u0436\u0438\u043c.";
     }
 
+    private bool TryRequestCrewHelp(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        string key,
+        string status,
+        string line)
+    {
+        escort.LastCrewHelpStatus = $"crew-help:{key}; {status}";
+
+        if (Deleted(uid) ||
+            string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        var now = _timing.CurTime;
+        if (string.Equals(escort.LastCrewHelpKey, key, StringComparison.Ordinal) &&
+            escort.NextCrewHelpRequestAt > now)
+        {
+            return false;
+        }
+
+        escort.LastCrewHelpKey = key;
+        escort.NextCrewHelpRequestAt = now + TimeSpan.FromSeconds(CrewHelpRequestCooldownSeconds);
+        escort.NextSpeechTime = now + TimeSpan.FromSeconds(18);
+        _chat.TrySendInGameICMessage(uid, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
+        return true;
+    }
+
     private void TryRunClearRouteAction(
         EntityUid uid,
         LuaMRescueEscortComponent escort,
@@ -919,12 +952,28 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var blocker = ValidOrNull(escort.RouteBlockerTarget);
         if (blocker is not { Valid: true } blockerUid)
         {
+            if (HasRoutePressure(escort))
+            {
+                TryRequestCrewHelp(
+                    uid,
+                    escort,
+                    "mark-safe-path",
+                    $"route pressure without target; scene={escort.LastSceneStatus}",
+                    "\u041e\u0442\u043c\u0435\u0442\u044c\u0442\u0435 \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u044b\u0439 \u043f\u0443\u0442\u044c \u043a \u0448\u0430\u0442\u0442\u043b\u0443. \u0410\u0439\u0431\u043e\u043b\u0438\u0442 \u0432\u0435\u0434\u0435\u0442 \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430.");
+            }
+
             escort.LastDutyActionStatus = "clear-route no blocker target";
             return;
         }
 
         if (!TryComp<PullableComponent>(blockerUid, out var pullable))
         {
+            TryRequestCrewHelp(
+                uid,
+                escort,
+                $"open-route:{blockerUid}",
+                $"open route around non-pullable {FormatEntityRef(blockerUid)}",
+                "\u041e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u0434\u0432\u0435\u0440\u044c \u0438\u043b\u0438 \u043e\u0442\u043c\u0435\u0442\u044c\u0442\u0435 \u043e\u0431\u0445\u043e\u0434. \u041a\u043e\u0440\u0438\u0434\u043e\u0440 \u043d\u0443\u0436\u0435\u043d \u0434\u043b\u044f \u044d\u0432\u0430\u043a\u0443\u0430\u0446\u0438\u0438.");
             escort.LastDutyActionStatus = $"clear-route blocker not pullable {FormatEntityRef(blockerUid)}";
             return;
         }
@@ -940,6 +989,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (!IsWithinRange(uid, blockerUid, EscortDutyActionRange))
         {
+            TryRequestCrewHelp(
+                uid,
+                escort,
+                $"clear-blocker:{blockerUid}",
+                $"clear path to route blocker {FormatEntityRef(blockerUid)}",
+                "\u041e\u0441\u0432\u043e\u0431\u043e\u0434\u0438\u0442\u0435 \u043a\u043e\u0440\u0438\u0434\u043e\u0440: \u0443\u0431\u0435\u0440\u0438\u0442\u0435 \u044f\u0449\u0438\u043a \u0438\u043b\u0438 \u043e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u0434\u0432\u0435\u0440\u044c.");
             escort.LastDutyActionStatus = $"clear-route moving to {FormatEntityRef(blockerUid)}";
             return;
         }
@@ -950,9 +1005,21 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.LastDutyActionStatus = TrySetClearRouteDropoffTarget(uid, escort, htn, blockerUid)
                 ? $"clear-route dragging {FormatEntityRef(blockerUid)} to dropoff"
                 : $"clear-route pulling {FormatEntityRef(blockerUid)}";
+            TryRequestCrewHelp(
+                uid,
+                escort,
+                $"hold-corridor:{blockerUid}",
+                $"keep corridor open while dragging {FormatEntityRef(blockerUid)}",
+                "\u0414\u0435\u0440\u0436\u0438\u0442\u0435 \u043f\u0440\u043e\u0445\u043e\u0434 \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u044b\u043c. \u042f \u0443\u0432\u043e\u0436\u0443 \u043f\u043e\u043c\u0435\u0445\u0443.");
             return;
         }
 
+        TryRequestCrewHelp(
+            uid,
+            escort,
+            $"remove-blocker:{blockerUid}",
+            $"manual removal needed for {FormatEntityRef(blockerUid)}",
+            "\u041d\u0443\u0436\u043d\u0430 \u043f\u043e\u043c\u043e\u0449\u044c: \u0443\u0431\u0435\u0440\u0438\u0442\u0435 \u044d\u0442\u0443 \u043f\u043e\u043c\u0435\u0445\u0443 \u0438 \u0434\u0435\u0440\u0436\u0438\u0442\u0435 \u0434\u0432\u0435\u0440\u0438 \u043e\u0442\u043a\u0440\u044b\u0442\u044b\u043c\u0438.");
         escort.LastDutyActionStatus = $"clear-route pull blocked {FormatEntityRef(blockerUid)}";
     }
 
@@ -983,6 +1050,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             return true;
         }
 
+        TryRequestCrewHelp(
+            uid,
+            escort,
+            $"drop-blocker:{blockerUid}",
+            $"dropoff reached but release failed for {FormatEntityRef(blockerUid)}; {clearanceStatus}",
+            "\u041f\u043e\u043c\u0435\u0445\u0430 \u043e\u0442\u0442\u0430\u0449\u0435\u043d\u0430. \u041e\u0441\u0432\u043e\u0431\u043e\u0434\u0438\u0442\u0435 \u043c\u0435\u0441\u0442\u043e \u0441\u0431\u0440\u043e\u0441\u0430 \u0438 \u0434\u0435\u0440\u0436\u0438\u0442\u0435 \u043f\u0440\u043e\u0445\u043e\u0434.");
         escort.LastDutyActionStatus = $"clear-route drop blocked {FormatEntityRef(blockerUid)}; {clearanceStatus}";
         return true;
     }
@@ -1134,18 +1207,36 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (!TryComp<PullableComponent>(patientUid, out var pullable))
         {
+            TryRequestCrewHelp(
+                uid,
+                escort,
+                $"stretcher-needed:{patientUid}",
+                $"patient not pullable; bring stretcher for {FormatEntityRef(patientUid)}",
+                "\u041d\u0443\u0436\u043d\u044b \u043d\u043e\u0441\u0438\u043b\u043a\u0438 \u0438\u043b\u0438 \u043a\u0430\u0442\u0430\u043b\u043a\u0430 \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443. \u0410\u0439\u0431\u043e\u043b\u0438\u0442 \u0433\u043e\u0442\u043e\u0432\u0438\u0442 \u044d\u0432\u0430\u043a\u0443\u0430\u0446\u0438\u044e.");
             escort.LastDutyActionStatus = $"patient-assist patient not pullable {FormatEntityRef(patientUid)}";
             return;
         }
 
         if (pullable.Puller == uid)
         {
+            TryRequestCrewHelp(
+                uid,
+                escort,
+                $"stretcher-moving:{patientUid}",
+                $"escort pulling patient {FormatEntityRef(patientUid)}",
+                "\u041f\u043e\u043c\u043e\u0433\u0438\u0442\u0435 \u0441 \u043d\u043e\u0441\u0438\u043b\u043a\u0430\u043c\u0438: \u0434\u0435\u0440\u0436\u0438\u0442\u0435 \u0434\u0432\u0435\u0440\u0438 \u043e\u0442\u043a\u0440\u044b\u0442\u044b\u043c\u0438 \u0438 \u043c\u0430\u0440\u0448\u0440\u0443\u0442 \u0447\u0438\u0441\u0442\u044b\u043c.");
             escort.LastDutyActionStatus = $"patient-assist holding {FormatEntityRef(patientUid)}";
             return;
         }
 
         if (pullable.Puller is { Valid: true } puller && !Deleted(puller))
         {
+            TryRequestCrewHelp(
+                uid,
+                escort,
+                $"stretcher-coordinate:{patientUid}",
+                $"patient already pulled by {FormatEntityRef(puller)}",
+                "\u041d\u0435 \u0434\u0435\u0440\u0433\u0430\u0439\u0442\u0435 \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430. \u041f\u043e\u043c\u043e\u0433\u0438\u0442\u0435 \u0441 \u043d\u043e\u0441\u0438\u043b\u043a\u0430\u043c\u0438 \u0438 \u043e\u0441\u0432\u043e\u0431\u043e\u0434\u0438\u0442\u0435 \u043f\u0443\u0442\u044c \u043a \u0448\u0430\u0442\u0442\u043b\u0443.");
             escort.LastDutyActionStatus = $"patient-assist already pulled by {FormatEntityRef(puller)}";
             return;
         }
@@ -1158,6 +1249,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (!IsWithinRange(uid, patientUid, EscortPatientAssistRange))
         {
+            TryRequestCrewHelp(
+                uid,
+                escort,
+                $"stretcher-ready:{patientUid}",
+                $"moving to patient assist {FormatEntityRef(patientUid)}",
+                "\u0414\u0430\u0439\u0442\u0435 \u043f\u0440\u043e\u0445\u043e\u0434 \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 \u0438 \u0433\u043e\u0442\u043e\u0432\u044c\u0442\u0435 \u043d\u043e\u0441\u0438\u043b\u043a\u0438.");
             escort.LastDutyActionStatus = $"patient-assist moving to {FormatEntityRef(patientUid)}";
             return;
         }
@@ -1165,10 +1262,22 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (_pulling.TryStartPull(uid, patientUid, pullerComp, pullable))
         {
             escort.DutyActions++;
+            TryRequestCrewHelp(
+                uid,
+                escort,
+                $"stretcher-escort:{patientUid}",
+                $"moving patient {FormatEntityRef(patientUid)} to shuttle",
+                "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u0432 \u044d\u0432\u0430\u043a\u0443\u0430\u0446\u0438\u0438. \u0414\u0435\u0440\u0436\u0438\u0442\u0435 \u0434\u0432\u0435\u0440\u0438 \u0438 \u043f\u0440\u043e\u0445\u043e\u0434 \u043a \u0448\u0430\u0442\u0442\u043b\u0443 \u043e\u0442\u043a\u0440\u044b\u0442\u044b\u043c\u0438.");
             escort.LastDutyActionStatus = $"patient-assist pulling {FormatEntityRef(patientUid)}";
             return;
         }
 
+        TryRequestCrewHelp(
+            uid,
+            escort,
+            $"stretcher-blocked:{patientUid}",
+            $"patient assist pull blocked for {FormatEntityRef(patientUid)}",
+            "\u041d\u0443\u0436\u043d\u0430 \u0440\u0443\u0447\u043d\u0430\u044f \u043f\u043e\u043c\u043e\u0449\u044c \u0441 \u043d\u043e\u0441\u0438\u043b\u043a\u0430\u043c\u0438. \u041f\u043e\u0434\u043e\u0439\u0434\u0438\u0442\u0435 \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443.");
         escort.LastDutyActionStatus = $"patient-assist pull blocked {FormatEntityRef(patientUid)}";
     }
 
@@ -1188,19 +1297,39 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var target = ValidOrNull(escort.CrowdTarget) ?? ValidOrNull(followTarget);
         if (target is not { Valid: true } crowdUid)
         {
+            if (HasCrowdPressure(escort))
+            {
+                TryRequestCrewHelp(
+                    uid,
+                    escort,
+                    "step-away",
+                    $"crowd pressure without target; crowd={escort.NearbyCrowd}",
+                    "\u041e\u0442\u043e\u0439\u0434\u0438\u0442\u0435 \u043e\u0442 \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430. \u041c\u0435\u0434\u0438\u0446\u0438\u043d\u0441\u043a\u043e\u0439 \u0433\u0440\u0443\u043f\u043f\u0435 \u043d\u0443\u0436\u043d\u043e \u043c\u0435\u0441\u0442\u043e.");
+            }
+
             escort.LastDutyActionStatus = "crowd-control no crowd target";
             return;
         }
 
         if (!IsWithinRange(uid, crowdUid, EscortCrowdControlRange))
         {
+            TryRequestCrewHelp(
+                uid,
+                escort,
+                $"step-away:{crowdUid}",
+                $"crowd target near corridor {FormatEntityRef(crowdUid)}",
+                "\u041e\u0442\u043e\u0439\u0434\u0438\u0442\u0435 \u043e\u0442 \u043a\u043e\u0440\u0438\u0434\u043e\u0440\u0430. \u041f\u0443\u0442\u044c \u043a \u0448\u0430\u0442\u0442\u043b\u0443 \u0434\u043e\u043b\u0436\u0435\u043d \u0431\u044b\u0442\u044c \u0447\u0438\u0441\u0442\u044b\u043c.");
             escort.LastDutyActionStatus = $"crowd-control moving to {FormatEntityRef(crowdUid)}";
             return;
         }
 
         var line = GetCrowdControlLine(escort);
-        if (!string.IsNullOrWhiteSpace(line))
-            _chat.TrySendInGameICMessage(uid, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
+        TryRequestCrewHelp(
+            uid,
+            escort,
+            $"step-away:{crowdUid}",
+            $"crowd control warning {FormatEntityRef(crowdUid)}; crowd={escort.NearbyCrowd}",
+            line);
 
         escort.DutyActions++;
         escort.LastDutyActionStatus = $"crowd-control warning {FormatEntityRef(crowdUid)}";
@@ -1209,8 +1338,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private static string GetCrowdControlLine(LuaMRescueEscortComponent escort)
     {
         return escort.NearbyCrowd >= CrowdPressureThreshold
-            ? "Medical rescue corridor. Step back from the patient."
-            : "Keep the rescue corridor clear.";
+            ? "\u041c\u0435\u0434\u0438\u0446\u0438\u043d\u0441\u043a\u0438\u0439 \u043a\u043e\u0440\u0438\u0434\u043e\u0440. \u041e\u0442\u043e\u0439\u0434\u0438\u0442\u0435 \u043e\u0442 \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430."
+            : "\u0414\u0435\u0440\u0436\u0438\u0442\u0435 \u043f\u0443\u0442\u044c \u043a \u0448\u0430\u0442\u0442\u043b\u0443 \u0447\u0438\u0441\u0442\u044b\u043c.";
     }
 
     private bool UpdateSortiePlan(

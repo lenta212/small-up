@@ -396,6 +396,40 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueEscortsAskCrewForOperationalHelp()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("LastCrewHelpStatus"));
+        Assert.That(component, Does.Contain("LastCrewHelpKey"));
+        Assert.That(component, Does.Contain("NextCrewHelpRequestAt"));
+        Assert.That(source, Does.Contain("CrewHelpRequestCooldownSeconds = 12"));
+        Assert.That(source, Does.Contain("TryRequestCrewHelp"));
+        Assert.That(source, Does.Contain("crew-help:{key}; {status}"));
+        Assert.That(source, Does.Contain("crewHelp={escort.LastCrewHelpStatus}"));
+        Assert.That(source, Does.Contain("escort.NextCrewHelpRequestAt > now"));
+        Assert.That(source, Does.Contain("mark-safe-path"));
+        Assert.That(source, Does.Contain("open-route:"));
+        Assert.That(source, Does.Contain("clear-blocker:"));
+        Assert.That(source, Does.Contain("hold-corridor:"));
+        Assert.That(source, Does.Contain("remove-blocker:"));
+        Assert.That(source, Does.Contain("drop-blocker:"));
+        Assert.That(source, Does.Contain("step-away"));
+        Assert.That(source, Does.Contain("stretcher-needed:"));
+        Assert.That(source, Does.Contain("stretcher-moving:"));
+        Assert.That(source, Does.Contain("stretcher-coordinate:"));
+        Assert.That(source, Does.Contain("stretcher-ready:"));
+        Assert.That(source, Does.Contain("stretcher-escort:"));
+        Assert.That(source, Does.Contain("stretcher-blocked:"));
+        Assert.That(source, Does.Contain("open route around non-pullable"));
+        Assert.That(source, Does.Contain("manual removal needed"));
+        Assert.That(source, Does.Contain("crowd control warning"));
+        Assert.That(source, Does.Contain("patient assist pull blocked"));
+        Assert.That(source, Does.Contain("moving patient {FormatEntityRef(patientUid)} to shuttle"));
+    }
+
+    [Test]
     public void RescueTeamClearsCompletedPatientForReturnOrExtract()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
