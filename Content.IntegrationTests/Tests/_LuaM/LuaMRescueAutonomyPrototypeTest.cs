@@ -66,7 +66,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("bool deathSignal"));
         Assert.That(source, Does.Contain("rescue.DeathSignalTarget = deathSignalTarget"));
         Assert.That(source, Does.Contain("deathSignal &&"));
-        Assert.That(source, Does.Contain("\u041c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u0441\u043c\u0435\u0440\u0442\u0438 \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a {targetName}."));
+        Assert.That(source, Does.Contain("\u041c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u0441\u043c\u0435\u0440\u0442\u0438 \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 {targetName}."));
         Assert.That(source, Does.Contain("_radio.SendRadioMessage("));
         Assert.That(source, Does.Contain("MedicalRadioChannel"));
         Assert.That(component, Does.Contain("DeathSignalTarget"));
@@ -77,6 +77,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(agent, Does.Contain("mobState.CurrentState != MobState.Dead"));
         Assert.That(agent, Does.Contain("ClearDeathSignalTarget"));
         Assert.That(agent, Does.Contain("\\u041c\\u0435\\u0434\\u0441\\u0438\\u0433\\u043d\\u0430\\u043b \\u0441\\u043c\\u0435\\u0440\\u0442\\u0438 \\u043f\\u0440\\u0438\\u043d\\u044f\\u0442"));
+        Assert.That(agent, Does.Contain("\\u0412\\u044b\\u043b\\u0435\\u0442\\u0430\\u044e \\u043a \\u043f\\u0430\\u0446\\u0438\\u0435\\u043d\\u0442\\u0443 {Name(target)}"));
     }
 
     [Test]

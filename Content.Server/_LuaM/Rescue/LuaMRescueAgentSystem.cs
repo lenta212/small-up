@@ -457,7 +457,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             uid,
             rescue,
             $"death-signal-dispatch:{target}",
-            $"\u041c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u0441\u043c\u0435\u0440\u0442\u0438 \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a {Name(target)}.");
+            $"\u041c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u0441\u043c\u0435\u0440\u0442\u0438 \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 {Name(target)}.");
         rescue.DeathSignalDispatchReported = true;
         Dirty(uid, rescue);
     }

@@ -238,7 +238,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         var targetName = Name(target);
         _radio.SendRadioMessage(
             agent,
-            $"Медсигнал смерти принят. Вылетаю к {targetName}.",
+            $"Медсигнал смерти принят. Вылетаю к пациенту {targetName}.",
             MedicalRadioChannel,
             agent);
     }
