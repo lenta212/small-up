@@ -317,6 +317,27 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueTeamPrioritizesSyntheticThreatsNearPatients()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("IsPrioritySyntheticThreat"));
+        Assert.That(source, Does.Contain("IsSyntheticRescueActor"));
+        Assert.That(source, Does.Contain("LuaMAiDroneTaskComponent"));
+        Assert.That(source, Does.Contain("DroneControlComponent"));
+        Assert.That(source, Does.Contain("SiliconComponent"));
+        Assert.That(source, Does.Contain("BorgChassisComponent"));
+        Assert.That(source, Does.Contain("_tag.HasTag(candidate, BotTag)"));
+        Assert.That(source, Does.Contain("var syntheticThreat = IsPrioritySyntheticThreat(observer, candidate);"));
+        Assert.That(source, Does.Contain("if (hostile || syntheticThreat)"));
+        Assert.That(source, Does.Contain("if (hostile || syntheticThreat || activeCombatant)"));
+        Assert.That(source, Does.Contain("var syntheticThreat = IsPrioritySyntheticThreat(uid, threatUid);"));
+        Assert.That(source, Does.Contain("!IsHostileToObserver(uid, threatUid) && !syntheticThreat"));
+        Assert.That(source, Does.Contain("threat-screen advancing to synthetic"));
+        Assert.That(source, Does.Contain("threat-screen engaging synthetic"));
+    }
+
+    [Test]
     public void RescueTeamClearsCompletedPatientForReturnOrExtract()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);

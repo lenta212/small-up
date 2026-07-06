@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Content.Server._LuaM.Sector;
+using Content.Shared._Crescent.DroneControl;
+using Content.Shared._EinsteinEngines.Silicon.Components;
 using Content.Server.Chat.Systems;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
@@ -16,6 +18,8 @@ using Content.Shared.Movement.Pulling.Components;
 using Content.Shared.Movement.Pulling.Systems;
 using Content.Shared.NPC.Components;
 using Content.Shared.NPC.Systems;
+using Content.Shared.Silicons.Borgs.Components;
+using Content.Shared.Tag;
 using Robust.Server.GameObjects;
 using Robust.Shared.Map;
 using Robust.Shared.Physics;
@@ -44,6 +48,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const float EscortThreatScreenRange = 7f;
     private const float EscortPatientAssistRange = 1.5f;
     private const float EscortCrowdControlRange = 3f;
+    private const string BotTag = "Bot";
 
     private static readonly (LuaMRescueEscortRole Role, Vector2 Offset)[] EscortFormation =
     [
@@ -60,6 +65,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     [Dependency] private readonly PullingSystem _pulling = default!;
     [Dependency] private readonly SharedCombatModeSystem _combatMode = default!;
     [Dependency] private readonly LuaMSectorStorySystem _sectorStory = default!;
+    [Dependency] private readonly TagSystem _tag = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
 
     private readonly HashSet<EntityUid> _sceneEntities = new();
@@ -799,7 +805,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (TryComp<CombatModeComponent>(uid, out var combat))
             _combatMode.SetInCombatMode(uid, true, combat);
 
-        if (!IsHostileToObserver(uid, threatUid))
+        var syntheticThreat = IsPrioritySyntheticThreat(uid, threatUid);
+        if (!IsHostileToObserver(uid, threatUid) && !syntheticThreat)
         {
             htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
             escort.LastDutyActionStatus = $"threat-screen screening armed pressure {FormatEntityRef(threatUid)}";
@@ -810,9 +817,13 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         _npc.WakeNPC(uid, htn);
         escort.DutyActions++;
 
-        escort.LastDutyActionStatus = !IsWithinRange(uid, threatUid, EscortThreatScreenRange)
-            ? $"threat-screen advancing to hostile {FormatEntityRef(threatUid)}"
-            : $"threat-screen engaging hostile {FormatEntityRef(threatUid)}";
+        escort.LastDutyActionStatus = syntheticThreat
+            ? !IsWithinRange(uid, threatUid, EscortThreatScreenRange)
+                ? $"threat-screen advancing to synthetic {FormatEntityRef(threatUid)}"
+                : $"threat-screen engaging synthetic {FormatEntityRef(threatUid)}"
+            : !IsWithinRange(uid, threatUid, EscortThreatScreenRange)
+                ? $"threat-screen advancing to hostile {FormatEntityRef(threatUid)}"
+                : $"threat-screen engaging hostile {FormatEntityRef(threatUid)}";
     }
 
     private void TryRunClearRouteAction(
@@ -1209,16 +1220,17 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 crowdCount++;
 
             var hostile = IsHostileToObserver(observer, candidate);
-            var activeCombatant = !hostile && IsActiveCombatant(observer, candidate);
+            var syntheticThreat = IsPrioritySyntheticThreat(observer, candidate);
+            var activeCombatant = !hostile && !syntheticThreat && IsActiveCombatant(observer, candidate);
 
-            if (hostile)
+            if (hostile || syntheticThreat)
                 hostileCount++;
             else if (activeCombatant)
                 combatantCount++;
 
             var distance = (candidateXform.MapPosition.Position - origin.Position).LengthSquared();
 
-            if (hostile || activeCombatant)
+            if (hostile || syntheticThreat || activeCombatant)
             {
                 if (distance < threatDistance)
                 {
@@ -1585,6 +1597,28 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         return !IsFriendlyToObserver(observer, candidate);
+    }
+
+    private bool IsPrioritySyntheticThreat(EntityUid observer, EntityUid candidate)
+    {
+        if (!IsSyntheticRescueActor(candidate) ||
+            IsFriendlyToObserver(observer, candidate))
+        {
+            return false;
+        }
+
+        return IsHostileToObserver(observer, candidate) ||
+            IsActiveCombatant(observer, candidate) ||
+            HasComp<LuaMAiDroneTaskComponent>(candidate);
+    }
+
+    private bool IsSyntheticRescueActor(EntityUid candidate)
+    {
+        return HasComp<LuaMAiDroneTaskComponent>(candidate) ||
+            HasComp<DroneControlComponent>(candidate) ||
+            HasComp<SiliconComponent>(candidate) ||
+            HasComp<BorgChassisComponent>(candidate) ||
+            _tag.HasTag(candidate, BotTag);
     }
 
     private bool IsFriendlyToObserver(EntityUid observer, EntityUid candidate)
