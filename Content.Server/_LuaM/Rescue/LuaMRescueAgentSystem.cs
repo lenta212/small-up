@@ -4634,12 +4634,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 "released",
                 "patient released from shuttle care",
                 "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u0432\u044b\u043f\u0443\u0449\u0435\u043d \u0441 \u0431\u043e\u0440\u0442\u0430. \u041c\u0435\u0441\u0442\u043e \u0433\u043e\u0442\u043e\u0432\u043e \u0434\u043b\u044f \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0433\u043e.");
-            ClearFollowTarget(uid, rescue, htn);
             TrySendRescueStatusComms(
                 uid,
                 rescue,
                 $"patient-release:{patient}",
                 $"Пациент {Name(patient)} стабилен. Отпускаю с борта.");
+            CompleteReleasedPatientCare(uid, rescue, htn, patient);
         }
         else
         {
@@ -4648,6 +4648,35 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         Dirty(uid, rescue);
         return true;
+    }
+
+    private void CompleteReleasedPatientCare(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid patient)
+    {
+        rescue.EvacuatingTarget = null;
+        rescue.AssignedTarget = null;
+        rescue.AssignedPatientStrap = null;
+        rescue.ShuttleRoutedTarget = null;
+        ClearArrivalReportTarget(rescue, patient);
+        ClearTriageDecisionTarget(rescue, patient);
+        ClearDeathSignalTarget(rescue, patient);
+        ResetTargetProgress(rescue);
+
+        var hasPendingEvacuationTarget = HasPendingEvacuationTarget(uid, rescue, patient);
+        if (!hasPendingEvacuationTarget)
+        {
+            rescue.LastAutoEvacuationStatus = $"released stabilized {FormatEntityRef(patient)}; ready for next rescue";
+        }
+        else
+        {
+            rescue.ShuttleReturnRouted = false;
+            rescue.LastAutoEvacuationStatus = $"holding shuttle forward after release of {FormatEntityRef(patient)}; pending evacuation target detected";
+        }
+
+        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget);
     }
 
     private void RecordRescueHandoff(

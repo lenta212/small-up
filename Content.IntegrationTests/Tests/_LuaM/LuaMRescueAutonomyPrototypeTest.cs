@@ -256,6 +256,10 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("patient-release:"));
         Assert.That(source, Does.Contain("SetOnboardCareStatus"));
         Assert.That(source, Does.Contain("MarkOnboardCareReleased"));
+        Assert.That(source, Does.Contain("CompleteReleasedPatientCare"));
+        Assert.That(source, Does.Contain("released stabilized {FormatEntityRef(patient)}; ready for next rescue"));
+        Assert.That(source, Does.Contain("holding shuttle forward after release of {FormatEntityRef(patient)}; pending evacuation target detected"));
+        Assert.That(source, Does.Contain("StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget)"));
         Assert.That(source, Does.Contain("TrySayOnboardAction"));
         Assert.That(source, Does.Contain("onboard-action:{step}:{patient}"));
         Assert.That(source, Does.Contain("rescue.NextOnboardActionAt > now"));
