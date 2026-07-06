@@ -305,6 +305,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public string LastAutoEvacuationStatus = "none";
 
     [DataField]
+    public string LastRedispatchStatus = "none";
+
+    [DataField]
     public string LastAutoSupplyStatus = "none";
 
     [DataField]

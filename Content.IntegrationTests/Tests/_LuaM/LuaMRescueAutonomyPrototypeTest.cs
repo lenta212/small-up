@@ -159,19 +159,31 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     [Test]
     public void RescueAgentKeepsShuttleForwardForPendingRescueTargets()
     {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
 
-        Assert.That(source, Does.Contain("var hasPendingRescueTarget = HasPendingRescueTarget(uid, rescue, target);"));
+        Assert.That(component, Does.Contain("LastRedispatchStatus"));
+        Assert.That(source, Does.Contain("var hasPendingRescueTarget = TryFindPendingRescueTarget("));
         Assert.That(source, Does.Contain("HasPendingRescueTarget"));
-        Assert.That(source, Does.Contain("HasPendingEvacuationTarget(uid, rescue, completedTarget)"));
+        Assert.That(source, Does.Contain("TryFindPendingRescueTarget"));
+        Assert.That(source, Does.Contain("out var pendingTarget"));
+        Assert.That(source, Does.Contain("out var pendingReason"));
         Assert.That(source, Does.Contain("TryComp<MedibotComponent>(uid, out var medibot)"));
-        Assert.That(source, Does.Contain("TryFindRescueTarget(uid, rescue.SearchRange, rescue, medibot, out _, completedTarget)"));
+        Assert.That(source, Does.Contain("TryFindRescueTarget(uid, rescue.SearchRange, rescue, medibot, out pendingTarget, completedTarget)"));
+        Assert.That(source, Does.Contain("pending-evacuation"));
+        Assert.That(source, Does.Contain("pending-rescue"));
         Assert.That(source, Does.Contain("EntityUid? excludedTarget = null"));
         Assert.That(source, Does.Contain("candidate == excludedTarget"));
         Assert.That(source, Does.Contain("allowAutoReturn: !hasPendingRescueTarget"));
         Assert.That(source, Does.Contain("holding shuttle forward after evacuation"));
         Assert.That(source, Does.Contain("holding shuttle forward after skipping"));
+        Assert.That(source, Does.Contain("holding shuttle forward after release"));
         Assert.That(source, Does.Contain("pending rescue target detected"));
+        Assert.That(source, Does.Contain("TryReportRedispatchTarget"));
+        Assert.That(source, Does.Contain("redispatch={rescue.LastRedispatchStatus}"));
+        Assert.That(source, Does.Contain("redispatch: source={source}; completed={FormatEntityRef(completedTarget)}"));
+        Assert.That(source, Does.Contain("status=forward"));
+        Assert.That(source, Does.Contain("\\u041f\\u0435\\u0440\\u0435\\u043d\\u0430\\u0437\\u043d\\u0430\\u0447\\u0430\\u044e\\u0441\\u044c \\u043a {Name(pendingTarget)}"));
         Assert.That(source, Does.Contain("bool allowAutoReturn = true"));
         Assert.That(source, Does.Contain("if (allowAutoReturn)"));
     }
