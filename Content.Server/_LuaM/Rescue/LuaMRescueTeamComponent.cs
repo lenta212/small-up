@@ -49,6 +49,9 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public LuaMRescueTeamPhase LastAnnouncedPhase = LuaMRescueTeamPhase.Idle;
 
     [DataField]
+    public bool LastAnnouncedSomberScene;
+
+    [DataField]
     public string LastPhaseAnnouncementStatus = "none";
 
     [DataField]

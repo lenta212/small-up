@@ -391,13 +391,16 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
 
         Assert.That(component, Does.Contain("LastAnnouncedPhase"));
+        Assert.That(component, Does.Contain("LastAnnouncedSomberScene"));
         Assert.That(component, Does.Contain("LastPhaseAnnouncementStatus"));
         Assert.That(component, Does.Contain("NextPhaseAnnouncementAt"));
         Assert.That(source, Does.Contain("TeamPhaseAnnouncementCooldownSeconds"));
         Assert.That(source, Does.Contain("TrySayTeamPhaseLine"));
         Assert.That(source, Does.Contain("SetTeamPhaseAnnouncementStatus"));
         Assert.That(source, Does.Contain("TryBuildTeamPhaseLine"));
+        Assert.That(source, Does.Contain("TryBuildTeamPhaseLine(phase, somberScene"));
         Assert.That(source, Does.Contain("phase-bark:"));
+        Assert.That(source, Does.Contain("somber={somberScene}"));
         Assert.That(source, Does.Contain("phaseBark={team.LastPhaseAnnouncementStatus}"));
         Assert.That(source, Does.Contain("LuaMRescueTeamPhase.SecureScene"));
         Assert.That(source, Does.Contain("LuaMRescueTeamPhase.Triage"));
@@ -409,6 +412,32 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("\\u041f\\u0430\\u0446\\u0438\\u0435\\u043d\\u0442 \\u043d\\u0430\\u0439\\u0434\\u0435\\u043d"));
         Assert.That(source, Does.Contain("\\u041a\\u043e\\u0441\\u0442\\u044b\\u043b\\u044c \\u0438\\u0434\\u0435\\u0442"));
         Assert.That(source, Does.Contain("\\u0421\\u0435\\u043a\\u0442\\u043e\\u0440 \\u043e\\u0442\\u043f\\u0443\\u0441\\u043a\\u0430\\u0435\\u043c"));
+    }
+
+    [Test]
+    public void RescueTeamSuppressesHumorForSomberScenes()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("LastAnnouncedSomberScene"));
+        Assert.That(source, Does.Contain("IsSomberTeamScene"));
+        Assert.That(source, Does.Contain("IsSomberEscortScene"));
+        Assert.That(source, Does.Contain("IsDeadPatient"));
+        Assert.That(source, Does.Contain("HasSomberStatus"));
+        Assert.That(source, Does.Contain("MobState.Dead"));
+        Assert.That(source, Does.Contain("GetSomberDutyLine"));
+        Assert.That(source, Does.Contain("GetDutyLine(escort.Role, duty, IsSomberEscortScene(escort))"));
+        Assert.That(source, Does.Contain("status.Contains(\"dead\", StringComparison.OrdinalIgnoreCase)"));
+        Assert.That(source, Does.Contain("status.Contains(\"failed\", StringComparison.OrdinalIgnoreCase)"));
+        Assert.That(source, Does.Contain("status.Contains(\"aborted\", StringComparison.OrdinalIgnoreCase)"));
+        Assert.That(source, Does.Contain("status.Contains(\"blocked\", StringComparison.OrdinalIgnoreCase)"));
+        Assert.That(source, Does.Contain("\\u0412\\u044b\\u0435\\u0437\\u0434 \\u043f\\u0440\\u0438\\u043d\\u044f\\u0442. \\u0420\\u0430\\u0431\\u043e\\u0442\\u0430\\u0435\\u043c \\u0431\\u0435\\u0437 \\u043b\\u0438\\u0448\\u043d\\u0438\\u0445 \\u0440\\u0435\\u043f\\u043b\\u0438\\u043a"));
+        Assert.That(source, Does.Contain("\\u041f\\u0430\\u0446\\u0438\\u0435\\u043d\\u0442 \\u0434\\u0432\\u0438\\u0436\\u0435\\u0442\\u0441\\u044f \\u043a \\u0448\\u0430\\u0442\\u0442\\u043b\\u0443"));
+        Assert.That(source, Does.Contain("\\u0411\\u0435\\u0440\\u0443 \\u043f\\u043e\\u0434\\u0434\\u0435\\u0440\\u0436\\u043a\\u0443 \\u043f\\u0430\\u0446\\u0438\\u0435\\u043d\\u0442\\u0430"));
+        Assert.That(source, Does.Contain("\\u0423\\u0433\\u0440\\u043e\\u0437\\u0430 \\u043d\\u0430 \\u043c\\u043d\\u0435"));
+        Assert.That(source, Does.Contain("Носилки морально готовы"));
+        Assert.That(source, Does.Contain("Без пациента скучно"));
     }
 
     [Test]

@@ -148,6 +148,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.LastSortiePlanStatus = $"plan {FormatPlan(team.SortiePlan)} after dispatch";
         team.LastStatus = "autonomous rescue team deployed";
         team.LastAnnouncedPhase = LuaMRescueTeamPhase.Idle;
+        team.LastAnnouncedSomberScene = false;
         team.LastPhaseAnnouncementStatus = "phase-bark pending";
         team.NextPhaseAnnouncementAt = _timing.CurTime;
         team.LastThreatNeutralizedTarget = null;
@@ -400,7 +401,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         changed |= PruneTeamEscorts(team);
-        changed |= TrySayTeamPhaseLine(uid, team, phase);
+        var somberScene = IsSomberTeamScene(team, rescue, patient);
+        changed |= TrySayTeamPhaseLine(uid, team, phase, somberScene);
         team.SceneScanAccumulator += frameTime;
         if (team.SceneScanAccumulator >= team.SceneScanInterval)
         {
@@ -616,23 +618,31 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         return true;
     }
 
-    private bool TrySayTeamPhaseLine(EntityUid leader, LuaMRescueTeamComponent team, LuaMRescueTeamPhase phase)
+    private bool TrySayTeamPhaseLine(
+        EntityUid leader,
+        LuaMRescueTeamComponent team,
+        LuaMRescueTeamPhase phase,
+        bool somberScene)
     {
-        if (team.LastAnnouncedPhase == phase)
+        if (team.LastAnnouncedPhase == phase &&
+            team.LastAnnouncedSomberScene == somberScene)
+        {
             return false;
+        }
 
         var now = _timing.CurTime;
         if (now < team.NextPhaseAnnouncementAt)
         {
             var wait = Math.Max(0, (int) Math.Ceiling((team.NextPhaseAnnouncementAt - now).TotalSeconds));
-            return SetTeamPhaseAnnouncementStatus(team, $"phase-bark waiting: {FormatPhase(phase)} in {wait}s");
+            return SetTeamPhaseAnnouncementStatus(team, $"phase-bark waiting: {FormatPhase(phase)} in {wait}s; somber={somberScene}");
         }
 
-        if (!TryBuildTeamPhaseLine(phase, out var preferredRole, out var line))
+        if (!TryBuildTeamPhaseLine(phase, somberScene, out var preferredRole, out var line))
         {
             team.LastAnnouncedPhase = phase;
+            team.LastAnnouncedSomberScene = somberScene;
             team.NextPhaseAnnouncementAt = now;
-            return SetTeamPhaseAnnouncementStatus(team, $"phase-bark skipped: {FormatPhase(phase)}");
+            return SetTeamPhaseAnnouncementStatus(team, $"phase-bark skipped: {FormatPhase(phase)}; somber={somberScene}");
         }
 
         var speaker = leader;
@@ -648,8 +658,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             _chat.TrySendInGameICMessage(speaker, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
 
         team.LastAnnouncedPhase = phase;
+        team.LastAnnouncedSomberScene = somberScene;
         team.NextPhaseAnnouncementAt = now + TimeSpan.FromSeconds(TeamPhaseAnnouncementCooldownSeconds);
-        return SetTeamPhaseAnnouncementStatus(team, $"phase-bark:{FormatPhase(phase)} speaker={speakerLabel}");
+        return SetTeamPhaseAnnouncementStatus(team, $"phase-bark:{FormatPhase(phase)} speaker={speakerLabel}; somber={somberScene}");
     }
 
     private static bool SetTeamPhaseAnnouncementStatus(LuaMRescueTeamComponent team, string status)
@@ -663,11 +674,26 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
     private static bool TryBuildTeamPhaseLine(
         LuaMRescueTeamPhase phase,
+        bool somberScene,
         out LuaMRescueEscortRole? preferredRole,
         out string line)
     {
         preferredRole = null;
-        line = phase switch
+        line = somberScene
+            ? phase switch
+            {
+                LuaMRescueTeamPhase.Dispatch => "\u0412\u044b\u0435\u0437\u0434 \u043f\u0440\u0438\u043d\u044f\u0442. \u0420\u0430\u0431\u043e\u0442\u0430\u0435\u043c \u0431\u0435\u0437 \u043b\u0438\u0448\u043d\u0438\u0445 \u0440\u0435\u043f\u043b\u0438\u043a.",
+                LuaMRescueTeamPhase.EnRoute => "\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 \u043f\u0440\u0438\u043d\u044f\u0442. \u0418\u0434\u0435\u043c \u0431\u0435\u0437 \u0437\u0430\u0434\u0435\u0440\u0436\u0435\u043a.",
+                LuaMRescueTeamPhase.SecureScene => "\u041c\u0435\u0434\u0438\u0446\u0438\u043d\u0441\u043a\u0430\u044f \u0437\u043e\u043d\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u0430. \u0410\u0439\u0431\u043e\u043b\u0438\u0442 \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442.",
+                LuaMRescueTeamPhase.Triage => "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043d\u0430\u0439\u0434\u0435\u043d. \u041e\u0446\u0435\u043d\u0438\u0432\u0430\u044e \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435.",
+                LuaMRescueTeamPhase.TreatOnSite => "\u041b\u0435\u0447\u0435\u043d\u0438\u0435 \u0438\u0434\u0435\u0442. \u0414\u0435\u0440\u0436\u0438\u043c \u0442\u0438\u0448\u0438\u043d\u0443 \u0438 \u043f\u0440\u043e\u0441\u0442\u0440\u0430\u043d\u0441\u0442\u0432\u043e.",
+                LuaMRescueTeamPhase.PrepareEvacuation => "\u041b\u0435\u0447\u0435\u043d\u0438\u0435 \u043d\u0430 \u043c\u0435\u0441\u0442\u0435 \u043e\u0433\u0440\u0430\u043d\u0438\u0447\u0435\u043d\u043e. \u0413\u043e\u0442\u043e\u0432\u0438\u043c \u0432\u044b\u043d\u043e\u0441.",
+                LuaMRescueTeamPhase.EvacuateToShuttle => "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u0434\u0432\u0438\u0436\u0435\u0442\u0441\u044f \u043a \u0448\u0430\u0442\u0442\u043b\u0443. \u041a\u043e\u0440\u0438\u0434\u043e\u0440 \u0434\u0435\u0440\u0436\u0430\u0442\u044c \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u044b\u043c.",
+                LuaMRescueTeamPhase.Handoff => "\u041f\u0435\u0440\u0435\u0434\u0430\u0447\u0430 \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u0430. \u0421\u0442\u0430\u0442\u0443\u0441 \u0437\u0430\u043f\u0438\u0441\u0430\u043d.",
+                LuaMRescueTeamPhase.ReturnOrExtract => "\u041e\u0442\u0445\u043e\u0434\u0438\u043c \u043e\u0442 \u0437\u043e\u043d\u044b. \u041f\u0440\u0438\u0447\u0438\u043d\u0430 \u0437\u0430\u043f\u0438\u0441\u0430\u043d\u0430.",
+                _ => string.Empty,
+            }
+            : phase switch
         {
             LuaMRescueTeamPhase.Dispatch => "\u0412\u044b\u0435\u0437\u0434 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d. \u0413\u0440\u0443\u043f\u043f\u0430 \u0410\u0439\u0431\u043e\u043b\u0438\u0442\u0430 \u0432 \u0440\u0430\u0431\u043e\u0442\u0435.",
             LuaMRescueTeamPhase.EnRoute => "\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u0434\u043e \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430 \u043f\u043e\u0447\u0442\u0438 \u043f\u0440\u044f\u043c\u043e\u0439. \u041f\u043e\u0447\u0442\u0438 - \u044d\u0442\u043e \u043c\u0435\u0434\u0438\u0446\u0438\u043d\u0441\u043a\u0438\u0439 \u0442\u0435\u0440\u043c\u0438\u043d.",
@@ -2850,15 +2876,18 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
     private void TrySayDutyLine(EntityUid uid, LuaMRescueEscortComponent escort, LuaMRescueEscortDuty duty)
     {
-        var line = GetDutyLine(escort.Role, duty);
+        var line = GetDutyLine(escort.Role, duty, IsSomberEscortScene(escort));
         if (string.IsNullOrWhiteSpace(line))
             return;
 
         _chat.TrySendInGameICMessage(uid, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
     }
 
-    private static string GetDutyLine(LuaMRescueEscortRole role, LuaMRescueEscortDuty duty)
+    private static string GetDutyLine(LuaMRescueEscortRole role, LuaMRescueEscortDuty duty, bool somberScene)
     {
+        if (somberScene)
+            return GetSomberDutyLine(role, duty);
+
         return (role, duty) switch
         {
             (LuaMRescueEscortRole.Tourniquet, LuaMRescueEscortDuty.SecureScene) => "Медицинская зона. Дайте Айболиту пространство.",
@@ -2875,9 +2904,78 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         };
     }
 
+    private static string GetSomberDutyLine(LuaMRescueEscortRole role, LuaMRescueEscortDuty duty)
+    {
+        return (role, duty) switch
+        {
+            (LuaMRescueEscortRole.Tourniquet, LuaMRescueEscortDuty.SecureScene) => "\u041c\u0435\u0434\u0438\u0446\u0438\u043d\u0441\u043a\u0430\u044f \u0437\u043e\u043d\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u0430. \u0420\u0430\u0431\u043e\u0442\u0430\u0435\u043c \u0442\u0438\u0445\u043e.",
+            (LuaMRescueEscortRole.Tourniquet, LuaMRescueEscortDuty.EvacuationCorridor) => "\u041a\u043e\u0440\u0438\u0434\u043e\u0440 \u044d\u0432\u0430\u043a\u0443\u0430\u0446\u0438\u0438 \u0434\u0435\u0440\u0436\u0430\u0442\u044c \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u044b\u043c.",
+            (LuaMRescueEscortRole.Tourniquet, LuaMRescueEscortDuty.CrowdControl) => "\u0428\u0430\u0433 \u043d\u0430\u0437\u0430\u0434. \u041f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 \u043d\u0443\u0436\u0435\u043d \u0432\u043e\u0437\u0434\u0443\u0445.",
+            (LuaMRescueEscortRole.Tourniquet, LuaMRescueEscortDuty.ClearRoute) => "\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u043a \u0448\u0430\u0442\u0442\u043b\u0443 \u0434\u0435\u0440\u0436\u0438\u043c \u0447\u0438\u0441\u0442\u044b\u043c.",
+            (LuaMRescueEscortRole.Kostyl, LuaMRescueEscortDuty.PatientSupport) => "\u0411\u0435\u0440\u0443 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0443 \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430. \u0411\u0435\u0437 \u043b\u0438\u0448\u043d\u0438\u0445 \u0441\u043b\u043e\u0432.",
+            (LuaMRescueEscortRole.Kostyl, LuaMRescueEscortDuty.ReturnToShuttle) => "\u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u044e\u0441\u044c \u043a \u0448\u0430\u0442\u0442\u043b\u0443. \u0421\u0435\u043a\u0442\u043e\u0440 \u043f\u0440\u043e\u0432\u0435\u0440\u0435\u043d.",
+            (LuaMRescueEscortRole.Zaslon, LuaMRescueEscortDuty.SecureScene) => "\u0421\u0442\u043e\u044e \u043c\u0435\u0436\u0434\u0443 \u0443\u0433\u0440\u043e\u0437\u043e\u0439 \u0438 \u043c\u0435\u0434\u0438\u043a\u043e\u043c.",
+            (LuaMRescueEscortRole.Zaslon, LuaMRescueEscortDuty.EvacuationCorridor) => "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u0432\u043d\u0443\u0442\u0440\u0438 \u043f\u0435\u0440\u0438\u043c\u0435\u0442\u0440\u0430. \u041e\u0442\u0445\u043e\u0434 \u043f\u0440\u0438\u043a\u0440\u044b\u0442.",
+            (LuaMRescueEscortRole.Zaslon, LuaMRescueEscortDuty.ThreatScreen) => "\u0423\u0433\u0440\u043e\u0437\u0430 \u043d\u0430 \u043c\u043d\u0435. \u041a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 \u043d\u0435 \u043f\u0440\u043e\u0439\u0434\u0435\u0442.",
+            (LuaMRescueEscortRole.Zaslon, LuaMRescueEscortDuty.ClearRoute) => "\u041a\u043e\u0440\u0438\u0434\u043e\u0440 \u0443\u0434\u0435\u0440\u0436\u0430\u043d. \u041b\u0438\u0448\u043d\u0435\u0435 \u0443\u0431\u0438\u0440\u0430\u044e.",
+            _ => string.Empty,
+        };
+    }
+
     private bool PruneTeamEscorts(LuaMRescueTeamComponent team)
     {
         return team.Escorts.RemoveAll(escort => !escort.Valid || Deleted(escort)) > 0;
+    }
+
+    private bool IsSomberTeamScene(
+        LuaMRescueTeamComponent team,
+        LuaMRescueAgentComponent rescue,
+        EntityUid? patient)
+    {
+        return IsDeadPatient(patient) ||
+               HasSomberStatus(rescue.LastAutoEvacuationStatus) ||
+               HasSomberStatus(rescue.LastAutoDefibStatus) ||
+               HasSomberStatus(rescue.LastOnboardCareStatus) ||
+               HasSomberStatus(rescue.LastOnboardActionStatus) ||
+               HasSomberStatus(rescue.LastTaskStatus) ||
+               HasSomberStatus(team.LastHandoffRecord) ||
+               HasSomberStatus(team.LastSortiePlanStatus) ||
+               HasSomberStatus(team.LastSceneStatus);
+    }
+
+    private bool IsSomberEscortScene(LuaMRescueEscortComponent escort)
+    {
+        return IsDeadPatient(escort.Patient) ||
+               HasSomberStatus(escort.LastDutyActionStatus) ||
+               HasSomberStatus(escort.LastCrewHelpStatus) ||
+               HasSomberStatus(escort.LastSceneStatus) ||
+               HasSomberStatus(escort.LastMemoryDigest) ||
+               HasSomberStatus(escort.LastWeaponReadinessStatus);
+    }
+
+    private bool IsDeadPatient(EntityUid? patient)
+    {
+        return ValidOrNull(patient) is { Valid: true } patientUid &&
+               TryComp<MobStateComponent>(patientUid, out var mobState) &&
+               mobState.CurrentState == MobState.Dead;
+    }
+
+    private static bool HasSomberStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+            return false;
+
+        return status.Contains("dead", StringComparison.OrdinalIgnoreCase) ||
+               status.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
+               status.Contains("failure", StringComparison.OrdinalIgnoreCase) ||
+               status.Contains("aborted", StringComparison.OrdinalIgnoreCase) ||
+               status.Contains("incomplete", StringComparison.OrdinalIgnoreCase) ||
+               status.Contains("route blocked", StringComparison.OrdinalIgnoreCase) ||
+               status.Contains("route-blocked", StringComparison.OrdinalIgnoreCase) ||
+               status.Contains("fallback-extraction", StringComparison.OrdinalIgnoreCase) ||
+               status.Contains("blocked", StringComparison.OrdinalIgnoreCase) ||
+               status.Contains("unsafe", StringComparison.OrdinalIgnoreCase) ||
+               status.Contains("overwhelming", StringComparison.OrdinalIgnoreCase);
     }
 
     private EntityUid? ValidOrNull(EntityUid? uid)
