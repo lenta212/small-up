@@ -69,6 +69,9 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("\u041c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u0441\u043c\u0435\u0440\u0442\u0438 \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 {targetName}."));
         Assert.That(source, Does.Contain("_radio.SendRadioMessage("));
         Assert.That(source, Does.Contain("MedicalRadioChannel"));
+        Assert.That(source, Does.Contain("MarkDeathSignalDispatchReported"));
+        Assert.That(source, Does.Contain("rescue.DeathSignalDispatchReported = true"));
+        Assert.That(source, Does.Contain("rescue.LastAutoCommsKey = $\"death-signal-dispatch:{target}\""));
         Assert.That(component, Does.Contain("DeathSignalTarget"));
         Assert.That(component, Does.Contain("DeathSignalDispatchReported"));
         Assert.That(agent, Does.Contain("TryReportDeathSignalDispatch"));

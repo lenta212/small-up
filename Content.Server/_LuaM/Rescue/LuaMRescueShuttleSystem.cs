@@ -227,6 +227,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             !Deleted(dispatchTarget))
         {
             SendDispatchRadio(agent.Value, dispatchTarget);
+            MarkDeathSignalDispatchReported(agent.Value, rescue, dispatchTarget);
         }
 
         status = BuildStatus(shuttleName, deployedAgent: true, deployedEscorts: escortCount, routeRequested: routeToTarget && followTarget != null, routed);
@@ -241,6 +242,14 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             $"Медсигнал смерти принят. Вылетаю к пациенту {targetName}.",
             MedicalRadioChannel,
             agent);
+    }
+
+    private void MarkDeathSignalDispatchReported(EntityUid agent, LuaMRescueAgentComponent rescue, EntityUid target)
+    {
+        rescue.DeathSignalDispatchReported = true;
+        rescue.LastAutoCommsKey = $"death-signal-dispatch:{target}";
+        rescue.NextAutoCommsAt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoCommsCooldown));
+        Dirty(agent, rescue);
     }
 
     public bool TrySetAutopilotTarget(EntityUid shuttle, EntityUid target, out EntityUid? autopilotConsole)
