@@ -55,6 +55,18 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public TimeSpan NextPhaseAnnouncementAt;
 
     [DataField]
+    public EntityUid? LastThreatNeutralizedTarget;
+
+    [DataField]
+    public EntityUid? LastThreatNeutralizedBy;
+
+    [DataField]
+    public string LastThreatNeutralizedStatus = "none";
+
+    [DataField]
+    public TimeSpan NextThreatNeutralizedReportAt;
+
+    [DataField]
     public EntityUid? TriageCoverConfirmedPatient;
 
     [DataField]

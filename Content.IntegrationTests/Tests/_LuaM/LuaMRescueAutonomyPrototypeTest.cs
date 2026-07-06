@@ -338,6 +338,28 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueTeamReportsNeutralizedThreats()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("LastThreatNeutralizedTarget"));
+        Assert.That(component, Does.Contain("LastThreatNeutralizedBy"));
+        Assert.That(component, Does.Contain("LastThreatNeutralizedStatus"));
+        Assert.That(component, Does.Contain("NextThreatNeutralizedReportAt"));
+        Assert.That(source, Does.Contain("ThreatNeutralizedReportCooldownSeconds = 6"));
+        Assert.That(source, Does.Contain("TryReportThreatNeutralized"));
+        Assert.That(source, Does.Contain("SetThreatNeutralizedStatus"));
+        Assert.That(source, Does.Contain("BuildThreatNeutralizedLine"));
+        Assert.That(source, Does.Contain("team.LastThreatNeutralizedTarget == threatUid"));
+        Assert.That(source, Does.Contain("threat-neutralized:"));
+        Assert.That(source, Does.Contain("threat-screen target neutralized and reported"));
+        Assert.That(source, Does.Contain("threatClear={team.LastThreatNeutralizedStatus}"));
+        Assert.That(source, Does.Contain("\\u0421\\u0438\\u043d\\u0442\\u0435\\u0442\\u0438\\u0447\\u0435\\u0441\\u043a\\u0430\\u044f \\u0443\\u0433\\u0440\\u043e\\u0437\\u0430"));
+        Assert.That(source, Does.Contain("\\u0423\\u0433\\u0440\\u043e\\u0437\\u0430 {targetName} \\u043d\\u0435\\u0439\\u0442\\u0440\\u0430\\u043b\\u0438\\u0437\\u043e\\u0432\\u0430\\u043d\\u0430"));
+    }
+
+    [Test]
     public void RescueTeamClearsCompletedPatientForReturnOrExtract()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);

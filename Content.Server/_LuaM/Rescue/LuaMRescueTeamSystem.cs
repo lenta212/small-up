@@ -41,6 +41,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double HandoffPhaseHoldSeconds = 6;
     private const double SortiePlanHoldSeconds = 4;
     private const double TeamPhaseAnnouncementCooldownSeconds = 10;
+    private const double ThreatNeutralizedReportCooldownSeconds = 6;
     private const double TriageCoverConfirmCooldownSeconds = 8;
     private const double EscortDutyHoldSeconds = 2;
     private const double EscortDutyActionIntervalSeconds = 2;
@@ -126,8 +127,17 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.LastAnnouncedPhase = LuaMRescueTeamPhase.Idle;
         team.LastPhaseAnnouncementStatus = "phase-bark pending";
         team.NextPhaseAnnouncementAt = _timing.CurTime;
+        team.LastThreatNeutralizedTarget = null;
+        team.LastThreatNeutralizedBy = null;
+        team.LastThreatNeutralizedStatus = "none";
+        team.NextThreatNeutralizedReportAt = _timing.CurTime;
+        team.ThreatTarget = null;
         team.CrowdTarget = null;
         team.RouteBlockerTarget = null;
+        team.NearbyHostiles = 0;
+        team.NearbyCombatants = 0;
+        team.NearbyCrowd = 0;
+        team.NearbyBlockers = 0;
         team.LastMemoryDigest = "memory clear";
         team.RecentThreatMemories = 0;
         team.RecentCrowdMemories = 0;
@@ -174,6 +184,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"blockers={team.NearbyBlockers}; blockerTarget={FormatEntityRef(team.RouteBlockerTarget)}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffRecord}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
+                $"threatClear={team.LastThreatNeutralizedStatus}; " +
                 $"phaseBark={team.LastPhaseAnnouncementStatus}; last={team.LastStatus}");
         }
 
@@ -210,6 +221,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"pressure(threat/crowd/route)={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffDigest}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
+                $"threatClear={team.LastThreatNeutralizedStatus}; " +
                 $"phaseBark={team.LastPhaseAnnouncementStatus}; " +
                 "identities=withheld; coordinates=withheld.");
         }
@@ -798,7 +810,10 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             mobState.CurrentState == MobState.Dead)
         {
             htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
-            escort.LastDutyActionStatus = $"threat-screen target neutralized {FormatEntityRef(threatUid)}";
+            var reported = TryReportThreatNeutralized(uid, escort, threatUid);
+            escort.LastDutyActionStatus = reported
+                ? $"threat-screen target neutralized and reported {FormatEntityRef(threatUid)}"
+                : $"threat-screen target neutralized {FormatEntityRef(threatUid)}";
             return;
         }
 
@@ -824,6 +839,72 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             : !IsWithinRange(uid, threatUid, EscortThreatScreenRange)
                 ? $"threat-screen advancing to hostile {FormatEntityRef(threatUid)}"
                 : $"threat-screen engaging hostile {FormatEntityRef(threatUid)}";
+    }
+
+    private bool TryReportThreatNeutralized(
+        EntityUid escortUid,
+        LuaMRescueEscortComponent escort,
+        EntityUid threatUid)
+    {
+        if (escort.Leader is not { Valid: true } leader ||
+            Deleted(leader) ||
+            !TryComp<LuaMRescueTeamComponent>(leader, out var team))
+        {
+            return false;
+        }
+
+        var threatKind = IsSyntheticRescueActor(threatUid) ? "synthetic" : "hostile";
+        var targetRef = FormatEntityRef(threatUid);
+        var role = FormatRole(escort.Role);
+
+        if (team.LastThreatNeutralizedTarget == threatUid)
+            return false;
+
+        var now = _timing.CurTime;
+        if (now < team.NextThreatNeutralizedReportAt)
+        {
+            var wait = Math.Max(0, (int) Math.Ceiling((team.NextThreatNeutralizedReportAt - now).TotalSeconds));
+            if (SetThreatNeutralizedStatus(
+                    team,
+                    $"threat-neutralized waiting {wait}s; kind={threatKind}; target={targetRef}; by={role}"))
+            {
+                Dirty(leader, team);
+            }
+
+            return false;
+        }
+
+        var line = BuildThreatNeutralizedLine(threatKind, Name(threatUid));
+        if (!Deleted(escortUid) &&
+            !string.IsNullOrWhiteSpace(line))
+        {
+            _chat.TrySendInGameICMessage(escortUid, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
+        }
+
+        team.LastThreatNeutralizedTarget = threatUid;
+        team.LastThreatNeutralizedBy = escortUid;
+        team.NextThreatNeutralizedReportAt = now + TimeSpan.FromSeconds(ThreatNeutralizedReportCooldownSeconds);
+        SetThreatNeutralizedStatus(
+            team,
+            $"threat-neutralized:{threatKind}; target={targetRef}; by={role}");
+        Dirty(leader, team);
+        return true;
+    }
+
+    private static bool SetThreatNeutralizedStatus(LuaMRescueTeamComponent team, string status)
+    {
+        if (string.Equals(team.LastThreatNeutralizedStatus, status, StringComparison.Ordinal))
+            return false;
+
+        team.LastThreatNeutralizedStatus = status;
+        return true;
+    }
+
+    private static string BuildThreatNeutralizedLine(string threatKind, string targetName)
+    {
+        return threatKind == "synthetic"
+            ? $"\u0421\u0438\u043d\u0442\u0435\u0442\u0438\u0447\u0435\u0441\u043a\u0430\u044f \u0443\u0433\u0440\u043e\u0437\u0430 {targetName} \u043d\u0435\u0439\u0442\u0440\u0430\u043b\u0438\u0437\u043e\u0432\u0430\u043d\u0430. \u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043f\u043e\u0434 \u0437\u0430\u0449\u0438\u0442\u043e\u0439."
+            : $"\u0423\u0433\u0440\u043e\u0437\u0430 {targetName} \u043d\u0435\u0439\u0442\u0440\u0430\u043b\u0438\u0437\u043e\u0432\u0430\u043d\u0430. \u041f\u0435\u0440\u0438\u043c\u0435\u0442\u0440 \u0434\u0435\u0440\u0436\u0438\u043c.";
     }
 
     private void TryRunClearRouteAction(
