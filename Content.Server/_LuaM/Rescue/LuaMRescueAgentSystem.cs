@@ -4744,9 +4744,25 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 : $"threat/crowd/route={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
                   $"blockers={team.NearbyBlockers}; scene={team.LastSceneStatus}; memory={team.LastMemoryDigest}";
 
+        var threatClear = BuildHandoffThreatClearSummary(team);
+        if (!string.IsNullOrWhiteSpace(threatClear))
+            summary = $"{summary}; threatClear={threatClear}";
+
         return string.Equals(crewHelp, "unverified", StringComparison.OrdinalIgnoreCase)
             ? summary
             : $"{summary}; crewHelp={crewHelp}";
+    }
+
+    private static string BuildHandoffThreatClearSummary(LuaMRescueTeamComponent team)
+    {
+        if (string.IsNullOrWhiteSpace(team.LastThreatNeutralizedStatus) ||
+            string.Equals(team.LastThreatNeutralizedStatus, "none", StringComparison.OrdinalIgnoreCase) ||
+            !team.LastThreatNeutralizedStatus.StartsWith("threat-neutralized:", StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        return team.LastThreatNeutralizedStatus.Trim();
     }
 
     private string BuildHandoffCrewHelpSummary(LuaMRescueTeamComponent team)

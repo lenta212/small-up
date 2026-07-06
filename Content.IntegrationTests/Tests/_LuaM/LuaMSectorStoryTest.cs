@@ -3125,7 +3125,7 @@ public sealed class LuaMSectorStoryTest
                 "Triage shuttle",
                 "patient released from shuttle care",
                 "available for next rescue",
-                "none; crewHelp=crew-help requested: kostyl=crew-help:route-blocker; route clear",
+                "none, crewHelp=crew-help requested: kostyl=crew-help:route-blocker; route clear",
                 "crew-help requested: kostyl=crew-help:route-blocker; route clear",
                 "available",
                 out var entry), Is.True);
@@ -3135,7 +3135,7 @@ public sealed class LuaMSectorStoryTest
         await server.WaitAssertion(() =>
         {
             Assert.That(routeClear, Is.Not.Null);
-            Assert.That(routeClear!.Summary, Does.Contain("blockers=none; crewHelp=crew-help requested"));
+            Assert.That(routeClear!.Summary, Does.Contain("blockers=none, crewHelp=crew-help requested"));
             Assert.That(storySystem.TryGetLatestOpenRescueFollowUp(out _), Is.False);
 
             var status = storySystem.GetStatusSnapshot();
@@ -3150,7 +3150,7 @@ public sealed class LuaMSectorStoryTest
             Assert.That(cleared.Summary, Does.Contain("crew-help requested"));
 
             var clean = rescueHistory.Single(entry =>
-                entry.Summary.Contains("blockers=none; crewHelp=crew-help requested", StringComparison.Ordinal) &&
+                entry.Summary.Contains("blockers=none, crewHelp=crew-help requested", StringComparison.Ordinal) &&
                 !entry.Summary.Contains("blockersCleared=true", StringComparison.Ordinal));
             Assert.That(clean.Summary, Does.Not.Contain("blockersCleared=true"));
 

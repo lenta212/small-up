@@ -457,7 +457,8 @@ public static class LuaMSectorPlayerBriefing
 
         var normalized = blockers.Replace(" ", string.Empty);
         if (normalized.Equals("none", StringComparison.OrdinalIgnoreCase) ||
-            normalized.StartsWith("none;", StringComparison.OrdinalIgnoreCase))
+            normalized.StartsWith("none;", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith("none,", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
@@ -504,9 +505,15 @@ public static class LuaMSectorPlayerBriefing
             return string.Empty;
 
         start += marker.Length;
-        var end = summary.IndexOf(';', start);
-        if (end < 0)
-            end = summary.Length;
+        var semicolonEnd = summary.IndexOf(';', start);
+        var commaEnd = summary.IndexOf(',', start);
+        var end = semicolonEnd switch
+        {
+            < 0 when commaEnd < 0 => summary.Length,
+            < 0 => commaEnd,
+            _ when commaEnd >= 0 => Math.Min(semicolonEnd, commaEnd),
+            _ => semicolonEnd,
+        };
 
         return summary[start..end].Trim();
     }
