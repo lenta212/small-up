@@ -8210,19 +8210,18 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private void OnRadioReceive(EntityUid uid, ActiveRadioComponent component, ref RadioReceiveEvent args)
     {
-        if (IsRecentAiRadioPayload(args.Channel.ID, args.OriginalChatMsg.Message))
+        var originalMessage = args.OriginalChatMsg.Message;
+        if (IsRecentAiRadioPayload(args.Channel.ID, originalMessage) ||
+            IsRadioAiReplyMessage(originalMessage))
             return;
 
         if (!_players.TryGetSessionByEntity(args.MessageSource, out var session))
             return;
 
-        if (args.OriginalChatMsg.Message.StartsWith(RadioAiReplyTextPrefix, StringComparison.OrdinalIgnoreCase))
+        if (!TryExtractRadioAiAddressedRequest(originalMessage, out var request, out var addressKind))
             return;
 
-        if (!TryExtractRadioAiAddressedRequest(args.OriginalChatMsg.Message, out var request, out var addressKind))
-            return;
-
-        var key = $"{args.Channel.ID}|{args.MessageSource}|{args.RadioSource}|{args.OriginalChatMsg.Message}";
+        var key = $"{args.Channel.ID}|{args.MessageSource}|{args.RadioSource}|{originalMessage}";
         if (!TryClaimRadioAiRequest(key))
             return;
 
@@ -8545,6 +8544,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return !string.IsNullOrWhiteSpace(token) && !string.IsNullOrWhiteSpace(payload);
     }
 
+    private static bool IsRadioAiReplyMessage(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        return message.StartsWith(RadioAiReplyTokenPrefix, StringComparison.Ordinal) ||
+               message.StartsWith(RadioAiReplyTextPrefix, StringComparison.OrdinalIgnoreCase) ||
+               message.StartsWith(RescueRadioReplyPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
     private bool TryClaimRadioAiRequest(string key)
     {
         var now = _timing.CurTime;
@@ -8615,6 +8624,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         request = string.Empty;
         addressKind = RadioAiAddressKind.Director;
         if (string.IsNullOrWhiteSpace(message))
+            return false;
+        if (IsRadioAiReplyMessage(message))
             return false;
 
         if (TryExtractMarkedRadioAiRequest(message, RescueRadioAiMarkers, out request))
