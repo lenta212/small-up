@@ -212,6 +212,36 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueTeamRecordsHandoffAfterActionDigest()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
+        var agent = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+        var team = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("LastHandoffPatient"));
+        Assert.That(component, Does.Contain("LastHandoffRecord"));
+        Assert.That(component, Does.Contain("LastHandoffDigest"));
+        Assert.That(component, Does.Contain("HandoffRecords"));
+        Assert.That(team, Does.Contain("TryRecordRescueHandoff"));
+        Assert.That(team, Does.Contain("handoff record #"));
+        Assert.That(team, Does.Contain("after-action record #"));
+        Assert.That(team, Does.Contain("HandoffPhaseHoldSeconds"));
+        Assert.That(team, Does.Contain("handoff complete:"));
+        Assert.That(team, Does.Contain("plan return-to-shuttle: handoff recorded"));
+        Assert.That(team, Does.Contain("playerContribution="));
+        Assert.That(team, Does.Contain("teamStatus="));
+        Assert.That(team, Does.Contain("handoff={team.LastHandoffRecord}"));
+        Assert.That(team, Does.Contain("handoff={team.LastHandoffDigest}"));
+        Assert.That(agent, Does.Contain("RecordRescueHandoff"));
+        Assert.That(agent, Does.Contain("stabilized on site; no evacuation required"));
+        Assert.That(agent, Does.Contain("secured onboard; return route requested"));
+        Assert.That(agent, Does.Contain("released from shuttle care"));
+        Assert.That(agent, Does.Contain("aborted after stalled target"));
+        Assert.That(agent, Does.Contain("BuildHandoffBlockerSummary"));
+        Assert.That(agent, Does.Contain("BuildPatientTreatmentResult"));
+    }
+
+    [Test]
     public void RescueEscortsActivelyScreenHostileThreatTargets()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);

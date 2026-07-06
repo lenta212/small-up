@@ -33,6 +33,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const int SceneMemoryLimit = 8;
     private const double SceneMemoryLifetimeSeconds = 90;
     private const double SceneMemoryReinforceSeconds = 18;
+    private const double HandoffPhaseHoldSeconds = 6;
     private const double SortiePlanHoldSeconds = 4;
     private const double EscortDutyHoldSeconds = 2;
     private const double EscortDutyActionIntervalSeconds = 2;
@@ -118,6 +119,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.RecentThreatMemories = 0;
         team.RecentCrowdMemories = 0;
         team.RecentRouteMemories = 0;
+        team.LastHandoffPatient = null;
+        team.LastHandoffUpdatedAt = _timing.CurTime;
+        team.HandoffRecords = 0;
+        team.LastHandoffRecord = "handoff pending";
+        team.LastHandoffDigest = "after-action pending";
         team.SceneScanAccumulator = team.SceneScanInterval;
         team.Escorts.Clear();
         team.SceneMemory.Clear();
@@ -149,7 +155,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"escorts={team.Escorts.Count}; scene={team.LastSceneStatus}; " +
                 $"threat={FormatEntityRef(team.ThreatTarget)}; crowd={team.NearbyCrowd}; crowdTarget={FormatEntityRef(team.CrowdTarget)}; " +
                 $"blockers={team.NearbyBlockers}; blockerTarget={FormatEntityRef(team.RouteBlockerTarget)}; " +
-                $"memory={team.LastMemoryDigest}; planStatus={team.LastSortiePlanStatus}; last={team.LastStatus}");
+                $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffRecord}; " +
+                $"planStatus={team.LastSortiePlanStatus}; last={team.LastStatus}");
         }
 
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
@@ -183,13 +190,58 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"phase={FormatPhase(team.Phase)}; plan={FormatPlan(team.SortiePlan)}; planAge={GetSortiePlanAgeSeconds(team)}s; " +
                 $"planTransitions={team.SortiePlanTransitions}; escorts={escortCount}; scene={team.LastSceneStatus}; " +
                 $"pressure(threat/crowd/route)={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
-                $"memory={team.LastMemoryDigest}; planStatus={team.LastSortiePlanStatus}; identities=withheld; coordinates=withheld.");
+                $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffDigest}; " +
+                $"planStatus={team.LastSortiePlanStatus}; identities=withheld; coordinates=withheld.");
         }
 
         return lines
             .Where(line => !string.IsNullOrWhiteSpace(line))
             .Take(limit)
             .ToList();
+    }
+
+    public bool TryRecordRescueHandoff(
+        EntityUid leader,
+        EntityUid patient,
+        string location,
+        string treatmentResult,
+        string evacuationResult,
+        string blockers,
+        string playerContribution,
+        string teamStatus)
+    {
+        if (!TryComp<LuaMRescueTeamComponent>(leader, out var team))
+            return false;
+
+        location = NormalizeHandoffValue(location, "unknown");
+        treatmentResult = NormalizeHandoffValue(treatmentResult, "unknown");
+        evacuationResult = NormalizeHandoffValue(evacuationResult, "unknown");
+        blockers = NormalizeHandoffValue(blockers, "none");
+        playerContribution = NormalizeHandoffValue(playerContribution, "unverified");
+        teamStatus = NormalizeHandoffValue(teamStatus, "available");
+
+        team.LastHandoffPatient = ValidOrNull(patient);
+        team.LastHandoffUpdatedAt = _timing.CurTime;
+        team.HandoffRecords++;
+        team.LastHandoffRecord =
+            $"handoff record #{team.HandoffRecords}: patient={FormatEntityRef(patient)}; location={location}; " +
+            $"treatment={treatmentResult}; evacuation={evacuationResult}; blockers={blockers}; " +
+            $"playerContribution={playerContribution}; teamStatus={teamStatus}";
+        team.LastHandoffDigest =
+            $"after-action record #{team.HandoffRecords}: patient=withheld; location={location}; " +
+            $"treatment={treatmentResult}; evacuation={evacuationResult}; blockers={blockers}; " +
+            $"playerContribution={playerContribution}; teamStatus={teamStatus}; identities=withheld; coordinates=withheld";
+
+        Dirty(leader, team);
+        return true;
+    }
+
+    private static string NormalizeHandoffValue(string value, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return fallback;
+
+        return value.Trim().Replace(';', ',');
     }
 
     private void ConfigureEscort(
@@ -237,8 +289,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var patient = GetActiveRescuePatient(rescue);
         var shuttle = ValidOrNull(rescue.AssignedShuttle);
         var shuttleAnchor = ValidOrNull(rescue.AssignedShuttleAnchor);
-        var phase = GetTeamPhase(uid, rescue, patient);
-        var status = BuildTeamStatus(rescue, phase);
+        var phase = GetTeamPhase(team, rescue, patient);
+        var status = BuildTeamStatus(team, rescue, phase);
 
         var changed = false;
         if (team.Leader != uid)
@@ -1386,6 +1438,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             LuaMRescueTeamPhase.TreatOnSite => (LuaMRescueSortiePlan.TreatPatient, $"plan treat-patient: on-site treatment; {team.LastSceneStatus}"),
             LuaMRescueTeamPhase.PrepareEvacuation or LuaMRescueTeamPhase.EvacuateToShuttle => (LuaMRescueSortiePlan.EvacuatePatient, $"plan evacuate-patient: move patient to shuttle; {team.LastSceneStatus}"),
             LuaMRescueTeamPhase.SecureScene => (LuaMRescueSortiePlan.SecureScene, $"plan secure-scene: stabilize rescue zone; {team.LastSceneStatus}"),
+            LuaMRescueTeamPhase.Handoff => (LuaMRescueSortiePlan.ReturnToShuttle, $"plan return-to-shuttle: handoff recorded; {team.LastHandoffDigest}"),
             LuaMRescueTeamPhase.ReturnOrExtract => (LuaMRescueSortiePlan.ReturnToShuttle, $"plan return-to-shuttle: extraction phase; {team.LastSceneStatus}"),
             _ => (LuaMRescueSortiePlan.ApproachPatient, $"plan approach-patient: reach and assess patient; {team.LastSceneStatus}"),
         };
@@ -1615,13 +1668,24 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         _npc.WakeNPC(uid, htn);
     }
 
-    private LuaMRescueTeamPhase GetTeamPhase(EntityUid uid, LuaMRescueAgentComponent rescue, EntityUid? patient)
+    private LuaMRescueTeamPhase GetTeamPhase(
+        LuaMRescueTeamComponent team,
+        LuaMRescueAgentComponent rescue,
+        EntityUid? patient)
     {
         if (patient is not { Valid: true } patientUid ||
             Deleted(patientUid))
+        {
+            if (team.HandoffRecords > 0 &&
+                (_timing.CurTime - team.LastHandoffUpdatedAt).TotalSeconds <= HandoffPhaseHoldSeconds)
+            {
+                return LuaMRescueTeamPhase.Handoff;
+            }
+
             return rescue.AssignedShuttle is { Valid: true }
                 ? LuaMRescueTeamPhase.ReturnOrExtract
                 : LuaMRescueTeamPhase.Idle;
+        }
 
         return rescue.TaskStage switch
         {
@@ -1637,13 +1701,17 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         };
     }
 
-    private static string BuildTeamStatus(LuaMRescueAgentComponent rescue, LuaMRescueTeamPhase phase)
+    private static string BuildTeamStatus(
+        LuaMRescueTeamComponent team,
+        LuaMRescueAgentComponent rescue,
+        LuaMRescueTeamPhase phase)
     {
         return phase switch
         {
             LuaMRescueTeamPhase.TreatOnSite => $"Aibolit treating: {rescue.LastAutoTreatmentStatus}",
             LuaMRescueTeamPhase.PrepareEvacuation => $"preparing evacuation: {rescue.LastAutoEvacuationStatus}",
             LuaMRescueTeamPhase.EvacuateToShuttle => $"evacuating patient: {rescue.LastAutoEvacuationStatus}",
+            LuaMRescueTeamPhase.Handoff => $"handoff complete: {team.LastHandoffRecord}",
             LuaMRescueTeamPhase.Triage => $"triage and supply: {rescue.LastAutoSupplyStatus}",
             LuaMRescueTeamPhase.ReturnOrExtract => "returning or extracting",
             _ => rescue.LastTaskStatus,

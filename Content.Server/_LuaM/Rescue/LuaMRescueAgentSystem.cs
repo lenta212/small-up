@@ -637,6 +637,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
         }
 
+        RecordRescueHandoff(
+            uid,
+            rescue,
+            patient,
+            BuildPatientTreatmentResult(patient, rescue),
+            "stabilized on site; no evacuation required",
+            "returning to standby");
         ClearRescueTask(uid, rescue, $"patient {FormatEntityRef(patient)} no longer needs rescue");
         return false;
     }
@@ -3987,6 +3994,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         rescue.SkippedTargets[target] = _timing.CurTime + TimeSpan.FromSeconds(rescue.TargetSkipSeconds);
 
+        RecordRescueHandoff(
+            uid,
+            rescue,
+            target,
+            "incomplete",
+            $"aborted after stalled target for {rescue.TargetSkipSeconds:0.0}s",
+            "returning or redeploying");
+
         StopPullingTarget(uid, target);
         ClearRescueTask(uid, rescue, $"skipped stalled target {FormatEntityRef(target)}");
         rescue.EvacuatingTarget = null;
@@ -4063,11 +4078,24 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.ShuttleRoutedTarget = null;
         ResetTargetProgress(rescue);
         var hasPendingEvacuationTarget = HasPendingEvacuationTarget(uid, rescue, target);
+        if (!hasPendingEvacuationTarget)
+            rescue.LastAutoEvacuationStatus = $"completed evacuation of {FormatEntityRef(target)}; return route requested";
+
         if (!TryComp<MobStateComponent>(target, out var onboardMobState) ||
             onboardMobState.CurrentState != MobState.Dead)
         {
             ReportLivingPatientOnboardStatus(uid, rescue, target, onboardMobState, hasPendingEvacuationTarget);
         }
+
+        RecordRescueHandoff(
+            uid,
+            rescue,
+            target,
+            BuildPatientTreatmentResult(target, rescue),
+            hasPendingEvacuationTarget
+                ? "secured onboard; pending evacuation target detected"
+                : "secured onboard; return route requested",
+            hasPendingEvacuationTarget ? "redeploying to next patient" : "returning to shuttle base");
 
         if (!hasPendingEvacuationTarget)
             TryRouteShuttleHome(uid, rescue);
@@ -4193,6 +4221,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (rescue.AssignedPatientStrap == patientStrap)
                 rescue.AssignedPatientStrap = null;
 
+            RecordRescueHandoff(
+                uid,
+                rescue,
+                patient,
+                BuildPatientTreatmentResult(patient, rescue),
+                "released from shuttle care",
+                "available for next rescue");
             ClearFollowTarget(uid, rescue, htn);
             TrySendRescueStatusComms(
                 uid,
@@ -4207,6 +4242,77 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         Dirty(uid, rescue);
         return true;
+    }
+
+    private void RecordRescueHandoff(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient,
+        string treatmentResult,
+        string evacuationResult,
+        string teamStatus)
+    {
+        var location = FormatHandoffLocation(rescue, patient);
+        var blockers = TryComp<LuaMRescueTeamComponent>(uid, out var team)
+            ? BuildHandoffBlockerSummary(team)
+            : "team scene memory unavailable";
+
+        _rescueTeam.TryRecordRescueHandoff(
+            uid,
+            patient,
+            location,
+            treatmentResult,
+            evacuationResult,
+            blockers,
+            "unverified",
+            teamStatus);
+    }
+
+    private string FormatHandoffLocation(LuaMRescueAgentComponent rescue, EntityUid patient)
+    {
+        var location = rescue.AssignedPatientStrap ??
+                       rescue.AssignedShuttleAnchor ??
+                       rescue.AssignedShuttle;
+
+        return location is { Valid: true } locationUid && !Deleted(locationUid)
+            ? FormatEntityRef(locationUid)
+            : FormatEntityRef(patient);
+    }
+
+    private static string BuildHandoffBlockerSummary(LuaMRescueTeamComponent team)
+    {
+        if (team.RecentThreatMemories <= 0 &&
+            team.RecentCrowdMemories <= 0 &&
+            team.RecentRouteMemories <= 0 &&
+            team.NearbyBlockers <= 0)
+        {
+            return "none";
+        }
+
+        return $"threat/crowd/route={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
+               $"blockers={team.NearbyBlockers}; scene={team.LastSceneStatus}; memory={team.LastMemoryDigest}";
+    }
+
+    private string BuildPatientTreatmentResult(EntityUid patient, LuaMRescueAgentComponent rescue)
+    {
+        if (!TryComp<MobStateComponent>(patient, out var mobState))
+            return "patient status unknown";
+
+        if (mobState.CurrentState == MobState.Dead)
+            return rescue.AutoDefibDeadPatients ? "dead recovery; onboard defib cycle pending" : "dead recovery";
+
+        if (mobState.CurrentState == MobState.Critical)
+            return "critical; treatment continues";
+
+        if (TryComp<DamageableComponent>(patient, out var damageable))
+        {
+            var damage = damageable.TotalDamage.Float();
+            return damage <= rescue.AutoReleaseMaxDamage
+                ? $"stable; damage={damage:0.0}"
+                : $"alive under observation; damage={damage:0.0}";
+        }
+
+        return "alive under observation";
     }
 
     private bool TryFindStabilizedShuttlePatient(

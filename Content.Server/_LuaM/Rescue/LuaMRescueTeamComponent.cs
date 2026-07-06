@@ -85,6 +85,21 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public int RecentRouteMemories;
 
     [DataField]
+    public EntityUid? LastHandoffPatient;
+
+    [DataField]
+    public TimeSpan LastHandoffUpdatedAt;
+
+    [DataField]
+    public int HandoffRecords;
+
+    [DataField]
+    public string LastHandoffRecord = "handoff pending";
+
+    [DataField]
+    public string LastHandoffDigest = "after-action pending";
+
+    [DataField]
     public float SceneScanInterval = 1f;
 
     public float SceneScanAccumulator;
