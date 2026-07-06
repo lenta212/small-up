@@ -156,6 +156,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.NextSharedSpeechAt = _timing.CurTime;
         team.LastReturnOrExtractReasonStatus = "none";
         team.LastEvacuationFormationStatus = "none";
+        team.LastCrewHelpAcknowledgementStatus = "none";
         team.LastThreatNeutralizedTarget = null;
         team.LastThreatNeutralizedBy = null;
         team.LastThreatNeutralizedStatus = "none";
@@ -213,6 +214,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"blockers={team.NearbyBlockers}; blockerTarget={FormatEntityRef(team.RouteBlockerTarget)}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffRecord}; returnReason={team.LastReturnOrExtractReasonStatus}; " +
                 $"evacFormation={team.LastEvacuationFormationStatus}; " +
+                $"crewHelpAck={team.LastCrewHelpAcknowledgementStatus}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
                 $"threatClear={team.LastThreatNeutralizedStatus}; " +
                 $"phaseBark={team.LastPhaseAnnouncementStatus}; speech={team.LastSharedSpeechStatus}; last={team.LastStatus}");
@@ -251,6 +253,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"pressure(threat/crowd/route)={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffDigest}; returnReason={team.LastReturnOrExtractReasonStatus}; " +
                 $"evacFormation={team.LastEvacuationFormationStatus}; " +
+                $"crewHelpAck={team.LastCrewHelpAcknowledgementStatus}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
                 $"threatClear={team.LastThreatNeutralizedStatus}; " +
                 $"phaseBark={team.LastPhaseAnnouncementStatus}; speech={team.LastSharedSpeechStatus}; " +
@@ -282,18 +285,24 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         blockers = NormalizeHandoffValue(blockers, "none");
         playerContribution = NormalizeHandoffValue(playerContribution, "unverified");
         teamStatus = NormalizeHandoffValue(teamStatus, "available");
+        var crewHelpAcknowledgement = BuildCrewHelpAcknowledgementStatus(blockers, playerContribution);
+        if (!string.Equals(crewHelpAcknowledgement, "none", StringComparison.OrdinalIgnoreCase))
+            playerContribution = $"{playerContribution}, {crewHelpAcknowledgement}";
 
         team.LastHandoffPatient = ValidOrNull(patient);
         team.LastHandoffUpdatedAt = _timing.CurTime;
         team.HandoffRecords++;
+        team.LastCrewHelpAcknowledgementStatus = crewHelpAcknowledgement;
         team.LastHandoffRecord =
             $"handoff record #{team.HandoffRecords}: patient={FormatEntityRef(patient)}; location={location}; " +
             $"treatment={treatmentResult}; evacuation={evacuationResult}; blockers={blockers}; " +
-            $"playerContribution={playerContribution}; teamStatus={teamStatus}";
+            $"playerContribution={playerContribution}; crewHelpAck={team.LastCrewHelpAcknowledgementStatus}; teamStatus={teamStatus}";
         team.LastHandoffDigest =
             $"after-action record #{team.HandoffRecords}: patient=withheld; location={location}; " +
             $"treatment={treatmentResult}; evacuation={evacuationResult}; blockers={blockers}; " +
-            $"playerContribution={playerContribution}; teamStatus={teamStatus}; identities=withheld; coordinates=withheld";
+            $"playerContribution={playerContribution}; crewHelpAck={team.LastCrewHelpAcknowledgementStatus}; " +
+            $"teamStatus={teamStatus}; identities=withheld; coordinates=withheld";
+        TrySayCrewHelpAcknowledgement(leader, team, crewHelpAcknowledgement);
 
         _sectorStory.TryRecordRescueAfterAction(
             "LuaM Rescue",
@@ -308,6 +317,69 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         Dirty(leader, team);
         return true;
+    }
+
+    private bool TrySayCrewHelpAcknowledgement(
+        EntityUid leader,
+        LuaMRescueTeamComponent team,
+        string acknowledgement)
+    {
+        if (Deleted(leader) ||
+            !acknowledgement.StartsWith("crew-help-ack:", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var now = _timing.CurTime;
+        if (!TryReserveTeamSpeech(
+                leader,
+                team,
+                $"crew-help-ack:{team.HandoffRecords}",
+                now,
+                out var speechStatusChanged))
+        {
+            return speechStatusChanged;
+        }
+
+        _chat.TrySendInGameICMessage(
+            leader,
+            "\u042d\u043a\u0438\u043f\u0430\u0436, \u043f\u043e\u043c\u043e\u0449\u044c \u0437\u0430\u0441\u0447\u0438\u0442\u0430\u043d\u0430. \u041a\u043e\u0440\u0438\u0434\u043e\u0440 \u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b.",
+            InGameICChatType.Speak,
+            hideChat: false,
+            hideLog: true);
+        return true;
+    }
+
+    private static string BuildCrewHelpAcknowledgementStatus(string blockers, string playerContribution)
+    {
+        if (!ContainsCrewHelpRequest(playerContribution) ||
+            !HasClearedCrewHelpRoute(blockers))
+        {
+            return "none";
+        }
+
+        return "crew-help-ack: route clear; contribution recorded";
+    }
+
+    private static bool ContainsCrewHelpRequest(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value) &&
+               value.Contains("crew-help requested:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasClearedCrewHelpRoute(string blockers)
+    {
+        if (string.IsNullOrWhiteSpace(blockers))
+            return false;
+
+        var normalized = blockers.Replace(" ", string.Empty);
+        if (normalized.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith("none,", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return normalized.StartsWith("threat/crowd/route=0/0/0", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeHandoffValue(string value, string fallback)

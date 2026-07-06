@@ -689,6 +689,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("LastHandoffRecord"));
         Assert.That(component, Does.Contain("LastHandoffDigest"));
         Assert.That(component, Does.Contain("HandoffRecords"));
+        Assert.That(component, Does.Contain("LastCrewHelpAcknowledgementStatus"));
         Assert.That(team, Does.Contain("TryRecordRescueHandoff"));
         Assert.That(team, Does.Contain("handoff record #"));
         Assert.That(team, Does.Contain("after-action record #"));
@@ -696,6 +697,16 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(team, Does.Contain("handoff complete:"));
         Assert.That(team, Does.Contain("plan return-to-shuttle: handoff recorded"));
         Assert.That(team, Does.Contain("playerContribution="));
+        Assert.That(team, Does.Contain("playerContribution = $\"{playerContribution}, {crewHelpAcknowledgement}\""));
+        Assert.That(team, Does.Contain("crewHelpAck={team.LastCrewHelpAcknowledgementStatus}"));
+        Assert.That(team, Does.Contain("LastCrewHelpAcknowledgementStatus = crewHelpAcknowledgement"));
+        Assert.That(team, Does.Contain("BuildCrewHelpAcknowledgementStatus"));
+        Assert.That(team, Does.Contain("TrySayCrewHelpAcknowledgement"));
+        Assert.That(team, Does.Contain("crew-help-ack: route clear; contribution recorded"));
+        Assert.That(team, Does.Contain("ContainsCrewHelpRequest"));
+        Assert.That(team, Does.Contain("HasClearedCrewHelpRoute"));
+        Assert.That(team, Does.Contain("crewHelpAck={team.LastCrewHelpAcknowledgementStatus}"));
+        Assert.That(team, Does.Contain("\\u042d\\u043a\\u0438\\u043f\\u0430\\u0436, \\u043f\\u043e\\u043c\\u043e\\u0449\\u044c \\u0437\\u0430\\u0441\\u0447\\u0438\\u0442\\u0430\\u043d\\u0430"));
         Assert.That(team, Does.Contain("teamStatus="));
         Assert.That(team, Does.Contain("handoff={team.LastHandoffRecord}"));
         Assert.That(team, Does.Contain("handoff={team.LastHandoffDigest}"));

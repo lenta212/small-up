@@ -70,6 +70,9 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public string LastEvacuationFormationStatus = "none";
 
     [DataField]
+    public string LastCrewHelpAcknowledgementStatus = "none";
+
+    [DataField]
     public EntityUid? LastThreatNeutralizedTarget;
 
     [DataField]
