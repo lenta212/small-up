@@ -11,22 +11,35 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     [Test]
     public void RescueAgentsUseArmedProtectedTeamGear()
     {
-        var gear = FindPrototype(
+        var agentGear = FindPrototype(
             LoadSequence("Resources/Prototypes/_LuaM/Loadouts/rescue.yml"),
-            "LuaMRescueTeamGear");
-        var equipment = Mapping(gear, "equipment");
+            "LuaMRescueAgentGear");
+        var agentEquipment = Mapping(agentGear, "equipment");
 
-        Assert.That(ScalarValue(equipment, "outerClothing"), Is.EqualTo("ClothingOuterArmorBasicSlim"));
-        Assert.That(ScalarValue(equipment, "head"), Is.EqualTo("ClothingHeadHelmetBasic"));
-        Assert.That(ScalarValue(equipment, "eyes"), Is.EqualTo("ClothingEyesHudMedical"));
-        Assert.That(ScalarValue(equipment, "gloves"), Is.EqualTo("ClothingHandsGlovesCombat"));
-        Assert.That(SequenceValues(Sequence(gear, "inhand")), Does.Contain("WeaponLaserCarbine"));
-        Assert.That(SequenceValues(Sequence(Mapping(gear, "storage"), "back")), Does.Contain("MedkitCombatFilled"));
-        Assert.That(SequenceValues(Sequence(Mapping(gear, "storage"), "back")), Does.Contain("DefibrillatorCompact"));
+        Assert.That(ScalarValue(agentEquipment, "outerClothing"), Is.EqualTo("ClothingOuterArmorBasicSlim"));
+        Assert.That(ScalarValue(agentEquipment, "head"), Is.EqualTo("ClothingHeadHelmetBasic"));
+        Assert.That(ScalarValue(agentEquipment, "eyes"), Is.EqualTo("ClothingEyesHudMedical"));
+        Assert.That(ScalarValue(agentEquipment, "gloves"), Is.EqualTo("ClothingHandsGlovesCombat"));
+        Assert.That(SequenceValues(Sequence(agentGear, "inhand")), Does.Contain("WeaponLaserCarbine"));
+        Assert.That(SequenceValues(Sequence(Mapping(agentGear, "storage"), "back")), Does.Contain("MedkitCombatFilled"));
+        Assert.That(SequenceValues(Sequence(Mapping(agentGear, "storage"), "back")), Does.Contain("DefibrillatorCompact"));
+
+        var escortGear = FindPrototype(
+            LoadSequence("Resources/Prototypes/_LuaM/Loadouts/rescue.yml"),
+            "LuaMRescueEscortGear");
+        var escortEquipment = Mapping(escortGear, "equipment");
+
+        Assert.That(ScalarValue(escortEquipment, "outerClothing"), Is.EqualTo("ClothingOuterArmorBPVestHeavy"));
+        Assert.That(ScalarValue(escortEquipment, "head"), Is.EqualTo("ClothingHeadHelmetSwat"));
+        Assert.That(ScalarValue(escortEquipment, "eyes"), Is.EqualTo("ClothingEyesGlassesSecurity"));
+        Assert.That(ScalarValue(escortEquipment, "belt"), Is.EqualTo("ClothingBeltSecurityFilled"));
+        Assert.That(SequenceValues(Sequence(escortGear, "inhand")), Does.Contain("WeaponLaserCarbine"));
+        Assert.That(SequenceValues(Sequence(Mapping(escortGear, "storage"), "back")), Does.Contain("WeaponDisablerSMG"));
+        Assert.That(SequenceValues(Sequence(Mapping(escortGear, "storage"), "back")), Does.Contain("CombatMedipen"));
 
         var entities = LoadSequence("Resources/Prototypes/_LuaM/Entities/Mobs/rescue_agent.yml");
-        AssertLoadout(entities, "LuaMRescueAgent");
-        AssertLoadout(entities, "LuaMRescueEscort");
+        AssertLoadout(entities, "LuaMRescueAgent", "LuaMRescueAgentGear");
+        AssertLoadout(entities, "LuaMRescueEscort", "LuaMRescueEscortGear");
     }
 
     [Test]
@@ -564,12 +577,12 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("Vector2.Normalize(away)"));
     }
 
-    private static void AssertLoadout(YamlSequenceNode entities, string prototypeId)
+    private static void AssertLoadout(YamlSequenceNode entities, string prototypeId, string loadoutId)
     {
         var entity = FindPrototype(entities, prototypeId);
         var loadout = FindComponent(entity, "Loadout");
 
-        Assert.That(SequenceValues(Sequence(loadout, "prototypes")), Is.EquivalentTo(new[] { "LuaMRescueTeamGear" }));
+        Assert.That(SequenceValues(Sequence(loadout, "prototypes")), Is.EquivalentTo(new[] { loadoutId }));
         AssertNavInteractBool(entity);
     }
 

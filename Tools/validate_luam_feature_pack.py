@@ -4100,7 +4100,7 @@ def main() -> int:
     rescue_agent = prototypes["LuaMRescueAgent"]
     assert_equal(rescue_agent["parent"], "MobHuman", "LuaMRescueAgent.parent")
     assert_equal(component(rescue_agent, "LuaMRescueAgent")["type"], "LuaMRescueAgent", "LuaMRescueAgent.component")
-    assert_equal(component(rescue_agent, "Loadout")["prototypes"], ["LuaMRescueTeamGear"], "LuaMRescueAgent.loadout")
+    assert_equal(component(rescue_agent, "Loadout")["prototypes"], ["LuaMRescueAgentGear"], "LuaMRescueAgent.loadout")
     assert_equal(component(rescue_agent, "NpcFactionMember")["factions"], ["NanoTrasen"], "LuaMRescueAgent.faction")
     component(rescue_agent, "InputMover")
     component(rescue_agent, "MobMover")
@@ -4115,7 +4115,7 @@ def main() -> int:
     rescue_escort = prototypes["LuaMRescueEscort"]
     assert_equal(rescue_escort["parent"], "MobHuman", "LuaMRescueEscort.parent")
     assert_equal(component(rescue_escort, "LuaMRescueEscort")["type"], "LuaMRescueEscort", "LuaMRescueEscort.component")
-    assert_equal(component(rescue_escort, "Loadout")["prototypes"], ["LuaMRescueTeamGear"], "LuaMRescueEscort.loadout")
+    assert_equal(component(rescue_escort, "Loadout")["prototypes"], ["LuaMRescueEscortGear"], "LuaMRescueEscort.loadout")
     assert_equal(component(rescue_escort, "NpcFactionMember")["factions"], ["NanoTrasen"], "LuaMRescueEscort.faction")
     component(rescue_escort, "InputMover")
     component(rescue_escort, "MobMover")
@@ -4134,11 +4134,19 @@ def main() -> int:
     assert_equal(rescue_branches[3]["tasks"][0]["task"], "FollowCompound", "LuaMRescueCompound.followBranch")
     assert_equal(rescue_branches[4]["tasks"][0]["task"], "IdleCompound", "LuaMRescueCompound.idleBranch")
 
-    rescue_team_gear = prototypes["LuaMRescueTeamGear"]
-    assert_equal(rescue_team_gear["equipment"]["outerClothing"], "ClothingOuterArmorBasicSlim", "LuaMRescueTeamGear.outerClothing")
-    assert_equal(rescue_team_gear["equipment"]["head"], "ClothingHeadHelmetBasic", "LuaMRescueTeamGear.head")
-    assert_contains(rescue_team_gear["inhand"], "WeaponLaserCarbine", "LuaMRescueTeamGear.inhand")
-    assert_contains(rescue_team_gear["storage"]["back"], "DefibrillatorCompact", "LuaMRescueTeamGear.storage.back")
+    rescue_agent_gear = prototypes["LuaMRescueAgentGear"]
+    assert_equal(rescue_agent_gear["equipment"]["outerClothing"], "ClothingOuterArmorBasicSlim", "LuaMRescueAgentGear.outerClothing")
+    assert_equal(rescue_agent_gear["equipment"]["head"], "ClothingHeadHelmetBasic", "LuaMRescueAgentGear.head")
+    assert_contains(rescue_agent_gear["inhand"], "WeaponLaserCarbine", "LuaMRescueAgentGear.inhand")
+    assert_contains(rescue_agent_gear["storage"]["back"], "DefibrillatorCompact", "LuaMRescueAgentGear.storage.back")
+
+    rescue_escort_gear = prototypes["LuaMRescueEscortGear"]
+    assert_equal(rescue_escort_gear["equipment"]["outerClothing"], "ClothingOuterArmorBPVestHeavy", "LuaMRescueEscortGear.outerClothing")
+    assert_equal(rescue_escort_gear["equipment"]["head"], "ClothingHeadHelmetSwat", "LuaMRescueEscortGear.head")
+    assert_equal(rescue_escort_gear["equipment"]["belt"], "ClothingBeltSecurityFilled", "LuaMRescueEscortGear.belt")
+    assert_contains(rescue_escort_gear["inhand"], "WeaponLaserCarbine", "LuaMRescueEscortGear.inhand")
+    assert_contains(rescue_escort_gear["storage"]["back"], "WeaponDisablerSMG", "LuaMRescueEscortGear.storage.back")
+    assert_contains(rescue_escort_gear["storage"]["back"], "CombatMedipen", "LuaMRescueEscortGear.storage.back")
 
     allowed_low_pop_pois = {"CargoDepot", "CargoDepotAlt", "TradeMall", "Medical", "Edison", "Tinnia"}
     actual_low_pop_pois: set[str] = set()

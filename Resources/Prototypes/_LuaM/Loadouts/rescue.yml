@@ -1,5 +1,5 @@
 - type: startingGear
-  id: LuaMRescueTeamGear
+  id: LuaMRescueAgentGear
   equipment:
     back: ClothingBackpackERTMedical
     shoes: ClothingShoesBootsCombatFilled
@@ -19,3 +19,25 @@
     - MedkitCombatFilled
     - OmnizineChemistryBottle
     - EpinephrineChemistryBottle
+
+- type: startingGear
+  id: LuaMRescueEscortGear
+  equipment:
+    back: ClothingBackpackERTSecurity
+    shoes: ClothingShoesBootsCombatFilled
+    head: ClothingHeadHelmetSwat
+    eyes: ClothingEyesGlassesSecurity
+    gloves: ClothingHandsGlovesCombat
+    outerClothing: ClothingOuterArmorBPVestHeavy
+    id: ParamedicPDA
+    ears: ClothingHeadsetMedical
+    belt: ClothingBeltSecurityFilled
+  inhand:
+  - WeaponLaserCarbine
+  storage:
+    back:
+    - WeaponDisablerSMG
+    - MedkitCombatFilled
+    - CombatMedipen
+    - BruteAutoInjector
+    - BurnAutoInjector
