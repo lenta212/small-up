@@ -486,6 +486,11 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("crowd control warning"));
         Assert.That(source, Does.Contain("patient assist pull blocked"));
         Assert.That(source, Does.Contain("moving patient {FormatEntityRef(patientUid)} to shuttle"));
+        Assert.That(source, Does.Contain("var followTarget = GetEscortFollowTarget(uid, escort, duty);"));
+        Assert.That(source, Does.Contain("GetPatientSupportFollowTarget"));
+        Assert.That(source, Does.Contain("IsEscortPullingPatient(uid, patient)"));
+        Assert.That(source, Does.Contain("return shuttleAnchor ?? shuttle ?? leader ?? patient;"));
+        Assert.That(source, Does.Contain("patient-assist escorting"));
     }
 
     [Test]

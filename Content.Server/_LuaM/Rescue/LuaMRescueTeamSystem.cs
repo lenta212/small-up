@@ -427,7 +427,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var candidateDuty = GetEscortDuty(escort);
         var dutyChanged = UpdateEscortDutySelection(escort, candidateDuty, _timing.CurTime);
         var duty = escort.CurrentDuty;
-        var followTarget = GetEscortFollowTarget(escort, duty);
+        var followTarget = GetEscortFollowTarget(uid, escort, duty);
         var followChanged = escort.CurrentFollowTarget != followTarget;
 
         escort.CurrentFollowTarget = followTarget;
@@ -1567,13 +1567,18 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (pullable.Puller == uid)
         {
+            var evacuationTarget = ValidOrNull(escort.ShuttleAnchor) ??
+                                   ValidOrNull(escort.Shuttle) ??
+                                   ValidOrNull(escort.Leader);
             TryRequestCrewHelp(
                 uid,
                 escort,
                 $"stretcher-moving:{patientUid}",
                 $"escort pulling patient {FormatEntityRef(patientUid)}",
                 "\u041f\u043e\u043c\u043e\u0433\u0438\u0442\u0435 \u0441 \u043d\u043e\u0441\u0438\u043b\u043a\u0430\u043c\u0438: \u0434\u0435\u0440\u0436\u0438\u0442\u0435 \u0434\u0432\u0435\u0440\u0438 \u043e\u0442\u043a\u0440\u044b\u0442\u044b\u043c\u0438 \u0438 \u043c\u0430\u0440\u0448\u0440\u0443\u0442 \u0447\u0438\u0441\u0442\u044b\u043c.");
-            escort.LastDutyActionStatus = $"patient-assist holding {FormatEntityRef(patientUid)}";
+            escort.LastDutyActionStatus = evacuationTarget is { Valid: true } target
+                ? $"patient-assist escorting {FormatEntityRef(patientUid)} to {FormatEntityRef(target)}"
+                : $"patient-assist holding {FormatEntityRef(patientUid)}";
             return;
         }
 
@@ -2610,7 +2615,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             : LuaMRescueEscortDuty.SecureScene;
     }
 
-    private EntityUid? GetEscortFollowTarget(LuaMRescueEscortComponent escort, LuaMRescueEscortDuty duty)
+    private EntityUid? GetEscortFollowTarget(EntityUid uid, LuaMRescueEscortComponent escort, LuaMRescueEscortDuty duty)
     {
         var patient = escort.Patient is { Valid: true } patientUid && !Deleted(patientUid)
             ? patientUid
@@ -2645,13 +2650,39 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             LuaMRescueEscortDuty.SecureScene => escort.Role == LuaMRescueEscortRole.Zaslon
                 ? threat ?? patient ?? leader ?? shuttleAnchor ?? shuttle
                 : leader ?? patient ?? shuttleAnchor ?? shuttle,
-            LuaMRescueEscortDuty.PatientSupport => patient ?? leader ?? shuttleAnchor ?? shuttle,
+            LuaMRescueEscortDuty.PatientSupport => GetPatientSupportFollowTarget(uid, escort, patient, leader, shuttleAnchor, shuttle),
             LuaMRescueEscortDuty.EvacuationCorridor => escort.Role == LuaMRescueEscortRole.Zaslon
                 ? threat ?? patient ?? shuttleAnchor ?? leader ?? shuttle
                 : leader ?? patient ?? shuttleAnchor ?? shuttle,
             LuaMRescueEscortDuty.ReturnToShuttle => shuttleAnchor ?? shuttle ?? leader,
             _ => leader ?? shuttleAnchor ?? shuttle,
         };
+    }
+
+    private EntityUid? GetPatientSupportFollowTarget(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        EntityUid? patient,
+        EntityUid? leader,
+        EntityUid? shuttleAnchor,
+        EntityUid? shuttle)
+    {
+        if (escort.Role == LuaMRescueEscortRole.Kostyl &&
+            escort.SortiePlan == LuaMRescueSortiePlan.EvacuatePatient &&
+            IsEscortPullingPatient(uid, patient))
+        {
+            return shuttleAnchor ?? shuttle ?? leader ?? patient;
+        }
+
+        return patient ?? leader ?? shuttleAnchor ?? shuttle;
+    }
+
+    private bool IsEscortPullingPatient(EntityUid uid, EntityUid? patient)
+    {
+        return patient is { Valid: true } patientUid &&
+            !Deleted(patientUid) &&
+            TryComp<PullerComponent>(uid, out var puller) &&
+            puller.Pulling == patientUid;
     }
 
     private void SetEscortFollowTarget(
