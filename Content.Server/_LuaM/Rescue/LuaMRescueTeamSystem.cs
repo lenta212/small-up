@@ -155,6 +155,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.LastSharedSpeechStatus = "shared-speech ready";
         team.NextSharedSpeechAt = _timing.CurTime;
         team.LastReturnOrExtractReasonStatus = "none";
+        team.LastEvacuationFormationStatus = "none";
         team.LastThreatNeutralizedTarget = null;
         team.LastThreatNeutralizedBy = null;
         team.LastThreatNeutralizedStatus = "none";
@@ -211,6 +212,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"threat={FormatEntityRef(team.ThreatTarget)}; crowd={team.NearbyCrowd}; crowdTarget={FormatEntityRef(team.CrowdTarget)}; " +
                 $"blockers={team.NearbyBlockers}; blockerTarget={FormatEntityRef(team.RouteBlockerTarget)}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffRecord}; returnReason={team.LastReturnOrExtractReasonStatus}; " +
+                $"evacFormation={team.LastEvacuationFormationStatus}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
                 $"threatClear={team.LastThreatNeutralizedStatus}; " +
                 $"phaseBark={team.LastPhaseAnnouncementStatus}; speech={team.LastSharedSpeechStatus}; last={team.LastStatus}");
@@ -248,6 +250,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"planTransitions={team.SortiePlanTransitions}; escorts={escortCount}; scene={team.LastSceneStatus}; " +
                 $"pressure(threat/crowd/route)={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffDigest}; returnReason={team.LastReturnOrExtractReasonStatus}; " +
+                $"evacFormation={team.LastEvacuationFormationStatus}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
                 $"threatClear={team.LastThreatNeutralizedStatus}; " +
                 $"phaseBark={team.LastPhaseAnnouncementStatus}; speech={team.LastSharedSpeechStatus}; " +
@@ -366,9 +369,10 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var shuttleAnchor = ValidOrNull(rescue.AssignedShuttleAnchor);
         var phase = GetTeamPhase(team, rescue, patient);
         var returnOrExtractReason = BuildReturnOrExtractReasonStatus(team, rescue, phase);
-        var status = BuildTeamStatus(team, rescue, phase, returnOrExtractReason);
 
         var changed = false;
+        var status = BuildTeamStatus(team, rescue, phase, returnOrExtractReason);
+
         if (team.Leader != uid)
         {
             team.Leader = uid;
@@ -411,6 +415,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             changed = true;
         }
 
+        changed |= UpdateEvacuationFormationStatus(team, phase, patient);
         changed |= PruneTeamEscorts(team);
         var somberScene = IsSomberTeamScene(team, rescue, patient);
         changed |= TrySayTeamPhaseLine(uid, team, phase, somberScene, returnOrExtractReason);
@@ -432,6 +437,42 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (changed)
             Dirty(uid, team);
+    }
+
+    private bool UpdateEvacuationFormationStatus(
+        LuaMRescueTeamComponent team,
+        LuaMRescueTeamPhase phase,
+        EntityUid? patient)
+    {
+        var status = phase is LuaMRescueTeamPhase.PrepareEvacuation or LuaMRescueTeamPhase.EvacuateToShuttle &&
+            patient is { Valid: true } patientUid &&
+            !Deleted(patientUid)
+                ? BuildEvacuationFormationStatus(team, patientUid)
+                : "none";
+
+        if (string.Equals(team.LastEvacuationFormationStatus, status, StringComparison.Ordinal))
+            return false;
+
+        team.LastEvacuationFormationStatus = status;
+        return true;
+    }
+
+    private string BuildEvacuationFormationStatus(LuaMRescueTeamComponent team, EntityUid patient)
+    {
+        var shuttleTarget = ValidOrNull(team.ShuttleAnchor) ?? ValidOrNull(team.Shuttle);
+        var route = shuttleTarget is { Valid: true } target
+            ? $"route={FormatEntityRef(target)}"
+            : "route=shuttle-unassigned";
+        var pressure = HasThreatPressure(team)
+            ? "threat-side active"
+            : HasRoutePressure(team)
+                ? "route pressure active"
+                : HasCrowdPressure(team)
+                    ? "crowd pressure active"
+                    : "corridor nominal";
+
+        return $"evac-formation: patient={FormatEntityRef(patient)}; kostyl=patient-lead; " +
+            $"tourniquet=corridor-control; zaslon=threat-side; {route}; pressure={pressure}";
     }
 
     private void UpdateEscortDuty(EntityUid uid, LuaMRescueEscortComponent escort, HTNComponent htn, bool forceSpeech = false)

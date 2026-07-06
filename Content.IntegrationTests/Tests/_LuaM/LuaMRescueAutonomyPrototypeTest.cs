@@ -618,6 +618,25 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueTeamReportsEvacuationFormationRoles()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("LastEvacuationFormationStatus"));
+        Assert.That(source, Does.Contain("UpdateEvacuationFormationStatus"));
+        Assert.That(source, Does.Contain("BuildEvacuationFormationStatus"));
+        Assert.That(source, Does.Contain("phase is LuaMRescueTeamPhase.PrepareEvacuation or LuaMRescueTeamPhase.EvacuateToShuttle"));
+        Assert.That(source, Does.Contain("evac-formation:"));
+        Assert.That(source, Does.Contain("kostyl=patient-lead"));
+        Assert.That(source, Does.Contain("tourniquet=corridor-control"));
+        Assert.That(source, Does.Contain("zaslon=threat-side"));
+        Assert.That(source, Does.Contain("route=shuttle-unassigned"));
+        Assert.That(source, Does.Contain("pressure={pressure}"));
+        Assert.That(source, Does.Contain("evacFormation={team.LastEvacuationFormationStatus}"));
+    }
+
+    [Test]
     public void RescueTeamClearsCompletedPatientForReturnOrExtract()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
