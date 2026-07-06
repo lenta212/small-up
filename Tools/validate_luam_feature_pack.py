@@ -147,6 +147,19 @@ def assert_contains(container: Any, value: Any, label: str) -> None:
         raise AssertionError(f"{label}: missing {value!r}")
 
 
+def assert_order(container: str, first: str, second: str, label: str) -> None:
+    first_index = container.find(first)
+    if first_index < 0:
+        raise AssertionError(f"{label}: missing {first!r}")
+
+    second_index = container.find(second)
+    if second_index < 0:
+        raise AssertionError(f"{label}: missing {second!r}")
+
+    if first_index >= second_index:
+        raise AssertionError(f"{label}: expected {first!r} before {second!r}")
+
+
 def assert_not_contains(container: Any, value: Any, label: str) -> None:
     if value in container:
         raise AssertionError(f"{label}: unexpected {value!r}")
@@ -3579,15 +3592,30 @@ def main() -> int:
     assert_contains(rescue_agent_system, "patient-release:", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "SetOnboardCareStatus", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "MarkOnboardCareReleased", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "if (TryTreatOnboardPatient(uid, rescue, htn))", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryContinueOnboardCare", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "if (TryContinueOnboardCare(uid, rescue, htn))", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "TryTreatOnboardPatient(uid, rescue, htn)", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryFindOnboardTreatmentPatient", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryAutoTreatTarget(uid, rescue, htn, patient)", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "treating onboard", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "needs onboard treatment", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "HasPendingOnboardCareOrRelease", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "onboard care pending before return", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "redispatch deferred: onboard-care first", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "onboard care before redispatch or return", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "redispatch-deferred-onboard:", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "allowAutoReturn: !hasPendingRescueTarget && !onboardCarePending", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "ReportLivingPatientOnboardStatus(uid, rescue, target, onboardMobState, hasPendingRescueTarget && !onboardCarePending)", "LuaMRescueAgentSystem")
+    assert_order(
+        rescue_agent_system,
+        "if (TryContinueOnboardCare(uid, rescue, htn))",
+        "if (!TryComp<MedibotComponent>(uid, out var medibot))",
+        "LuaMRescueAgentSystem",
+    )
     assert_contains(rescue_agent_system, "CompleteReleasedPatientCare", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "released stabilized {FormatEntityRef(patient)}; ready for next rescue", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "holding shuttle forward after release of {FormatEntityRef(patient)}; pending rescue target detected", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget && !onboardCarePending)", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TrySayOnboardAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TrySayRescueAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "onboard-action:{step}:{patient}", "LuaMRescueAgentSystem")

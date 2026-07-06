@@ -2527,6 +2527,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (UpdateEvacuation(uid, rescue, htn))
             return;
 
+        if (TryContinueOnboardCare(uid, rescue, htn))
+            return;
+
         if (rescue.AssignedTarget is { Valid: true } assigned &&
             !IsTargetTemporarilySkipped(assigned, rescue) &&
             TryTreatOrEvacuateTarget(uid, rescue, htn, assigned))
@@ -2600,16 +2603,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
-        if (TryAutoDefibDeadPatientOnShuttle(uid, rescue, htn))
-            return;
-
-        if (TryTreatOnboardPatient(uid, rescue, htn))
-            return;
-
-        if (TryReleaseStabilizedPatientOnShuttle(uid, rescue, htn))
-            return;
-
         StandbyAtAssignedShuttle(uid, rescue, htn);
+    }
+
+    private bool TryContinueOnboardCare(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    {
+        return TryAutoDefibDeadPatientOnShuttle(uid, rescue, htn) ||
+               TryTreatOnboardPatient(uid, rescue, htn) ||
+               TryReleaseStabilizedPatientOnShuttle(uid, rescue, htn);
     }
 
     private bool TryTreatOrEvacuateTarget(
@@ -4677,10 +4678,27 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             target,
             out var pendingTarget,
             out var pendingReason);
+        var onboardCarePending = HasPendingOnboardCareOrRelease(target, rescue);
         if (!hasPendingRescueTarget)
         {
             rescue.LastRedispatchStatus = "none";
-            rescue.LastAutoEvacuationStatus = $"completed evacuation of {FormatEntityRef(target)}; return route requested";
+            rescue.LastAutoEvacuationStatus = onboardCarePending
+                ? $"completed evacuation of {FormatEntityRef(target)}; onboard care pending before return"
+                : $"completed evacuation of {FormatEntityRef(target)}; return route requested";
+        }
+        else if (onboardCarePending)
+        {
+            rescue.ShuttleReturnRouted = false;
+            rescue.LastAutoEvacuationStatus =
+                $"holding shuttle for onboard care of {FormatEntityRef(target)}; pending rescue target detected";
+            rescue.LastRedispatchStatus =
+                $"redispatch deferred: onboard-care first; completed={FormatEntityRef(target)}; " +
+                $"target={FormatEntityRef(pendingTarget)}; reason={pendingReason}; status=holding";
+            TrySendRescueStatusComms(
+                uid,
+                rescue,
+                $"redispatch-deferred-onboard:{target}:{pendingTarget}",
+                $"\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0441\u0442\u0430\u0431\u0438\u043b\u0438\u0437\u0438\u0440\u0443\u044e \u0438 \u043e\u0441\u0432\u043e\u0431\u043e\u0436\u0434\u0430\u044e \u043a\u043e\u0439\u043a\u0443, \u0437\u0430\u0442\u0435\u043c \u043f\u0435\u0440\u0435\u0439\u0434\u0443 \u043a {Name(pendingTarget)}.");
         }
 
         if (!TryComp<MobStateComponent>(target, out var onboardMobState) ||
@@ -4692,7 +4710,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 onboardMobState?.CurrentState == MobState.Critical
                     ? "critical; treatment continuing"
                     : "observation; awaiting stable release");
-            ReportLivingPatientOnboardStatus(uid, rescue, target, onboardMobState, hasPendingRescueTarget);
+            ReportLivingPatientOnboardStatus(uid, rescue, target, onboardMobState, hasPendingRescueTarget && !onboardCarePending);
         }
 
         RecordRescueHandoff(
@@ -4700,14 +4718,22 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue,
             target,
             BuildPatientTreatmentResult(target, rescue),
-            hasPendingRescueTarget
+            onboardCarePending
+                ? "secured onboard; onboard care pending"
+                : hasPendingRescueTarget
                 ? "secured onboard; pending rescue target detected"
                 : "secured onboard; return route requested",
-            hasPendingRescueTarget ? "redeploying to next patient" : "returning to shuttle base");
+            onboardCarePending
+                ? "onboard care before redispatch or return"
+                : hasPendingRescueTarget
+                    ? "redeploying to next patient"
+                    : "returning to shuttle base");
 
-        if (!hasPendingRescueTarget)
+        if (!onboardCarePending && !hasPendingRescueTarget)
+        {
             TryRouteShuttleHome(uid, rescue);
-        else
+        }
+        else if (!onboardCarePending)
         {
             rescue.ShuttleReturnRouted = false;
             rescue.LastAutoEvacuationStatus = $"holding shuttle forward after evacuation of {FormatEntityRef(target)}; pending rescue target detected";
@@ -4720,7 +4746,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         ClearArrivalReportTarget(rescue, target);
         ClearTriageDecisionTarget(rescue, target);
         ClearDeathSignalTarget(rescue, target);
-        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget);
+        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget && !onboardCarePending);
         Dirty(uid, rescue);
     }
 
@@ -5494,6 +5520,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         status = $"stabilized onboard patient {FormatEntityRef(patient)}";
+        return true;
+    }
+
+    private bool HasPendingOnboardCareOrRelease(EntityUid patient, LuaMRescueAgentComponent rescue)
+    {
+        if (Deleted(patient) ||
+            !IsBuckledToAssignedShuttlePatientStrap(patient, rescue))
+        {
+            return false;
+        }
+
         return true;
     }
 
