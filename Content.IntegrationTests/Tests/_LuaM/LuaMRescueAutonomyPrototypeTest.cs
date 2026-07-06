@@ -452,14 +452,22 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
 
         Assert.That(source, Does.Contain("RouteBlockerDropoffDistance = 3.5f"));
+        Assert.That(source, Does.Contain("RouteBlockerReleaseDistance = 3.25f"));
         Assert.That(source, Does.Contain("TryRunClearRouteAction(uid, escort, htn, followTarget)"));
+        Assert.That(source, Does.Contain("TryFinishClearRouteBlockerAtDropoff"));
+        Assert.That(source, Does.Contain("IsRouteBlockerClearOfRescueCorridor"));
+        Assert.That(source, Does.Contain("IsRouteBlockerWithinRescueCorridor"));
         Assert.That(source, Does.Contain("TrySetClearRouteDropoffTarget"));
         Assert.That(source, Does.Contain("GetClearRouteDropoffDirection"));
+        Assert.That(source, Does.Contain("puller.Pulling != blockerUid"));
+        Assert.That(source, Does.Contain("_pulling.TryStopPull(blockerUid, pullable, uid)"));
         Assert.That(source, Does.Contain("blockerXform.Coordinates.Offset(direction * RouteBlockerDropoffDistance)"));
         Assert.That(source, Does.Contain("_npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, dropoff, htn)"));
         Assert.That(source, Does.Contain("_npc.SetBlackboard(uid, \"FollowCloseRange\", 0.75f, htn)"));
         Assert.That(source, Does.Contain("_npc.SetBlackboard(uid, \"FollowRange\", 1.5f, htn)"));
         Assert.That(source, Does.Contain("clear-route dragging"));
+        Assert.That(source, Does.Contain("clear-route dropped"));
+        Assert.That(source, Does.Contain("clearance {distance:0.0}/{RouteBlockerReleaseDistance:0.0}m"));
         Assert.That(source, Does.Contain("Vector2.Normalize(away)"));
     }
 
