@@ -55,6 +55,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double EscortDutyActionIntervalSeconds = 2;
     private const float EscortDutyActionRange = 1.75f;
     private const float EscortThreatScreenRange = 7f;
+    private const float EscortThreatLeashRange = 8.5f;
     private const float EscortPatientAssistRange = 1.5f;
     private const float EscortCrowdControlRange = 3f;
     private const float RouteBlockerDropoffDistance = 3.5f;
@@ -1169,6 +1170,13 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.LastDutyActionStatus = reported
                 ? $"threat-screen target neutralized and reported {FormatEntityRef(threatUid)}"
                 : $"threat-screen target neutralized {FormatEntityRef(threatUid)}";
+            return;
+        }
+
+        if (!IsThreatWithinRescueLeash(escort, threatUid))
+        {
+            htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
+            escort.LastDutyActionStatus = $"threat-screen leash holding rescue perimeter; threat={FormatEntityRef(threatUid)}";
             return;
         }
 
@@ -2644,7 +2652,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         return duty switch
         {
-            LuaMRescueEscortDuty.ThreatScreen => threat ?? sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle,
+            LuaMRescueEscortDuty.ThreatScreen => GetThreatScreenFollowTarget(escort, threat, sceneAnchor, patient, leader, shuttleAnchor, shuttle),
             LuaMRescueEscortDuty.CrowdControl => crowd ?? sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle,
             LuaMRescueEscortDuty.ClearRoute => routeBlocker ?? sceneAnchor ?? leader ?? shuttleAnchor ?? patient ?? shuttle,
             LuaMRescueEscortDuty.SecureScene => escort.Role == LuaMRescueEscortRole.Zaslon
@@ -2657,6 +2665,67 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             LuaMRescueEscortDuty.ReturnToShuttle => shuttleAnchor ?? shuttle ?? leader,
             _ => leader ?? shuttleAnchor ?? shuttle,
         };
+    }
+
+    private EntityUid? GetThreatScreenFollowTarget(
+        LuaMRescueEscortComponent escort,
+        EntityUid? threat,
+        EntityUid? sceneAnchor,
+        EntityUid? patient,
+        EntityUid? leader,
+        EntityUid? shuttleAnchor,
+        EntityUid? shuttle)
+    {
+        if (threat is { Valid: true } threatUid &&
+            !Deleted(threatUid) &&
+            IsThreatWithinRescueLeash(escort, threatUid))
+        {
+            return threatUid;
+        }
+
+        return sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle;
+    }
+
+    private bool IsThreatWithinRescueLeash(LuaMRescueEscortComponent escort, EntityUid threat)
+    {
+        return !TryGetThreatLeashAnchor(escort, out var anchor) ||
+               IsWithinRange(anchor, threat, EscortThreatLeashRange);
+    }
+
+    private bool TryGetThreatLeashAnchor(LuaMRescueEscortComponent escort, out EntityUid anchor)
+    {
+        if (ValidOrNull(escort.SceneAnchor) is { Valid: true } sceneAnchor)
+        {
+            anchor = sceneAnchor;
+            return true;
+        }
+
+        if (ValidOrNull(escort.Patient) is { Valid: true } patient)
+        {
+            anchor = patient;
+            return true;
+        }
+
+        if (ValidOrNull(escort.Leader) is { Valid: true } leader)
+        {
+            anchor = leader;
+            return true;
+        }
+
+        if (ValidOrNull(escort.ShuttleAnchor) is { Valid: true } shuttleAnchor)
+        {
+            anchor = shuttleAnchor;
+            return true;
+        }
+
+        if (ValidOrNull(escort.Shuttle) is { Valid: true } shuttle)
+        {
+            anchor = shuttle;
+            return true;
+        }
+
+        anchor = default;
+        return false;
     }
 
     private EntityUid? GetPatientSupportFollowTarget(

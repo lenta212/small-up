@@ -589,6 +589,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
 
         Assert.That(source, Does.Contain("TryRunThreatScreenAction"));
         Assert.That(source, Does.Contain("EscortThreatScreenRange = 7f"));
+        Assert.That(source, Does.Contain("EscortThreatLeashRange = 8.5f"));
         Assert.That(source, Does.Contain("duty != LuaMRescueEscortDuty.ThreatScreen"));
         Assert.That(component, Does.Contain("LastWeaponReadinessStatus"));
         Assert.That(source, Does.Contain("EscortCombatStorageSlotPriority"));
@@ -605,6 +606,12 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("stowed {FormatEntityRef(held)}"));
         Assert.That(source, Does.Contain("NPCBlackboard.CurrentOrderedTarget"));
         Assert.That(source, Does.Contain("_combatMode.SetInCombatMode(uid, true, combat)"));
+        Assert.That(source, Does.Contain("GetThreatScreenFollowTarget"));
+        Assert.That(source, Does.Contain("IsThreatWithinRescueLeash"));
+        Assert.That(source, Does.Contain("TryGetThreatLeashAnchor"));
+        Assert.That(source, Does.Contain("IsWithinRange(anchor, threat, EscortThreatLeashRange)"));
+        Assert.That(source, Does.Contain("threat-screen leash holding rescue perimeter"));
+        Assert.That(source, Does.Contain("return sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle;"));
         Assert.That(source, Does.Contain("IsHostileToObserver(uid, threatUid)"));
         Assert.That(source, Does.Contain("threat-screen advancing to hostile"));
         Assert.That(source, Does.Contain("threat-screen engaging hostile"));
