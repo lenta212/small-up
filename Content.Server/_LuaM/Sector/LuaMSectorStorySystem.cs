@@ -484,10 +484,18 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         if (memory.RescueAfterActions.Count > RescueAfterActionLimit)
             memory.RescueAfterActions.RemoveRange(0, memory.RescueAfterActions.Count - RescueAfterActionLimit);
 
+        TryAutoClearLatestRescueFollowUpFromAfterAction(memory, entry, out var clearedEntry);
+
         SaveMemory(memory);
 
         var ev = new LuaMSectorRescueAfterActionRecordedEvent(CloneRescueAfterActionEntry(entry));
         RaiseLocalEvent(ev);
+        if (clearedEntry != null)
+        {
+            var clearedEv = new LuaMSectorRescueFollowUpClearedEvent(CloneRescueAfterActionEntry(clearedEntry));
+            RaiseLocalEvent(clearedEv);
+        }
+
         return true;
     }
 
@@ -2477,6 +2485,9 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
 
     private static bool HasActionableRescueBlockerSummary(string blockers)
     {
+        if (HasRescueRouteClearBlockerEvidence(blockers))
+            return false;
+
         var normalized = blockers.Replace(" ", string.Empty);
         if (!normalized.StartsWith("threat/crowd/route=0/0/0", StringComparison.OrdinalIgnoreCase))
             return true;
@@ -2484,6 +2495,79 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         var blockerCount = ExtractRescueBlockerField(blockers, "blockers");
         return !string.IsNullOrWhiteSpace(blockerCount) &&
                !blockerCount.Equals("0", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryAutoClearLatestRescueFollowUpFromAfterAction(
+        LuaMSectorMemoryComponent memory,
+        LuaMSectorRescueAfterActionEntry evidence,
+        out LuaMSectorRescueAfterActionEntry? clearedEntry)
+    {
+        clearedEntry = null;
+
+        if (!HasCrewHelpRouteClearEvidence(evidence))
+            return false;
+
+        var match = memory.RescueAfterActions
+            .Where(action => action.Sequence < evidence.Sequence)
+            .OrderByDescending(action => action.Sequence)
+            .FirstOrDefault(HasOpenRescueBlockers);
+        if (match == null)
+            return false;
+
+        match.BlockersCleared = true;
+        match.BlockersClearedBy = string.IsNullOrWhiteSpace(evidence.Actor)
+            ? "LuaM Rescue"
+            : evidence.Actor;
+        match.BlockersClearedNote = BuildCrewHelpRouteClearNote(evidence);
+        match.Summary = BuildRescueAfterActionSummary(match);
+        clearedEntry = CloneRescueAfterActionEntry(match);
+        return true;
+    }
+
+    private static bool HasCrewHelpRouteClearEvidence(LuaMSectorRescueAfterActionEntry entry)
+    {
+        return HasRescueRouteClearBlockerEvidence(entry.Blockers) &&
+               HasCrewHelpRequestEvidence(entry);
+    }
+
+    private static bool HasCrewHelpRequestEvidence(LuaMSectorRescueAfterActionEntry entry)
+    {
+        return ContainsCrewHelpRequest(entry.PlayerContribution) ||
+               ContainsCrewHelpRequest(entry.Blockers);
+    }
+
+    private static bool ContainsCrewHelpRequest(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value) &&
+               value.Contains("crew-help requested:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasRescueRouteClearBlockerEvidence(string blockers)
+    {
+        if (string.IsNullOrWhiteSpace(blockers))
+            return false;
+
+        var normalized = blockers.Replace(" ", string.Empty);
+        if (normalized.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith("none;", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!normalized.StartsWith("threat/crowd/route=0/0/0", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var blockerCount = ExtractRescueBlockerField(blockers, "blockers");
+        return string.IsNullOrWhiteSpace(blockerCount) ||
+               blockerCount.Equals("0", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildCrewHelpRouteClearNote(LuaMSectorRescueAfterActionEntry evidence)
+    {
+        return Trim(
+            $"auto-cleared by rescue handoff: sequence={evidence.Sequence}; " +
+            $"blockers={evidence.Blockers}; playerContribution={evidence.PlayerContribution}",
+            256);
     }
 
     private static string ExtractRescueBlockerField(string summary, string field)

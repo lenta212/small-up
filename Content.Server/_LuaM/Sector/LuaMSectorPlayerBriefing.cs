@@ -433,11 +433,13 @@ public static class LuaMSectorPlayerBriefing
 
         var blockers = ExtractRescueBlockersSummary(summary);
         if (string.IsNullOrWhiteSpace(blockers) ||
-            blockers.Equals("none", StringComparison.OrdinalIgnoreCase) ||
             blockers.Equals("team scene memory unavailable", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
+
+        if (HasRescueRouteClearBlockerEvidence(blockers))
+            return false;
 
         var normalized = blockers.Replace(" ", string.Empty);
         if (!normalized.StartsWith("threat/crowd/route=0/0/0", StringComparison.OrdinalIgnoreCase))
@@ -446,6 +448,26 @@ public static class LuaMSectorPlayerBriefing
         var blockerCount = ExtractSummaryField(blockers, "blockers");
         return !string.IsNullOrWhiteSpace(blockerCount) &&
                !blockerCount.Equals("0", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasRescueRouteClearBlockerEvidence(string blockers)
+    {
+        if (string.IsNullOrWhiteSpace(blockers))
+            return false;
+
+        var normalized = blockers.Replace(" ", string.Empty);
+        if (normalized.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+            normalized.StartsWith("none;", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!normalized.StartsWith("threat/crowd/route=0/0/0", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var blockerCount = ExtractSummaryField(blockers, "blockers");
+        return string.IsNullOrWhiteSpace(blockerCount) ||
+               blockerCount.Equals("0", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ExtractRescueBlockersSummary(string summary)

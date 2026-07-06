@@ -3070,6 +3070,110 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    public async Task RescueAfterActionAutoClearsCrewHelpRouteFollowUp()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+
+        var entManager = server.ResolveDependency<IEntityManager>();
+        var resources = server.ResolveDependency<IResourceManager>();
+        var storySystem = entManager.System<LuaMSectorStorySystem>();
+
+        LuaMSectorRescueAfterActionEntry? initial = null;
+        LuaMSectorRescueAfterActionEntry? routeClear = null;
+
+        await server.WaitPost(() =>
+        {
+            ClearPersistedSectorMemory(resources);
+            SectorNewsComponent.Articles.Clear();
+
+            var host = entManager.SpawnEntity(null, MapCoordinates.Nullspace);
+            entManager.AddComponent<StationSectorServiceHostComponent>(host);
+            entManager.AddComponent<SectorNewsComponent>(host);
+        });
+
+        await pair.RunTicksSync(10);
+
+        await server.WaitPost(() =>
+        {
+            Assert.That(storySystem.TryRecordRescueAfterAction(
+                "LuaM Rescue",
+                "withheld",
+                "Triage shuttle",
+                "stable after defib",
+                "secured onboard",
+                "threat/crowd/route=0/1/1; blockers=2; scene=route pressure",
+                "unverified",
+                "available",
+                out var entry), Is.True);
+            initial = entry;
+        });
+
+        await server.WaitAssertion(() =>
+        {
+            Assert.That(initial, Is.Not.Null);
+            Assert.That(storySystem.TryGetLatestOpenRescueFollowUp(out var open), Is.True);
+            Assert.That(open, Is.Not.Null);
+            Assert.That(open!.Sequence, Is.EqualTo(initial!.Sequence));
+        });
+
+        await server.WaitPost(() =>
+        {
+            Assert.That(storySystem.TryRecordRescueAfterAction(
+                "LuaM Rescue",
+                "withheld",
+                "Triage shuttle",
+                "patient released from shuttle care",
+                "available for next rescue",
+                "none; crewHelp=crew-help requested: kostyl=crew-help:route-blocker; route clear",
+                "crew-help requested: kostyl=crew-help:route-blocker; route clear",
+                "available",
+                out var entry), Is.True);
+            routeClear = entry;
+        });
+
+        await server.WaitAssertion(() =>
+        {
+            Assert.That(routeClear, Is.Not.Null);
+            Assert.That(routeClear!.Summary, Does.Contain("blockers=none; crewHelp=crew-help requested"));
+            Assert.That(storySystem.TryGetLatestOpenRescueFollowUp(out _), Is.False);
+
+            var status = storySystem.GetStatusSnapshot();
+            var rescueHistory = status.RecentHistory
+                .Where(entry => entry.Category == "Rescue")
+                .ToList();
+            Assert.That(rescueHistory, Has.Count.EqualTo(2));
+
+            var cleared = rescueHistory.Single(entry => entry.Summary.Contains("threat/crowd/route=0/1/1", StringComparison.Ordinal));
+            Assert.That(cleared.Summary, Does.Contain("blockersCleared=true"));
+            Assert.That(cleared.Summary, Does.Contain("auto-cleared by rescue handoff"));
+            Assert.That(cleared.Summary, Does.Contain("crew-help requested"));
+
+            var clean = rescueHistory.Single(entry =>
+                entry.Summary.Contains("blockers=none; crewHelp=crew-help requested", StringComparison.Ordinal) &&
+                !entry.Summary.Contains("blockersCleared=true", StringComparison.Ordinal));
+            Assert.That(clean.Summary, Does.Not.Contain("blockersCleared=true"));
+
+            var tasks = LuaMSectorPlayerBriefing.BuildQuestTasks(
+                status,
+                null,
+                new LuaMSectorAutomationUiEntry
+                {
+                    CanRequestDynamicEvent = true,
+                    RequestBlockReason = "ready",
+                },
+                [],
+                [],
+                [],
+                [],
+                6);
+            Assert.That(tasks.Any(task => task.TaskId.StartsWith("rescue-followup", StringComparison.Ordinal)), Is.False);
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
     public async Task DynamicEventGeneratorSeedsRuntimeLead()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });

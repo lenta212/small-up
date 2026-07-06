@@ -515,6 +515,7 @@ def main() -> int:
         "BuildQuestTasks",
         "FindLatestRescueBlockerFollowUp",
         "HasActionableRescueBlockers",
+        "HasRescueRouteClearBlockerEvidence",
         "ExtractRescueBlockersSummary",
         "blockersCleared",
         "rescue-followup-",
@@ -3806,6 +3807,11 @@ def main() -> int:
     assert_contains(sector_story_system, "TryRecordRescueAfterAction", "LuaMSectorStorySystem")
     assert_contains(sector_story_system, "TryGetLatestOpenRescueFollowUp", "LuaMSectorStorySystem")
     assert_contains(sector_story_system, "TryClearLatestRescueFollowUp", "LuaMSectorStorySystem")
+    assert_contains(sector_story_system, "TryAutoClearLatestRescueFollowUpFromAfterAction", "LuaMSectorStorySystem")
+    assert_contains(sector_story_system, "HasCrewHelpRouteClearEvidence", "LuaMSectorStorySystem")
+    assert_contains(sector_story_system, "HasRescueRouteClearBlockerEvidence", "LuaMSectorStorySystem")
+    assert_contains(sector_story_system, "BuildCrewHelpRouteClearNote", "LuaMSectorStorySystem")
+    assert_contains(sector_story_system, "auto-cleared by rescue handoff", "LuaMSectorStorySystem")
     assert_contains(sector_story_system, "HasActionableRescueBlockerSummary", "LuaMSectorStorySystem")
     assert_contains(sector_story_system, "BuildRescueAfterActionSummary", "LuaMSectorStorySystem")
     assert_contains(sector_story_system, "RescueAfterActionLimit", "LuaMSectorStorySystem")
@@ -3827,8 +3833,10 @@ def main() -> int:
     assert_contains(sector_evidence_component, "ClearRescueFollowUp", "LuaMSectorEvidenceComponent")
     assert_contains(sector_evidence_system, "TryClearLatestRescueFollowUp", "LuaMSectorEvidenceSystem")
     assert_contains(sector_story_test, "RescueFollowUpEvidenceClearsLatestBlockerTask", "LuaMSectorStoryTest")
+    assert_contains(sector_story_test, "RescueAfterActionAutoClearsCrewHelpRouteFollowUp", "LuaMSectorStoryTest")
     assert_contains(sector_story_test, "TryPrintRescueFollowUpReport", "LuaMSectorStoryTest")
     assert_contains(sector_story_test, "ClearRescueFollowUp", "LuaMSectorStoryTest")
+    assert_contains(sector_story_test, "blockers=none; crewHelp=crew-help requested", "LuaMSectorStoryTest")
     assert_contains(sector_story_test, "blockersCleared=true", "LuaMSectorStoryTest")
     assert_contains(rescue_team_system, "UpdateEscortDuty", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "UpdateSortiePlan", "LuaMRescueTeamSystem")
