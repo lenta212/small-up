@@ -2949,6 +2949,127 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    public async Task RescueFollowUpEvidenceClearsLatestBlockerTask()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+
+        var entManager = server.ResolveDependency<IEntityManager>();
+        var resources = server.ResolveDependency<IResourceManager>();
+        var storySystem = entManager.System<LuaMSectorStorySystem>();
+        var leadReportSystem = entManager.System<LuaMSectorLeadReportSystem>();
+        var evidenceSystem = entManager.System<LuaMSectorEvidenceSystem>();
+
+        EntityUid user = default;
+        EntityUid board = default;
+        EntityUid report = default;
+        LuaMSectorRescueAfterActionEntry? recorded = null;
+
+        await server.WaitPost(() =>
+        {
+            ClearPersistedSectorMemory(resources);
+            SectorNewsComponent.Articles.Clear();
+
+            var host = entManager.SpawnEntity(null, MapCoordinates.Nullspace);
+            entManager.AddComponent<StationSectorServiceHostComponent>(host);
+            entManager.AddComponent<SectorNewsComponent>(host);
+
+            user = entManager.SpawnEntity(null, MapCoordinates.Nullspace);
+            board = entManager.SpawnEntity("ComputerLuaMSectorRumorBoard", MapCoordinates.Nullspace);
+        });
+
+        await pair.RunTicksSync(10);
+
+        await server.WaitPost(() =>
+        {
+            Assert.That(storySystem.TryRecordRescueAfterAction(
+                "LuaM Rescue",
+                "withheld",
+                "Triage shuttle",
+                "stable after defib",
+                "secured onboard",
+                "threat/crowd/route=0/1/1; blockers=2; scene=route pressure",
+                "unverified",
+                "available",
+                out var entry), Is.True);
+            recorded = entry;
+        });
+
+        await server.WaitAssertion(() =>
+        {
+            Assert.That(recorded, Is.Not.Null);
+            Assert.That(recorded!.Summary, Does.Contain("blockers=threat/crowd/route=0/1/1"));
+        });
+
+        await pair.RunTicksSync(5);
+
+        await server.WaitAssertion(() =>
+        {
+            Assert.That(storySystem.TryGetLatestOpenRescueFollowUp(out var open), Is.True);
+            Assert.That(open, Is.Not.Null);
+            Assert.That(open!.Location, Is.EqualTo("Triage shuttle"));
+
+            var tasks = LuaMSectorPlayerBriefing.BuildQuestTasks(
+                storySystem.GetStatusSnapshot(),
+                null,
+                new LuaMSectorAutomationUiEntry
+                {
+                    CanRequestDynamicEvent = true,
+                    RequestBlockReason = "ready",
+                },
+                [],
+                [],
+                [],
+                [],
+                6);
+            Assert.That(tasks.Any(task => task.TaskId.StartsWith("rescue-followup", StringComparison.Ordinal)), Is.True);
+
+            Assert.That(leadReportSystem.TryPrintRescueFollowUpReport(board, user, out report), Is.True);
+            Assert.That(entManager.TryGetComponent<PaperComponent>(report, out var paper), Is.True);
+            Assert.That(paper!.Content, Does.Contain("# LuaM rescue blocker follow-up"));
+            Assert.That(paper.Content, Does.Contain("threat/crowd/route=0/1/1"));
+            Assert.That(entManager.TryGetComponent<LuaMSectorEvidenceComponent>(report, out var evidence), Is.True);
+            Assert.That(evidence!.ClearRescueFollowUp, Is.True);
+            Assert.That(evidence.Note, Does.Contain("rescue blocker follow-up cleared"));
+        });
+
+        await server.WaitPost(() =>
+        {
+            Assert.That(evidenceSystem.TryFileEvidence(report, user), Is.True);
+        });
+
+        await pair.RunTicksSync(5);
+
+        await server.WaitAssertion(() =>
+        {
+            Assert.That(storySystem.TryGetLatestOpenRescueFollowUp(out _), Is.False);
+
+            var status = storySystem.GetStatusSnapshot();
+            var history = status.RecentHistory.Single(entry => entry.Category == "Rescue");
+            Assert.That(history.Summary, Does.Contain("blockersCleared=true"));
+            Assert.That(history.Summary, Does.Contain("rescue blocker follow-up cleared"));
+
+            var tasks = LuaMSectorPlayerBriefing.BuildQuestTasks(
+                status,
+                null,
+                new LuaMSectorAutomationUiEntry
+                {
+                    CanRequestDynamicEvent = true,
+                    RequestBlockReason = "ready",
+                },
+                [],
+                [],
+                [],
+                [],
+                6);
+            Assert.That(tasks.Any(task => task.TaskId.StartsWith("rescue-followup", StringComparison.Ordinal)), Is.False);
+            Assert.That(leadReportSystem.TryPrintRescueFollowUpReport(board, user, out _), Is.False);
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
     public async Task DynamicEventGeneratorSeedsRuntimeLead()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });

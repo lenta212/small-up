@@ -17,6 +17,7 @@ public enum LuaMSectorTerminalAction : byte
     PrintLeadReport,
     PrintRuntimeCoordinatePacket,
     PrintRuntimeClosureReport,
+    PrintRescueFollowUpReport,
     PrintInsuranceDocket,
     PrintInsuranceClaimVoucher,
     PrintRegistryDocket,

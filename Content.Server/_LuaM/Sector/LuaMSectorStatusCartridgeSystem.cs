@@ -28,6 +28,7 @@ public sealed partial class LuaMSectorStatusCartridgeSystem : EntitySystem
         SubscribeLocalEvent<LuaMSectorShipRegisteredEvent>(OnSectorStatusChanged);
         SubscribeLocalEvent<LuaMSectorConditionChangedEvent>(OnSectorStatusChanged);
         SubscribeLocalEvent<LuaMSectorRescueAfterActionRecordedEvent>(OnSectorStatusChanged);
+        SubscribeLocalEvent<LuaMSectorRescueFollowUpClearedEvent>(OnSectorStatusChanged);
     }
 
     private void OnUiReady(Entity<LuaMSectorStatusCartridgeComponent> ent, ref CartridgeUiReadyEvent args)

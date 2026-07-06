@@ -31,6 +31,9 @@ public sealed partial class LuaMSectorEvidenceComponent : Component
     public bool RegisterShip;
 
     [DataField]
+    public bool ClearRescueFollowUp;
+
+    [DataField]
     public bool ResolveStory;
 
     [DataField]

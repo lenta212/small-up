@@ -458,12 +458,15 @@ def main() -> int:
         "TryPrintLeadReport",
         "TryPrintRuntimeCoordinatePacket",
         "TryPrintRuntimeClosureReport",
+        "TryPrintRescueFollowUpReport",
         "LuaMSectorEvidenceComponent",
         "BuildReport",
         "BuildRuntimeCoordinatePacket",
+        "BuildRescueFollowUpReport",
         "LuaMSectorStatusSnapshot",
         "hazard.Description",
         "print runtime coordinate packet",
+        "print rescue follow-up report",
         "Координатный пакет аварийного сигнала",
         "Координаты:",
         "Шаги маршрута",
@@ -475,6 +478,7 @@ def main() -> int:
         "luam-sector-terminal-result-report-printed",
         "luam-sector-terminal-popup-report-printer-failed",
         "luam-sector-terminal-popup-no-open-runtime",
+        "luam-sector-terminal-popup-no-rescue-followup",
     ]:
         assert_contains(lead_report_system, localized_key, "LuaMSectorLeadReportSystem")
     for hardcoded_text in [
@@ -512,6 +516,7 @@ def main() -> int:
         "FindLatestRescueBlockerFollowUp",
         "HasActionableRescueBlockers",
         "ExtractRescueBlockersSummary",
+        "blockersCleared",
         "rescue-followup-",
         "Проверь rescue-коридор после операции Айболита",
         "ExtractEventRouteLocation",
@@ -565,8 +570,10 @@ def main() -> int:
         "QuestTasksExposeSeveralClearPlayerTasks",
         "QuestTasksStartWithProcessRequestWhenNoRouteIsOpen",
         "QuestTasksAddRescueFollowUpWhenAfterActionHadBlockers",
+        "QuestTasksHideRescueFollowUpAfterBlockersWereCleared",
         "LuaMSectorRescueAfterAction",
         "threat/crowd/route=0/1/1",
+        "blockersCleared=true",
         "Долети до GPS 120, -45",
         "Сгенерировать зацепку",
     ]:
@@ -2520,6 +2527,7 @@ def main() -> int:
     assert_contains(sector_terminal_ui, "RequestDynamicEvent", "LuaMSectorTerminalUi")
     assert_contains(sector_terminal_ui, "PingActiveRouteMarker", "LuaMSectorTerminalUi")
     assert_contains(sector_terminal_ui, "PrintRuntimeCoordinatePacket", "LuaMSectorTerminalUi")
+    assert_contains(sector_terminal_ui, "PrintRescueFollowUpReport", "LuaMSectorTerminalUi")
     assert_contains(sector_terminal_ui, "PrintInsuranceClaimVoucher", "LuaMSectorTerminalUi")
     assert_contains(sector_terminal_ui, "PrintCharterVoucher", "LuaMSectorTerminalUi")
 
@@ -2646,6 +2654,7 @@ def main() -> int:
     assert_contains(sector_terminal_window, "luam-sector-terminal-title", "LuaMSectorTerminalWindow")
     assert_contains(sector_terminal_window, "luam-sector-terminal-action-generate", "LuaMSectorTerminalWindow")
     assert_contains(sector_terminal_window, "luam-sector-terminal-action-ping", "LuaMSectorTerminalWindow")
+    assert_contains(sector_terminal_window, "luam-sector-terminal-action-print-rescue-followup", "LuaMSectorTerminalWindow")
     assert_contains(sector_terminal_window, "luam-sector-terminal-section-quests", "LuaMSectorTerminalWindow")
     assert_contains(sector_terminal_window, "luam-sector-terminal-quest-step-action", "LuaMSectorTerminalWindow")
     assert_contains(sector_terminal_window, "\"AngleRect\"", "LuaMSectorTerminalWindow")
@@ -3743,9 +3752,19 @@ def main() -> int:
     sector_story_system = (ROOT / "Content.Server/_LuaM/Sector/LuaMSectorStorySystem.cs").read_text(encoding="utf-8")
     sector_status_cartridge_system = (ROOT / "Content.Server/_LuaM/Sector/LuaMSectorStatusCartridgeSystem.cs").read_text(encoding="utf-8")
     sector_lead_report_system = (ROOT / "Content.Server/_LuaM/Sector/LuaMSectorLeadReportSystem.cs").read_text(encoding="utf-8")
+    sector_evidence_component = (ROOT / "Content.Server/_LuaM/Sector/LuaMSectorEvidenceComponent.cs").read_text(encoding="utf-8")
+    sector_evidence_system = (ROOT / "Content.Server/_LuaM/Sector/LuaMSectorEvidenceSystem.cs").read_text(encoding="utf-8")
+    sector_story_test = (ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMSectorStoryTest.cs").read_text(encoding="utf-8")
     assert_contains(sector_memory, "LuaMSectorRescueAfterActionEntry", "LuaMSectorMemoryComponent")
     assert_contains(sector_memory, "RescueAfterActions", "LuaMSectorMemoryComponent")
+    assert_contains(sector_memory, "BlockersCleared", "LuaMSectorMemoryComponent")
+    assert_contains(sector_memory, "BlockersClearedBy", "LuaMSectorMemoryComponent")
+    assert_contains(sector_memory, "BlockersClearedNote", "LuaMSectorMemoryComponent")
     assert_contains(sector_story_system, "TryRecordRescueAfterAction", "LuaMSectorStorySystem")
+    assert_contains(sector_story_system, "TryGetLatestOpenRescueFollowUp", "LuaMSectorStorySystem")
+    assert_contains(sector_story_system, "TryClearLatestRescueFollowUp", "LuaMSectorStorySystem")
+    assert_contains(sector_story_system, "HasActionableRescueBlockerSummary", "LuaMSectorStorySystem")
+    assert_contains(sector_story_system, "BuildRescueAfterActionSummary", "LuaMSectorStorySystem")
     assert_contains(sector_story_system, "RescueAfterActionLimit", "LuaMSectorStorySystem")
     assert_contains(sector_story_system, "RescueAfterActionStoryId", "LuaMSectorStorySystem")
     assert_contains(sector_story_system, '"Rescue"', "LuaMSectorStorySystem")
@@ -3753,8 +3772,21 @@ def main() -> int:
     assert_contains(sector_story_system, "ToPersistedRescueAfterAction", "LuaMSectorStorySystem")
     assert_contains(sector_story_system, "FromPersistedRescueAfterAction", "LuaMSectorStorySystem")
     assert_contains(sector_story_system, "LuaMSectorRescueAfterActionRecordedEvent", "LuaMSectorStorySystem")
+    assert_contains(sector_story_system, "LuaMSectorRescueFollowUpClearedEvent", "LuaMSectorStorySystem")
     assert_contains(sector_status_cartridge_system, "SubscribeLocalEvent<LuaMSectorRescueAfterActionRecordedEvent>", "LuaMSectorStatusCartridgeSystem")
+    assert_contains(sector_status_cartridge_system, "SubscribeLocalEvent<LuaMSectorRescueFollowUpClearedEvent>", "LuaMSectorStatusCartridgeSystem")
     assert_contains(sector_lead_report_system, "SubscribeLocalEvent<LuaMSectorRescueAfterActionRecordedEvent>", "LuaMSectorLeadReportSystem")
+    assert_contains(sector_lead_report_system, "SubscribeLocalEvent<LuaMSectorRescueFollowUpClearedEvent>", "LuaMSectorLeadReportSystem")
+    assert_contains(sector_lead_report_system, "PrintRescueFollowUpReport", "LuaMSectorLeadReportSystem")
+    assert_contains(sector_lead_report_system, "TryPrintRescueFollowUpReport", "LuaMSectorLeadReportSystem")
+    assert_contains(sector_lead_report_system, "BuildRescueFollowUpReport", "LuaMSectorLeadReportSystem")
+    assert_contains(sector_lead_report_system, "BuildRescueFollowUpEvidenceNote", "LuaMSectorLeadReportSystem")
+    assert_contains(sector_evidence_component, "ClearRescueFollowUp", "LuaMSectorEvidenceComponent")
+    assert_contains(sector_evidence_system, "TryClearLatestRescueFollowUp", "LuaMSectorEvidenceSystem")
+    assert_contains(sector_story_test, "RescueFollowUpEvidenceClearsLatestBlockerTask", "LuaMSectorStoryTest")
+    assert_contains(sector_story_test, "TryPrintRescueFollowUpReport", "LuaMSectorStoryTest")
+    assert_contains(sector_story_test, "ClearRescueFollowUp", "LuaMSectorStoryTest")
+    assert_contains(sector_story_test, "blockersCleared=true", "LuaMSectorStoryTest")
     assert_contains(rescue_team_system, "UpdateEscortDuty", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "UpdateSortiePlan", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "SelectSortiePlan", "LuaMRescueTeamSystem")
@@ -4243,6 +4275,8 @@ def main() -> int:
         "luam-sector-terminal-action-print-route-tooltip",
         "luam-sector-terminal-action-print-closure",
         "luam-sector-terminal-action-print-closure-tooltip",
+        "luam-sector-terminal-action-print-rescue-followup",
+        "luam-sector-terminal-action-print-rescue-followup-tooltip",
         "luam-sector-terminal-action-print-insurance",
         "luam-sector-terminal-action-print-insurance-tooltip",
         "luam-sector-terminal-action-print-claim",
@@ -4340,6 +4374,8 @@ def main() -> int:
         "luam-sector-terminal-result-route-failed",
         "luam-sector-terminal-result-closure-printed",
         "luam-sector-terminal-result-closure-failed",
+        "luam-sector-terminal-result-rescue-followup-printed",
+        "luam-sector-terminal-result-rescue-followup-failed",
         "luam-sector-terminal-result-insurance-printed",
         "luam-sector-terminal-result-insurance-failed",
         "luam-sector-terminal-result-claim-printed",
@@ -4354,6 +4390,9 @@ def main() -> int:
         "luam-sector-terminal-popup-route-printed",
         "luam-sector-terminal-popup-closure-printer-failed",
         "luam-sector-terminal-popup-closure-printed",
+        "luam-sector-terminal-popup-no-rescue-followup",
+        "luam-sector-terminal-popup-rescue-followup-printer-failed",
+        "luam-sector-terminal-popup-rescue-followup-printed",
         "luam-sector-terminal-route-ping-no-open",
         "luam-sector-terminal-route-ping-no-marker",
         "luam-sector-terminal-route-ping-comms-blackout",

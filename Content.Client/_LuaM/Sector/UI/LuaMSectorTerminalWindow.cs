@@ -69,7 +69,8 @@ public sealed class LuaMSectorTerminalWindow : FancyWindow
         AddActionGroup(root, Loc.GetString("luam-sector-terminal-group-reports"), [
             (Loc.GetString("luam-sector-terminal-action-print-report"), LuaMSectorTerminalAction.PrintLeadReport, Loc.GetString("luam-sector-terminal-action-print-report-tooltip")),
             (Loc.GetString("luam-sector-terminal-action-print-route"), LuaMSectorTerminalAction.PrintRuntimeCoordinatePacket, Loc.GetString("luam-sector-terminal-action-print-route-tooltip")),
-            (Loc.GetString("luam-sector-terminal-action-print-closure"), LuaMSectorTerminalAction.PrintRuntimeClosureReport, Loc.GetString("luam-sector-terminal-action-print-closure-tooltip"))
+            (Loc.GetString("luam-sector-terminal-action-print-closure"), LuaMSectorTerminalAction.PrintRuntimeClosureReport, Loc.GetString("luam-sector-terminal-action-print-closure-tooltip")),
+            (Loc.GetString("luam-sector-terminal-action-print-rescue-followup"), LuaMSectorTerminalAction.PrintRescueFollowUpReport, Loc.GetString("luam-sector-terminal-action-print-rescue-followup-tooltip"))
         ]);
 
         AddActionGroup(root, Loc.GetString("luam-sector-terminal-group-paperwork"), [

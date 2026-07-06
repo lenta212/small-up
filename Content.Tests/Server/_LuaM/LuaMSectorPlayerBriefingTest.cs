@@ -197,6 +197,37 @@ public sealed class LuaMSectorPlayerBriefingTest
         Assert.That(followUp.Active, Is.True);
     }
 
+    [Test]
+    public void QuestTasksHideRescueFollowUpAfterBlockersWereCleared()
+    {
+        var status = BuildStatus(
+            recentHistory:
+            [
+                new LuaMSectorHistoryStatus(
+                    "Rescue",
+                    new ProtoId<LuaMSectorStoryPrototype>("LuaMSectorRescueAfterAction"),
+                    "Triage shuttle",
+                    "LuaM Rescue",
+                    "treatment=stable; evacuation=secured onboard; blockers=threat/crowd/route=0/1/1; blockers=2; blockersCleared=true; clearedBy=Engineer; clearedNote=route opened; playerContribution=verified; teamStatus=available"),
+            ]);
+
+        var tasks = LuaMSectorPlayerBriefing.BuildQuestTasks(
+            status,
+            null,
+            new LuaMSectorAutomationUiEntry
+            {
+                CanRequestDynamicEvent = true,
+                RequestBlockReason = "ready",
+            },
+            [],
+            [],
+            [],
+            [],
+            4);
+
+        Assert.That(tasks.Any(task => task.TaskId.StartsWith("rescue-followup", StringComparison.Ordinal)), Is.False);
+    }
+
     private static LuaMSectorStatusSnapshot BuildStatus(LuaMSectorHistoryStatus[]? recentHistory = null)
     {
         return new LuaMSectorStatusSnapshot(

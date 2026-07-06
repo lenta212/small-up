@@ -466,10 +466,6 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         var nextSequence = memory.RescueAfterActions.Count == 0
             ? 1
             : memory.RescueAfterActions.Max(action => action.Sequence) + 1;
-        var summary =
-            $"treatment={treatmentResult}; evacuation={evacuationResult}; blockers={blockers}; " +
-            $"playerContribution={playerContribution}; teamStatus={teamStatus}";
-
         entry = new LuaMSectorRescueAfterActionEntry
         {
             Sequence = nextSequence,
@@ -481,8 +477,8 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Blockers = blockers,
             PlayerContribution = playerContribution,
             TeamStatus = teamStatus,
-            Summary = Trim(summary, 384),
         };
+        entry.Summary = BuildRescueAfterActionSummary(entry);
 
         memory.RescueAfterActions.Add(entry);
         if (memory.RescueAfterActions.Count > RescueAfterActionLimit)
@@ -491,6 +487,58 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         SaveMemory(memory);
 
         var ev = new LuaMSectorRescueAfterActionRecordedEvent(CloneRescueAfterActionEntry(entry));
+        RaiseLocalEvent(ev);
+        return true;
+    }
+
+    public bool TryGetLatestOpenRescueFollowUp(out LuaMSectorRescueAfterActionEntry? entry)
+    {
+        entry = null;
+
+        if (!TryGetMemory(out var memory))
+            return false;
+
+        var match = memory.RescueAfterActions
+            .OrderByDescending(action => action.Sequence)
+            .FirstOrDefault(HasOpenRescueBlockers);
+        if (match == null)
+            return false;
+
+        entry = CloneRescueAfterActionEntry(match);
+        return true;
+    }
+
+    public bool TryClearLatestRescueFollowUp(
+        string actor,
+        string note,
+        out LuaMSectorRescueAfterActionEntry? entry)
+    {
+        entry = null;
+
+        if (!TryGetMemory(out var memory))
+            return false;
+
+        var match = memory.RescueAfterActions
+            .OrderByDescending(action => action.Sequence)
+            .FirstOrDefault(HasOpenRescueBlockers);
+        if (match == null)
+            return false;
+
+        actor = Trim(actor, 64);
+        note = Trim(note, 256);
+        match.BlockersCleared = true;
+        match.BlockersClearedBy = string.IsNullOrWhiteSpace(actor)
+            ? "LuaM operator"
+            : actor;
+        match.BlockersClearedNote = string.IsNullOrWhiteSpace(note)
+            ? "rescue corridor follow-up cleared"
+            : note;
+        match.Summary = BuildRescueAfterActionSummary(match);
+
+        SaveMemory(memory);
+
+        entry = CloneRescueAfterActionEntry(match);
+        var ev = new LuaMSectorRescueFollowUpClearedEvent(CloneRescueAfterActionEntry(match));
         RaiseLocalEvent(ev);
         return true;
     }
@@ -2416,6 +2464,58 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         };
     }
 
+    private static bool HasOpenRescueBlockers(LuaMSectorRescueAfterActionEntry entry)
+    {
+        if (entry.BlockersCleared)
+            return false;
+
+        return !string.IsNullOrWhiteSpace(entry.Blockers) &&
+               !entry.Blockers.Equals("none", StringComparison.OrdinalIgnoreCase) &&
+               !entry.Blockers.Equals("team scene memory unavailable", StringComparison.OrdinalIgnoreCase) &&
+               HasActionableRescueBlockerSummary(entry.Blockers);
+    }
+
+    private static bool HasActionableRescueBlockerSummary(string blockers)
+    {
+        var normalized = blockers.Replace(" ", string.Empty);
+        if (!normalized.StartsWith("threat/crowd/route=0/0/0", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var blockerCount = ExtractRescueBlockerField(blockers, "blockers");
+        return !string.IsNullOrWhiteSpace(blockerCount) &&
+               !blockerCount.Equals("0", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ExtractRescueBlockerField(string summary, string field)
+    {
+        var marker = $"{field}=";
+        var start = summary.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (start < 0)
+            return string.Empty;
+
+        start += marker.Length;
+        var end = summary.IndexOf(';', start);
+        if (end < 0)
+            end = summary.Length;
+
+        return summary[start..end].Trim();
+    }
+
+    private static string BuildRescueAfterActionSummary(LuaMSectorRescueAfterActionEntry entry)
+    {
+        var output = new StringBuilder();
+        output.Append($"treatment={entry.TreatmentResult}; evacuation={entry.EvacuationResult}; blockers={entry.Blockers}; ");
+
+        if (entry.BlockersCleared)
+        {
+            output.Append("blockersCleared=true; ");
+            output.Append($"clearedBy={entry.BlockersClearedBy}; clearedNote={entry.BlockersClearedNote}; ");
+        }
+
+        output.Append($"playerContribution={entry.PlayerContribution}; teamStatus={entry.TeamStatus}");
+        return Trim(output.ToString(), 512);
+    }
+
     private static LuaMSectorRescueAfterActionEntry CloneRescueAfterActionEntry(LuaMSectorRescueAfterActionEntry entry)
     {
         return new LuaMSectorRescueAfterActionEntry
@@ -2427,6 +2527,9 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             TreatmentResult = entry.TreatmentResult,
             EvacuationResult = entry.EvacuationResult,
             Blockers = entry.Blockers,
+            BlockersCleared = entry.BlockersCleared,
+            BlockersClearedBy = entry.BlockersClearedBy,
+            BlockersClearedNote = entry.BlockersClearedNote,
             PlayerContribution = entry.PlayerContribution,
             TeamStatus = entry.TeamStatus,
             Summary = entry.Summary,
@@ -2719,6 +2822,9 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             TreatmentResult = entry.TreatmentResult,
             EvacuationResult = entry.EvacuationResult,
             Blockers = entry.Blockers,
+            BlockersCleared = entry.BlockersCleared,
+            BlockersClearedBy = entry.BlockersClearedBy,
+            BlockersClearedNote = entry.BlockersClearedNote,
             PlayerContribution = entry.PlayerContribution,
             TeamStatus = entry.TeamStatus,
             Summary = entry.Summary,
@@ -2736,6 +2842,9 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             TreatmentResult = entry.TreatmentResult,
             EvacuationResult = entry.EvacuationResult,
             Blockers = entry.Blockers,
+            BlockersCleared = entry.BlockersCleared,
+            BlockersClearedBy = entry.BlockersClearedBy,
+            BlockersClearedNote = entry.BlockersClearedNote,
             PlayerContribution = entry.PlayerContribution,
             TeamStatus = entry.TeamStatus,
             Summary = entry.Summary,
@@ -2963,6 +3072,9 @@ public sealed class LuaMSectorPersistedRescueAfterAction
     public string TreatmentResult { get; set; } = string.Empty;
     public string EvacuationResult { get; set; } = string.Empty;
     public string Blockers { get; set; } = string.Empty;
+    public bool BlockersCleared { get; set; }
+    public string BlockersClearedBy { get; set; } = string.Empty;
+    public string BlockersClearedNote { get; set; } = string.Empty;
     public string PlayerContribution { get; set; } = string.Empty;
     public string TeamStatus { get; set; } = string.Empty;
     public string Summary { get; set; } = string.Empty;
@@ -3059,3 +3171,5 @@ public readonly record struct LuaMSectorShipRegisteredEvent(LuaMSectorRegistryEn
 public readonly record struct LuaMSectorConditionChangedEvent(LuaMSectorConditionEntry Entry);
 
 public readonly record struct LuaMSectorRescueAfterActionRecordedEvent(LuaMSectorRescueAfterActionEntry Entry);
+
+public readonly record struct LuaMSectorRescueFollowUpClearedEvent(LuaMSectorRescueAfterActionEntry Entry);

@@ -5,6 +5,7 @@ using Content.Shared._LuaM.Sector;
 using Content.Shared.Paper;
 using Content.Shared.Verbs;
 using Robust.Server.GameObjects;
+using Robust.Shared.Prototypes;
 
 namespace Content.Server._LuaM.Sector;
 
@@ -34,6 +35,7 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
         SubscribeLocalEvent<LuaMSectorShipRegisteredEvent>(OnSectorStatusChanged);
         SubscribeLocalEvent<LuaMSectorConditionChangedEvent>(OnSectorStatusChanged);
         SubscribeLocalEvent<LuaMSectorRescueAfterActionRecordedEvent>(OnSectorStatusChanged);
+        SubscribeLocalEvent<LuaMSectorRescueFollowUpClearedEvent>(OnSectorStatusChanged);
 
         Subs.BuiEvents<LuaMSectorLeadReportComponent>(LuaMSectorTerminalUiKey.Key, subs =>
         {
@@ -86,6 +88,11 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
                 result = TryPrintRuntimeClosureReport(uid, args.Actor, out _, component)
                     ? Loc.GetString("luam-sector-terminal-result-closure-printed")
                     : Loc.GetString("luam-sector-terminal-result-closure-failed");
+                break;
+            case LuaMSectorTerminalAction.PrintRescueFollowUpReport:
+                result = TryPrintRescueFollowUpReport(uid, args.Actor, out _, component)
+                    ? Loc.GetString("luam-sector-terminal-result-rescue-followup-printed")
+                    : Loc.GetString("luam-sector-terminal-result-rescue-followup-failed");
                 break;
             case LuaMSectorTerminalAction.PrintInsuranceDocket:
                 result = _insurance.TryPrintInsuranceDocket(uid, args.Actor, out _)
@@ -262,6 +269,14 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
             Priority = 0,
             Act = () => TryPrintRuntimeClosureReport(uid, args.User, out _, component),
         });
+
+        args.Verbs.Add(new InteractionVerb
+        {
+            IconEntity = GetNetEntity(uid),
+            Text = "print rescue follow-up report",
+            Priority = 0,
+            Act = () => TryPrintRescueFollowUpReport(uid, args.User, out _, component),
+        });
     }
 
     public bool TryPrintLeadReport(
@@ -365,6 +380,42 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
         AppendRuntimeRouteStatus(content, marker);
         _paper.SetContent((report, paper), content.ToString());
         _popup.PopupEntity(Loc.GetString("luam-sector-terminal-popup-closure-printed", ("title", story.Title)), uid, user);
+        return true;
+    }
+
+    public bool TryPrintRescueFollowUpReport(
+        EntityUid uid,
+        EntityUid user,
+        out EntityUid report,
+        LuaMSectorLeadReportComponent? component = null)
+    {
+        report = default;
+
+        if (!Resolve(uid, ref component, false))
+            return false;
+
+        if (!_stories.TryGetLatestOpenRescueFollowUp(out var followUp) || followUp == null)
+        {
+            _popup.PopupEntity(Loc.GetString("luam-sector-terminal-popup-no-rescue-followup"), uid, user);
+            return false;
+        }
+
+        report = Spawn(component.PaperPrototype, Transform(uid).Coordinates);
+        if (!TryComp<PaperComponent>(report, out var paper))
+        {
+            QueueDel(report);
+            _popup.PopupEntity(Loc.GetString("luam-sector-terminal-popup-rescue-followup-printer-failed"), uid, user);
+            report = default;
+            return false;
+        }
+
+        var evidence = AddComp<LuaMSectorEvidenceComponent>(report);
+        evidence.Story = new ProtoId<LuaMSectorStoryPrototype>(LuaMSectorStorySystem.RescueAfterActionStoryId);
+        evidence.ClearRescueFollowUp = true;
+        evidence.Note = BuildRescueFollowUpEvidenceNote(followUp);
+
+        _paper.SetContent((report, paper), BuildRescueFollowUpReport(followUp));
+        _popup.PopupEntity(Loc.GetString("luam-sector-terminal-popup-rescue-followup-printed", ("title", followUp.Location)), uid, user);
         return true;
     }
 
@@ -595,6 +646,33 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
         if (marker.RoutePingCount >= LuaMSectorDynamicEventSystem.RouteStabilizationPingThreshold)
             output.Append($"; {LuaMSectorDynamicEventSystem.BuildStabilizedRouteEvidenceNote(marker)}");
 
+        return output.ToString();
+    }
+
+    private static string BuildRescueFollowUpEvidenceNote(LuaMSectorRescueAfterActionEntry entry)
+    {
+        return
+            $"rescue blocker follow-up cleared: sequence={entry.Sequence}; " +
+            $"location={entry.Location}; blockers={entry.Blockers}; originalPatient={entry.Patient}";
+    }
+
+    private static string BuildRescueFollowUpReport(LuaMSectorRescueAfterActionEntry entry)
+    {
+        var output = new StringBuilder();
+        output.AppendLine("# LuaM rescue blocker follow-up");
+        output.AppendLine();
+        output.AppendLine($"Sequence: {entry.Sequence}");
+        output.AppendLine($"Location: {entry.Location}");
+        output.AppendLine($"Original blockers: {entry.Blockers}");
+        output.AppendLine($"Treatment: {entry.TreatmentResult}");
+        output.AppendLine($"Evacuation: {entry.EvacuationResult}");
+        output.AppendLine();
+        output.AppendLine("## Field check");
+        output.AppendLine("[ ] corridor/access is open");
+        output.AppendLine("[ ] local threat or crowd pressure is cleared");
+        output.AppendLine("[ ] rescue route can be used again");
+        output.AppendLine();
+        output.AppendLine("Turn-in: file this paper as LuaM evidence after the corridor is actually clear.");
         return output.ToString();
     }
 

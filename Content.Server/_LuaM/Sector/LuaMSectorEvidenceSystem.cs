@@ -73,6 +73,9 @@ public sealed partial class LuaMSectorEvidenceSystem : EntitySystem
         if (component.RegisterShip)
             changed |= _stories.TryRegisterShipRecord(component.Story, actor, note, out _);
 
+        if (component.ClearRescueFollowUp)
+            changed |= _stories.TryClearLatestRescueFollowUp(actor, note, out _);
+
         if (component.ResolveStory)
             changed |= _stories.TryResolveStory(component.Story, actor, note);
 

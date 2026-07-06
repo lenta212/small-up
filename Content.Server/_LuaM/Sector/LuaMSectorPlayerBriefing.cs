@@ -428,6 +428,9 @@ public static class LuaMSectorPlayerBriefing
 
     private static bool HasActionableRescueBlockers(string summary)
     {
+        if (ExtractSummaryField(summary, "blockersCleared").Equals("true", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         var blockers = ExtractRescueBlockersSummary(summary);
         if (string.IsNullOrWhiteSpace(blockers) ||
             blockers.Equals("none", StringComparison.OrdinalIgnoreCase) ||

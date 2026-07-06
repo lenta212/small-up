@@ -321,6 +321,15 @@ public sealed partial class LuaMSectorRescueAfterActionEntry
     public string Blockers = string.Empty;
 
     [DataField]
+    public bool BlockersCleared;
+
+    [DataField]
+    public string BlockersClearedBy = string.Empty;
+
+    [DataField]
+    public string BlockersClearedNote = string.Empty;
+
+    [DataField]
     public string PlayerContribution = string.Empty;
 
     [DataField]
