@@ -1974,7 +1974,21 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             .ThenBy(entry => entry.Resource, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        EnsureAiBaseFactionDefaults(state);
         EnsureAiBaseBehaviorDefaults(state);
+        RefreshAiBaseDerivedState(state, countRevision: false);
+    }
+
+    private static void EnsureAiBaseFactionDefaults(LuaMAiBaseState state)
+    {
+        if (string.IsNullOrWhiteSpace(state.FactionId))
+            state.FactionId = "luam-ai-contour";
+        if (string.IsNullOrWhiteSpace(state.FactionName))
+            state.FactionName = "LuaM AI Contour";
+        if (string.IsNullOrWhiteSpace(state.FactionCharter))
+            state.FactionCharter = "autonomous in-game faction for resource extraction, base construction, logistics, medical support, and improvement audits";
+        if (string.IsNullOrWhiteSpace(state.AutonomyModel))
+            state.AutonomyModel = "mixed-initiative shared autonomy";
     }
 
     private static void EnsureAiBaseBehaviorDefaults(LuaMAiBaseState state)
@@ -2002,11 +2016,14 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         state.SupplyScore = CalculateAiBaseSupplyScore(state);
 
         if (state is not { Created: true })
-            return "AI base is not deployed. Use command: create AI base. Compensation plan: deploy physical base anchor, then assign dock/storage/mining/patrol/contact zones.";
+            return $"AI base is not deployed. Faction: {state.FactionName} ({state.FactionId}); autonomy={state.AutonomyModel}; improvement={state.ImprovementLoopState}/{state.LastImprovementFocus}. Use command: create AI base. Compensation plan: deploy physical base anchor, then assign dock/storage/mining/patrol/contact zones.";
 
         var output = new StringBuilder();
         output.AppendLine($"{state.Name} [{state.BaseId}] at {state.Location}: supply score {state.SupplyScore}/100, logistics cycles {state.TradeCycles}.");
+        output.AppendLine($"Faction: {state.FactionName} ({state.FactionId}); autonomy={state.AutonomyModel}; charter={state.FactionCharter}.");
         output.AppendLine($"Behavior: mode={state.BehaviorMode}; focus={state.BehaviorFocusResource}/{state.BehaviorFocusRole}; directive={state.BehaviorDirective}; reason={state.BehaviorReason}; revision={state.BehaviorRevision}; trigger={state.LastBehaviorTrigger}.");
+        output.AppendLine($"Roles: {BuildAiBaseRoleDoctrineSummary(state)}");
+        output.AppendLine($"Improvement loop: state={state.ImprovementLoopState}; focus={state.LastImprovementFocus}; finding={state.LastImprovementFinding}; revision={state.ImprovementRevision}.");
 
         if (state.Needs.Count == 0)
         {
@@ -2191,7 +2208,180 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             state.BehaviorUpdatedAt = now;
         }
 
+        RefreshAiBaseDerivedState(state, countRevision: changed);
         return decision;
+    }
+
+    private static void RefreshAiBaseDerivedState(LuaMAiBaseState state, bool countRevision)
+    {
+        var improvement = SelectAiBaseImprovementDecision(state);
+        var changed = !string.Equals(state.ImprovementLoopState, improvement.State, StringComparison.OrdinalIgnoreCase) ||
+                      !string.Equals(state.LastImprovementFocus, improvement.Focus, StringComparison.Ordinal) ||
+                      !string.Equals(state.LastImprovementFinding, improvement.Finding, StringComparison.Ordinal);
+
+        state.ImprovementLoopState = improvement.State;
+        state.LastImprovementFocus = improvement.Focus;
+        state.LastImprovementFinding = improvement.Finding;
+        state.RoleDoctrine = BuildAiBaseRoleDoctrine(state);
+
+        if (changed && countRevision)
+            state.ImprovementRevision = Math.Max(0, state.ImprovementRevision) + 1;
+        else
+            state.ImprovementRevision = Math.Max(0, state.ImprovementRevision);
+    }
+
+    private static List<LuaMAiBaseRoleEntry> BuildAiBaseRoleDoctrine(LuaMAiBaseState state)
+    {
+        var focusRole = NormalizeAiBaseDoctrineRole(state.BehaviorFocusRole);
+        var mode = (state.BehaviorMode ?? string.Empty).Trim().ToLowerInvariant();
+        var activeSupport = mode switch
+        {
+            "bootstrap" => new[] { "builder", "hauler", "guard" },
+            "logistics-start" => new[] { "hauler", focusRole, "scout" },
+            "critical-recovery" => new[] { focusRole, "hauler", "operator" },
+            "extraction" => new[] { "miner", "hauler", "scout" },
+            "construction" => new[] { "builder", "hauler", "guard" },
+            "medical-followup" => new[] { "medic", "hauler", "guard" },
+            "medical-support" => new[] { "medic", "hauler", "scout" },
+            "crew-support" => new[] { "service", "hauler", "guard" },
+            "stable-watch" => new[] { "scout", "guard", "operator" },
+            _ => new[] { focusRole, "hauler", "operator" },
+        };
+        var active = new HashSet<string>(activeSupport.Where(role => !string.IsNullOrWhiteSpace(role)), StringComparer.OrdinalIgnoreCase)
+        {
+            focusRole,
+            "operator",
+        };
+
+        return new[]
+            {
+                BuildAiBaseRoleEntry("builder", "construction", state, active),
+                BuildAiBaseRoleEntry("miner", "resource extraction", state, active),
+                BuildAiBaseRoleEntry("hauler", "logistics", state, active),
+                BuildAiBaseRoleEntry("medic", "medical support", state, active),
+                BuildAiBaseRoleEntry("guard", "security", state, active),
+                BuildAiBaseRoleEntry("scout", "route intelligence", state, active),
+                BuildAiBaseRoleEntry("service", "crew support", state, active),
+                BuildAiBaseRoleEntry("operator", "audit and autofix", state, active),
+            }
+            .OrderBy(entry => entry.Active ? 0 : 1)
+            .ThenBy(entry => entry.Priority.Equals("primary", StringComparison.OrdinalIgnoreCase) ? 0 : entry.Priority.Equals("support", StringComparison.OrdinalIgnoreCase) ? 1 : 2)
+            .ThenBy(entry => entry.Role, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static LuaMAiBaseRoleEntry BuildAiBaseRoleEntry(
+        string role,
+        string service,
+        LuaMAiBaseState state,
+        IReadOnlySet<string> activeRoles)
+    {
+        var focusRole = NormalizeAiBaseDoctrineRole(state.BehaviorFocusRole);
+        var isPrimary = role.Equals(focusRole, StringComparison.OrdinalIgnoreCase);
+        var isActive = activeRoles.Contains(role);
+        return new LuaMAiBaseRoleEntry
+        {
+            Role = role,
+            Service = service,
+            Priority = isPrimary ? "primary" : isActive ? "support" : "standby",
+            Directive = BuildAiBaseRoleDirective(role, state),
+            Active = isActive,
+        };
+    }
+
+    private static string BuildAiBaseRoleDirective(string role, LuaMAiBaseState state)
+    {
+        return role switch
+        {
+            "builder" => $"build/repair base assets while doctrine is {state.BehaviorMode}",
+            "miner" => $"close ore/resource deficits for focus {state.BehaviorFocusResource}",
+            "hauler" => $"move supplies toward {state.BehaviorFocusResource} and keep trade cycles alive",
+            "medic" => "hold medicine stock, triage cache, and rescue follow-up support",
+            "guard" => "protect base anchor, ships, and supply drops",
+            "scout" => "map route-data and detect stuck or unreachable work zones",
+            "service" => "support crew needs, food stock, and low-risk service routes",
+            "operator" => $"audit diagnostics and propose autofix for {state.LastImprovementFocus}",
+            _ => $"support base doctrine {state.BehaviorMode}",
+        };
+    }
+
+    private static string NormalizeAiBaseDoctrineRole(string role)
+    {
+        return (role ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "builder" or "engineer" or "repair" => "builder",
+            "miner" or "prospector" => "miner",
+            "hauler" or "trader" or "logistics" => "hauler",
+            "medical" or "doctor" or "medic" => "medic",
+            "security" or "guard" => "guard",
+            "scout" => "scout",
+            "janitor" or "cleaner" or "service" => "service",
+            "operator" or "audit" => "operator",
+            _ => "hauler",
+        };
+    }
+
+    private static string BuildAiBaseRoleDoctrineSummary(LuaMAiBaseState state)
+    {
+        if (state.RoleDoctrine == null || state.RoleDoctrine.Count == 0)
+            return "none configured.";
+
+        return string.Join(", ", state.RoleDoctrine
+            .Select(entry => $"{entry.Role}:{entry.Priority}/{(entry.Active ? "active" : "standby")}"));
+    }
+
+    private static AiBaseImprovementDecision SelectAiBaseImprovementDecision(LuaMAiBaseState state)
+    {
+        var lastAutofix = state.AutofixLog
+            .OrderByDescending(entry => entry.Attempt)
+            .FirstOrDefault();
+        if (lastAutofix is { Success: false })
+        {
+            return new AiBaseImprovementDecision(
+                "verify-failed-autofix",
+                lastAutofix.CommandId,
+                $"last autofix failed: {lastAutofix.Issue}");
+        }
+
+        if (!state.Created)
+        {
+            return new AiBaseImprovementDecision(
+                "bootstrap-blocked",
+                "deploy base anchor",
+                "ai base memory or physical anchor is missing");
+        }
+
+        if (state.LastRescueMedicalFollowUpPending)
+        {
+            return new AiBaseImprovementDecision(
+                "medical-followup",
+                "clear rescue medical follow-up",
+                $"pending rescue follow-up at {state.LastRescueMedicalLocation}");
+        }
+
+        if (state.TradeCycles <= 0)
+        {
+            return new AiBaseImprovementDecision(
+                "start-first-cycle",
+                "run first logistics/development cycle",
+                "tradeCycles=0; stock ledger is not proven yet");
+        }
+
+        var topNeed = SelectMostMissingAiBaseNeed(state);
+        if (topNeed != null)
+        {
+            var resource = NormalizeAiBaseResource(topNeed.Resource);
+            var current = GetAiBaseInventoryAmount(state, resource);
+            return new AiBaseImprovementDecision(
+                "close-resource-deficit",
+                $"close {resource} deficit",
+                $"{resource} {current}/{topNeed.Target}; dispatch {PickAiBaseCompensationRole(resource)}");
+        }
+
+        return new AiBaseImprovementDecision(
+            "stable-watch",
+            "keep audit loop running",
+            $"supplyScore={state.SupplyScore}/100; no configured deficits");
     }
 
     private static AiBaseBehaviorDecision SelectAiBaseBehaviorDecision(LuaMAiBaseState state)
@@ -2573,6 +2763,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         string Directive,
         string Reason);
 
+    private readonly record struct AiBaseImprovementDecision(
+        string State,
+        string Focus,
+        string Finding);
+
     private static LuaMSectorStoryRecord CloneRecord(LuaMSectorStoryRecord record)
     {
         return new LuaMSectorStoryRecord
@@ -2926,6 +3121,10 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Location = state.Location,
             SupplyScore = state.SupplyScore,
             TradeCycles = state.TradeCycles,
+            FactionId = state.FactionId,
+            FactionName = state.FactionName,
+            FactionCharter = state.FactionCharter,
+            AutonomyModel = state.AutonomyModel,
             BehaviorMode = state.BehaviorMode,
             BehaviorFocusResource = state.BehaviorFocusResource,
             BehaviorFocusRole = state.BehaviorFocusRole,
@@ -2934,6 +3133,13 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             LastBehaviorTrigger = state.LastBehaviorTrigger,
             BehaviorRevision = state.BehaviorRevision,
             BehaviorUpdatedAt = state.BehaviorUpdatedAt,
+            ImprovementLoopState = state.ImprovementLoopState,
+            LastImprovementFocus = state.LastImprovementFocus,
+            LastImprovementFinding = state.LastImprovementFinding,
+            ImprovementRevision = state.ImprovementRevision,
+            RoleDoctrine = state.RoleDoctrine == null
+                ? new List<LuaMAiBaseRoleEntry>()
+                : state.RoleDoctrine.Select(CloneAiBaseRoleEntry).ToList(),
             RescueMedicalOperations = state.RescueMedicalOperations,
             LastRescueAfterActionSequence = state.LastRescueAfterActionSequence,
             LastRescueMedicalStatus = state.LastRescueMedicalStatus,
@@ -2948,6 +3154,18 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Needs = state.Needs.Select(CloneAiBaseNeedEntry).ToList(),
             TradeLog = state.TradeLog.Select(CloneAiBaseTradeEntry).ToList(),
             AutofixLog = state.AutofixLog.Select(CloneAiBaseAutofixEntry).ToList(),
+        };
+    }
+
+    private static LuaMAiBaseRoleEntry CloneAiBaseRoleEntry(LuaMAiBaseRoleEntry entry)
+    {
+        return new LuaMAiBaseRoleEntry
+        {
+            Role = entry.Role,
+            Service = entry.Service,
+            Priority = entry.Priority,
+            Directive = entry.Directive,
+            Active = entry.Active,
         };
     }
 
@@ -3259,6 +3477,10 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Location = state.Location,
             SupplyScore = state.SupplyScore,
             TradeCycles = state.TradeCycles,
+            FactionId = state.FactionId,
+            FactionName = state.FactionName,
+            FactionCharter = state.FactionCharter,
+            AutonomyModel = state.AutonomyModel,
             BehaviorMode = state.BehaviorMode,
             BehaviorFocusResource = state.BehaviorFocusResource,
             BehaviorFocusRole = state.BehaviorFocusRole,
@@ -3267,6 +3489,22 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             LastBehaviorTrigger = state.LastBehaviorTrigger,
             BehaviorRevision = state.BehaviorRevision,
             BehaviorUpdatedAt = state.BehaviorUpdatedAt,
+            ImprovementLoopState = state.ImprovementLoopState,
+            LastImprovementFocus = state.LastImprovementFocus,
+            LastImprovementFinding = state.LastImprovementFinding,
+            ImprovementRevision = state.ImprovementRevision,
+            RoleDoctrine = state.RoleDoctrine == null
+                ? new List<LuaMAiBasePersistedRoleEntry>()
+                : state.RoleDoctrine
+                .Select(entry => new LuaMAiBasePersistedRoleEntry
+                {
+                    Role = entry.Role,
+                    Service = entry.Service,
+                    Priority = entry.Priority,
+                    Directive = entry.Directive,
+                    Active = entry.Active,
+                })
+                .ToList(),
             RescueMedicalOperations = state.RescueMedicalOperations,
             LastRescueAfterActionSequence = state.LastRescueAfterActionSequence,
             LastRescueMedicalStatus = state.LastRescueMedicalStatus,
@@ -3333,6 +3571,10 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Location = state.Location,
             SupplyScore = state.SupplyScore,
             TradeCycles = state.TradeCycles,
+            FactionId = state.FactionId,
+            FactionName = state.FactionName,
+            FactionCharter = state.FactionCharter,
+            AutonomyModel = state.AutonomyModel,
             BehaviorMode = state.BehaviorMode,
             BehaviorFocusResource = state.BehaviorFocusResource,
             BehaviorFocusRole = state.BehaviorFocusRole,
@@ -3341,6 +3583,22 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             LastBehaviorTrigger = state.LastBehaviorTrigger,
             BehaviorRevision = state.BehaviorRevision,
             BehaviorUpdatedAt = state.BehaviorUpdatedAt,
+            ImprovementLoopState = state.ImprovementLoopState,
+            LastImprovementFocus = state.LastImprovementFocus,
+            LastImprovementFinding = state.LastImprovementFinding,
+            ImprovementRevision = state.ImprovementRevision,
+            RoleDoctrine = state.RoleDoctrine == null
+                ? new List<LuaMAiBaseRoleEntry>()
+                : state.RoleDoctrine
+                .Select(entry => new LuaMAiBaseRoleEntry
+                {
+                    Role = entry.Role,
+                    Service = entry.Service,
+                    Priority = entry.Priority,
+                    Directive = entry.Directive,
+                    Active = entry.Active,
+                })
+                .ToList(),
             RescueMedicalOperations = state.RescueMedicalOperations,
             LastRescueAfterActionSequence = state.LastRescueAfterActionSequence,
             LastRescueMedicalStatus = state.LastRescueMedicalStatus,
@@ -3522,6 +3780,10 @@ public sealed class LuaMAiBasePersistedState
     public string Location { get; set; } = "hidden sector anchorage";
     public int SupplyScore { get; set; }
     public int TradeCycles { get; set; }
+    public string FactionId { get; set; } = "luam-ai-contour";
+    public string FactionName { get; set; } = "LuaM AI Contour";
+    public string FactionCharter { get; set; } = "autonomous in-game faction for resource extraction, base construction, logistics, medical support, and improvement audits";
+    public string AutonomyModel { get; set; } = "mixed-initiative shared autonomy";
     public string BehaviorMode { get; set; } = "bootstrap";
     public string BehaviorFocusResource { get; set; } = "base";
     public string BehaviorFocusRole { get; set; } = "builder";
@@ -3530,6 +3792,10 @@ public sealed class LuaMAiBasePersistedState
     public string LastBehaviorTrigger { get; set; } = "initial";
     public int BehaviorRevision { get; set; }
     public TimeSpan BehaviorUpdatedAt { get; set; }
+    public string ImprovementLoopState { get; set; } = "observe-plan-act-verify";
+    public string LastImprovementFocus { get; set; } = "deploy base anchor";
+    public string LastImprovementFinding { get; set; } = "ai base not deployed";
+    public int ImprovementRevision { get; set; }
     public int RescueMedicalOperations { get; set; }
     public int LastRescueAfterActionSequence { get; set; }
     public string LastRescueMedicalStatus { get; set; } = "none";
@@ -3544,6 +3810,16 @@ public sealed class LuaMAiBasePersistedState
     public List<LuaMAiBasePersistedNeedEntry> Needs { get; set; } = new();
     public List<LuaMAiBasePersistedTradeEntry> TradeLog { get; set; } = new();
     public List<LuaMAiBasePersistedAutofixEntry> AutofixLog { get; set; } = new();
+    public List<LuaMAiBasePersistedRoleEntry> RoleDoctrine { get; set; } = new();
+}
+
+public sealed class LuaMAiBasePersistedRoleEntry
+{
+    public string Role { get; set; } = string.Empty;
+    public string Service { get; set; } = string.Empty;
+    public string Priority { get; set; } = "support";
+    public string Directive { get; set; } = string.Empty;
+    public bool Active { get; set; }
 }
 
 public sealed class LuaMAiBasePersistedInventoryEntry

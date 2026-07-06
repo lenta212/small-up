@@ -6232,8 +6232,22 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var compensation = TrimForChat(LuaMSectorStorySystem.BuildAiBaseCompensationSummary(state, 2), 160);
         var diagnostics = BuildAiBaseDiagnosticsSummary(state, physical);
         var autofix = TrimForChat(BuildAiBaseAutofixSummary(state), 140);
+        var activeRoleNames = state.RoleDoctrine == null
+            ? Array.Empty<string>()
+            : state.RoleDoctrine
+                .Where(entry => entry.Active && !string.IsNullOrWhiteSpace(entry.Role))
+                .Select(entry => entry.Role)
+                .Take(5)
+                .ToArray();
+        var activeRoles = activeRoleNames.Length == 0
+            ? "roles pending"
+            : string.Join(",", activeRoleNames);
+        var faction = string.IsNullOrWhiteSpace(state.FactionId) ? "ai-contour" : state.FactionId;
+        var improvement = string.IsNullOrWhiteSpace(state.ImprovementLoopState)
+            ? "improvement pending"
+            : $"{state.ImprovementLoopState}/{state.LastImprovementFocus}";
 
-        return $"score {state.SupplyScore}/100; cycles {state.TradeCycles}; top need {needText}; compensate {compensation}; diagnostics {diagnostics}; autofix {autofix}; last {lastText}; {physicalText}";
+        return $"faction {faction}; roles {activeRoles}; improvement {improvement}; score {state.SupplyScore}/100; cycles {state.TradeCycles}; top need {needText}; compensate {compensation}; diagnostics {diagnostics}; autofix {autofix}; last {lastText}; {physicalText}";
     }
 
     private AiBasePhysicalSnapshot BuildAiBasePhysicalSnapshot()
@@ -6275,6 +6289,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var drones = 0;
         var miningDrones = 0;
         var builderDrones = 0;
+        var logisticsDrones = 0;
+        var guardDrones = 0;
+        var scoutDrones = 0;
+        var medicDrones = 0;
+        var serviceDrones = 0;
         var taskedDrones = 0;
         var stuckDrones = 0;
         var stuckReport = string.Empty;
@@ -6284,11 +6303,21 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             if (!TerminatingOrDeleted(uid))
             {
                 drones++;
-                var role = drone.DroneRole.Trim().ToLowerInvariant();
+                var role = (drone.DroneRole ?? string.Empty).Trim().ToLowerInvariant();
                 if (role == "miner")
                     miningDrones++;
                 if (role is "builder" or "repair" or "engineer")
                     builderDrones++;
+                if (role == "logistics")
+                    logisticsDrones++;
+                if (role == "guard")
+                    guardDrones++;
+                if (role == "scout")
+                    scoutDrones++;
+                if (role == "medic")
+                    medicDrones++;
+                if (role == "service")
+                    serviceDrones++;
                 if (TryComp<LuaMAiDroneTaskComponent>(uid, out var task))
                 {
                     taskedDrones++;
@@ -6302,7 +6331,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             }
         }
 
-        return new AiBasePhysicalSnapshot(anchors, ships, drones, miningDrones, builderDrones, taskedDrones, stuckDrones, TrimForChat(stuckReport, 160), drops, nextCycleSeconds);
+        return new AiBasePhysicalSnapshot(anchors, ships, drones, miningDrones, builderDrones, logisticsDrones, guardDrones, scoutDrones, medicDrones, serviceDrones, taskedDrones, stuckDrones, TrimForChat(stuckReport, 160), drops, nextCycleSeconds);
     }
 
     private string BuildAiBasePhysicalSummary()
@@ -6315,7 +6344,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var nextText = physical.Ships <= 0
             ? "no physical logistics ships"
             : $"next physical cycle {physical.NextCycleSeconds ?? 0}s";
-        return $"physical beacons {physical.Anchors}; logistics ships {physical.Ships}; drones {physical.Drones} (miners {physical.MiningDrones}, builders {physical.BuilderDrones}, tasked {physical.TaskedDrones}, stuck {physical.StuckDrones}); supply drops {physical.SupplyDrops}; {nextText}";
+        return $"physical beacons {physical.Anchors}; logistics ships {physical.Ships}; drones {physical.Drones} (miners {physical.MiningDrones}, builders {physical.BuilderDrones}, logistics {physical.LogisticsDrones}, guards {physical.GuardDrones}, scouts {physical.ScoutDrones}, medics {physical.MedicDrones}, service {physical.ServiceDrones}, tasked {physical.TaskedDrones}, stuck {physical.StuckDrones}); supply drops {physical.SupplyDrops}; {nextText}";
     }
 
     private string BuildAiBaseDiagnosticsReport(LuaMAiBaseState state)
@@ -6474,6 +6503,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     {
         var entries = new List<AiBaseDiagnosticEntry>();
         var compensation = LuaMSectorStorySystem.BuildAiBaseCompensationPlan(state);
+        var roleDoctrine = state.RoleDoctrine ?? [];
 
         if (!state.Created)
         {
@@ -6518,6 +6548,35 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                     "dispatch miner/builder ships so the AI can mine, repair, and contribute work-zone cycles",
                     "Chat: ai_base_develop",
                     "builder"));
+            }
+            else if (roleDoctrine.Count == 0)
+            {
+                entries.Add(new AiBaseDiagnosticEntry(
+                    3,
+                    "role doctrine missing",
+                    "AI base has no faction service map in memory",
+                    "refresh the AI base status or run a development cycle so roles are regenerated from doctrine",
+                    "Chat: ai_base_status",
+                    "operator"));
+            }
+            else
+            {
+                foreach (var role in roleDoctrine
+                             .Where(entry => entry.Active && !string.Equals(entry.Role, "operator", StringComparison.OrdinalIgnoreCase))
+                             .Take(4))
+                {
+                    var physicalRoleCount = GetAiBasePhysicalRoleCount(physical, role.Role);
+                    if (physicalRoleCount > 0)
+                        continue;
+
+                    entries.Add(new AiBaseDiagnosticEntry(
+                        3,
+                        $"active {role.Role} service has no crew",
+                        $"doctrine role {role.Role}/{role.Service} is active but physical count=0",
+                        $"dispatch a role ship so {role.Service} can execute: {role.Directive}",
+                        $"Chat: ai_base_{GetAiBaseCommandForRole(role.Role)}",
+                        role.Role));
+                }
             }
 
             if (physical.StuckDrones > 0)
@@ -6624,12 +6683,27 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private static string GetAiBaseCommandForRole(string role)
     {
-        return role.Trim().ToLowerInvariant() switch
+        return (role ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "miner" => "mine",
             "builder" or "repair" or "engineer" => "build",
-            "hauler" or "trader" or "logistics" => "logistics",
+            "hauler" or "trader" or "logistics" or "medic" or "guard" or "scout" or "service" => "logistics",
             _ => "diagnostics",
+        };
+    }
+
+    private static int GetAiBasePhysicalRoleCount(AiBasePhysicalSnapshot physical, string role)
+    {
+        return (role ?? string.Empty).Trim().ToLowerInvariant() switch
+        {
+            "miner" => physical.MiningDrones,
+            "builder" or "repair" or "engineer" => physical.BuilderDrones,
+            "hauler" or "trader" or "logistics" => physical.Ships + physical.LogisticsDrones,
+            "guard" => physical.GuardDrones,
+            "scout" => physical.ScoutDrones,
+            "medic" => physical.MedicDrones,
+            "service" => physical.ServiceDrones,
+            _ => physical.Drones,
         };
     }
 
@@ -10071,6 +10145,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         int Drones,
         int MiningDrones,
         int BuilderDrones,
+        int LogisticsDrones,
+        int GuardDrones,
+        int ScoutDrones,
+        int MedicDrones,
+        int ServiceDrones,
         int TaskedDrones,
         int StuckDrones,
         string StuckReport,

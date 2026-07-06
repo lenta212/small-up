@@ -205,6 +205,11 @@ public sealed class LuaMSectorStoryTest
             Assert.That(state.Inventory.Single(entry => entry.Resource == "ore").Amount, Is.GreaterThan(0));
             Assert.That(state.TradeLog, Has.Count.GreaterThanOrEqualTo(2));
             Assert.That(state.TradeCycles, Is.EqualTo(1));
+            Assert.That(state.FactionId, Is.EqualTo("luam-ai-contour"));
+            Assert.That(state.FactionName, Does.Contain("AI Contour"));
+            Assert.That(state.AutonomyModel, Does.Contain("mixed-initiative"));
+            Assert.That(state.RoleDoctrine, Is.Not.Empty);
+            Assert.That(state.RoleDoctrine.Any(entry => entry.Role == "builder"), Is.True);
 
             var autofixMemory = storySystem.RecordAiBaseAutofixAttempt(
                 "integration-test",
@@ -253,13 +258,29 @@ public sealed class LuaMSectorStoryTest
             Assert.That(state.BehaviorReason, Does.Contain("Medbay A"));
             Assert.That(state.LastBehaviorTrigger, Is.EqualTo("rescue-after-action"));
             Assert.That(state.BehaviorRevision, Is.GreaterThan(0));
+            Assert.That(state.ImprovementLoopState, Is.EqualTo("medical-followup"));
+            Assert.That(state.LastImprovementFocus, Does.Contain("rescue medical"));
+            Assert.That(state.LastImprovementFinding, Does.Contain("Medbay A"));
+            Assert.That(state.RoleDoctrine.Any(entry =>
+                entry.Role == "medic" &&
+                entry.Priority == "primary" &&
+                entry.Active), Is.True);
+            Assert.That(state.RoleDoctrine.Any(entry =>
+                entry.Role == "operator" &&
+                entry.Service.Contains("audit", StringComparison.OrdinalIgnoreCase)), Is.True);
             Assert.That(storySystem.TryGetActiveRescueCooldown(out var remainingCooldown, out var cooldownStatus), Is.True);
             Assert.That(remainingCooldown, Is.GreaterThan(0));
             Assert.That(cooldownStatus, Does.Contain("rescue cooldown"));
 
             var status = storySystem.BuildAiBaseStatusText();
             Assert.That(status, Does.Contain("LuaM autonomous supply base"));
+            Assert.That(status, Does.Contain("Faction:"));
+            Assert.That(status, Does.Contain("LuaM AI Contour"));
             Assert.That(status, Does.Contain("Behavior:"));
+            Assert.That(status, Does.Contain("medical-followup"));
+            Assert.That(status, Does.Contain("Roles:"));
+            Assert.That(status, Does.Contain("medic:primary/active"));
+            Assert.That(status, Does.Contain("Improvement loop:"));
             Assert.That(status, Does.Contain("medical-followup"));
             Assert.That(status, Does.Contain("Needs:"));
             Assert.That(status, Does.Contain("Compensation plan:"));
@@ -278,6 +299,9 @@ public sealed class LuaMSectorStoryTest
             Assert.That(topCompensation.Compensation, Does.Contain("dispatch miner"));
 
             var adminState = director.BuildAdminState(string.Empty, string.Empty);
+            Assert.That(adminState.AiBaseSummary, Does.Contain("faction luam-ai-contour"));
+            Assert.That(adminState.AiBaseSummary, Does.Contain("roles"));
+            Assert.That(adminState.AiBaseSummary, Does.Contain("improvement"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("physical beacons 1"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("logistics ships 1"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("drones 1"));
@@ -294,8 +318,12 @@ public sealed class LuaMSectorStoryTest
             Assert.That(exportedJson, Does.Contain("fuel"));
             Assert.That(exportedJson, Does.Contain("TradeLog"));
             Assert.That(exportedJson, Does.Contain("AutofixLog"));
+            Assert.That(exportedJson, Does.Contain("FactionId"));
+            Assert.That(exportedJson, Does.Contain("luam-ai-contour"));
             Assert.That(exportedJson, Does.Contain("BehaviorMode"));
             Assert.That(exportedJson, Does.Contain("medical-followup"));
+            Assert.That(exportedJson, Does.Contain("RoleDoctrine"));
+            Assert.That(exportedJson, Does.Contain("ImprovementLoopState"));
             Assert.That(exportedJson, Does.Contain("LastRescueMedicalStatus"));
             Assert.That(exportedJson, Does.Contain("LastRescueCooldownStatus"));
 
@@ -328,6 +356,9 @@ public sealed class LuaMSectorStoryTest
             Assert.That(restored.BehaviorFocusResource, Is.EqualTo("medicine"));
             Assert.That(restored.BehaviorFocusRole, Is.EqualTo("medic"));
             Assert.That(restored.LastBehaviorTrigger, Is.EqualTo("rescue-after-action"));
+            Assert.That(restored.FactionId, Is.EqualTo("luam-ai-contour"));
+            Assert.That(restored.RoleDoctrine.Any(entry => entry.Role == "medic" && entry.Active), Is.True);
+            Assert.That(restored.ImprovementLoopState, Is.EqualTo("medical-followup"));
             Assert.That(restored.TradeLog.Any(entry => entry.Vessel.Contains("Baeg", StringComparison.OrdinalIgnoreCase)), Is.True);
             Assert.That(restored.TradeLog.Any(entry => entry.Vessel.Contains("Hammerhead", StringComparison.OrdinalIgnoreCase)), Is.False);
 

@@ -361,6 +361,18 @@ public sealed partial class LuaMAiBaseState
     public int TradeCycles;
 
     [DataField]
+    public string FactionId = "luam-ai-contour";
+
+    [DataField]
+    public string FactionName = "LuaM AI Contour";
+
+    [DataField]
+    public string FactionCharter = "autonomous in-game faction for resource extraction, base construction, logistics, medical support, and improvement audits";
+
+    [DataField]
+    public string AutonomyModel = "mixed-initiative shared autonomy";
+
+    [DataField]
     public string BehaviorMode = "bootstrap";
 
     [DataField]
@@ -383,6 +395,21 @@ public sealed partial class LuaMAiBaseState
 
     [DataField]
     public TimeSpan BehaviorUpdatedAt;
+
+    [DataField]
+    public string ImprovementLoopState = "observe-plan-act-verify";
+
+    [DataField]
+    public string LastImprovementFocus = "deploy base anchor";
+
+    [DataField]
+    public string LastImprovementFinding = "ai base not deployed";
+
+    [DataField]
+    public int ImprovementRevision;
+
+    [DataField]
+    public List<LuaMAiBaseRoleEntry> RoleDoctrine = new();
 
     [DataField]
     public int RescueMedicalOperations;
@@ -425,6 +452,25 @@ public sealed partial class LuaMAiBaseState
 
     [DataField]
     public List<LuaMAiBaseAutofixEntry> AutofixLog = new();
+}
+
+[DataDefinition]
+public sealed partial class LuaMAiBaseRoleEntry
+{
+    [DataField]
+    public string Role = string.Empty;
+
+    [DataField]
+    public string Service = string.Empty;
+
+    [DataField]
+    public string Priority = "support";
+
+    [DataField]
+    public string Directive = string.Empty;
+
+    [DataField]
+    public bool Active;
 }
 
 [DataDefinition]
