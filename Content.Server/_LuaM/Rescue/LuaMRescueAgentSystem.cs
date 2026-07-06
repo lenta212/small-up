@@ -4748,9 +4748,26 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!string.IsNullOrWhiteSpace(threatClear))
             summary = $"{summary}; threatClear={threatClear}";
 
+        var triageCover = BuildHandoffTriageCoverSummary(team);
+        if (!string.IsNullOrWhiteSpace(triageCover))
+            summary = $"{summary}; triageCover={triageCover}";
+
         return string.Equals(crewHelp, "unverified", StringComparison.OrdinalIgnoreCase)
             ? summary
             : $"{summary}; crewHelp={crewHelp}";
+    }
+
+    private static string BuildHandoffTriageCoverSummary(LuaMRescueTeamComponent team)
+    {
+        if (string.IsNullOrWhiteSpace(team.LastTriageCoverStatus) ||
+            string.Equals(team.LastTriageCoverStatus, "none", StringComparison.OrdinalIgnoreCase) ||
+            team.LastTriageCoverStatus.StartsWith("triage-cover: waiting", StringComparison.Ordinal) ||
+            !team.LastTriageCoverStatus.StartsWith("triage-cover:", StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        return team.LastTriageCoverStatus.Trim();
     }
 
     private static string BuildHandoffThreatClearSummary(LuaMRescueTeamComponent team)

@@ -474,6 +474,9 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(agent, Does.Contain("aborted after stalled target"));
         Assert.That(agent, Does.Contain("BuildHandoffBlockerSummary"));
         Assert.That(agent, Does.Contain("BuildHandoffBlockerSummary(team, crewHelp)"));
+        Assert.That(agent, Does.Contain("BuildHandoffTriageCoverSummary"));
+        Assert.That(agent, Does.Contain("triageCover={triageCover}"));
+        Assert.That(agent, Does.Contain("LastTriageCoverStatus"));
         Assert.That(agent, Does.Contain("BuildHandoffThreatClearSummary"));
         Assert.That(agent, Does.Contain("threatClear={threatClear}"));
         Assert.That(agent, Does.Contain("LastThreatNeutralizedStatus"));
