@@ -2664,9 +2664,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             case "ai_base_status":
                 return _stories.BuildAiBaseStatusText();
             case "ai_base_diagnostics":
-                return await RunOnMainThread(() => BuildAiBaseDiagnosticsReport(_stories.GetAiBaseState()));
+                return BuildAiBaseDiagnosticsReport(_stories.GetAiBaseState());
             case "ai_base_plan":
-                return await RunOnMainThread(() => BuildAiBaseDevelopmentPlanReport(_stories.GetAiBaseState(), BuildAiBasePhysicalSnapshot()));
+                return BuildAiBaseDevelopmentPlanReport(_stories.GetAiBaseState(), BuildAiBasePhysicalSnapshot());
             case "ai_base_autofix":
                 return await DispatchAiBaseAutofixAsync(admin, originalMessage, command.Instruction);
             case "ai_base_autopilot":
@@ -3673,9 +3673,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             case "status":
                 return _stories.BuildAiBaseStatusText();
             case "diagnostics":
-                return await RunOnMainThread(() => BuildAiBaseDiagnosticsReport(_stories.GetAiBaseState()));
+                return BuildAiBaseDiagnosticsReport(_stories.GetAiBaseState());
             case "plan":
-                return await RunOnMainThread(() => BuildAiBaseDevelopmentPlanReport(_stories.GetAiBaseState(), BuildAiBasePhysicalSnapshot()));
+                return BuildAiBaseDevelopmentPlanReport(_stories.GetAiBaseState(), BuildAiBasePhysicalSnapshot());
             case "autofix":
                 return await DispatchAiBaseAutofixAsync(admin, originalMessage, action.VesselId);
             case "autopilot":

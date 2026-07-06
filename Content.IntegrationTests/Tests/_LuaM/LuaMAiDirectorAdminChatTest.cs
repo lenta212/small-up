@@ -345,6 +345,16 @@ public sealed class LuaMAiDirectorAdminChatTest
             var resources = server.ResolveDependency<IResourceManager>();
             var director = entMan.System<LuaMSectorAiDirectorSystem>();
             var storySystem = entMan.System<LuaMSectorStorySystem>();
+            async Task<string> AwaitAdminServerActionAsync(Task<string> task)
+            {
+                for (var i = 0; i < 60 && !task.IsCompleted; i++)
+                {
+                    await pair.RunTicksSync(1);
+                }
+
+                Assert.That(task.IsCompleted, Is.True, "AI base admin server action did not complete after queued server ticks.");
+                return await task;
+            }
 
             await server.WaitPost(() =>
             {
@@ -493,12 +503,12 @@ public sealed class LuaMAiDirectorAdminChatTest
                 string.Empty,
                 LuaMAiDirectorEuiMsg.AutoTemplateId,
                 allowServerActions: false);
-            var autofix = await director.AdminChatAsync(
+            var autofix = await AwaitAdminServerActionAsync(director.AdminChatAsync(
                 admin,
                 "ai base autofix now",
                 string.Empty,
                 LuaMAiDirectorEuiMsg.AutoTemplateId,
-                allowServerActions: true);
+                allowServerActions: true));
 
             Assert.That(blockedCreate, Does.Contain("Action not executed"));
             Assert.That(blockedCreate, Does.Contain("AI base request"));
@@ -536,7 +546,8 @@ public sealed class LuaMAiDirectorAdminChatTest
 
             Assert.That(autonomous, Does.Contain("ai base autonomous logistics"));
             Assert.That(autonomous, Does.Contain("AI base logistics updated"));
-            Assert.That(autonomous, Does.Contain("ai base autonomous bootstrap"));
+            Assert.That(autonomous, Does.Contain("physical logistics ship launched"));
+            Assert.That(autonomous, Does.Contain("doctrine"));
 
             Assert.That(aiBaseCreated, Is.True);
             Assert.That(aiBaseTradeCycles, Is.EqualTo(1));
