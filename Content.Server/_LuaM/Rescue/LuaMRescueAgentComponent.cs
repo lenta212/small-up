@@ -145,6 +145,12 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float ThreatEvacuationMinDamage = 5f;
 
     [DataField]
+    public int OverwhelmingThreatHostileThreshold = 3;
+
+    [DataField]
+    public int OverwhelmingThreatCombatantThreshold = 4;
+
+    [DataField]
     public float AutoReleaseMaxDamage = 5f;
 
     [DataField]

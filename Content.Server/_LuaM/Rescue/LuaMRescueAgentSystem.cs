@@ -3061,7 +3061,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (unsafeSceneEvacuation &&
             TryComp<LuaMRescueTeamComponent>(uid, out var team))
         {
-            rescue.LastAutoEvacuationStatus = $"unsafe-scene evacuation of {FormatEntityRef(target)}; {team.LastSceneStatus}; {team.LastMemoryDigest}";
+            var evacuationReason = HasRescueTeamOverwhelmingThreatPressure(team, rescue)
+                ? "overwhelming-threat evacuation"
+                : "unsafe-scene evacuation";
+            rescue.LastAutoEvacuationStatus = $"{evacuationReason} of {FormatEntityRef(target)}; {team.LastSceneStatus}; {team.LastMemoryDigest}";
         }
 
         TryRouteShuttleToTarget(uid, rescue, target);
@@ -3802,6 +3805,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        if (HasRescueTeamOverwhelmingThreatPressure(team, rescue))
+            return true;
+
         if (mobState.CurrentState == MobState.Critical)
             return true;
 
@@ -3815,6 +3821,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                team.NearbyHostiles > 0 ||
                team.NearbyCombatants > 0 ||
                team.RecentThreatMemories > 0;
+    }
+
+    private static bool HasRescueTeamOverwhelmingThreatPressure(
+        LuaMRescueTeamComponent team,
+        LuaMRescueAgentComponent rescue)
+    {
+        return (rescue.OverwhelmingThreatHostileThreshold > 0 &&
+                team.NearbyHostiles >= rescue.OverwhelmingThreatHostileThreshold) ||
+               (rescue.OverwhelmingThreatCombatantThreshold > 0 &&
+                team.NearbyCombatants >= rescue.OverwhelmingThreatCombatantThreshold);
     }
 
     private static bool HasRescueTeamRoutePressure(LuaMRescueTeamComponent team)

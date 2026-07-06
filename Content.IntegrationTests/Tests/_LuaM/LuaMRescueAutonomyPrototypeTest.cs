@@ -123,14 +123,20 @@ public sealed class LuaMRescueAutonomyPrototypeTest
 
         Assert.That(component, Does.Contain("EvacuateWhenSceneThreatened = true"));
         Assert.That(component, Does.Contain("ThreatEvacuationMinDamage = 5f"));
+        Assert.That(component, Does.Contain("OverwhelmingThreatHostileThreshold = 3"));
+        Assert.That(component, Does.Contain("OverwhelmingThreatCombatantThreshold = 4"));
         Assert.That(source, Does.Contain("TryTreatOrEvacuateTarget"));
         Assert.That(source, Does.Contain("ShouldEvacuateBeforeTreatment"));
         Assert.That(source, Does.Contain("IsThreatenedEvacuationTarget"));
         Assert.That(source, Does.Contain("HasRescueTeamThreatPressure"));
+        Assert.That(source, Does.Contain("HasRescueTeamOverwhelmingThreatPressure"));
         Assert.That(source, Does.Contain("TryComp<LuaMRescueTeamComponent>(uid, out var team)"));
         Assert.That(source, Does.Contain("team.ThreatTarget is { Valid: true }"));
         Assert.That(source, Does.Contain("team.RecentThreatMemories > 0"));
+        Assert.That(source, Does.Contain("team.NearbyHostiles >= rescue.OverwhelmingThreatHostileThreshold"));
+        Assert.That(source, Does.Contain("team.NearbyCombatants >= rescue.OverwhelmingThreatCombatantThreshold"));
         Assert.That(source, Does.Contain("rescue.ThreatEvacuationMinDamage"));
+        Assert.That(source, Does.Contain("overwhelming-threat evacuation"));
         Assert.That(source, Does.Contain("unsafe-scene evacuation"));
         Assert.That(source, Does.Contain("score += 750f"));
         Assert.That(source, Does.Contain("!unsafeSceneEvacuation"));
