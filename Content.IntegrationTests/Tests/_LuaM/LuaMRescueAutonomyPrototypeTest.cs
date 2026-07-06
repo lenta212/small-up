@@ -473,6 +473,11 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(agent, Does.Contain("released from shuttle care"));
         Assert.That(agent, Does.Contain("aborted after stalled target"));
         Assert.That(agent, Does.Contain("BuildHandoffBlockerSummary"));
+        Assert.That(agent, Does.Contain("BuildHandoffBlockerSummary(team, crewHelp)"));
+        Assert.That(agent, Does.Contain("BuildHandoffCrewHelpSummary"));
+        Assert.That(agent, Does.Contain("FormatEscortRole"));
+        Assert.That(agent, Does.Contain("crew-help requested:"));
+        Assert.That(agent, Does.Contain("crewHelp={crewHelp}"));
         Assert.That(agent, Does.Contain("BuildPatientTreatmentResult"));
         Assert.That(sectorMemory, Does.Contain("LuaMSectorRescueAfterActionEntry"));
         Assert.That(sectorMemory, Does.Contain("RescueAfterActions"));

@@ -3979,6 +3979,11 @@ def main() -> int:
     assert_contains(rescue_agent_system, "released from shuttle care", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "aborted after stalled target", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "BuildHandoffBlockerSummary", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "BuildHandoffBlockerSummary(team, crewHelp)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "BuildHandoffCrewHelpSummary", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "FormatEscortRole", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "crew-help requested:", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "crewHelp={crewHelp}", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "BuildPatientTreatmentResult", "LuaMRescueAgentSystem")
 
     rescue_shuttle_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs").read_text(encoding="utf-8")

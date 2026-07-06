@@ -4659,9 +4659,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         string teamStatus)
     {
         var location = FormatHandoffLocation(rescue, patient);
-        var blockers = TryComp<LuaMRescueTeamComponent>(uid, out var team)
-            ? BuildHandoffBlockerSummary(team)
-            : "team scene memory unavailable";
+        var crewHelp = "unverified";
+        var blockers = "team scene memory unavailable";
+        if (TryComp<LuaMRescueTeamComponent>(uid, out var team))
+        {
+            crewHelp = BuildHandoffCrewHelpSummary(team);
+            blockers = BuildHandoffBlockerSummary(team, crewHelp);
+        }
 
         _rescueTeam.TryRecordRescueHandoff(
             uid,
@@ -4670,7 +4674,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             treatmentResult,
             evacuationResult,
             blockers,
-            "unverified",
+            crewHelp,
             teamStatus);
     }
 
@@ -4730,18 +4734,55 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             : FormatEntityRef(patient);
     }
 
-    private static string BuildHandoffBlockerSummary(LuaMRescueTeamComponent team)
+    private static string BuildHandoffBlockerSummary(LuaMRescueTeamComponent team, string crewHelp = "unverified")
     {
-        if (team.RecentThreatMemories <= 0 &&
+        var summary = team.RecentThreatMemories <= 0 &&
             team.RecentCrowdMemories <= 0 &&
             team.RecentRouteMemories <= 0 &&
-            team.NearbyBlockers <= 0)
+            team.NearbyBlockers <= 0
+                ? "none"
+                : $"threat/crowd/route={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
+                  $"blockers={team.NearbyBlockers}; scene={team.LastSceneStatus}; memory={team.LastMemoryDigest}";
+
+        return string.Equals(crewHelp, "unverified", StringComparison.OrdinalIgnoreCase)
+            ? summary
+            : $"{summary}; crewHelp={crewHelp}";
+    }
+
+    private string BuildHandoffCrewHelpSummary(LuaMRescueTeamComponent team)
+    {
+        var requests = new List<string>();
+        foreach (var escortUid in team.Escorts)
         {
-            return "none";
+            if (!escortUid.Valid ||
+                Deleted(escortUid) ||
+                !TryComp<LuaMRescueEscortComponent>(escortUid, out var escort) ||
+                string.IsNullOrWhiteSpace(escort.LastCrewHelpStatus) ||
+                string.Equals(escort.LastCrewHelpStatus, "none", StringComparison.OrdinalIgnoreCase) ||
+                !escort.LastCrewHelpStatus.StartsWith("crew-help:", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            requests.Add($"{FormatEscortRole(escort.Role)}={escort.LastCrewHelpStatus.Trim()}");
+            if (requests.Count >= 4)
+                break;
         }
 
-        return $"threat/crowd/route={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
-               $"blockers={team.NearbyBlockers}; scene={team.LastSceneStatus}; memory={team.LastMemoryDigest}";
+        return requests.Count == 0
+            ? "unverified"
+            : $"crew-help requested: {string.Join(" | ", requests)}";
+    }
+
+    private static string FormatEscortRole(LuaMRescueEscortRole role)
+    {
+        return role switch
+        {
+            LuaMRescueEscortRole.Tourniquet => "tourniquet",
+            LuaMRescueEscortRole.Kostyl => "kostyl",
+            LuaMRescueEscortRole.Zaslon => "zaslon",
+            _ => "escort",
+        };
     }
 
     private string BuildPatientTreatmentResult(EntityUid patient, LuaMRescueAgentComponent rescue)
