@@ -361,6 +361,21 @@ public sealed partial class LuaMAiBaseState
     public int TradeCycles;
 
     [DataField]
+    public int RescueMedicalOperations;
+
+    [DataField]
+    public int LastRescueAfterActionSequence;
+
+    [DataField]
+    public string LastRescueMedicalStatus = "none";
+
+    [DataField]
+    public string LastRescueMedicalLocation = "none";
+
+    [DataField]
+    public bool LastRescueMedicalFollowUpPending;
+
+    [DataField]
     public List<LuaMAiBaseInventoryEntry> Inventory = new();
 
     [DataField]

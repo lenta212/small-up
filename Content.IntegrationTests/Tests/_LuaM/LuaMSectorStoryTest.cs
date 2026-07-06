@@ -219,10 +219,33 @@ public sealed class LuaMSectorStoryTest
             Assert.That(state.AutofixLog, Has.Count.EqualTo(1));
             Assert.That(state.AutofixLog[0].CommandId, Is.EqualTo("ai_base_mine"));
 
+            Assert.That(storySystem.TryRecordRescueAfterAction(
+                "LuaM Rescue",
+                "withheld",
+                "Medbay A",
+                "critical stabilized",
+                "secured onboard; return route requested",
+                "threat/crowd/route=0/1/1; blockers=2; scene=route pressure",
+                "crew-help requested: kostyl=crew-help:route-blocker",
+                "available for next rescue",
+                out var rescueEntry), Is.True);
+            Assert.That(rescueEntry, Is.Not.Null);
+
+            state = storySystem.GetAiBaseState();
+            Assert.That(state.RescueMedicalOperations, Is.EqualTo(1));
+            Assert.That(state.LastRescueAfterActionSequence, Is.EqualTo(rescueEntry!.Sequence));
+            Assert.That(state.LastRescueMedicalStatus, Does.Contain("rescue #1"));
+            Assert.That(state.LastRescueMedicalStatus, Does.Contain("critical stabilized"));
+            Assert.That(state.LastRescueMedicalStatus, Does.Contain("follow-up pending"));
+            Assert.That(state.LastRescueMedicalLocation, Is.EqualTo("Medbay A"));
+            Assert.That(state.LastRescueMedicalFollowUpPending, Is.True);
+
             var status = storySystem.BuildAiBaseStatusText();
             Assert.That(status, Does.Contain("LuaM autonomous supply base"));
             Assert.That(status, Does.Contain("Needs:"));
             Assert.That(status, Does.Contain("Compensation plan:"));
+            Assert.That(status, Does.Contain("Medical status:"));
+            Assert.That(status, Does.Contain("follow-up pending"));
             Assert.That(status, Does.Contain("Recent logistics:"));
             Assert.That(status, Does.Contain("Recent autofix:"));
 
@@ -251,6 +274,7 @@ public sealed class LuaMSectorStoryTest
             Assert.That(exportedJson, Does.Contain("fuel"));
             Assert.That(exportedJson, Does.Contain("TradeLog"));
             Assert.That(exportedJson, Does.Contain("AutofixLog"));
+            Assert.That(exportedJson, Does.Contain("LastRescueMedicalStatus"));
 
             Assert.That(storySystem.TryExportMemorySnapshot(out snapshot), Is.True);
         });
@@ -270,6 +294,10 @@ public sealed class LuaMSectorStoryTest
             Assert.That(restored.Created, Is.True);
             Assert.That(restored.TradeCycles, Is.EqualTo(1));
             Assert.That(restored.AutofixLog, Has.Count.EqualTo(1));
+            Assert.That(restored.RescueMedicalOperations, Is.EqualTo(1));
+            Assert.That(restored.LastRescueAfterActionSequence, Is.EqualTo(1));
+            Assert.That(restored.LastRescueMedicalStatus, Does.Contain("critical stabilized"));
+            Assert.That(restored.LastRescueMedicalFollowUpPending, Is.True);
             Assert.That(restored.TradeLog.Any(entry => entry.Vessel.Contains("Baeg", StringComparison.OrdinalIgnoreCase)), Is.True);
             Assert.That(restored.TradeLog.Any(entry => entry.Vessel.Contains("Hammerhead", StringComparison.OrdinalIgnoreCase)), Is.False);
 

@@ -485,6 +485,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             memory.RescueAfterActions.RemoveRange(0, memory.RescueAfterActions.Count - RescueAfterActionLimit);
 
         TryAutoClearLatestRescueFollowUpFromAfterAction(memory, entry, out var clearedEntry);
+        UpdateAiBaseMedicalStatus(memory.AiBase, entry, memory.RescueAfterActions.Count);
 
         SaveMemory(memory);
 
@@ -1870,6 +1871,12 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         state.Needs ??= new List<LuaMAiBaseNeedEntry>();
         state.TradeLog ??= new List<LuaMAiBaseTradeEntry>();
         state.AutofixLog ??= new List<LuaMAiBaseAutofixEntry>();
+        if (string.IsNullOrWhiteSpace(state.LastRescueMedicalStatus))
+            state.LastRescueMedicalStatus = "none";
+        if (string.IsNullOrWhiteSpace(state.LastRescueMedicalLocation))
+            state.LastRescueMedicalLocation = "none";
+        state.RescueMedicalOperations = Math.Max(0, state.RescueMedicalOperations);
+        state.LastRescueAfterActionSequence = Math.Max(0, state.LastRescueAfterActionSequence);
 
         foreach (var (resource, amount) in AiBaseInitialInventory)
         {
@@ -1960,6 +1967,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         }
 
         output.AppendLine("Compensation plan: " + BuildAiBaseCompensationSummary(state, 3));
+        output.AppendLine("Medical status: " + BuildAiBaseMedicalStatusText(state));
 
         var recent = state.TradeLog
             .OrderByDescending(entry => entry.Cycle)
@@ -2497,6 +2505,50 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
                !blockerCount.Equals("0", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static void UpdateAiBaseMedicalStatus(
+        LuaMAiBaseState state,
+        LuaMSectorRescueAfterActionEntry entry,
+        int retainedAfterActionCount)
+    {
+        EnsureAiBaseDefaults(state);
+
+        state.RescueMedicalOperations = Math.Max(
+            Math.Max(0, state.RescueMedicalOperations) + 1,
+            retainedAfterActionCount);
+        state.LastRescueAfterActionSequence = entry.Sequence;
+        state.LastRescueMedicalLocation = string.IsNullOrWhiteSpace(entry.Location)
+            ? "unknown"
+            : Trim(entry.Location, 96);
+        state.LastRescueMedicalFollowUpPending = HasOpenRescueBlockers(entry);
+
+        var blockerStatus = state.LastRescueMedicalFollowUpPending
+            ? "follow-up pending"
+            : entry.BlockersCleared
+                ? "blockers cleared"
+                : "corridor clear";
+
+        state.LastRescueMedicalStatus = Trim(
+            $"rescue #{entry.Sequence}: treatment={entry.TreatmentResult}; " +
+            $"evacuation={entry.EvacuationResult}; blockers={blockerStatus}; " +
+            $"location={state.LastRescueMedicalLocation}; team={entry.TeamStatus}",
+            256);
+    }
+
+    private static string BuildAiBaseMedicalStatusText(LuaMAiBaseState state)
+    {
+        if (state.RescueMedicalOperations <= 0 ||
+            string.IsNullOrWhiteSpace(state.LastRescueMedicalStatus) ||
+            state.LastRescueMedicalStatus.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            return "no rescue after-action yet.";
+        }
+
+        var followUp = state.LastRescueMedicalFollowUpPending
+            ? "follow-up pending"
+            : "no open rescue follow-up";
+        return $"ops={state.RescueMedicalOperations}; last={state.LastRescueMedicalStatus}; {followUp}.";
+    }
+
     private static bool TryAutoClearLatestRescueFollowUpFromAfterAction(
         LuaMSectorMemoryComponent memory,
         LuaMSectorRescueAfterActionEntry evidence,
@@ -2637,6 +2689,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Location = state.Location,
             SupplyScore = state.SupplyScore,
             TradeCycles = state.TradeCycles,
+            RescueMedicalOperations = state.RescueMedicalOperations,
+            LastRescueAfterActionSequence = state.LastRescueAfterActionSequence,
+            LastRescueMedicalStatus = state.LastRescueMedicalStatus,
+            LastRescueMedicalLocation = state.LastRescueMedicalLocation,
+            LastRescueMedicalFollowUpPending = state.LastRescueMedicalFollowUpPending,
             Inventory = state.Inventory.Select(CloneAiBaseInventoryEntry).ToList(),
             Needs = state.Needs.Select(CloneAiBaseNeedEntry).ToList(),
             TradeLog = state.TradeLog.Select(CloneAiBaseTradeEntry).ToList(),
@@ -2952,6 +3009,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Location = state.Location,
             SupplyScore = state.SupplyScore,
             TradeCycles = state.TradeCycles,
+            RescueMedicalOperations = state.RescueMedicalOperations,
+            LastRescueAfterActionSequence = state.LastRescueAfterActionSequence,
+            LastRescueMedicalStatus = state.LastRescueMedicalStatus,
+            LastRescueMedicalLocation = state.LastRescueMedicalLocation,
+            LastRescueMedicalFollowUpPending = state.LastRescueMedicalFollowUpPending,
             Inventory = state.Inventory
                 .Select(entry => new LuaMAiBasePersistedInventoryEntry
                 {
@@ -3008,6 +3070,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             Location = state.Location,
             SupplyScore = state.SupplyScore,
             TradeCycles = state.TradeCycles,
+            RescueMedicalOperations = state.RescueMedicalOperations,
+            LastRescueAfterActionSequence = state.LastRescueAfterActionSequence,
+            LastRescueMedicalStatus = state.LastRescueMedicalStatus,
+            LastRescueMedicalLocation = state.LastRescueMedicalLocation,
+            LastRescueMedicalFollowUpPending = state.LastRescueMedicalFollowUpPending,
             Inventory = state.Inventory
                 .Select(entry => new LuaMAiBaseInventoryEntry
                 {
@@ -3179,6 +3246,11 @@ public sealed class LuaMAiBasePersistedState
     public string Location { get; set; } = "hidden sector anchorage";
     public int SupplyScore { get; set; }
     public int TradeCycles { get; set; }
+    public int RescueMedicalOperations { get; set; }
+    public int LastRescueAfterActionSequence { get; set; }
+    public string LastRescueMedicalStatus { get; set; } = "none";
+    public string LastRescueMedicalLocation { get; set; } = "none";
+    public bool LastRescueMedicalFollowUpPending { get; set; }
     public List<LuaMAiBasePersistedInventoryEntry> Inventory { get; set; } = new();
     public List<LuaMAiBasePersistedNeedEntry> Needs { get; set; } = new();
     public List<LuaMAiBasePersistedTradeEntry> TradeLog { get; set; } = new();
