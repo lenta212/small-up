@@ -382,6 +382,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoDefib={rescue.LastAutoDefibStatus}; " +
                $"autoEvac={rescue.LastAutoEvacuationStatus}; " +
                $"redispatch={rescue.LastRedispatchStatus}; " +
+               $"shuttleReturn={rescue.LastShuttleReturnStatus}; " +
                $"rescueAction={rescue.LastRescueActionStatus}; " +
                $"onboardCare={rescue.LastOnboardCareStatus}; " +
                $"onboardAction={rescue.LastOnboardActionStatus}; " +
@@ -4041,18 +4042,31 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     private bool TryRouteShuttleHome(EntityUid uid, LuaMRescueAgentComponent rescue)
     {
-        if (!rescue.AutoReturnShuttle ||
-            rescue.ShuttleReturnRouted ||
-            rescue.AssignedShuttleConsole is not { Valid: true } console ||
-            Deleted(console) ||
-            rescue.AssignedReturnTarget is not { Valid: true } returnTarget ||
-            Deleted(returnTarget) ||
-            !TryComp<ShuttleConsoleComponent>(console, out var shuttleConsole) ||
-            !TryComp<HTNComponent>(console, out var htn))
+        if (!rescue.AutoReturnShuttle)
+            return SetShuttleReturnStatus(uid, rescue, "return-route disabled");
+
+        if (rescue.ShuttleReturnRouted)
+            return SetShuttleReturnStatus(uid, rescue, "return-route already routed");
+
+        if (rescue.AssignedShuttleConsole is not { Valid: true } console ||
+            Deleted(console))
         {
-            return false;
+            return ReportShuttleReturnHold(uid, rescue, "autopilot console unavailable");
         }
 
+        if (rescue.AssignedReturnTarget is not { Valid: true } returnTarget ||
+            Deleted(returnTarget))
+        {
+            return ReportShuttleReturnHold(uid, rescue, "return target unavailable");
+        }
+
+        if (!TryComp<ShuttleConsoleComponent>(console, out var shuttleConsole))
+            return ReportShuttleReturnHold(uid, rescue, "autopilot console component unavailable");
+
+        if (!TryComp<HTNComponent>(console, out var htn))
+            return ReportShuttleReturnHold(uid, rescue, "autopilot HTN unavailable");
+
+        rescue.LastShuttleReturnStatus = $"return-route home: target={FormatEntityRef(returnTarget)}";
         _npc.SetBlackboard(console, shuttleConsole.AutopilotTargetKey, new EntityCoordinates(returnTarget, Vector2.Zero), htn);
         htn.Blackboard.Remove<Angle>(shuttleConsole.AutopilotRotationKey);
         _npc.WakeNPC(console, htn);
@@ -4060,6 +4074,34 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.ShuttleRoutedTarget = null;
         Dirty(uid, rescue);
         return true;
+    }
+
+    private bool SetShuttleReturnStatus(EntityUid uid, LuaMRescueAgentComponent rescue, string status)
+    {
+        if (string.Equals(rescue.LastShuttleReturnStatus, status, StringComparison.Ordinal))
+            return false;
+
+        rescue.LastShuttleReturnStatus = status;
+        Dirty(uid, rescue);
+        return false;
+    }
+
+    private bool ReportShuttleReturnHold(EntityUid uid, LuaMRescueAgentComponent rescue, string reason)
+    {
+        var status = $"return-route hold: {reason}; repair/manual shuttle help needed";
+        rescue.LastShuttleReturnStatus = status;
+        rescue.LastAutoEvacuationStatus = status;
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"shuttle-return-hold:{reason}:{rescue.AssignedShuttle}",
+            BuildShuttleReturnHoldMessage(reason));
+        return false;
+    }
+
+    private static string BuildShuttleReturnHoldMessage(string reason)
+    {
+        return $"\u0428\u0430\u0442\u0442\u043b \u043d\u0435 \u0433\u043e\u0442\u043e\u0432 \u043a \u0432\u043e\u0437\u0432\u0440\u0430\u0442\u0443: {reason}. \u0423\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u044e \u043c\u0435\u0434\u0438\u0446\u0438\u043d\u0441\u043a\u0438\u0439 \u0431\u043e\u0440\u0442; \u043d\u0443\u0436\u043d\u044b \u0440\u0435\u043c\u043e\u043d\u0442 \u0438\u043b\u0438 \u0440\u0443\u0447\u043d\u043e\u0439 \u043c\u0430\u0440\u0448\u0440\u0442.";
     }
 
     private bool TryRouteShuttleToTarget(EntityUid uid, LuaMRescueAgentComponent rescue, EntityUid target)

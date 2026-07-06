@@ -189,6 +189,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
 
         Assert.That(component, Does.Contain("LastRedispatchStatus"));
+        Assert.That(component, Does.Contain("LastShuttleReturnStatus"));
         Assert.That(source, Does.Contain("var hasPendingRescueTarget = TryFindPendingRescueTarget("));
         Assert.That(source, Does.Contain("HasPendingRescueTarget"));
         Assert.That(source, Does.Contain("TryFindPendingRescueTarget"));
@@ -207,11 +208,33 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("pending rescue target detected"));
         Assert.That(source, Does.Contain("TryReportRedispatchTarget"));
         Assert.That(source, Does.Contain("redispatch={rescue.LastRedispatchStatus}"));
+        Assert.That(source, Does.Contain("shuttleReturn={rescue.LastShuttleReturnStatus}"));
         Assert.That(source, Does.Contain("redispatch: source={source}; completed={FormatEntityRef(completedTarget)}"));
         Assert.That(source, Does.Contain("status=forward"));
         Assert.That(source, Does.Contain("\\u041f\\u0435\\u0440\\u0435\\u043d\\u0430\\u0437\\u043d\\u0430\\u0447\\u0430\\u044e\\u0441\\u044c \\u043a {Name(pendingTarget)}"));
         Assert.That(source, Does.Contain("bool allowAutoReturn = true"));
         Assert.That(source, Does.Contain("if (allowAutoReturn)"));
+    }
+
+    [Test]
+    public void RescueAgentReportsShuttleReturnHoldWhenAutopilotCannotRouteHome()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("LastShuttleReturnStatus"));
+        Assert.That(source, Does.Contain("ReportShuttleReturnHold"));
+        Assert.That(source, Does.Contain("BuildShuttleReturnHoldMessage"));
+        Assert.That(source, Does.Contain("return-route hold: {reason}; repair/manual shuttle help needed"));
+        Assert.That(source, Does.Contain("shuttle-return-hold:"));
+        Assert.That(source, Does.Contain("autopilot console unavailable"));
+        Assert.That(source, Does.Contain("return target unavailable"));
+        Assert.That(source, Does.Contain("autopilot console component unavailable"));
+        Assert.That(source, Does.Contain("autopilot HTN unavailable"));
+        Assert.That(source, Does.Contain("rescue.LastAutoEvacuationStatus = status"));
+        Assert.That(source, Does.Contain("return-route home: target={FormatEntityRef(returnTarget)}"));
+        Assert.That(source, Does.Contain("\\u0428\\u0430\\u0442\\u0442\\u043b \\u043d\\u0435 \\u0433\\u043e\\u0442\\u043e\\u0432 \\u043a \\u0432\\u043e\\u0437\\u0432\\u0440\\u0430\\u0442\\u0443"));
+        Assert.That(source, Does.Contain("repair/manual shuttle help needed"));
     }
 
     [Test]
