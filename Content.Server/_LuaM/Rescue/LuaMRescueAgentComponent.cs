@@ -52,6 +52,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public string LastOnboardActionStatus = "none";
 
     [DataField]
+    public string LastRescueActionStatus = "none";
+
+    [DataField]
     public bool AutoAcquireTargets = true;
 
     [DataField]
@@ -187,6 +190,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float OnboardActionCooldown = 10f;
 
     [DataField]
+    public float RescueActionCooldown = 6f;
+
+    [DataField]
     public float AutoPickupSupplyRange = 12f;
 
     [DataField]
@@ -275,6 +281,10 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public string LastOnboardActionKey = "none";
 
     public TimeSpan NextOnboardActionAt;
+
+    public string LastRescueActionKey = "none";
+
+    public TimeSpan NextRescueActionAt;
 
     [DataField]
     public string LastAutoAnalyzeStatus = "none";

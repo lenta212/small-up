@@ -380,6 +380,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoDefib={rescue.LastAutoDefibStatus}; " +
                $"autoEvac={rescue.LastAutoEvacuationStatus}; " +
+               $"rescueAction={rescue.LastRescueActionStatus}; " +
                $"onboardCare={rescue.LastOnboardCareStatus}; " +
                $"onboardAction={rescue.LastOnboardActionStatus}; " +
                $"routeHold={rescue.LastRouteBlockHoldStatus}; " +
@@ -2882,6 +2883,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         var unsafeSceneEvacuation = IsThreatenedEvacuationTarget(uid, target, rescue);
+        var startedPatientPull = false;
 
         if (!IsPullingTarget(uid, target) &&
             TryAutoDefibTarget(uid, rescue, htn, target))
@@ -2927,7 +2929,20 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!IsPullingTarget(uid, target))
         {
             if (IsWithinRange(uid, target, rescue.EvacuationStartRange))
+            {
                 _pulling.TryStartPull(uid, target);
+                if (IsPullingTarget(uid, target))
+                {
+                    startedPatientPull = true;
+                    TrySayRescueAction(
+                        uid,
+                        rescue,
+                        target,
+                        "pull-start",
+                        "patient pull started",
+                        $"\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430 \u043c\u043d\u0435. \u0422\u0430\u0449\u0443 \u043d\u0430 \u0431\u043e\u0440\u0442.");
+                }
+            }
 
             if (!IsPullingTarget(uid, target))
             {
@@ -2938,6 +2953,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                     target,
                     null,
                     $"approaching evacuation patient {FormatEntityRef(target)}");
+                TrySayRescueAction(
+                    uid,
+                    rescue,
+                    target,
+                    "approach-patient",
+                    "closing on evacuation patient",
+                    $"\u0411\u0435\u0433\u0443 \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 {Name(target)}. \u0414\u0435\u0440\u0436\u0438\u0442\u0435 \u043a\u043e\u0440\u0438\u0434\u043e\u0440.");
                 SetFollowTarget(uid, rescue, htn, target);
                 return true;
             }
@@ -2971,6 +2993,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 target,
                 assignedStrap,
                 $"delivering {FormatEntityRef(target)} to {FormatEntityRef(assignedStrap)}");
+            if (!startedPatientPull)
+            {
+                TrySayRescueAction(
+                    uid,
+                    rescue,
+                    target,
+                    "deliver-bed",
+                    "moving patient to shuttle bed",
+                    $"\u0422\u0430\u0449\u0443 {Name(target)} \u043d\u0430 \u0431\u043e\u0440\u0442 \u043a \u043a\u043e\u0439\u043a\u0435.");
+            }
+
             return SetFollowDeliveryStrap(uid, rescue, htn, assignedStrap);
         }
 
@@ -2981,6 +3014,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             target,
             rescue.AssignedShuttleAnchor ?? rescue.AssignedShuttle,
             $"returning {FormatEntityRef(target)} to shuttle");
+        if (!startedPatientPull)
+        {
+            TrySayRescueAction(
+                uid,
+                rescue,
+                target,
+                "deliver-shuttle",
+                "moving patient to shuttle",
+                $"\u0422\u0430\u0449\u0443 {Name(target)} \u043d\u0430 \u0448\u0430\u0442\u0442\u043b. \u041d\u0430 \u0431\u043e\u0440\u0442\u0443 \u0440\u0430\u0437\u0431\u0435\u0440\u0443.");
+        }
+
         return SetFollowShuttle(uid, rescue, htn);
     }
 
@@ -3042,13 +3086,21 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 target,
                 null,
                 $"approaching evacuation patient {FormatEntityRef(target)}");
+            TrySayRescueAction(
+                uid,
+                rescue,
+                target,
+                "approach-patient",
+                "closing on evacuation patient",
+                $"\u0411\u0435\u0433\u0443 \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 {Name(target)}. \u0414\u0435\u0440\u0436\u0438\u0442\u0435 \u043a\u043e\u0440\u0438\u0434\u043e\u0440.");
             SetFollowTarget(uid, rescue, htn, target);
             return true;
         }
 
         _pulling.TryStartPull(uid, target);
+        var startedPatientPull = IsPullingTarget(uid, target);
 
-        if (!IsPullingTarget(uid, target))
+        if (!startedPatientPull)
         {
             SetRescueTask(
                 uid,
@@ -3061,6 +3113,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
         }
 
+        TrySayRescueAction(
+            uid,
+            rescue,
+            target,
+            "pull-start",
+            "patient pull started",
+            $"\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430 \u043c\u043d\u0435. \u0422\u0430\u0449\u0443 \u043d\u0430 \u0431\u043e\u0440\u0442.");
         SetRescueTask(
             uid,
             rescue,
@@ -3182,6 +3241,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             target,
             null,
             $"treating {FormatEntityRef(target)}");
+        if (!IsOnAssignedShuttle(target, rescue))
+        {
+            TrySayRescueAction(
+                uid,
+                rescue,
+                target,
+                "treat-onsite",
+                "treating patient on scene",
+                $"\u041b\u0435\u0447\u0443 {Name(target)} \u043d\u0430 \u043c\u0435\u0441\u0442\u0435. \u041d\u0435 \u043c\u0435\u0448\u0430\u0439\u0442\u0435 \u0434\u043e\u0441\u0442\u0443\u043f\u0443.");
+        }
 
         if (TryAutoAnalyzeTarget(uid, rescue, htn, target))
             return true;
@@ -3276,6 +3345,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!IsWithinRange(uid, target, rescue.PlayerActionRange))
         {
             rescue.LastAutoDefibStatus = $"moving to defibrillate {FormatEntityRef(target)}";
+            TrySayRescueAction(
+                uid,
+                rescue,
+                target,
+                "defib-approach",
+                "moving to defibrillate patient",
+                $"\u0418\u0434\u0443 \u043a {Name(target)} \u0441 \u0434\u0435\u0444\u0438\u0431\u0440\u0438\u043b\u043b\u044f\u0442\u043e\u0440\u043e\u043c. \u041e\u0441\u0432\u043e\u0431\u043e\u0434\u0438\u0442\u0435 \u043c\u0435\u0441\u0442\u043e.");
             SetFollowTarget(uid, rescue, htn, target);
             Dirty(uid, rescue);
             return true;
@@ -4866,6 +4942,40 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.LastOnboardActionKey = key;
         rescue.NextOnboardActionAt = now + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.OnboardActionCooldown));
+        _chat.TrySendInGameICMessage(uid, message, InGameICChatType.Speak, hideChat: false, hideLog: true);
+        Dirty(uid, rescue);
+    }
+
+    private void TrySayRescueAction(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient,
+        string step,
+        string status,
+        string message)
+    {
+        rescue.LastRescueActionStatus = $"rescue-action:{step}; patient={FormatEntityRef(patient)}; {status}";
+
+        if (!patient.Valid ||
+            Deleted(uid) ||
+            Deleted(patient) ||
+            string.IsNullOrWhiteSpace(message))
+        {
+            Dirty(uid, rescue);
+            return;
+        }
+
+        var key = $"rescue-action:{step}:{patient}";
+        var now = _timing.CurTime;
+        if (string.Equals(rescue.LastRescueActionKey, key, StringComparison.Ordinal) &&
+            rescue.NextRescueActionAt > now)
+        {
+            Dirty(uid, rescue);
+            return;
+        }
+
+        rescue.LastRescueActionKey = key;
+        rescue.NextRescueActionAt = now + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.RescueActionCooldown));
         _chat.TrySendInGameICMessage(uid, message, InGameICChatType.Speak, hideChat: false, hideLog: true);
         Dirty(uid, rescue);
     }
