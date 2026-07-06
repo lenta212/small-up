@@ -143,6 +143,20 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAgentExplainsEvacuationWhenTreatmentCanNoLongerHold()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("BuildEvacuationReason"));
+        Assert.That(source, Does.Contain("rescue.LastAutoEvacuationStatus = evacuationReason"));
+        Assert.That(source, Does.Contain("evacuating {FormatEntityRef(target)}; {evacuationReason}"));
+        Assert.That(source, Does.Contain("condition-worsened evacuation"));
+        Assert.That(source, Does.Contain("on-site treatment limited"));
+        Assert.That(source, Does.Contain("heavy-damage evacuation"));
+        Assert.That(source, Does.Contain("shuttle care required"));
+    }
+
+    [Test]
     public void RescueAgentKeepsShuttleForwardForPendingRescueTargets()
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);

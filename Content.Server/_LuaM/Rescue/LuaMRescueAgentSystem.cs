@@ -3101,6 +3101,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!NeedsEvacuation(uid, target, rescue))
             return false;
 
+        var evacuationReason = BuildEvacuationReason(uid, target, rescue, unsafeSceneEvacuation);
+
         if (rescue.EvacuatingTarget != target)
         {
             rescue.ShuttleReturnRouted = false;
@@ -3116,15 +3118,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             LuaMRescueTaskStage.EvacuatingPatient,
             target,
             null,
-            $"evacuating {FormatEntityRef(target)}");
-        if (unsafeSceneEvacuation &&
-            TryComp<LuaMRescueTeamComponent>(uid, out var team))
-        {
-            var evacuationReason = HasRescueTeamOverwhelmingThreatPressure(team, rescue)
-                ? "overwhelming-threat evacuation"
-                : "unsafe-scene evacuation";
-            rescue.LastAutoEvacuationStatus = $"{evacuationReason} of {FormatEntityRef(target)}; {team.LastSceneStatus}; {team.LastMemoryDigest}";
-        }
+            $"evacuating {FormatEntityRef(target)}; {evacuationReason}");
+        rescue.LastAutoEvacuationStatus = evacuationReason;
 
         TryRouteShuttleToTarget(uid, rescue, target);
 
@@ -3194,6 +3189,39 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue.AssignedShuttleAnchor ?? rescue.AssignedShuttle,
             $"returning {FormatEntityRef(target)} to shuttle");
         return SetFollowShuttle(uid, rescue, htn);
+    }
+
+    private string BuildEvacuationReason(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        bool unsafeSceneEvacuation)
+    {
+        if (unsafeSceneEvacuation &&
+            TryComp<LuaMRescueTeamComponent>(uid, out var team))
+        {
+            var evacuationReason = HasRescueTeamOverwhelmingThreatPressure(team, rescue)
+                ? "overwhelming-threat evacuation"
+                : "unsafe-scene evacuation";
+            return $"{evacuationReason} of {FormatEntityRef(target)}; {team.LastSceneStatus}; {team.LastMemoryDigest}";
+        }
+
+        if (TryComp<MobStateComponent>(target, out var mobState) &&
+            mobState.CurrentState == MobState.Critical)
+        {
+            var damage = TryComp<DamageableComponent>(target, out var criticalDamage)
+                ? criticalDamage.TotalDamage.Float()
+                : 0f;
+            return $"condition-worsened evacuation of {FormatEntityRef(target)}; state=critical; damage={damage:0.0}; on-site treatment limited";
+        }
+
+        if (TryComp<DamageableComponent>(target, out var damageable) &&
+            damageable.TotalDamage.Float() >= rescue.EvacuationMinDamage)
+        {
+            return $"heavy-damage evacuation of {FormatEntityRef(target)}; damage={damageable.TotalDamage.Float():0.0}; shuttle care required";
+        }
+
+        return $"evacuation of {FormatEntityRef(target)}";
     }
 
     private bool TryAutoUnbucklePatientForEvacuation(
