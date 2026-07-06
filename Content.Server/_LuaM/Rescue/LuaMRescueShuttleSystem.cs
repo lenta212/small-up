@@ -29,6 +29,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
 {
     public const string DefaultVessel = "Triage";
     private const double AutomaticDeathSignalCooldownSeconds = 180;
+    private const double AutomaticCriticalSignalCooldownSeconds = 300;
     private static readonly ProtoId<RadioChannelPrototype> MedicalRadioChannel = "Medical";
 
     [Dependency] private readonly ShipyardSystem _shipyard = default!;
@@ -43,6 +44,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
     [Dependency] private readonly IGameTiming _timing = default!;
 
     private readonly Dictionary<EntityUid, TimeSpan> _automaticDeathSignalCooldowns = new();
+    private readonly Dictionary<EntityUid, TimeSpan> _automaticCriticalSignalCooldowns = new();
 
     public override void Initialize()
     {
@@ -53,13 +55,20 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
 
     private void OnMobStateChanged(MobStateChangedEvent ev)
     {
-        if (ev.OldMobState == MobState.Dead ||
-            ev.NewMobState != MobState.Dead)
+        if (ev.OldMobState != MobState.Dead &&
+            ev.NewMobState == MobState.Dead)
+        {
+            TryDispatchAutomaticDeathSignal(ev.Target);
+            return;
+        }
+
+        if (ev.OldMobState is MobState.Critical or MobState.Dead ||
+            ev.NewMobState != MobState.Critical)
         {
             return;
         }
 
-        TryDispatchAutomaticDeathSignal(ev.Target);
+        TryDispatchAutomaticCriticalSignal(ev.Target);
     }
 
     private bool TryDispatchAutomaticDeathSignal(EntityUid target)
@@ -82,6 +91,15 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         }
 
         _automaticDeathSignalCooldowns[target] = now + TimeSpan.FromSeconds(AutomaticDeathSignalCooldownSeconds);
+
+        if (TryFindActiveRescueForTarget(target, out var activeAgent, out var activeRescue))
+        {
+            activeRescue.DeathSignalTarget = target;
+            activeRescue.DeathSignalDispatchReported = false;
+            SendDispatchRadio(activeAgent, target);
+            MarkDeathSignalDispatchReported(activeAgent, activeRescue, target);
+            return true;
+        }
 
         if (!_prototypes.TryIndex<VesselPrototype>(DefaultVessel, out var vessel) ||
             !TryResolveAutomaticDeathSignalStation(target, out var station))
@@ -106,22 +124,100 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             out _);
     }
 
+    private bool TryDispatchAutomaticCriticalSignal(EntityUid target)
+    {
+        if (Deleted(target) ||
+            !HasComp<ActorComponent>(target) ||
+            HasComp<LuaMRescueAgentComponent>(target) ||
+            HasComp<LuaMRescueEscortComponent>(target) ||
+            TryFindActiveRescueForTarget(target, out _, out _))
+        {
+            return false;
+        }
+
+        PruneAutomaticCriticalSignalCooldowns();
+
+        var now = _timing.CurTime;
+        if (_automaticCriticalSignalCooldowns.TryGetValue(target, out var until) &&
+            until > now)
+        {
+            return false;
+        }
+
+        if (!_prototypes.TryIndex<VesselPrototype>(DefaultVessel, out var vessel) ||
+            !TryResolveAutomaticCriticalSignalStation(target, out var station) ||
+            _sectorStory.TryGetActiveRescueCooldown(out _, out _))
+        {
+            return false;
+        }
+
+        var dispatched = TryDispatchRescueShuttle(
+            station,
+            vessel,
+            target,
+            controller: null,
+            spawnAgent: true,
+            spawnTeam: true,
+            control: false,
+            routeToTarget: true,
+            deathSignal: false,
+            out _,
+            out var agent,
+            out _,
+            out _,
+            out _);
+
+        if (!dispatched)
+            return false;
+
+        _automaticCriticalSignalCooldowns[target] = now + TimeSpan.FromSeconds(AutomaticCriticalSignalCooldownSeconds);
+
+        if (agent is { Valid: true } agentUid &&
+            !Deleted(agentUid))
+        {
+            SendCriticalDispatchRadio(agentUid, target);
+            MarkCriticalSignalDispatchReported(agentUid, target);
+        }
+
+        return true;
+    }
+
     private void PruneAutomaticDeathSignalCooldowns()
     {
-        if (_automaticDeathSignalCooldowns.Count == 0)
+        PruneAutomaticSignalCooldowns(_automaticDeathSignalCooldowns);
+    }
+
+    private void PruneAutomaticCriticalSignalCooldowns()
+    {
+        PruneAutomaticSignalCooldowns(_automaticCriticalSignalCooldowns);
+    }
+
+    private void PruneAutomaticSignalCooldowns(Dictionary<EntityUid, TimeSpan> cooldowns)
+    {
+        if (cooldowns.Count == 0)
             return;
 
         var now = _timing.CurTime;
-        foreach (var target in _automaticDeathSignalCooldowns
+        foreach (var target in cooldowns
                      .Where(entry => Deleted(entry.Key) || entry.Value <= now)
                      .Select(entry => entry.Key)
                      .ToArray())
         {
-            _automaticDeathSignalCooldowns.Remove(target);
+            cooldowns.Remove(target);
         }
     }
 
     private bool TryResolveAutomaticDeathSignalStation(EntityUid target, out EntityUid station)
+    {
+        return TryResolveAutomaticMedicalSignalStation(target, out station);
+    }
+
+    private bool TryResolveAutomaticCriticalSignalStation(EntityUid target, out EntityUid station)
+    {
+        return TryResolveAutomaticMedicalSignalStation(target, out station);
+    }
+
+    private bool TryResolveAutomaticMedicalSignalStation(EntityUid target, out EntityUid station)
     {
         if (_station.GetOwningStation(target) is { Valid: true } owningStation)
         {
@@ -137,6 +233,34 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         }
 
         station = default;
+        return false;
+    }
+
+    private bool TryFindActiveRescueForTarget(
+        EntityUid target,
+        out EntityUid agent,
+        out LuaMRescueAgentComponent rescue)
+    {
+        var query = EntityQueryEnumerator<LuaMRescueAgentComponent>();
+        while (query.MoveNext(out var uid, out var rescueComp))
+        {
+            if (Deleted(uid))
+                continue;
+
+            if (rescueComp.AssignedTarget == target ||
+                rescueComp.DeathSignalTarget == target ||
+                rescueComp.EvacuatingTarget == target ||
+                rescueComp.OnboardCareTarget == target ||
+                rescueComp.TaskPatientTarget == target)
+            {
+                agent = uid;
+                rescue = rescueComp;
+                return true;
+            }
+        }
+
+        agent = default;
+        rescue = default!;
         return false;
     }
 
@@ -273,10 +397,30 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             agent);
     }
 
+    private void SendCriticalDispatchRadio(EntityUid agent, EntityUid target)
+    {
+        var targetName = Name(target);
+        _radio.SendRadioMessage(
+            agent,
+            $"\u041a\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u0438\u0439 \u043c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 {targetName}.",
+            MedicalRadioChannel,
+            agent);
+    }
+
     private void MarkDeathSignalDispatchReported(EntityUid agent, LuaMRescueAgentComponent rescue, EntityUid target)
     {
         rescue.DeathSignalDispatchReported = true;
         rescue.LastAutoCommsKey = $"death-signal-dispatch:{target}";
+        rescue.NextAutoCommsAt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoCommsCooldown));
+        Dirty(agent, rescue);
+    }
+
+    private void MarkCriticalSignalDispatchReported(EntityUid agent, EntityUid target)
+    {
+        if (!TryComp<LuaMRescueAgentComponent>(agent, out var rescue))
+            return;
+
+        rescue.LastAutoCommsKey = $"critical-signal-dispatch:{target}";
         rescue.NextAutoCommsAt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoCommsCooldown));
         Dirty(agent, rescue);
     }

@@ -100,6 +100,33 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueShuttleAutoDispatchesCriticalMedicalSignalsWithoutDuplicatingActiveRescue()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("TryDispatchAutomaticCriticalSignal(ev.Target)"));
+        Assert.That(source, Does.Contain("ev.NewMobState != MobState.Critical"));
+        Assert.That(source, Does.Contain("AutomaticCriticalSignalCooldownSeconds"));
+        Assert.That(source, Does.Contain("_automaticCriticalSignalCooldowns"));
+        Assert.That(source, Does.Contain("PruneAutomaticCriticalSignalCooldowns"));
+        Assert.That(source, Does.Contain("TryResolveAutomaticCriticalSignalStation"));
+        Assert.That(source, Does.Contain("TryResolveAutomaticMedicalSignalStation"));
+        Assert.That(source, Does.Contain("TryFindActiveRescueForTarget(target, out _, out _)"));
+        Assert.That(source, Does.Contain("TryFindActiveRescueForTarget(target, out var activeAgent, out var activeRescue)"));
+        Assert.That(source, Does.Contain("rescueComp.AssignedTarget == target"));
+        Assert.That(source, Does.Contain("rescueComp.EvacuatingTarget == target"));
+        Assert.That(source, Does.Contain("rescueComp.OnboardCareTarget == target"));
+        Assert.That(source, Does.Contain("spawnTeam: true"));
+        Assert.That(source, Does.Contain("deathSignal: false"));
+        Assert.That(source, Does.Contain("_sectorStory.TryGetActiveRescueCooldown(out _, out _)"));
+        Assert.That(source, Does.Contain("SendCriticalDispatchRadio(agentUid, target)"));
+        Assert.That(source, Does.Contain("MarkCriticalSignalDispatchReported"));
+        Assert.That(source, Does.Contain("critical-signal-dispatch:{target}"));
+        Assert.That(source, Does.Contain("\\u041a\\u0440\\u0438\\u0442\\u0438\\u0447\\u0435\\u0441\\u043a\\u0438\\u0439 \\u043c\\u0435\\u0434\\u0441\\u0438\\u0433\\u043d\\u0430\\u043b \\u043f\\u0440\\u0438\\u043d\\u044f\\u0442"));
+        Assert.That(source, Does.Contain("\\u0412\\u044b\\u043b\\u0435\\u0442\\u0430\\u044e \\u043a \\u043f\\u0430\\u0446\\u0438\\u0435\\u043d\\u0442\\u0443 {targetName}"));
+    }
+
+    [Test]
     public void RescueAfterActionCooldownBlocksRepeatedFullDispatches()
     {
         var shuttle = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs"), Encoding.UTF8);
