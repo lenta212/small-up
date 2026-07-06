@@ -246,6 +246,19 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAgentReportsClearAndDelayedRoutes()
+    {
+        var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(source, Does.Contain("route_clear: target={FormatEntityRef(target)}"));
+        Assert.That(source, Does.Contain("route_delayed: target={FormatEntityRef(target)}"));
+        Assert.That(source, Does.Contain("rescue.LastTargetTrackingStatus.StartsWith(\"route_\", StringComparison.Ordinal)"));
+        Assert.That(source, Does.Contain("stalled={rescue.TargetStallAccumulator:0.0}/{rescue.TargetStallSeconds:0.0}s"));
+        Assert.That(source, Does.Contain("goal={FormatEntityRef(progressGoal)}"));
+        Assert.That(source, Does.Contain("distance={distance:0.0}"));
+    }
+
+    [Test]
     public void RescueAgentAutoDefibsDeadPatientsWithStandardDefibrillatorSystem()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);

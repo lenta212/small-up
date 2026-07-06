@@ -2796,6 +2796,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
+        if (rescue.ProgressTarget == target &&
+            rescue.LastTargetTrackingStatus.StartsWith("route_", StringComparison.Ordinal))
+        {
+            return;
+        }
+
         SetTargetTrackingStatus(uid, rescue, $"target_tracking: {FormatEntityRef(target)} in range");
     }
 
@@ -4419,6 +4425,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue.ProgressGoal = progressGoal;
             rescue.LastProgressDistance = distance;
             rescue.TargetStallAccumulator = 0f;
+            SetTargetTrackingStatus(
+                uid,
+                rescue,
+                $"route_clear: target={FormatEntityRef(target)}; goal={FormatEntityRef(progressGoal)}; distance={distance:0.0}");
             return false;
         }
 
@@ -4426,6 +4436,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         {
             rescue.LastProgressDistance = distance;
             rescue.TargetStallAccumulator = 0f;
+            SetTargetTrackingStatus(
+                uid,
+                rescue,
+                $"route_clear: target={FormatEntityRef(target)}; goal={FormatEntityRef(progressGoal)}; distance={distance:0.0}");
             return false;
         }
 
@@ -4433,6 +4447,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue.LastProgressDistance = distance;
 
         rescue.TargetStallAccumulator += rescue.TargetRefreshInterval;
+        SetTargetTrackingStatus(
+            uid,
+            rescue,
+            $"route_delayed: target={FormatEntityRef(target)}; goal={FormatEntityRef(progressGoal)}; stalled={rescue.TargetStallAccumulator:0.0}/{rescue.TargetStallSeconds:0.0}s; distance={distance:0.0}");
         return rescue.TargetStallAccumulator >= rescue.TargetStallSeconds;
     }
 
