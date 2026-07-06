@@ -34,6 +34,9 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public EntityUid? ArrivalReportedTarget;
 
     [DataField]
+    public EntityUid? TriageReportedTarget;
+
+    [DataField]
     public EntityUid? ShuttleRoutedTarget;
 
     [DataField]
@@ -251,6 +254,12 @@ public sealed partial class LuaMRescueAgentComponent : Component
 
     [DataField]
     public string LastArrivalReportStatus = "none";
+
+    [DataField]
+    public string LastTriageDecisionKey = "none";
+
+    [DataField]
+    public string LastTriageDecisionStatus = "none";
 
     public bool PendingVendingStarted;
 

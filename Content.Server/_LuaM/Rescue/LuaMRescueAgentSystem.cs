@@ -381,6 +381,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoDefib={rescue.LastAutoDefibStatus}; " +
                $"autoEvac={rescue.LastAutoEvacuationStatus}; " +
                $"arrival={rescue.LastArrivalReportStatus}; " +
+               $"triageDecision={rescue.LastTriageDecisionStatus}; " +
                $"autoComms={rescue.LastAutoCommsKey}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
@@ -501,6 +502,104 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         if (rescue.ArrivalReportedTarget == target)
             rescue.ArrivalReportedTarget = null;
+    }
+
+    private void TryReportTriageDecision(EntityUid uid, LuaMRescueAgentComponent rescue, EntityUid target)
+    {
+        if (Deleted(target) ||
+            IsOnAssignedShuttle(target, rescue) ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            !IsWithinRange(uid, target, Math.Max(rescue.PlayerActionRange, rescue.EvacuationStartRange)))
+        {
+            return;
+        }
+
+        var damage = TryComp<DamageableComponent>(target, out var damageable)
+            ? damageable.TotalDamage.Float()
+            : 0f;
+        var unsafeSceneEvacuation = ShouldEvacuateBeforeTreatment(uid, target, rescue);
+        var needsEvacuation = NeedsEvacuation(uid, target, rescue);
+        var decisionKey = GetTriageDecisionKey(mobState, damage, unsafeSceneEvacuation, needsEvacuation, rescue);
+
+        if (rescue.TriageReportedTarget == target &&
+            string.Equals(rescue.LastTriageDecisionKey, decisionKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var message = BuildTriageDecisionMessage(target, mobState, damage, decisionKey);
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"triage-decision:{target}:{decisionKey}",
+            message);
+
+        rescue.TriageReportedTarget = target;
+        rescue.LastTriageDecisionKey = decisionKey;
+        rescue.LastTriageDecisionStatus = $"decision={decisionKey}; target={FormatEntityRef(target)}; damage={damage:0.0}";
+        Dirty(uid, rescue);
+    }
+
+    private static string GetTriageDecisionKey(
+        MobStateComponent mobState,
+        float damage,
+        bool unsafeSceneEvacuation,
+        bool needsEvacuation,
+        LuaMRescueAgentComponent rescue)
+    {
+        if (mobState.CurrentState == MobState.Dead)
+            return "dead-recovery";
+
+        if (unsafeSceneEvacuation)
+            return "unsafe-evacuation";
+
+        if (needsEvacuation && mobState.CurrentState == MobState.Critical)
+            return "critical-evacuation";
+
+        if (needsEvacuation)
+            return "heavy-evacuation";
+
+        if (damage >= rescue.AutoTreatMinDamage)
+            return "onsite-treatment";
+
+        return "monitoring";
+    }
+
+    private string BuildTriageDecisionMessage(
+        EntityUid target,
+        MobStateComponent mobState,
+        float damage,
+        string decisionKey)
+    {
+        var name = Name(target);
+        return decisionKey switch
+        {
+            "dead-recovery" => $"\u0422\u0440\u0438\u0430\u0436 {name}: \u043f\u0443\u043b\u044c\u0441\u0430 \u043d\u0435\u0442. \u0417\u0430\u0431\u0438\u0440\u0430\u044e \u043d\u0430 \u0431\u043e\u0440\u0442 \u0434\u043b\u044f \u0440\u0435\u0430\u043d\u0438\u043c\u0430\u0446\u0438\u043e\u043d\u043d\u043e\u0433\u043e \u0446\u0438\u043a\u043b\u0430.",
+            "unsafe-evacuation" => $"\u0422\u0440\u0438\u0430\u0436 {name}: \u0437\u043e\u043d\u0430 \u043d\u0435\u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u0430. \u0421\u0442\u0430\u0431\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u044f \u043f\u043e \u043f\u0443\u0442\u0438, \u044d\u0432\u0430\u043a\u0443\u0430\u0446\u0438\u044f \u043d\u0430 \u0448\u0430\u0442\u0442\u043b.",
+            "critical-evacuation" => $"\u0422\u0440\u0438\u0430\u0436 {name}: \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043a\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u043e\u0435. \u0413\u043e\u0442\u043e\u0432\u043b\u044e \u044d\u0432\u0430\u043a\u0443\u0430\u0446\u0438\u044e \u043d\u0430 \u0448\u0430\u0442\u0442\u043b.",
+            "heavy-evacuation" => $"\u0422\u0440\u0438\u0430\u0436 {name}: \u0442\u044f\u0436\u0435\u043b\u044b\u0435 \u043f\u043e\u0432\u0440\u0435\u0436\u0434\u0435\u043d\u0438\u044f {damage:0.0}. \u0412\u0435\u0437\u0443 \u043d\u0430 \u0448\u0430\u0442\u0442\u043b.",
+            "onsite-treatment" => $"\u0422\u0440\u0438\u0430\u0436 {name}: \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 {FormatMobStateForTriage(mobState)}, \u0443\u0440\u043e\u043d {damage:0.0}. \u041b\u0435\u0447\u0443 \u043d\u0430 \u043c\u0435\u0441\u0442\u0435.",
+            _ => $"\u0422\u0440\u0438\u0430\u0436 {name}: \u0441\u0440\u043e\u0447\u043d\u043e\u0433\u043e \u0432\u044b\u0432\u043e\u0437\u0430 \u043d\u0435 \u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f. \u041d\u0430\u0431\u043b\u044e\u0434\u0430\u044e.",
+        };
+    }
+
+    private static string FormatMobStateForTriage(MobStateComponent mobState)
+    {
+        return mobState.CurrentState switch
+        {
+            MobState.Critical => "\u043a\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u043e\u0435",
+            MobState.Dead => "\u0431\u0435\u0437 \u043f\u0443\u043b\u044c\u0441\u0430",
+            _ => "\u0436\u0438\u0432",
+        };
+    }
+
+    private void ClearTriageDecisionTarget(LuaMRescueAgentComponent rescue, EntityUid target)
+    {
+        if (rescue.TriageReportedTarget != target)
+            return;
+
+        rescue.TriageReportedTarget = null;
+        rescue.LastTriageDecisionKey = "none";
     }
 
     private string GetRescuePhase(EntityUid uid, LuaMRescueAgentComponent rescue)
@@ -710,6 +809,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             "stabilized on site; no evacuation required",
             "returning to standby");
         ClearArrivalReportTarget(rescue, patient);
+        ClearTriageDecisionTarget(rescue, patient);
         ClearDeathSignalTarget(rescue, patient);
         ClearRescueTask(uid, rescue, $"patient {FormatEntityRef(patient)} no longer needs rescue");
         return false;
@@ -2509,6 +2609,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         EntityUid target)
     {
         TryReportPatientArrival(uid, rescue, target);
+        TryReportTriageDecision(uid, rescue, target);
 
         if (ShouldEvacuateBeforeTreatment(uid, target, rescue))
         {
@@ -4075,6 +4176,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         StopPullingTarget(uid, target);
         ClearRescueTask(uid, rescue, $"skipped stalled target {FormatEntityRef(target)}");
         ClearArrivalReportTarget(rescue, target);
+        ClearTriageDecisionTarget(rescue, target);
         ClearDeathSignalTarget(rescue, target);
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
@@ -4181,6 +4283,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
         ClearArrivalReportTarget(rescue, target);
+        ClearTriageDecisionTarget(rescue, target);
         ClearDeathSignalTarget(rescue, target);
         StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget);
         Dirty(uid, rescue);
@@ -4740,6 +4843,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
         rescue.ArrivalReportedTarget = null;
+        rescue.TriageReportedTarget = null;
+        rescue.LastTriageDecisionKey = "none";
         rescue.DeathSignalTarget = null;
         rescue.DeathSignalDispatchReported = false;
 
