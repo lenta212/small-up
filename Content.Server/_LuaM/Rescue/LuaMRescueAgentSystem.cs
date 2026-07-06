@@ -381,6 +381,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoDefib={rescue.LastAutoDefibStatus}; " +
                $"autoEvac={rescue.LastAutoEvacuationStatus}; " +
                $"onboardCare={rescue.LastOnboardCareStatus}; " +
+               $"onboardAction={rescue.LastOnboardActionStatus}; " +
                $"routeHold={rescue.LastRouteBlockHoldStatus}; " +
                $"arrival={rescue.LastArrivalReportStatus}; " +
                $"triageDecision={rescue.LastTriageDecisionStatus}; " +
@@ -4408,6 +4409,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         StopPullingTarget(uid, target);
         ClearRescueTask(uid, rescue, $"completed evacuation of {FormatEntityRef(target)}");
+        TrySayOnboardAction(
+            uid,
+            rescue,
+            target,
+            "boarded",
+            "patient secured onboard",
+            $"\u0411\u0435\u0440\u0443 {Name(target)} \u043d\u0430 \u0431\u043e\u0440\u0442. \u0424\u0438\u043a\u0441\u0438\u0440\u0443\u044e \u043d\u0430 \u043a\u043e\u0439\u043a\u0435, \u043f\u0440\u043e\u0432\u0435\u0440\u044f\u044e \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435.");
         if (TryComp<MobStateComponent>(target, out var mobState) &&
             mobState.CurrentState == MobState.Dead)
         {
@@ -4533,6 +4541,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                         rescue,
                         $"patient-hold-critical:{rescue.AssignedShuttle}",
                         "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043d\u0430 \u0431\u043e\u0440\u0442\u0443, \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043a\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u043e\u0435. \u0414\u0435\u0440\u0436\u0443 \u043b\u0435\u0447\u0435\u043d\u0438\u0435 \u0434\u043e \u0441\u0442\u0430\u0431\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u0438.");
+                    TrySayOnboardAction(
+                        uid,
+                        rescue,
+                        holdingPatient,
+                        "treating-critical",
+                        "critical onboard treatment",
+                        "\u0414\u0435\u0440\u0436\u0443 \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430 \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043a\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u043e\u0435, \u043b\u0435\u0447\u0435\u043d\u0438\u0435 \u0438\u0434\u0435\u0442.");
                 }
                 else if (status.StartsWith("holding onboard patient", StringComparison.OrdinalIgnoreCase))
                 {
@@ -4541,9 +4556,23 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                         rescue,
                         $"patient-hold-treatment:{rescue.AssignedShuttle}",
                         "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043d\u0430 \u0431\u043e\u0440\u0442\u0443, \u043f\u043e\u043a\u0430 \u043d\u0435 \u0441\u0442\u0430\u0431\u0438\u043b\u0435\u043d. \u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0430\u044e \u043b\u0435\u0447\u0435\u043d\u0438\u0435 \u0438 \u043d\u0430\u0431\u043b\u044e\u0434\u0435\u043d\u0438\u0435.");
+                    TrySayOnboardAction(
+                        uid,
+                        rescue,
+                        holdingPatient,
+                        "treating",
+                        "onboard treatment and observation",
+                        "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u0435\u0449\u0435 \u043d\u0435 \u0433\u043e\u0442\u043e\u0432 \u043a \u0432\u044b\u043f\u0443\u0441\u043a\u0443. \u041b\u0435\u0447\u0443 \u0438 \u043d\u0430\u0431\u043b\u044e\u0434\u0430\u044e \u043d\u0430 \u0431\u043e\u0440\u0442\u0443.");
                 }
                 else if (status.StartsWith("holding dead onboard patient", StringComparison.OrdinalIgnoreCase))
                 {
+                    TrySayOnboardAction(
+                        uid,
+                        rescue,
+                        holdingPatient,
+                        "reanimation",
+                        "onboard reanimation cycle",
+                        "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u0431\u0435\u0437 \u043f\u0443\u043b\u044c\u0441\u0430 \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u0413\u043e\u0442\u043e\u0432\u043b\u044e \u0440\u0435\u0430\u043d\u0438\u043c\u0430\u0446\u0438\u044e.");
                     TrySendRescueStatusComms(
                         uid,
                         rescue,
@@ -4567,6 +4596,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!IsWithinRange(uid, patientStrap, rescue.AutoReleaseRange))
         {
             rescue.LastAutoEvacuationStatus = $"moving to release stabilized {FormatEntityRef(patient)} from {FormatEntityRef(patientStrap)}";
+            TrySayOnboardAction(
+                uid,
+                rescue,
+                patient,
+                "release-ready",
+                "patient stable, preparing release",
+                "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u0441\u0442\u0430\u0431\u0438\u043b\u0435\u043d. \u0418\u0434\u0443 \u0441\u043d\u044f\u0442\u044c \u0441 \u043a\u043e\u0439\u043a\u0438 \u0438 \u0432\u044b\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0441 \u0431\u043e\u0440\u0442\u0430.");
             SetFollowDeliveryStrap(uid, rescue, htn, patientStrap);
             Dirty(uid, rescue);
             return true;
@@ -4591,6 +4627,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 BuildPatientTreatmentResult(patient, rescue),
                 "released from shuttle care",
                 "available for next rescue");
+            TrySayOnboardAction(
+                uid,
+                rescue,
+                patient,
+                "released",
+                "patient released from shuttle care",
+                "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u0432\u044b\u043f\u0443\u0449\u0435\u043d \u0441 \u0431\u043e\u0440\u0442\u0430. \u041c\u0435\u0441\u0442\u043e \u0433\u043e\u0442\u043e\u0432\u043e \u0434\u043b\u044f \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0435\u0433\u043e.");
             ClearFollowTarget(uid, rescue, htn);
             TrySendRescueStatusComms(
                 uid,
@@ -4635,6 +4678,39 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         rescue.OnboardCareTarget = patient;
         rescue.LastOnboardCareStatus = $"onboard-care: patient={FormatEntityRef(patient)}; {status}";
+    }
+
+    private void TrySayOnboardAction(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient,
+        string step,
+        string status,
+        string message)
+    {
+        rescue.LastOnboardActionStatus = $"onboard-action:{step}; patient={FormatEntityRef(patient)}; {status}";
+
+        if (!patient.Valid ||
+            Deleted(uid) ||
+            Deleted(patient) ||
+            string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
+
+        var key = $"onboard-action:{step}:{patient}";
+        var now = _timing.CurTime;
+        if (string.Equals(rescue.LastOnboardActionKey, key, StringComparison.Ordinal) &&
+            rescue.NextOnboardActionAt > now)
+        {
+            Dirty(uid, rescue);
+            return;
+        }
+
+        rescue.LastOnboardActionKey = key;
+        rescue.NextOnboardActionAt = now + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.OnboardActionCooldown));
+        _chat.TrySendInGameICMessage(uid, message, InGameICChatType.Speak, hideChat: false, hideLog: true);
+        Dirty(uid, rescue);
     }
 
     private void MarkOnboardCareReleased(LuaMRescueAgentComponent rescue, EntityUid patient)
@@ -4774,6 +4850,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             patient,
             patientStrap,
             $"defibrillating onboard {FormatEntityRef(patient)} at {FormatEntityRef(patientStrap)}");
+        TrySayOnboardAction(
+            uid,
+            rescue,
+            patient,
+            "onboard-defib",
+            "dead recovery defib cycle",
+            $"\u0420\u0435\u0430\u043d\u0438\u043c\u0430\u0446\u0438\u044f \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u0413\u043e\u0442\u043e\u0432\u043b\u044e \u0434\u0435\u0444\u0438\u0431\u0440\u0438\u043b\u043b\u044f\u0442\u043e\u0440 \u0434\u043b\u044f {Name(patient)}.");
 
         if (!IsWithinRange(uid, patientStrap, rescue.PlayerActionRange))
         {
