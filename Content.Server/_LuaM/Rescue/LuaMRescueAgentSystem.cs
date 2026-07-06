@@ -4063,6 +4063,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.ShuttleRoutedTarget = null;
         ResetTargetProgress(rescue);
         var hasPendingEvacuationTarget = HasPendingEvacuationTarget(uid, rescue, target);
+        if (!TryComp<MobStateComponent>(target, out var onboardMobState) ||
+            onboardMobState.CurrentState != MobState.Dead)
+        {
+            ReportLivingPatientOnboardStatus(uid, rescue, target, onboardMobState, hasPendingEvacuationTarget);
+        }
+
         if (!hasPendingEvacuationTarget)
             TryRouteShuttleHome(uid, rescue);
         else
@@ -4076,6 +4082,33 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.AssignedPatientStrap = null;
         StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingEvacuationTarget);
         Dirty(uid, rescue);
+    }
+
+    private void ReportLivingPatientOnboardStatus(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        MobStateComponent? mobState,
+        bool hasPendingEvacuationTarget)
+    {
+        if (mobState?.CurrentState == MobState.Critical)
+        {
+            TrySendRescueStatusComms(
+                uid,
+                rescue,
+                $"patient-onboard-critical:{target}",
+                $"\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u0421\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043a\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u043e\u0435. \u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0430\u044e \u043b\u0435\u0447\u0435\u043d\u0438\u0435 \u043d\u0430 \u0431\u043e\u0440\u0442\u0443.");
+            return;
+        }
+
+        var followUp = hasPendingEvacuationTarget
+            ? "\u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0430\u044e \u0441\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0439 \u0432\u044b\u0437\u043e\u0432."
+            : "\u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u043c\u0441\u044f.";
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"patient-onboard:{target}",
+            $"\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043f\u043e\u0434 \u043d\u0430\u0431\u043b\u044e\u0434\u0435\u043d\u0438\u0435\u043c. {followUp}");
     }
 
     private bool IsEvacuationComplete(EntityUid target, LuaMRescueAgentComponent rescue)
@@ -4104,7 +4137,23 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             {
                 rescue.LastAutoEvacuationStatus = status;
 
-                if (status.StartsWith("holding dead onboard patient", StringComparison.OrdinalIgnoreCase))
+                if (status.StartsWith("holding critical onboard patient", StringComparison.OrdinalIgnoreCase))
+                {
+                    TrySendRescueStatusComms(
+                        uid,
+                        rescue,
+                        $"patient-hold-critical:{rescue.AssignedShuttle}",
+                        "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043d\u0430 \u0431\u043e\u0440\u0442\u0443, \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435 \u043a\u0440\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u043e\u0435. \u0414\u0435\u0440\u0436\u0443 \u043b\u0435\u0447\u0435\u043d\u0438\u0435 \u0434\u043e \u0441\u0442\u0430\u0431\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u0438.");
+                }
+                else if (status.StartsWith("holding onboard patient", StringComparison.OrdinalIgnoreCase))
+                {
+                    TrySendRescueStatusComms(
+                        uid,
+                        rescue,
+                        $"patient-hold-treatment:{rescue.AssignedShuttle}",
+                        "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043d\u0430 \u0431\u043e\u0440\u0442\u0443, \u043f\u043e\u043a\u0430 \u043d\u0435 \u0441\u0442\u0430\u0431\u0438\u043b\u0435\u043d. \u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0430\u044e \u043b\u0435\u0447\u0435\u043d\u0438\u0435 \u0438 \u043d\u0430\u0431\u043b\u044e\u0434\u0435\u043d\u0438\u0435.");
+                }
+                else if (status.StartsWith("holding dead onboard patient", StringComparison.OrdinalIgnoreCase))
                 {
                     TrySendRescueStatusComms(
                         uid,

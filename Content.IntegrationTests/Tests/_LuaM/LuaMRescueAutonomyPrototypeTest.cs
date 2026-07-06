@@ -174,8 +174,14 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("defib-success:"));
         Assert.That(source, Does.Contain("defib-failed:"));
         Assert.That(source, Does.Contain("patient-onboard-dead:"));
+        Assert.That(source, Does.Contain("ReportLivingPatientOnboardStatus"));
+        Assert.That(source, Does.Contain("patient-onboard-critical:"));
+        Assert.That(source, Does.Contain("patient-onboard:"));
         Assert.That(source, Does.Contain("patient-hold-dead:"));
+        Assert.That(source, Does.Contain("patient-hold-critical:"));
+        Assert.That(source, Does.Contain("patient-hold-treatment:"));
         Assert.That(source, Does.Contain("patient-release:"));
+        Assert.That(source, Does.Contain("hasPendingEvacuationTarget"));
         Assert.That(source, Does.Contain("\u0414\u0435\u0444\u0438\u0431\u0440\u0438\u043b\u043b\u044f\u0446\u0438\u044f {Name(target)} \u043d\u0430\u0447\u0430\u0442\u0430. \u041d\u0435 \u0442\u0440\u043e\u0433\u0430\u0439\u0442\u0435 \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0430."));
         Assert.That(source, Does.Contain("\u041f\u0443\u043b\u044c\u0441 {targetName} \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d. \u041f\u0440\u043e\u0434\u043e\u043b\u0436\u0430\u044e \u0441\u0442\u0430\u0431\u0438\u043b\u0438\u0437\u0430\u0446\u0438\u044e."));
         Assert.That(source, Does.Contain("\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u041d\u0430\u0447\u0438\u043d\u0430\u044e \u0440\u0435\u0430\u043d\u0438\u043c\u0430\u0446\u0438\u043e\u043d\u043d\u044b\u0439 \u0446\u0438\u043a\u043b."));
