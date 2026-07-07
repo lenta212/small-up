@@ -1,0 +1,41 @@
+# LuaM starter multi-role vessel.
+# Base hull: SKR Sakuratsu by starch70.
+
+- type: vessel
+  id: LuaMProspector
+  parent: BaseVessel
+  name: LMC Prospector
+  description: A medium multi-role expedition vessel configured for ore work, field expeditions, compact science and emergency medical support.
+  price: 86000
+  category: Medium
+  group: Expedition
+  shuttlePath: /Maps/_LuaM/Shuttles/prospector.yml
+  guidebookPage: null
+  class:
+  - Expedition
+  - Science
+  - Salvage
+  - Medical
+  engine:
+  - Uranium
+
+- type: gameMap
+  id: LuaMProspector
+  mapName: 'LMC Prospector'
+  mapPath: /Maps/_LuaM/Shuttles/prospector.yml
+  minPlayers: 0
+  stations:
+    LuaMProspector:
+      stationProto: StandardFrontierExpeditionVessel
+      components:
+        - type: StationNameSetup
+          mapNameTemplate: 'Prospector EXP{1}'
+          nameGenerator:
+            !type:NanotrasenNameGenerator
+            prefixCreator: '14'
+        - type: StationJobs
+          availableJobs:
+            Contractor: [ 0, 0 ]
+            MdMedic: [ 0, 0 ]
+            Pilot: [ 0, 0 ]
+            Mercenary: [ 0, 0 ]
