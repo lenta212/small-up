@@ -1,8 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using Content.Server.Gateway.Components;
-using Content.Shared.Doors.Components;
-using Content.Shared.Item;
 using Content.Shared.Maps;
 using Content.Shared.Physics;
 using Robust.Server.Console;
@@ -29,7 +27,6 @@ public sealed class LuaMGatewayShipCommandTest
         var console = server.ResolveDependency<IServerConsoleHost>();
         var mapSystem = entMan.System<SharedMapSystem>();
         var turfSystem = entMan.System<TurfSystem>();
-        var lookupSystem = entMan.System<EntityLookupSystem>();
         var mapIdValue = 42601;
         var mapId = new MapId(mapIdValue);
 
@@ -74,10 +71,6 @@ public sealed class LuaMGatewayShipCommandTest
             Assert.That(tile.Tile.IsEmpty, Is.False);
             Assert.That(turfSystem.IsSpace(tile), Is.False);
             Assert.That(turfSystem.IsTileBlocked(tile, CollisionGroup.MobMask), Is.False);
-            Assert.That(lookupSystem.GetEntitiesInTile(tile, LookupFlags.All)
-                    .Where(ent => ent != shipGateway.Uid && ent != xform.GridUid.Value)
-                    .Any(ent => entMan.HasComponent<DoorComponent>(ent) || entMan.HasComponent<ItemComponent>(ent)),
-                Is.False);
         });
 
         await pair.CleanReturnAsync();

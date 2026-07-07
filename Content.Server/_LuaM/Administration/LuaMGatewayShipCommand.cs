@@ -7,16 +7,12 @@ using Content.Server.GameTicking;
 using Content.Server.Gateway.Components;
 using Content.Server.Gateway.Systems;
 using Content.Shared.Administration;
-using Content.Shared.Doors.Components;
-using Content.Shared.Item;
 using Content.Shared.Maps;
 using Content.Shared.Physics;
 using Robust.Shared.Console;
 using Robust.Shared.EntitySerialization.Systems;
 using Robust.Shared.Map;
 using Robust.Shared.Map.Components;
-using Robust.Shared.Physics;
-using Robust.Shared.Physics.Components;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
 
@@ -29,18 +25,6 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
     private const string GatewayPrototype = "Gateway";
     private const string PairHereFlag = "--pair-here";
     private const string NoJumpFlag = "--no-jump";
-    private const CollisionGroup GatewayBlockMask =
-        CollisionGroup.FullTileMask |
-        CollisionGroup.Opaque |
-        CollisionGroup.BulletImpassable |
-        CollisionGroup.DoorPassable;
-    private static readonly Vector2i[] CardinalOffsets =
-    [
-        new(0, 1),
-        new(1, 0),
-        new(0, -1),
-        new(-1, 0),
-    ];
 
     [Dependency] private IEntityManager _entities = default!;
     [Dependency] private IPrototypeManager _prototypes = default!;
@@ -139,13 +123,7 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
 
         var shipGateway = SpawnGateway(
             gatewaySystem,
-            PickGatewayCoordinates(
-                mapSystem,
-                _entities.System<TurfSystem>(),
-                _entities.System<EntityLookupSystem>(),
-                _entities,
-                shipGrid,
-                grid),
+            PickGatewayCoordinates(mapSystem, _entities.System<TurfSystem>(), shipGrid, grid),
             $"{displayName} Gate",
             enabled: !noJump);
 
@@ -275,20 +253,14 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
     private static EntityCoordinates PickGatewayCoordinates(
         SharedMapSystem mapSystem,
         TurfSystem turfSystem,
-        EntityLookupSystem lookupSystem,
-        IEntityManager entityManager,
         EntityUid gridUid,
         MapGridComponent grid)
     {
         var center = grid.LocalAABB.Center;
-        TileRef? bestRoom = null;
-        TileRef? bestClearFloor = null;
-        TileRef? bestClearFallback = null;
+        TileRef? bestClear = null;
         TileRef? bestFloorFallback = null;
         TileRef? bestAnyFallback = null;
-        var bestRoomDistance = float.MaxValue;
-        var bestClearFloorDistance = float.MaxValue;
-        var bestClearFallbackDistance = float.MaxValue;
+        var bestClearDistance = float.MaxValue;
         var bestFloorFallbackDistance = float.MaxValue;
         var bestAnyFallbackDistance = float.MaxValue;
 
@@ -300,7 +272,6 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
             var coordinates = mapSystem.GridTileToLocal(gridUid, grid, tile.GridIndices);
             var distance = Vector2.DistanceSquared(coordinates.Position, center);
             var isSpace = turfSystem.IsSpace(tile);
-            var isBlocked = IsGatewayBlockedTile(mapSystem, turfSystem, lookupSystem, entityManager, grid, tile);
 
             if (distance < bestAnyFallbackDistance)
             {
@@ -314,195 +285,18 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
                 bestFloorFallbackDistance = distance;
             }
 
-            if (isSpace || isBlocked)
+            if (isSpace ||
+                turfSystem.IsTileBlocked(tile, CollisionGroup.MobMask) ||
+                bestClear != null && distance >= bestClearDistance)
                 continue;
 
-            if (distance < bestClearFallbackDistance)
-            {
-                bestClearFallback = tile;
-                bestClearFallbackDistance = distance;
-            }
-
-            var openCardinals = CountOpenCardinals(mapSystem, turfSystem, lookupSystem, entityManager, grid, tile);
-            var hasDoorNear = HasDoorNear(mapSystem, entityManager, tile.GridUid, grid, tile.GridIndices);
-            var isStraightPassage = IsStraightPassage(mapSystem, turfSystem, lookupSystem, entityManager, grid, tile);
-
-            if (!hasDoorNear &&
-                openCardinals >= 3 &&
-                !isStraightPassage &&
-                distance < bestRoomDistance)
-            {
-                bestRoom = tile;
-                bestRoomDistance = distance;
-            }
-
-            if (!hasDoorNear &&
-                openCardinals >= 2 &&
-                distance < bestClearFloorDistance)
-            {
-                bestClearFloor = tile;
-                bestClearFloorDistance = distance;
-            }
+            bestClear = tile;
+            bestClearDistance = distance;
         }
 
-        return (bestRoom ?? bestClearFloor ?? bestClearFallback ?? bestFloorFallback ?? bestAnyFallback) is { } tileRef
+        return (bestClear ?? bestFloorFallback ?? bestAnyFallback) is { } tileRef
             ? mapSystem.GridTileToLocal(gridUid, grid, tileRef.GridIndices)
             : new EntityCoordinates(gridUid, center);
-    }
-
-    private static int CountOpenCardinals(
-        SharedMapSystem mapSystem,
-        TurfSystem turfSystem,
-        EntityLookupSystem lookupSystem,
-        IEntityManager entityManager,
-        MapGridComponent grid,
-        TileRef tile)
-    {
-        var open = 0;
-        foreach (var offset in CardinalOffsets)
-        {
-            if (IsOpenFloor(mapSystem, turfSystem, lookupSystem, entityManager, grid, tile.GridUid, tile.GridIndices + offset))
-                open++;
-        }
-
-        return open;
-    }
-
-    private static bool IsStraightPassage(
-        SharedMapSystem mapSystem,
-        TurfSystem turfSystem,
-        EntityLookupSystem lookupSystem,
-        IEntityManager entityManager,
-        MapGridComponent grid,
-        TileRef tile)
-    {
-        var north = IsOpenFloor(mapSystem, turfSystem, lookupSystem, entityManager, grid, tile.GridUid, tile.GridIndices + new Vector2i(0, 1));
-        var south = IsOpenFloor(mapSystem, turfSystem, lookupSystem, entityManager, grid, tile.GridUid, tile.GridIndices + new Vector2i(0, -1));
-        var east = IsOpenFloor(mapSystem, turfSystem, lookupSystem, entityManager, grid, tile.GridUid, tile.GridIndices + new Vector2i(1, 0));
-        var west = IsOpenFloor(mapSystem, turfSystem, lookupSystem, entityManager, grid, tile.GridUid, tile.GridIndices + new Vector2i(-1, 0));
-
-        return north && south && !east && !west ||
-               east && west && !north && !south;
-    }
-
-    private static bool IsOpenFloor(
-        SharedMapSystem mapSystem,
-        TurfSystem turfSystem,
-        EntityLookupSystem lookupSystem,
-        IEntityManager entityManager,
-        MapGridComponent grid,
-        EntityUid gridUid,
-        Vector2i indices)
-    {
-        if (!mapSystem.TryGetTileRef(gridUid, grid, indices, out var tile))
-            return false;
-
-        return !IsGatewayBlockedTile(mapSystem, turfSystem, lookupSystem, entityManager, grid, tile);
-    }
-
-    private static bool IsGatewayBlockedTile(
-        SharedMapSystem mapSystem,
-        TurfSystem turfSystem,
-        EntityLookupSystem lookupSystem,
-        IEntityManager entityManager,
-        MapGridComponent grid,
-        TileRef tile)
-    {
-        if (tile.Tile.IsEmpty || turfSystem.IsSpace(tile))
-            return true;
-
-        if (turfSystem.IsTileBlocked(tile, CollisionGroup.MobMask) ||
-            turfSystem.IsTileBlocked(tile, GatewayBlockMask))
-            return true;
-
-        return HasPlacementBlocker(mapSystem, lookupSystem, entityManager, grid, tile);
-    }
-
-    private static bool HasDoorNear(
-        SharedMapSystem mapSystem,
-        IEntityManager entityManager,
-        EntityUid gridUid,
-        MapGridComponent grid,
-        Vector2i indices)
-    {
-        if (HasDoorOnTile(mapSystem, entityManager, gridUid, grid, indices))
-            return true;
-
-        foreach (var offset in CardinalOffsets)
-        {
-            if (HasDoorOnTile(mapSystem, entityManager, gridUid, grid, indices + offset))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool HasDoorOnTile(
-        SharedMapSystem mapSystem,
-        IEntityManager entityManager,
-        EntityUid gridUid,
-        MapGridComponent grid,
-        Vector2i indices)
-    {
-        foreach (var ent in mapSystem.GetAnchoredEntities(gridUid, grid, indices))
-        {
-            if (entityManager.HasComponent<DoorComponent>(ent))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool HasPlacementBlocker(
-        SharedMapSystem mapSystem,
-        EntityLookupSystem lookupSystem,
-        IEntityManager entityManager,
-        MapGridComponent grid,
-        TileRef tile)
-    {
-        foreach (var ent in mapSystem.GetAnchoredEntities(tile.GridUid, grid, tile.GridIndices))
-        {
-            if (IsPlacementBlocker(entityManager, ent))
-                return true;
-        }
-
-        foreach (var ent in lookupSystem.GetEntitiesInTile(tile, LookupFlags.All))
-        {
-            if (ent == tile.GridUid || entityManager.HasComponent<MapGridComponent>(ent))
-                continue;
-
-            if (IsPlacementBlocker(entityManager, ent))
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsPlacementBlocker(IEntityManager entityManager, EntityUid ent)
-    {
-        if (entityManager.HasComponent<DoorComponent>(ent) ||
-            entityManager.HasComponent<ItemComponent>(ent))
-            return true;
-
-        if (!entityManager.TryGetComponent<PhysicsComponent>(ent, out var physics))
-            return false;
-
-        if (physics.BodyType != BodyType.Static)
-            return true;
-
-        if (!entityManager.TryGetComponent<FixturesComponent>(ent, out var fixtures))
-            return physics.Hard && (physics.CollisionLayer & (int) GatewayBlockMask) != 0;
-
-        foreach (var fixture in fixtures.Fixtures.Values)
-        {
-            if (!fixture.Hard)
-                continue;
-
-            if ((fixture.CollisionLayer & (int) GatewayBlockMask) != 0)
-                return true;
-        }
-
-        return false;
     }
 
     public CompletionResult GetCompletion(IConsoleShell shell, string[] args)
