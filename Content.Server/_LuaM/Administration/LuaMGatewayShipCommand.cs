@@ -8,6 +8,7 @@ using Content.Server.Gateway.Components;
 using Content.Server.Gateway.Systems;
 using Content.Shared.Administration;
 using Content.Shared.Maps;
+using Content.Shared.Physics;
 using Robust.Shared.Console;
 using Robust.Shared.EntitySerialization.Systems;
 using Robust.Shared.Map;
@@ -122,7 +123,7 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
 
         var shipGateway = SpawnGateway(
             gatewaySystem,
-            PickGatewayCoordinates(mapSystem, shipGrid, grid),
+            PickGatewayCoordinates(mapSystem, _entities.System<TurfSystem>(), shipGrid, grid),
             $"{displayName} Gate",
             enabled: !noJump);
 
@@ -249,24 +250,51 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
         return gateway;
     }
 
-    private static EntityCoordinates PickGatewayCoordinates(SharedMapSystem mapSystem, EntityUid gridUid, MapGridComponent grid)
+    private static EntityCoordinates PickGatewayCoordinates(
+        SharedMapSystem mapSystem,
+        TurfSystem turfSystem,
+        EntityUid gridUid,
+        MapGridComponent grid)
     {
         var center = grid.LocalAABB.Center;
-        TileRef? best = null;
-        var bestDistance = float.MaxValue;
+        TileRef? bestClear = null;
+        TileRef? bestFloorFallback = null;
+        TileRef? bestAnyFallback = null;
+        var bestClearDistance = float.MaxValue;
+        var bestFloorFallbackDistance = float.MaxValue;
+        var bestAnyFallbackDistance = float.MaxValue;
 
         foreach (var tile in mapSystem.GetAllTiles(gridUid, grid))
         {
-            var coordinates = mapSystem.GridTileToLocal(gridUid, grid, tile.GridIndices);
-            var distance = Vector2.DistanceSquared(coordinates.Position, center);
-            if (best != null && distance >= bestDistance)
+            if (tile.Tile.IsEmpty)
                 continue;
 
-            best = tile;
-            bestDistance = distance;
+            var coordinates = mapSystem.GridTileToLocal(gridUid, grid, tile.GridIndices);
+            var distance = Vector2.DistanceSquared(coordinates.Position, center);
+            var isSpace = turfSystem.IsSpace(tile);
+
+            if (distance < bestAnyFallbackDistance)
+            {
+                bestAnyFallback = tile;
+                bestAnyFallbackDistance = distance;
+            }
+
+            if (!isSpace && distance < bestFloorFallbackDistance)
+            {
+                bestFloorFallback = tile;
+                bestFloorFallbackDistance = distance;
+            }
+
+            if (isSpace ||
+                turfSystem.IsTileBlocked(tile, CollisionGroup.MobMask) ||
+                bestClear != null && distance >= bestClearDistance)
+                continue;
+
+            bestClear = tile;
+            bestClearDistance = distance;
         }
 
-        return best is { } tileRef
+        return (bestClear ?? bestFloorFallback ?? bestAnyFallback) is { } tileRef
             ? mapSystem.GridTileToLocal(gridUid, grid, tileRef.GridIndices)
             : new EntityCoordinates(gridUid, center);
     }

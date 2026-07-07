@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using Content.Server.Gateway.Components;
+using Content.Shared.Maps;
+using Content.Shared.Physics;
 using Robust.Server.Console;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
@@ -24,6 +26,7 @@ public sealed class LuaMGatewayShipCommandTest
         var entMan = server.ResolveDependency<IEntityManager>();
         var console = server.ResolveDependency<IServerConsoleHost>();
         var mapSystem = entMan.System<SharedMapSystem>();
+        var turfSystem = entMan.System<TurfSystem>();
         var mapIdValue = 42601;
         var mapId = new MapId(mapIdValue);
 
@@ -63,7 +66,11 @@ public sealed class LuaMGatewayShipCommandTest
             Assert.That(entMan.TryGetComponent<TransformComponent>(shipGateway.Uid, out var xform), Is.True);
             Assert.That(xform!.MapID, Is.EqualTo(mapId));
             Assert.That(xform.GridUid, Is.Not.Null);
-            Assert.That(entMan.HasComponent<MapGridComponent>(xform.GridUid!.Value), Is.True);
+            Assert.That(entMan.TryGetComponent<MapGridComponent>(xform.GridUid!.Value, out var grid), Is.True);
+            Assert.That(mapSystem.TryGetTileRef(xform.GridUid.Value, grid!, xform.Coordinates, out var tile), Is.True);
+            Assert.That(tile.Tile.IsEmpty, Is.False);
+            Assert.That(turfSystem.IsSpace(tile), Is.False);
+            Assert.That(turfSystem.IsTileBlocked(tile, CollisionGroup.MobMask), Is.False);
         });
 
         await pair.CleanReturnAsync();
