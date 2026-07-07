@@ -70,8 +70,14 @@ public sealed partial class LaserPointerSystem : SharedLaserPointerSystem
 
         foreach (var held in _hands.EnumerateHeld(player, hands))
         {
-            if (!HasComp<LaserPointerComponent>(held))
+            if (!TryComp(held, out LaserPointerComponent? laser))
                 continue;
+
+            if (laser.LastNetworkEventTime != TimeSpan.Zero &&
+                Timing.CurTime - laser.LastNetworkEventTime < laser.MinNetworkEventInterval)
+            {
+                continue;
+            }
 
             if (hovered == null || !TryComp(held, out WieldableComponent? wieldable) || !wieldable.Wielded)
             {

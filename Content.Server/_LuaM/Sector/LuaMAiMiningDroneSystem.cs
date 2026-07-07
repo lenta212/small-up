@@ -52,6 +52,7 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
     private static readonly Color LogisticsLightColor = Color.FromHex("#b985ff");
     private static readonly Color ObservingLightColor = Color.FromHex("#ffe66d");
     private static readonly Color WarningLightColor = Color.FromHex("#ff8f3d");
+    private static readonly TimeSpan DisabledCleanupInterval = TimeSpan.FromSeconds(30);
 
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private ILogManager _log = default!;
@@ -66,16 +67,31 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
     [Dependency] private LuaMAiSupplyDropSystem _supplyDrops = default!;
 
     private ISawmill _sawmill = default!;
+    private TimeSpan _nextDisabledCleanup;
 
     public override void Initialize()
     {
         base.Initialize();
         _sawmill = _log.GetSawmill("luam.ai_mining_drone");
+
+        SubscribeLocalEvent<LuaMAiMiningDroneComponent, ComponentStartup>(OnDisabledDroneStartup);
+        SubscribeLocalEvent<LuaMAiDroneTraceComponent, ComponentStartup>(OnDisabledTraceStartup);
     }
 
     public override void Update(float frameTime)
     {
         base.Update(frameTime);
+
+        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        {
+            if (_nextDisabledCleanup == TimeSpan.Zero || _timing.CurTime >= _nextDisabledCleanup)
+            {
+                CleanupDisabledDrones();
+                _nextDisabledCleanup = _timing.CurTime + DisabledCleanupInterval;
+            }
+
+            return;
+        }
 
         var now = _timing.CurTime;
         var query = EntityQueryEnumerator<LuaMAiMiningDroneComponent>();
@@ -141,6 +157,41 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
                 drone.NextSocialScan = now + TimeSpan.FromSeconds(SocialScanDelaySeconds);
                 TryRunSocialScan(uid, drone, now);
             }
+        }
+    }
+
+    private void OnDisabledDroneStartup(EntityUid uid, LuaMAiMiningDroneComponent component, ComponentStartup args)
+    {
+        QueueDisabledDroneEntity(uid);
+    }
+
+    private void OnDisabledTraceStartup(EntityUid uid, LuaMAiDroneTraceComponent component, ComponentStartup args)
+    {
+        QueueDisabledDroneEntity(uid);
+    }
+
+    private void QueueDisabledDroneEntity(EntityUid uid)
+    {
+        if (LuaMAiPhysicalBaseFeature.Enabled || TerminatingOrDeleted(uid))
+            return;
+
+        QueueDel(uid);
+    }
+
+    private void CleanupDisabledDrones()
+    {
+        var droneQuery = EntityQueryEnumerator<LuaMAiMiningDroneComponent>();
+        while (droneQuery.MoveNext(out var uid, out _))
+        {
+            if (!TerminatingOrDeleted(uid))
+                QueueDel(uid);
+        }
+
+        var traceQuery = EntityQueryEnumerator<LuaMAiDroneTraceComponent>();
+        while (traceQuery.MoveNext(out var uid, out _))
+        {
+            if (!TerminatingOrDeleted(uid))
+                QueueDel(uid);
         }
     }
 

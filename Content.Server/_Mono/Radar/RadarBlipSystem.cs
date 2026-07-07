@@ -3,8 +3,10 @@ using Content.Shared._Mono.Radar;
 using Content.Shared.Projectiles;
 using Content.Shared.Shuttles.Components;
 using Robust.Shared.Map;
+using Robust.Shared.Network;
 using Robust.Shared.Physics.Components;
 using Robust.Shared.Physics.Systems;
+using Robust.Shared.Timing;
 
 namespace Content.Server._Mono.Radar;
 
@@ -12,6 +14,9 @@ public sealed partial class RadarBlipSystem : EntitySystem
 {
     [Dependency] private SharedTransformSystem _xform = default!;
     [Dependency] private SharedPhysicsSystem _physics = default!;
+    [Dependency] private IGameTiming _timing = default!;
+
+    private static readonly TimeSpan BlipRequestCooldown = TimeSpan.FromMilliseconds(500);
 
     // Pooled collections to avoid per-request heap churn
     private readonly List<BlipNetData> _tempBlipsCache = new();
@@ -19,6 +24,7 @@ public sealed partial class RadarBlipSystem : EntitySystem
     private readonly List<EntityUid> _tempSourcesCache = new();
     private readonly List<BlipConfig> _tempPaletteCache = new();
     private readonly Dictionary<BlipConfig, ushort> _paletteIndex = new();
+    private readonly Dictionary<(NetUserId UserId, NetEntity Radar), TimeSpan> _nextBlipRequestByUserRadar = new();
 
     public override void Initialize()
     {
@@ -33,6 +39,16 @@ public sealed partial class RadarBlipSystem : EntitySystem
             || !TryComp<RadarConsoleComponent>(radarUid, out var radar)
         )
             return;
+
+        var key = (args.SenderSession.UserId, ev.Radar);
+        var now = _timing.CurTime;
+        if (_nextBlipRequestByUserRadar.TryGetValue(key, out var nextRequest) &&
+            now < nextRequest)
+        {
+            return;
+        }
+
+        _nextBlipRequestByUserRadar[key] = now + BlipRequestCooldown;
 
         var sourcesEv = new GetRadarSourcesEvent();
         RaiseLocalEvent(radarUid.Value, ref sourcesEv);

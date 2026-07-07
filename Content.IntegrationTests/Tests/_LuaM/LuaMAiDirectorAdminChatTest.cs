@@ -525,13 +525,21 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(autofix, Does.Contain("AI base autofix memory recorded"));
 
             var autonomous = string.Empty;
+            var autonomousThrottled = string.Empty;
             var aiBaseCreated = false;
             var aiBaseTradeCycles = 0;
             var aiBaseHasVesselLog = false;
+            var aiBasePhysicalLogisticsShips = -1;
+            var aiBasePhysicalAnchors = -1;
             LuaMAiDirectorEuiState? state = null;
             await server.WaitPost(() =>
             {
                 autonomous = (string) InvokePrivateInstance(
+                    director,
+                    "ApplyAiBaseAutonomousLogistics",
+                    "integration-test",
+                    3);
+                autonomousThrottled = (string) InvokePrivateInstance(
                     director,
                     "ApplyAiBaseAutonomousLogistics",
                     "integration-test",
@@ -541,17 +549,40 @@ public sealed class LuaMAiDirectorAdminChatTest
                 aiBaseCreated = aiBase.Created;
                 aiBaseTradeCycles = aiBase.TradeCycles;
                 aiBaseHasVesselLog = aiBase.TradeLog.Any(entry => !string.IsNullOrWhiteSpace(entry.Vessel));
+
+                aiBasePhysicalLogisticsShips = 0;
+                var logisticsQuery = entMan.EntityQueryEnumerator<LuaMAiLogisticsShipComponent>();
+                while (logisticsQuery.MoveNext(out _, out _))
+                {
+                    aiBasePhysicalLogisticsShips++;
+                }
+
+                aiBasePhysicalAnchors = 0;
+                var anchorQuery = entMan.EntityQueryEnumerator<LuaMAiBaseAnchorComponent>();
+                while (anchorQuery.MoveNext(out _, out _))
+                {
+                    aiBasePhysicalAnchors++;
+                }
+
                 state = director.BuildAdminState(string.Empty, string.Empty);
             });
 
             Assert.That(autonomous, Does.Contain("ai base autonomous logistics"));
             Assert.That(autonomous, Does.Contain("AI base logistics updated"));
-            Assert.That(autonomous, Does.Contain("physical logistics ship launched"));
-            Assert.That(autonomous, Does.Contain("doctrine"));
+            Assert.That(autonomous, Does.Contain("physical logistics ship skipped"));
+            Assert.That(autonomous, Does.Contain(LuaMAiPhysicalBaseFeature.DisabledReason));
+            Assert.That(autonomous, Does.Not.Contain("physical logistics ship launched"));
+            Assert.That(autonomous, Does.Not.Contain("Baeg"));
+            Assert.That(autonomous, Does.Contain("behavior"));
+            Assert.That(autonomousThrottled, Does.Contain("AI base virtual logistics memory throttled"));
+            Assert.That(autonomousThrottled, Does.Contain("physical logistics ship skipped"));
+            Assert.That(autonomousThrottled, Does.Not.Contain("Baeg"));
 
             Assert.That(aiBaseCreated, Is.True);
             Assert.That(aiBaseTradeCycles, Is.EqualTo(1));
             Assert.That(aiBaseHasVesselLog, Is.True);
+            Assert.That(aiBasePhysicalLogisticsShips, Is.EqualTo(0));
+            Assert.That(aiBasePhysicalAnchors, Is.EqualTo(0));
 
             Assert.That(state, Is.Not.Null);
             Assert.That(state!.AiBaseCreated, Is.True);

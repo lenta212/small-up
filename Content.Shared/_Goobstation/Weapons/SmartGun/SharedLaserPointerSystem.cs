@@ -1,4 +1,3 @@
-using System.Linq;
 using System.Numerics;
 using Content.Shared.Damage.Components;
 using Content.Shared.Standing;
@@ -10,12 +9,13 @@ using Robust.Shared.Physics;
 using Robust.Shared.Physics.Systems;
 using Robust.Shared.Serialization;
 using Robust.Shared.Timing;
-using Robust.Shared.Utility;
 
 namespace Content.Shared._Goobstation.Weapons.SmartGun;
 
 public abstract partial class SharedLaserPointerSystem : EntitySystem
 {
+    private const float LineDirtyPositionToleranceSquared = 0.0025f;
+
     [Dependency] protected IGameTiming Timing = default!;
     [Dependency] private INetManager _net = default!;
     [Dependency] private SharedAudioSystem _audio = default!;
@@ -39,7 +39,14 @@ public abstract partial class SharedLaserPointerSystem : EntitySystem
         if (!TryComp(pointer, out LaserPointerComponent? laser))
             return;
 
-        laser.LastNetworkEventTime = Timing.CurTime;
+        var now = Timing.CurTime;
+        if (laser.LastNetworkEventTime != TimeSpan.Zero &&
+            now - laser.LastNetworkEventTime < laser.MinNetworkEventInterval)
+        {
+            return;
+        }
+
+        laser.LastNetworkEventTime = now;
 
         if (!TryComp(pointer, out WieldableComponent? wieldable))
             return;
@@ -81,6 +88,13 @@ public abstract partial class SharedLaserPointerSystem : EntitySystem
         }
         else
         {
+            if (value.Color.Equals(color) &&
+                (value.Start - start).LengthSquared() <= LineDirtyPositionToleranceSquared &&
+                (value.End - end).LengthSquared() <= LineDirtyPositionToleranceSquared)
+            {
+                return;
+            }
+
             value.Color = color;
             value.Start = start;
             value.End = end;
@@ -139,13 +153,24 @@ public abstract partial class SharedLaserPointerSystem : EntitySystem
         var requiresTargetQuery = GetEntityQuery<RequireProjectileTargetComponent>();
 
         var ray = new CollisionRay(pos, normalized, comp.CollisionMask);
-        var hit = _physics.IntersectRay(xform.MapID, ray, rayLength, xform.ParentUid, false)
-            .OrderBy(x => x.Distance)
-            .FirstOrNull(x =>
-                x.HitEntity == targetedEntity || lying ||
-                !requiresTargetQuery.TryComp(x.HitEntity, out var requiresTarget) || !requiresTarget.Active);
-        if (hit != null)
-            rayLength = hit.Value.Distance;
+        var hitDistance = rayLength;
+        foreach (var hit in _physics.IntersectRay(xform.MapID, ray, rayLength, xform.ParentUid, false))
+        {
+            if (hit.Distance >= hitDistance)
+                continue;
+
+            if (hit.HitEntity != targetedEntity &&
+                !lying &&
+                requiresTargetQuery.TryComp(hit.HitEntity, out var requiresTarget) &&
+                requiresTarget.Active)
+            {
+                continue;
+            }
+
+            hitDistance = hit.Distance;
+        }
+
+        rayLength = hitDistance;
 
         var end = pos + normalized * rayLength;
 

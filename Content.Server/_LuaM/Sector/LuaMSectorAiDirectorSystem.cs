@@ -112,6 +112,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private const string SubspaceEntryPortalPrototype = "PortalGatewayBlue";
     private const string SubspaceExitPortalPrototype = "PortalGatewayOrange";
     private const string DefaultAiShipSpawnVessel = "Baeg";
+    private const string AiBaseVirtualLogisticsVesselId = "LuaMVirtualLogistics";
+    private const string AiBaseVirtualLogisticsDisplayName = "LuaM AI virtual logistics contour";
+    private const int AiBaseVirtualLogisticsMemoryCooldownSeconds = 600;
     private const string AiBaseBeaconPrototype = "LuaMAiBaseBeacon";
     private const int AiBaseLogisticsShipInitialCycleDelaySeconds = 60;
     private const int AiBaseAutonomousLogisticsShipInitialCycleDelaySeconds = 45;
@@ -586,6 +589,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private bool _aibolitRadioGatewayInFlight;
     private int _worldPulseCount;
     private int _aiBaseAutonomousShipCursor;
+    private TimeSpan _nextAiBaseVirtualLogisticsMemory;
     private TimeSpan _nextLocalBridgePoll;
     private int _localBridgeProcessedLines;
     private bool _localBridgeInitialized;
@@ -3709,7 +3713,18 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                     : action.VesselId.Trim();
                 return await RunOnMainThread(() =>
                 {
+                    var role = string.IsNullOrWhiteSpace(action.Role) ? "hauler" : action.Role;
                     _stories.EnsureAiBase($"{DirectorActor} / admin {admin.Name}");
+
+                    if (!LuaMAiPhysicalBaseFeature.Enabled)
+                    {
+                        var logisticsSummary = _stories.RecordAiBaseShipVisit(
+                            $"{DirectorActor} / admin {admin.Name}",
+                            role,
+                            AiBaseVirtualLogisticsVesselId,
+                            AiBaseVirtualLogisticsDisplayName);
+                        return $"AI base physical logistics ship skipped: {LuaMAiPhysicalBaseFeature.DisabledReason}\n{logisticsSummary}";
+                    }
 
                     var spawn = SpawnShipNearAdmin(admin, $"spawn {vesselId} ship near me");
                     if (!spawn.Success)
@@ -3717,7 +3732,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
                     var ship = EnsureComp<LuaMAiLogisticsShipComponent>(spawn.GridUid);
                     ship.BaseId = "LuaM-AI-Base";
-                    ship.Role = string.IsNullOrWhiteSpace(action.Role) ? "hauler" : action.Role;
+                    ship.Role = role;
                     ship.VesselId = spawn.VesselId;
                     ship.DisplayName = string.IsNullOrWhiteSpace(action.DisplayName)
                         ? spawn.DisplayName
@@ -4065,6 +4080,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private string EnsureAiBaseAnchorNearAdmin(ICommonSession admin, string actor)
     {
+        if (!LuaMAiPhysicalBaseFeature.Enabled)
+            return $"AI base physical anchor skipped: {LuaMAiPhysicalBaseFeature.DisabledReason}.";
+
         var query = EntityQueryEnumerator<LuaMAiBaseAnchorComponent>();
         while (query.MoveNext(out var uid, out _))
         {
@@ -7892,17 +7910,44 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (!string.IsNullOrWhiteSpace(anchor))
             bootstrap.Add(anchor);
 
-        if (!TryPickAiBaseAutonomousShipBuild(out var shipBuild))
-            return "ai base logistics skipped: no spawnable ship builds";
-
         var role = ChooseAiBaseAutonomousRole(_stories.GetAiBaseState(), severity);
-        var physicalShip = EnsureAiBaseAutonomousLogisticsShip(actor, role, shipBuild);
-        var result = _stories.RecordAiBaseShipVisit(
-            $"{actor} / autonomous ai-base logistics",
-            role,
-            shipBuild.Id,
-            shipBuild.DisplayName);
-        _supplyDrops.TrySpawnForLatestTrade($"{actor} / autonomous ai-base logistics", out _, out var dropSummary);
+        var physicalShip = string.Empty;
+        string result;
+        string dropSummary;
+        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        {
+            physicalShip = $"physical logistics ship skipped: {LuaMAiPhysicalBaseFeature.DisabledReason}";
+            if (_nextAiBaseVirtualLogisticsMemory == TimeSpan.Zero || _timing.CurTime >= _nextAiBaseVirtualLogisticsMemory)
+            {
+                result = _stories.RecordAiBaseShipVisit(
+                    $"{actor} / autonomous ai-base logistics",
+                    role,
+                    AiBaseVirtualLogisticsVesselId,
+                    AiBaseVirtualLogisticsDisplayName);
+                _nextAiBaseVirtualLogisticsMemory = _timing.CurTime + TimeSpan.FromSeconds(AiBaseVirtualLogisticsMemoryCooldownSeconds);
+            }
+            else
+            {
+                var remaining = (int) Math.Ceiling((_nextAiBaseVirtualLogisticsMemory - _timing.CurTime).TotalSeconds);
+                result = $"AI base virtual logistics memory throttled for {remaining}s";
+            }
+
+            dropSummary = string.Empty;
+        }
+        else
+        {
+            if (!TryPickAiBaseAutonomousShipBuild(out var shipBuild))
+                return "ai base logistics skipped: no spawnable ship builds";
+
+            physicalShip = EnsureAiBaseAutonomousLogisticsShip(actor, role, shipBuild);
+            result = _stories.RecordAiBaseShipVisit(
+                $"{actor} / autonomous ai-base logistics",
+                role,
+                shipBuild.Id,
+                shipBuild.DisplayName);
+            _supplyDrops.TrySpawnForLatestTrade($"{actor} / autonomous ai-base logistics", out _, out dropSummary);
+        }
+
         var dropText = string.IsNullOrWhiteSpace(dropSummary)
             ? string.Empty
             : $"; {dropSummary}";
@@ -7917,6 +7962,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private string EnsureAiBaseAutonomousAnchor(string actor)
     {
+        if (!LuaMAiPhysicalBaseFeature.Enabled)
+            return $"physical anchor skipped: {LuaMAiPhysicalBaseFeature.DisabledReason}";
+
         var query = EntityQueryEnumerator<LuaMAiBaseAnchorComponent>();
         while (query.MoveNext(out var uid, out _))
         {
@@ -7943,6 +7991,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private string EnsureAiBaseAutonomousLogisticsShip(string actor, string role, SpawnableShipBuild shipBuild)
     {
+        if (!LuaMAiPhysicalBaseFeature.Enabled)
+            return $"physical logistics ship skipped: {LuaMAiPhysicalBaseFeature.DisabledReason}";
+
         var state = _stories.GetAiBaseState();
         var activeShips = CountActiveAiBaseLogisticsShips();
         var desiredShips = GetDesiredAiBasePhysicalShipCount(state);

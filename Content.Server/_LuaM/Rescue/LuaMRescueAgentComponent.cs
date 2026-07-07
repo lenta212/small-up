@@ -91,7 +91,7 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoPickupNearbyMedicalSupplies = true;
 
     [DataField]
-    public bool AutoTakeNearbyStoredMedicalSupplies = true;
+    public bool AutoTakeNearbyStoredMedicalSupplies = false;
 
     [DataField]
     public bool AutoStowHeldItemsForTreatment = true;
@@ -184,28 +184,31 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float AutoTreatMinDamage = 5f;
 
     [DataField]
-    public float AutoTreatCooldown = 6f;
+    public float AutoTreatCooldown = 2f;
 
     [DataField]
-    public float AutoDefibCooldown = 8f;
+    public float AutoDefibCooldown = 5f;
 
     [DataField]
-    public float AutoCommsCooldown = 10f;
+    public float AutoCommsCooldown = 25f;
 
     [DataField]
     public float AutoAnalyzeCooldown = 45f;
 
     [DataField]
-    public float OnboardActionCooldown = 10f;
+    public float OnboardActionCooldown = 20f;
 
     [DataField]
-    public float RescueActionCooldown = 6f;
+    public float RescueActionCooldown = 18f;
 
     [DataField]
-    public float AutoPickupSupplyRange = 12f;
+    public float RescueSpeechCooldown = 18f;
 
     [DataField]
-    public float AutoResupplyRange = 24f;
+    public float AutoPickupSupplyRange = 3f;
+
+    [DataField]
+    public float AutoResupplyRange = 8f;
 
     public float TargetRefreshAccumulator;
 
@@ -289,6 +292,13 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public string LastAutoDefibStatus = "none";
 
     public string LastAutoCommsKey = "none";
+
+    public string LastRescueSpeechKey = "none";
+
+    public TimeSpan NextRescueSpeechAt;
+
+    [DataField]
+    public string LastRescueSpeechStatus = "none";
 
     public string LastOnboardActionKey = "none";
 

@@ -14,6 +14,7 @@
     startAudio:
       path: /Audio/Misc/notice1.ogg
     weight: 2
+    minimumPlayers: 40
     maxOccurrences: 4
   - type: GameRule
     minPlayers: 40
@@ -29,6 +30,7 @@
     startAudio:
       path: /Audio/Misc/notice1.ogg
     weight: 2
+    minimumPlayers: 60
     maxOccurrences: 3
   - type: GameRule
     minPlayers: 60

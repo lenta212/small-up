@@ -191,6 +191,8 @@ public sealed partial class EventManagerSystem : EntitySystem
         TimeSpan? currentTimeOverride = null)
     {
         var playerCount = playerCountOverride ?? _playerManager.PlayerCount;
+        if (playerCount <= 0)
+            return new Dictionary<EntityPrototype, StationEventComponent>();
 
         // playerCount does a lock so we'll just keep the variable here
         var currentTime = currentTimeOverride ?? (!ignoreEarliestStart

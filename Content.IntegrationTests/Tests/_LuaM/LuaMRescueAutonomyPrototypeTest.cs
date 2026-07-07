@@ -11,31 +11,50 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     [Test]
     public void RescueAgentsUseArmedProtectedTeamGear()
     {
+        var rescueLoadouts = LoadSequence("Resources/Prototypes/_LuaM/Loadouts/rescue.yml");
         var agentGear = FindPrototype(
-            LoadSequence("Resources/Prototypes/_LuaM/Loadouts/rescue.yml"),
+            rescueLoadouts,
             "LuaMRescueAgentGear");
         var agentEquipment = Mapping(agentGear, "equipment");
 
-        Assert.That(ScalarValue(agentEquipment, "outerClothing"), Is.EqualTo("ClothingOuterArmorBasicSlim"));
-        Assert.That(ScalarValue(agentEquipment, "head"), Is.EqualTo("ClothingHeadHelmetBasic"));
+        Assert.That(ScalarValue(agentEquipment, "outerClothing"), Is.EqualTo("ClothingOuterHardsuitMedical"));
+        Assert.That(ScalarValue(agentEquipment, "head"), Is.EqualTo("ClothingHeadHelmetHardsuitMedical"));
+        Assert.That(ScalarValue(agentEquipment, "mask"), Is.EqualTo("ClothingMaskBreathMedical"));
+        Assert.That(ScalarValue(agentEquipment, "shoes"), Is.EqualTo("LuaMClothingShoesBootsMagRescue"));
+        Assert.That(ScalarValue(agentEquipment, "suitstorage"), Is.EqualTo("OxygenTankFilled"));
         Assert.That(ScalarValue(agentEquipment, "eyes"), Is.EqualTo("ClothingEyesHudMedical"));
         Assert.That(ScalarValue(agentEquipment, "gloves"), Is.EqualTo("ClothingHandsGlovesCombat"));
-        Assert.That(SequenceValues(Sequence(agentGear, "inhand")), Does.Contain("WeaponLaserCarbine"));
-        Assert.That(SequenceValues(Sequence(Mapping(agentGear, "storage"), "back")), Does.Contain("MedkitCombatFilled"));
-        Assert.That(SequenceValues(Sequence(Mapping(agentGear, "storage"), "back")), Does.Contain("DefibrillatorCompact"));
+        Assert.That(agentGear.Children.Keys.OfType<YamlScalarNode>().Select(key => key.Value), Does.Not.Contain("inhand"));
+        var agentBackpack = SequenceValues(Sequence(Mapping(agentGear, "storage"), "back"));
+        Assert.That(agentBackpack, Does.Contain("MedkitCombatFilled"));
+        Assert.That(agentBackpack, Does.Contain("DefibrillatorCompact"));
+        Assert.That(agentBackpack, Does.Contain("CombatMedipen"));
+        Assert.That(agentBackpack, Does.Contain("BruteAutoInjector"));
+        Assert.That(agentBackpack, Does.Contain("BurnAutoInjector"));
+        Assert.That(agentBackpack, Does.Contain("DoubleEmergencyOxygenTankFilled"));
 
         var escortGear = FindPrototype(
-            LoadSequence("Resources/Prototypes/_LuaM/Loadouts/rescue.yml"),
+            rescueLoadouts,
             "LuaMRescueEscortGear");
         var escortEquipment = Mapping(escortGear, "equipment");
 
-        Assert.That(ScalarValue(escortEquipment, "outerClothing"), Is.EqualTo("ClothingOuterArmorBPVestHeavy"));
-        Assert.That(ScalarValue(escortEquipment, "head"), Is.EqualTo("ClothingHeadHelmetSwat"));
+        Assert.That(ScalarValue(escortEquipment, "outerClothing"), Is.EqualTo("ClothingOuterHardsuitPrivateSecurity"));
+        Assert.That(ScalarValue(escortEquipment, "head"), Is.EqualTo("ClothingHeadHelmetHardsuitPrivateSecurity"));
+        Assert.That(ScalarValue(escortEquipment, "mask"), Is.EqualTo("ClothingMaskGasSecurity"));
+        Assert.That(ScalarValue(escortEquipment, "shoes"), Is.EqualTo("LuaMClothingShoesBootsMagSecurityRescue"));
+        Assert.That(ScalarValue(escortEquipment, "suitstorage"), Is.EqualTo("OxygenTankFilled"));
         Assert.That(ScalarValue(escortEquipment, "eyes"), Is.EqualTo("ClothingEyesGlassesSecurity"));
         Assert.That(ScalarValue(escortEquipment, "belt"), Is.EqualTo("ClothingBeltSecurityFilled"));
         Assert.That(SequenceValues(Sequence(escortGear, "inhand")), Does.Contain("WeaponLaserCarbine"));
         Assert.That(SequenceValues(Sequence(Mapping(escortGear, "storage"), "back")), Does.Contain("WeaponDisablerSMG"));
         Assert.That(SequenceValues(Sequence(Mapping(escortGear, "storage"), "back")), Does.Contain("CombatMedipen"));
+        Assert.That(SequenceValues(Sequence(Mapping(escortGear, "storage"), "back")), Does.Contain("DoubleEmergencyOxygenTankFilled"));
+
+        var agentMagboots = FindPrototype(rescueLoadouts, "LuaMClothingShoesBootsMagRescue");
+        Assert.That(ScalarValue(FindComponent(agentMagboots, "ItemToggle"), "activated"), Is.EqualTo("true"));
+
+        var escortMagboots = FindPrototype(rescueLoadouts, "LuaMClothingShoesBootsMagSecurityRescue");
+        Assert.That(ScalarValue(FindComponent(escortMagboots, "ItemToggle"), "activated"), Is.EqualTo("true"));
 
         var entities = LoadSequence("Resources/Prototypes/_LuaM/Entities/Mobs/rescue_agent.yml");
         AssertLoadout(entities, "LuaMRescueAgent", "LuaMRescueAgentGear");
@@ -88,6 +107,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("MarkDeathSignalDispatchReported"));
         Assert.That(source, Does.Contain("rescue.DeathSignalDispatchReported = true"));
         Assert.That(source, Does.Contain("rescue.LastAutoCommsKey = $\"death-signal-dispatch:{target}\""));
+        Assert.That(source, Does.Contain("rescue.LastRescueSpeechKey = rescue.LastAutoCommsKey"));
+        Assert.That(source, Does.Contain("rescue.NextRescueSpeechAt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.RescueSpeechCooldown))"));
         Assert.That(component, Does.Contain("DeathSignalTarget"));
         Assert.That(component, Does.Contain("DeathSignalDispatchReported"));
         Assert.That(agent, Does.Contain("TryReportDeathSignalDispatch"));
@@ -153,6 +174,114 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueDispatchKeepsAibolitSingleton()
+    {
+        var shuttle = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs"), Encoding.UTF8);
+        var agent = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+
+        Assert.That(agent, Does.Contain("TrySpawnAgent"));
+        Assert.That(agent, Does.Contain("TryFindActiveAgent"));
+        Assert.That(agent, Does.Contain("Only one Aibolit rescue agent may be active"));
+        Assert.That(agent, Does.Contain("dispatch/spawn blocked"));
+        Assert.That(agent, Does.Contain("system.TrySpawnAgent(anchorUid, target, shell.Player, control"));
+        Assert.That(shuttle, Does.Contain("_rescueAgent.TryFindActiveAgent(out var activeAgent, out var activeRescue)"));
+        Assert.That(shuttle, Does.Contain("new rescue shuttle purchase and agent spawn blocked"));
+        Assert.That(shuttle, Does.Contain("_rescueAgent.TrySpawnAgent(anchor, followTarget, controller, control"));
+    }
+
+    [Test]
+    public void SmartGunLaserPointerIsRateLimitedBeforeRaycastsAndDirty()
+    {
+        var component = File.ReadAllText(FullPath("Content.Shared/_Goobstation/Weapons/SmartGun/LaserPointerComponent.cs"), Encoding.UTF8);
+        var shared = File.ReadAllText(FullPath("Content.Shared/_Goobstation/Weapons/SmartGun/SharedLaserPointerSystem.cs"), Encoding.UTF8);
+        var client = File.ReadAllText(FullPath("Content.Client/_Goobstation/Weapons/LaserPointer/LaserPointerSystem.cs"), Encoding.UTF8);
+
+        Assert.That(component, Does.Contain("MinNetworkEventInterval = TimeSpan.FromSeconds(0.2)"));
+        Assert.That(shared, Does.Contain("now - laser.LastNetworkEventTime < laser.MinNetworkEventInterval"));
+        Assert.That(shared, Does.Contain("LineDirtyPositionToleranceSquared"));
+        Assert.That(shared, Does.Contain("value.Color.Equals(color)"));
+        Assert.That(shared, Does.Contain("foreach (var hit in _physics.IntersectRay"));
+        Assert.That(shared, Does.Not.Contain(".OrderBy(x => x.Distance)"));
+        Assert.That(client, Does.Contain("Timing.CurTime - laser.LastNetworkEventTime < laser.MinNetworkEventInterval"));
+        Assert.That(client, Does.Contain("TryComp(held, out LaserPointerComponent? laser)"));
+    }
+
+    [Test]
+    public void RadarBlipRequestsAreServerRateLimited()
+    {
+        var radar = File.ReadAllText(FullPath("Content.Server/_Mono/Radar/RadarBlipSystem.cs"), Encoding.UTF8);
+
+        Assert.That(radar, Does.Contain("BlipRequestCooldown = TimeSpan.FromMilliseconds(500)"));
+        Assert.That(radar, Does.Contain("_nextBlipRequestByUserRadar"));
+        Assert.That(radar, Does.Contain("args.SenderSession.UserId"));
+        Assert.That(radar, Does.Contain("now < nextRequest"));
+        Assert.That(radar, Does.Contain("_nextBlipRequestByUserRadar[key] = now + BlipRequestCooldown"));
+    }
+
+    [Test]
+    public void BluespaceDebrisSchedulersAvoidOneHourTwentySpike()
+    {
+        var rules = File.ReadAllText(FullPath("Resources/Prototypes/_NF/GameRules/roundstart.yml"), Encoding.UTF8);
+
+        Assert.That(rules, Does.Contain("minimumTimeUntilFirstEvent: 900 # 15 minutes"));
+        Assert.That(rules, Does.Contain("min: 5400 # 90 minutes between events"));
+        Assert.That(rules, Does.Contain("max: 7200 # 120 minutes between events"));
+        Assert.That(rules, Does.Not.Contain("min: 2100 # 35 minutes between events"));
+        Assert.That(rules, Does.Not.Contain("max: 2400 # 40 minutes between events"));
+    }
+
+    [Test]
+    public void StationEventsDoNotScheduleWithNoConnectedPlayers()
+    {
+        var eventManager = File.ReadAllText(FullPath("Content.Server/StationEvents/EventManagerSystem.cs"), Encoding.UTF8);
+
+        Assert.That(eventManager, Does.Contain("if (playerCount <= 0)"));
+        Assert.That(eventManager, Does.Contain("return new Dictionary<EntityPrototype, StationEventComponent>();"));
+    }
+
+    [Test]
+    public void HeavyGridEventsRequirePlayersBeforeSchedulerCanSelectThem()
+    {
+        var salvage = FindComponent(
+            FindPrototype(LoadSequence("Resources/Prototypes/_NF/Events/nf_bluespace_salvage_events.yml"), "BluespaceSalvage"),
+            "StationEvent");
+        var dungeon = FindComponent(
+            FindPrototype(LoadSequence("Resources/Prototypes/_NF/Events/nf_bluespace_dungeons_events.yml"), "BluespaceDungeonBase"),
+            "StationEvent");
+        var monolith = FindComponent(
+            FindPrototype(LoadSequence("Resources/Prototypes/_Mono/GameRules/monolithic.yml"), "MonolithFragmentSmallAppearance"),
+            "StationEvent");
+
+        Assert.That(ScalarValue(salvage, "minimumPlayers"), Is.EqualTo("2"));
+        Assert.That(ScalarValue(salvage, "reoccurrenceDelay"), Is.EqualTo("120"));
+        Assert.That(ScalarValue(dungeon, "minimumPlayers"), Is.EqualTo("2"));
+        Assert.That(ScalarValue(monolith, "minimumPlayers"), Is.EqualTo("2"));
+        Assert.That(ScalarValue(monolith, "reoccurrenceDelay"), Is.EqualTo("60"));
+    }
+
+    [TestCase("Resources/Prototypes/_Mono/GameRules/damaged_ai.yml", "UnknownShuttleZenith", "32")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/damaged_ai.yml", "UnknownShuttleZenithE", "32")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/damaged_ai.yml", "UnknownShuttleNebula", "32")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/damaged_ai.yml", "UnknownShuttleWyrm", "15")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/damaged_ai.yml", "UnknownShuttleRazorN", "15")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/damaged_ai.yml", "UnknownShuttleWyvern", "60")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/chimera.yml", "UnknownShuttleChimeraSakuratsu", "40")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/chimera.yml", "UnknownShuttleChimeraOlympus", "40")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/chimera.yml", "UnknownShuttleChimeraTethys", "40")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/chimera.yml", "UnknownShuttleChimeraLegionnaire", "40")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/asakim.yml", "UnknownShuttleAsakimSmall", "40")]
+    [TestCase("Resources/Prototypes/_Mono/GameRules/asakim.yml", "UnknownShuttleAsakimMedium", "60")]
+    public void UnknownShuttleStationEventsMirrorSchedulerPlayerLimits(string path, string prototypeId, string expectedMinimumPlayers)
+    {
+        var prototype = FindPrototype(LoadSequence(path), prototypeId);
+        var stationEvent = FindComponent(prototype, "StationEvent");
+        var gameRule = FindComponent(prototype, "GameRule");
+
+        Assert.That(ScalarValue(stationEvent, "minimumPlayers"), Is.EqualTo(expectedMinimumPlayers));
+        Assert.That(ScalarValue(gameRule, "minPlayers"), Is.EqualTo(expectedMinimumPlayers));
+    }
+
+    [Test]
     public void RescueAgentRecoversDeadPatientsToShuttleWithoutAutoRelease()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
@@ -166,6 +295,29 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("score += 1500f"));
         Assert.That(source, Does.Contain("holding dead onboard patient"));
         Assert.That(source, Does.Contain("mobState.CurrentState == MobState.Dead ||"));
+    }
+
+    [Test]
+    public void RescueAgentsSpawnAndRecoverAtPatientCareAnchor()
+    {
+        var agent = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+        var shuttle = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs"), Encoding.UTF8);
+        var team = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
+
+        Assert.That(shuttle, Does.Contain("TryFindPatientCareAnchor"));
+        Assert.That(shuttle, Does.Contain("HasComp<StasisBedComponent>(uid)"));
+        Assert.That(shuttle, Does.Contain("HasComp<HealOnBuckleComponent>(uid)"));
+        Assert.That(shuttle, Does.Contain("fallbackStrap"));
+        Assert.That(agent, Does.Contain("var spawnCoordinates = Transform(anchor).Coordinates;"));
+        Assert.That(agent, Does.Not.Contain("SpawnOffset"));
+        Assert.That(agent, Does.Contain("TryHandleRescueAgentMobState"));
+        Assert.That(agent, Does.Contain("rescue-agent-disabled:"));
+        Assert.That(agent, Does.Contain("rescue-agent-recovered:"));
+        Assert.That(agent, Does.Contain("!IsAtAssignedShuttleAnchor(uid, rescue)"));
+        Assert.That(agent, Does.Not.Contain("!IsOnAssignedShuttle(uid, rescue) &&"));
+        Assert.That(team, Does.Contain("new Vector2(0f, 0.5f)"));
+        Assert.That(team, Does.Contain("new Vector2(-0.5f, 0f)"));
+        Assert.That(team, Does.Contain("new Vector2(0f, -0.5f)"));
     }
 
     [Test]
@@ -367,7 +519,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
 
         Assert.That(component, Does.Contain("AutoDefibDeadPatients = true"));
-        Assert.That(component, Does.Contain("AutoDefibCooldown = 8f"));
+        Assert.That(component, Does.Contain("AutoDefibCooldown = 5f"));
         Assert.That(component, Does.Contain("NextAutoDefibAttempt"));
         Assert.That(component, Does.Contain("LastAutoDefibStatus"));
         Assert.That(source, Does.Contain("DefibrillatorSystem"));
@@ -383,12 +535,37 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
+    public void RescueAgentUsesHeavyTraumaFieldMedicDefaults()
+    {
+        var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
+        var agent = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+        var entities = LoadSequence("Resources/Prototypes/_LuaM/Entities/Mobs/rescue_agent.yml");
+        var medibot = FindComponent(FindPrototype(entities, "LuaMRescueAgent"), "Medibot");
+        var treatments = Mapping(medibot, "treatments");
+        var alive = Mapping(treatments, "Alive");
+        var critical = Mapping(treatments, "Critical");
+
+        Assert.That(component, Does.Contain("AutoTakeNearbyStoredMedicalSupplies = false"));
+        Assert.That(component, Does.Contain("AutoTreatCooldown = 2f"));
+        Assert.That(component, Does.Contain("AutoPickupSupplyRange = 3f"));
+        Assert.That(component, Does.Contain("AutoResupplyRange = 8f"));
+        Assert.That(
+            agent,
+            Does.Contain("\"back\",\r\n        \"belt\",").Or.Contain("\"back\",\n        \"belt\","));
+        Assert.That(ScalarValue(alive, "reagent"), Is.EqualTo("Tricordrazine"));
+        Assert.That(ScalarValue(alive, "quantity"), Is.EqualTo("15"));
+        Assert.That(alive.Children.Keys.OfType<YamlScalarNode>().Select(key => key.Value), Does.Not.Contain("maxDamage"));
+        Assert.That(ScalarValue(critical, "reagent"), Is.EqualTo("Omnizine"));
+        Assert.That(ScalarValue(critical, "quantity"), Is.EqualTo("20"));
+    }
+
+    [Test]
     public void RescueAgentReportsDefibAndShuttleCarePhasesOverComms()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
 
-        Assert.That(component, Does.Contain("AutoCommsCooldown = 10f"));
+        Assert.That(component, Does.Contain("AutoCommsCooldown = 25f"));
         Assert.That(component, Does.Contain("NextAutoCommsAt"));
         Assert.That(component, Does.Contain("LastAutoCommsKey"));
         Assert.That(component, Does.Contain("ArrivalReportedTarget"));
@@ -400,8 +577,12 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("LastOnboardCareStatus"));
         Assert.That(component, Does.Contain("LastOnboardActionStatus"));
         Assert.That(component, Does.Contain("LastRescueActionStatus"));
-        Assert.That(component, Does.Contain("OnboardActionCooldown = 10f"));
-        Assert.That(component, Does.Contain("RescueActionCooldown = 6f"));
+        Assert.That(component, Does.Contain("OnboardActionCooldown = 20f"));
+        Assert.That(component, Does.Contain("RescueActionCooldown = 18f"));
+        Assert.That(component, Does.Contain("RescueSpeechCooldown = 18f"));
+        Assert.That(component, Does.Contain("LastRescueSpeechKey"));
+        Assert.That(component, Does.Contain("NextRescueSpeechAt"));
+        Assert.That(component, Does.Contain("LastRescueSpeechStatus"));
         Assert.That(component, Does.Contain("LastOnboardActionKey"));
         Assert.That(component, Does.Contain("NextOnboardActionAt"));
         Assert.That(component, Does.Contain("LastRescueActionKey"));
@@ -421,6 +602,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("_radio.SendRadioMessage"));
         Assert.That(source, Does.Contain("MedicalRadioChannel"));
         Assert.That(source, Does.Contain("autoComms={rescue.LastAutoCommsKey}"));
+        Assert.That(source, Does.Contain("speech={rescue.LastRescueSpeechStatus}"));
         Assert.That(source, Does.Contain("rescueAction={rescue.LastRescueActionStatus}"));
         Assert.That(source, Does.Contain("onboardCare={rescue.LastOnboardCareStatus}"));
         Assert.That(source, Does.Contain("onboardAction={rescue.LastOnboardActionStatus}"));
@@ -459,6 +641,9 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget && !onboardCarePending)"));
         Assert.That(source, Does.Contain("TrySayOnboardAction"));
         Assert.That(source, Does.Contain("TrySayRescueAction"));
+        Assert.That(source, Does.Contain("TryReserveRescueSpeech"));
+        Assert.That(source, Does.Contain("speech-throttle waiting"));
+        Assert.That(source, Does.Contain("rescue.RescueSpeechCooldown"));
         Assert.That(source, Does.Contain("onboard-action:{step}:{patient}"));
         Assert.That(source, Does.Contain("rescue-action:{step}:{patient}"));
         Assert.That(source, Does.Contain("rescue.NextOnboardActionAt > now"));
@@ -534,6 +719,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("TryFindEscortByRole"));
         Assert.That(source, Does.Contain("TryFindAnyEscort"));
         Assert.That(source, Does.Contain("BuildTriageCoverLine"));
+        Assert.That(source, Does.Contain("TryReserveTeamSpeech("));
+        Assert.That(source, Does.Contain("triage-cover: waiting shared speech"));
         Assert.That(source, Does.Contain("triage-cover:"));
         Assert.That(source, Does.Contain("triageCover={team.LastTriageCoverStatus}"));
         Assert.That(source, Does.Contain("escort.LastDutyActionStatus = $\"triage-cover:{decisionKey}"));
@@ -561,7 +748,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("RecentTeamLines"));
         Assert.That(component, Does.Contain("LuaMRescueTeamSpeechMemoryEntry"));
         Assert.That(source, Does.Contain("TeamPhaseAnnouncementCooldownSeconds"));
-        Assert.That(source, Does.Contain("TeamSharedSpeechCooldownSeconds = 6"));
+        Assert.That(source, Does.Contain("TeamSharedSpeechCooldownSeconds = 15"));
+        Assert.That(source, Does.Contain("EscortSpeechCooldownSeconds = 30"));
         Assert.That(source, Does.Contain("TeamRecentLineMemorySeconds"));
         Assert.That(source, Does.Contain("TrySayTeamPhaseLine"));
         Assert.That(source, Does.Contain("TryReserveTeamSpeech"));
@@ -688,10 +876,11 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("LastThreatNeutralizedBy"));
         Assert.That(component, Does.Contain("LastThreatNeutralizedStatus"));
         Assert.That(component, Does.Contain("NextThreatNeutralizedReportAt"));
-        Assert.That(source, Does.Contain("ThreatNeutralizedReportCooldownSeconds = 6"));
+        Assert.That(source, Does.Contain("ThreatNeutralizedReportCooldownSeconds = 20"));
         Assert.That(source, Does.Contain("TryReportThreatNeutralized"));
         Assert.That(source, Does.Contain("SetThreatNeutralizedStatus"));
         Assert.That(source, Does.Contain("BuildThreatNeutralizedLine"));
+        Assert.That(source, Does.Contain("threat-neutralized waiting shared speech"));
         Assert.That(source, Does.Contain("team.LastThreatNeutralizedTarget == threatUid"));
         Assert.That(source, Does.Contain("threat-neutralized:"));
         Assert.That(source, Does.Contain("threat-screen target neutralized and reported"));
@@ -709,7 +898,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("LastCrewHelpStatus"));
         Assert.That(component, Does.Contain("LastCrewHelpKey"));
         Assert.That(component, Does.Contain("NextCrewHelpRequestAt"));
-        Assert.That(source, Does.Contain("CrewHelpRequestCooldownSeconds = 12"));
+        Assert.That(source, Does.Contain("CrewHelpRequestCooldownSeconds = 30"));
         Assert.That(source, Does.Contain("TryRequestCrewHelp"));
         Assert.That(source, Does.Contain("crew-help:{key}; {status}"));
         Assert.That(source, Does.Contain("crewHelp={escort.LastCrewHelpStatus}"));
@@ -734,6 +923,9 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("moving patient {FormatEntityRef(patientUid)} to shuttle"));
         Assert.That(source, Does.Contain("var followTarget = GetEscortFollowTarget(uid, escort, duty);"));
         Assert.That(source, Does.Contain("GetPatientSupportFollowTarget"));
+        Assert.That(source, Does.Contain("IsKostylEvacuationSupport"));
+        Assert.That(source, Does.Contain("rescue.TaskStage is LuaMRescueTaskStage.EvacuatingPatient or LuaMRescueTaskStage.DeliveringPatient"));
+        Assert.That(source, Does.Contain("rescue.EvacuatingTarget is { Valid: true }"));
         Assert.That(source, Does.Contain("IsEscortPullingPatient(uid, patient)"));
         Assert.That(source, Does.Contain("return shuttleAnchor ?? shuttle ?? leader ?? patient;"));
         Assert.That(source, Does.Contain("patient-assist escorting"));

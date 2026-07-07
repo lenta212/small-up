@@ -12,8 +12,10 @@
     endRadioAnnouncement: station-event-bluespace-scrap-end-announcement
     endRadioAnnouncementChannel: Engineering
     weight: 5
+    minimumPlayers: 2
     duration: 1800 # 30 minutes
     maxDuration: 1800 # 30 minutes
+    reoccurrenceDelay: 120
   - type: BluespaceErrorRule
     groups:
       grid: !type:GridSpawnGroup

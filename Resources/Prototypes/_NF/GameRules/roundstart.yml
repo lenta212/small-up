@@ -39,10 +39,10 @@
   - type: BasicStationEventScheduler
     scheduledGameRules: !type:NestedSelector
       tableId: DungeonBluespaceEventsTable
-    minimumTimeUntilFirstEvent: 600 # 10 minutes
+    minimumTimeUntilFirstEvent: 900 # 15 minutes
     minMaxEventTiming:
-      min: 2100 # 35 minutes between events
-      max: 2400 # 40 minutes between events
+      min: 5400 # 90 minutes between events
+      max: 7200 # 120 minutes between events
 
 - type: entityTable
   id: DungeonBluespaceEventsTable
@@ -61,10 +61,10 @@
   - type: BasicStationEventScheduler
     scheduledGameRules: !type:NestedSelector
       tableId: SalvageBluespaceEventsTable
-    minimumTimeUntilFirstEvent: 420 # 7 minutes
+    minimumTimeUntilFirstEvent: 900 # 15 minutes
     minMaxEventTiming:
-      min: 2100 # 35 minutes between events
-      max: 2400 # 40 minutes between events
+      min: 5400 # 90 minutes between events
+      max: 7200 # 120 minutes between events
 
 - type: entityTable
   id: SalvageBluespaceEventsTable

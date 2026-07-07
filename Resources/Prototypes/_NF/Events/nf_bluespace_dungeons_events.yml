@@ -12,6 +12,7 @@
     endRadioAnnouncement: station-event-bluespace-dungeon-end-announcement
     endRadioAnnouncementChannel: Supply
     weight: 5
+    minimumPlayers: 2
     duration: 1800 # 30 minutes
     maxDuration: 1800 # 30 minutes
     reoccurrenceDelay: 120 # 2 hours (some variety - at worst, alternates between four dungeon types)

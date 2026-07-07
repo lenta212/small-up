@@ -20,12 +20,11 @@
     treatments:
       Alive:
         reagent: Tricordrazine
-        quantity: 10
-        minDamage: 0
-        maxDamage: 50
-      Critical:
-        reagent: Inaprovaline
         quantity: 15
+        minDamage: 0
+      Critical:
+        reagent: Omnizine
+        quantity: 20
   - type: HTN
     rootTask:
       task: LuaMRescueCompound

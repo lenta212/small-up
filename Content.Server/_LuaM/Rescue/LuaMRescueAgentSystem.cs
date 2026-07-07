@@ -52,14 +52,15 @@ namespace Content.Server._LuaM.Rescue;
 public sealed class LuaMRescueAgentSystem : EntitySystem
 {
     private const string RescueAgentPrototype = "LuaMRescueAgent";
-    private static readonly Vector2 SpawnOffset = new(1.25f, 0f);
+    private const string RescueAgentDisabledStatusPrefix = "rescue-agent-disabled:";
+    private const string RescueAgentRecoveredStatusPrefix = "rescue-agent-recovered:";
     private static readonly ProtoId<RadioChannelPrototype> MedicalRadioChannel = "Medical";
     private static readonly string[] TreatmentStorageSlotPriority =
     [
+        "back",
         "belt",
         "pocket1",
         "pocket2",
-        "back",
         "suitstorage",
         "outerClothing",
         "jumpsuit",
@@ -115,6 +116,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (HasComp<ActorComponent>(uid))
                 continue;
 
+            if (TryHandleRescueAgentMobState(uid, rescue, htn))
+                continue;
+
             if (rescue.PendingPlayerAction != LuaMRescuePlayerActionKind.None)
             {
                 UpdatePendingPlayerAction(uid, rescue, htn, frameTime);
@@ -135,7 +139,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     public EntityUid SpawnAgent(EntityUid anchor, EntityUid? followTarget, ICommonSession? controller, bool control)
     {
-        var spawnCoordinates = Transform(anchor).Coordinates.Offset(SpawnOffset);
+        var spawnCoordinates = Transform(anchor).Coordinates;
         var agent = Spawn(RescueAgentPrototype, spawnCoordinates);
         var rescue = EnsureComp<LuaMRescueAgentComponent>(agent);
 
@@ -149,6 +153,112 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             _mind.ControlMob(controller.UserId, agent);
 
         return agent;
+    }
+
+    public bool TrySpawnAgent(
+        EntityUid anchor,
+        EntityUid? followTarget,
+        ICommonSession? controller,
+        bool control,
+        out EntityUid agent,
+        out string status)
+    {
+        if (TryFindActiveAgent(out var activeAgent, out _))
+        {
+            agent = activeAgent;
+            status = $"Only one Aibolit rescue agent may be active. Existing agent={GetNetEntity(activeAgent)}; dispatch/spawn blocked.";
+            return false;
+        }
+
+        agent = SpawnAgent(anchor, followTarget, controller, control);
+        status = $"Aibolit rescue agent spawned: {GetNetEntity(agent)}.";
+        return true;
+    }
+
+    public bool TryFindActiveAgent(out EntityUid agent, out LuaMRescueAgentComponent rescue)
+    {
+        var query = EntityQueryEnumerator<LuaMRescueAgentComponent>();
+        while (query.MoveNext(out var uid, out var rescueComp))
+        {
+            if (Deleted(uid))
+                continue;
+
+            agent = uid;
+            rescue = rescueComp;
+            return true;
+        }
+
+        agent = default;
+        rescue = default!;
+        return false;
+    }
+
+    private bool TryHandleRescueAgentMobState(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    {
+        if (!TryComp<MobStateComponent>(uid, out var mobState))
+            return false;
+
+        if (mobState.CurrentState is MobState.Dead or MobState.Critical)
+        {
+            var status = mobState.CurrentState == MobState.Dead
+                ? $"{RescueAgentDisabledStatusPrefix} dead; waiting for recovery"
+                : $"{RescueAgentDisabledStatusPrefix} critical; waiting for stabilization";
+
+            if (!rescue.LastAutoEvacuationStatus.Equals(status, StringComparison.Ordinal))
+            {
+                if (rescue.EvacuatingTarget is { Valid: true } evacuatingTarget &&
+                    !Deleted(evacuatingTarget))
+                {
+                    StopPullingTarget(uid, evacuatingTarget);
+                }
+
+                ClearRescueTask(uid, rescue, "rescue agent disabled");
+                rescue.EvacuatingTarget = null;
+                rescue.AssignedTarget = null;
+                rescue.AssignedPatientStrap = null;
+                rescue.ArrivalReportedTarget = null;
+                rescue.TriageReportedTarget = null;
+                rescue.DeathSignalTarget = null;
+                rescue.DeathSignalDispatchReported = false;
+                ResetTargetProgress(rescue);
+                rescue.LastAutoEvacuationStatus = status;
+                rescue.LastTargetTrackingStatus = $"self-state={mobState.CurrentState}; auto rescue paused";
+                ClearFollowTarget(uid, rescue, htn);
+                Dirty(uid, rescue);
+            }
+
+            return true;
+        }
+
+        if (rescue.LastAutoEvacuationStatus.StartsWith(RescueAgentDisabledStatusPrefix, StringComparison.Ordinal))
+        {
+            ResetTargetProgress(rescue);
+            rescue.LastAutoEvacuationStatus = $"{RescueAgentRecoveredStatusPrefix} returning to shuttle anchor before reacquire";
+            rescue.LastTargetTrackingStatus = "self-state recovered; returning to shuttle anchor";
+
+            if (CanUseAssignedShuttle(rescue))
+                SetFollowShuttle(uid, rescue, htn);
+            else
+                ClearFollowTarget(uid, rescue, htn);
+
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        if (!rescue.LastAutoEvacuationStatus.StartsWith(RescueAgentRecoveredStatusPrefix, StringComparison.Ordinal))
+            return false;
+
+        if (CanUseAssignedShuttle(rescue) &&
+            !IsAtAssignedShuttleAnchor(uid, rescue))
+        {
+            SetFollowShuttle(uid, rescue, htn);
+            return true;
+        }
+
+        rescue.LastAutoEvacuationStatus = "rescue-agent-recovered: ready";
+        rescue.LastTargetTrackingStatus = "self-state recovered; ready to reacquire";
+        Dirty(uid, rescue);
+        return false;
     }
 
     public List<string> BuildRescueStatusLines()
@@ -430,6 +540,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"arrival={rescue.LastArrivalReportStatus}; " +
                $"triageDecision={rescue.LastTriageDecisionStatus}; " +
                $"autoComms={rescue.LastAutoCommsKey}; " +
+               $"speech={rescue.LastRescueSpeechStatus}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
     }
@@ -516,12 +627,39 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.LastAutoCommsKey = key;
         rescue.NextAutoCommsAt = now + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoCommsCooldown));
 
+        if (!TryReserveRescueSpeech(uid, rescue, key, "auto-comms", now))
+        {
+            Dirty(uid, rescue);
+            return;
+        }
+
         _chat.TrySendInGameICMessage(uid, message, InGameICChatType.Speak, hideChat: false, hideLog: true);
 
         if (radio)
             _radio.SendRadioMessage(uid, message, MedicalRadioChannel, uid);
 
         Dirty(uid, rescue);
+    }
+
+    private bool TryReserveRescueSpeech(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        string key,
+        string channel,
+        TimeSpan now)
+    {
+        if (now < rescue.NextRescueSpeechAt)
+        {
+            var wait = Math.Max(0, (int) Math.Ceiling((rescue.NextRescueSpeechAt - now).TotalSeconds));
+            rescue.LastRescueSpeechStatus = $"speech-throttle waiting {wait}s; channel={channel}; key={key}";
+            return false;
+        }
+
+        rescue.LastRescueSpeechKey = key;
+        rescue.NextRescueSpeechAt = now + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.RescueSpeechCooldown));
+        rescue.LastRescueSpeechStatus = $"speech:{channel}:{key}; cooldown={rescue.RescueSpeechCooldown:0}s";
+        Dirty(uid, rescue);
+        return true;
     }
 
     private void TryReportDeathSignalDispatch(EntityUid uid, LuaMRescueAgentComponent rescue)
@@ -5294,6 +5432,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.LastOnboardActionKey = key;
         rescue.NextOnboardActionAt = now + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.OnboardActionCooldown));
+        if (!TryReserveRescueSpeech(uid, rescue, key, "onboard-action", now))
+        {
+            Dirty(uid, rescue);
+            return;
+        }
+
         _chat.TrySendInGameICMessage(uid, message, InGameICChatType.Speak, hideChat: false, hideLog: true);
         Dirty(uid, rescue);
     }
@@ -5328,6 +5472,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.LastRescueActionKey = key;
         rescue.NextRescueActionAt = now + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.RescueActionCooldown));
+        if (!TryReserveRescueSpeech(uid, rescue, key, "rescue-action", now))
+        {
+            Dirty(uid, rescue);
+            return;
+        }
+
         _chat.TrySendInGameICMessage(uid, message, InGameICChatType.Speak, hideChat: false, hideLog: true);
         Dirty(uid, rescue);
     }
@@ -5872,7 +6022,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (allowAutoReturn)
                 TryRouteShuttleHome(uid, rescue);
 
-            if (!IsOnAssignedShuttle(uid, rescue) &&
+            if (!IsAtAssignedShuttleAnchor(uid, rescue) &&
                 SetFollowShuttle(uid, rescue, htn))
             {
                 return;
@@ -5959,13 +6109,18 @@ public sealed class LuaMRescueAgentCommand : IConsoleCommand
         }
 
         var system = _entities.System<LuaMRescueAgentSystem>();
-        var agent = system.SpawnAgent(anchorUid, target, shell.Player, control);
+        if (!system.TrySpawnAgent(anchorUid, target, shell.Player, control, out var agent, out var status))
+        {
+            shell.WriteError(status);
+            return;
+        }
+
         var netAgent = _entities.GetNetEntity(agent);
         var targetText = target is { Valid: true } targetUid
             ? _entities.GetNetEntity(targetUid).ToString()
             : "none";
 
-        shell.WriteLine($"Spawned LuaM rescue agent {netAgent}; followTarget={targetText}; controlled={control}.");
+        shell.WriteLine($"{status} followTarget={targetText}; controlled={control}.");
         if (!control)
             shell.WriteLine($"Use `controlmob {netAgent.Id}` if you want to take direct control like a player.");
     }

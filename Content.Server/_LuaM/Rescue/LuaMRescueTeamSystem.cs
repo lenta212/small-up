@@ -47,13 +47,14 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double SceneMemoryReinforceSeconds = 18;
     private const double HandoffPhaseHoldSeconds = 6;
     private const double SortiePlanHoldSeconds = 4;
-    private const double TeamPhaseAnnouncementCooldownSeconds = 10;
-    private const double TeamSharedSpeechCooldownSeconds = 6;
+    private const double TeamPhaseAnnouncementCooldownSeconds = 20;
+    private const double TeamSharedSpeechCooldownSeconds = 15;
     private const int TeamRecentLineMemoryLimit = 8;
     private const double TeamRecentLineMemorySeconds = 90;
-    private const double ThreatNeutralizedReportCooldownSeconds = 6;
-    private const double TriageCoverConfirmCooldownSeconds = 8;
-    private const double CrewHelpRequestCooldownSeconds = 12;
+    private const double ThreatNeutralizedReportCooldownSeconds = 20;
+    private const double TriageCoverConfirmCooldownSeconds = 20;
+    private const double CrewHelpRequestCooldownSeconds = 30;
+    private const double EscortSpeechCooldownSeconds = 30;
     private const double EscortDutyHoldSeconds = 2;
     private const double EscortDutyActionIntervalSeconds = 2;
     private const float EscortDutyActionRange = 1.75f;
@@ -68,9 +69,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
     private static readonly (LuaMRescueEscortRole Role, Vector2 Offset)[] EscortFormation =
     [
-        (LuaMRescueEscortRole.Tourniquet, new Vector2(0f, 1.25f)),
-        (LuaMRescueEscortRole.Kostyl, new Vector2(-1.25f, 0f)),
-        (LuaMRescueEscortRole.Zaslon, new Vector2(0f, -1.25f)),
+        (LuaMRescueEscortRole.Tourniquet, new Vector2(0f, 0.5f)),
+        (LuaMRescueEscortRole.Kostyl, new Vector2(-0.5f, 0f)),
+        (LuaMRescueEscortRole.Zaslon, new Vector2(0f, -0.5f)),
     ];
 
     private static readonly string[] EscortCombatStorageSlotPriority =
@@ -575,7 +576,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             _timing.CurTime >= escort.NextSpeechTime)
         {
             TrySayDutyLine(uid, escort, duty);
-            escort.NextSpeechTime = _timing.CurTime + TimeSpan.FromSeconds(18);
+            escort.NextSpeechTime = _timing.CurTime + TimeSpan.FromSeconds(EscortSpeechCooldownSeconds);
         }
 
         Dirty(uid, escort);
@@ -710,11 +711,27 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         var line = BuildTriageCoverLine(escort.Role, decisionKey);
         if (!string.IsNullOrWhiteSpace(line))
+        {
+            var now = _timing.CurTime;
+            var reserved = TryReserveTeamSpeech(
+                speaker,
+                team,
+                $"triage-cover:{decisionKey}",
+                now,
+                out var speechStatusChanged,
+                line);
+            if (!reserved)
+            {
+                return SetTriageCoverStatus(team, $"triage-cover: waiting shared speech; decision={decisionKey}") ||
+                       speechStatusChanged;
+            }
+
             _chat.TrySendInGameICMessage(speaker, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
+        }
 
         escort.LastDutyActionStatus = $"triage-cover:{decisionKey} confirming {FormatRole(escort.Role)}";
         escort.DutyActions++;
-        escort.NextSpeechTime = _timing.CurTime + TimeSpan.FromSeconds(18);
+        escort.NextSpeechTime = _timing.CurTime + TimeSpan.FromSeconds(EscortSpeechCooldownSeconds);
         Dirty(speaker, escort);
 
         team.TriageCoverConfirmedPatient = patientUid;
@@ -1613,6 +1630,25 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         var line = BuildThreatNeutralizedLine(threatKind, Name(threatUid));
+        if (!TryReserveTeamSpeech(
+                escortUid,
+                team,
+                $"threat-neutralized:{threatKind}:{threatUid}",
+                now,
+                out var speechStatusChanged,
+                line))
+        {
+            if (SetThreatNeutralizedStatus(
+                    team,
+                    $"threat-neutralized waiting shared speech; kind={threatKind}; target={targetRef}; by={role}") ||
+                speechStatusChanged)
+            {
+                Dirty(leader, team);
+            }
+
+            return false;
+        }
+
         if (!Deleted(escortUid) &&
             !string.IsNullOrWhiteSpace(line))
         {
@@ -1679,7 +1715,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         escort.LastCrewHelpKey = key;
         escort.NextCrewHelpRequestAt = now + TimeSpan.FromSeconds(CrewHelpRequestCooldownSeconds);
-        escort.NextSpeechTime = now + TimeSpan.FromSeconds(18);
+        escort.NextSpeechTime = now + TimeSpan.FromSeconds(EscortSpeechCooldownSeconds);
         _chat.TrySendInGameICMessage(uid, line, InGameICChatType.Speak, hideChat: false, hideLog: true);
         return true;
     }
@@ -1918,13 +1954,25 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         };
     }
 
-    private static bool ShouldEscortAssistPatientPull(
+    private bool ShouldEscortAssistPatientPull(
         LuaMRescueEscortComponent escort,
         LuaMRescueEscortDuty duty)
     {
         return escort.Role == LuaMRescueEscortRole.Kostyl &&
             duty == LuaMRescueEscortDuty.PatientSupport &&
-            escort.SortiePlan == LuaMRescueSortiePlan.EvacuatePatient;
+            IsKostylEvacuationSupport(escort);
+    }
+
+    private bool IsKostylEvacuationSupport(LuaMRescueEscortComponent escort)
+    {
+        if (escort.SortiePlan == LuaMRescueSortiePlan.EvacuatePatient)
+            return true;
+
+        return escort.Leader is { Valid: true } leader &&
+            !Deleted(leader) &&
+            TryComp<LuaMRescueAgentComponent>(leader, out var rescue) &&
+            (rescue.TaskStage is LuaMRescueTaskStage.EvacuatingPatient or LuaMRescueTaskStage.DeliveringPatient ||
+             rescue.EvacuatingTarget is { Valid: true });
     }
 
     private void TryRunPatientAssistAction(
@@ -3139,7 +3187,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         EntityUid? shuttle)
     {
         if (escort.Role == LuaMRescueEscortRole.Kostyl &&
-            escort.SortiePlan == LuaMRescueSortiePlan.EvacuatePatient &&
+            IsKostylEvacuationSupport(escort) &&
             IsEscortPullingPatient(uid, patient))
         {
             return shuttleAnchor ?? shuttle ?? leader ?? patient;

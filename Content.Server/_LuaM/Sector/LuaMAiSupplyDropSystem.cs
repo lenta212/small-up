@@ -22,6 +22,12 @@ public sealed partial class LuaMAiSupplyDropSystem : EntitySystem
     {
         dropUid = EntityUid.Invalid;
 
+        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        {
+            summary = LuaMAiPhysicalBaseFeature.DisabledReason;
+            return false;
+        }
+
         if (!_prototypes.HasIndex<EntityPrototype>(SupplyDropPrototype))
         {
             summary = $"AI supply drop skipped: prototype {SupplyDropPrototype} is missing";

@@ -1,34 +1,57 @@
+- type: entity
+  id: LuaMClothingShoesBootsMagRescue
+  parent: ClothingShoesBootsMag
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: ItemToggle
+    activated: true
+
+- type: entity
+  id: LuaMClothingShoesBootsMagSecurityRescue
+  parent: ClothingShoesBootsMagSecurityFilled
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: ItemToggle
+    activated: true
+
 - type: startingGear
   id: LuaMRescueAgentGear
   equipment:
     back: ClothingBackpackERTMedical
-    shoes: ClothingShoesBootsCombatFilled
-    head: ClothingHeadHelmetBasic
+    shoes: LuaMClothingShoesBootsMagRescue
+    head: ClothingHeadHelmetHardsuitMedical
+    mask: ClothingMaskBreathMedical
     eyes: ClothingEyesHudMedical
     gloves: ClothingHandsGlovesCombat
-    outerClothing: ClothingOuterArmorBasicSlim
+    outerClothing: ClothingOuterHardsuitMedical
+    suitstorage: OxygenTankFilled
     id: ParamedicPDA
     ears: ClothingHeadsetMedical
     belt: ClothingBeltMedicalEMTFilled
-  inhand:
-  - WeaponLaserCarbine
   storage:
     back:
     - EmergencyRollerBedSpawnFolded
     - DefibrillatorCompact
     - MedkitCombatFilled
+    - CombatMedipen
+    - CombatMedipen
+    - BruteAutoInjector
+    - BurnAutoInjector
     - OmnizineChemistryBottle
     - EpinephrineChemistryBottle
+    - DoubleEmergencyOxygenTankFilled
 
 - type: startingGear
   id: LuaMRescueEscortGear
   equipment:
     back: ClothingBackpackERTSecurity
-    shoes: ClothingShoesBootsCombatFilled
-    head: ClothingHeadHelmetSwat
+    shoes: LuaMClothingShoesBootsMagSecurityRescue
+    head: ClothingHeadHelmetHardsuitPrivateSecurity
+    mask: ClothingMaskGasSecurity
     eyes: ClothingEyesGlassesSecurity
     gloves: ClothingHandsGlovesCombat
-    outerClothing: ClothingOuterArmorBPVestHeavy
+    outerClothing: ClothingOuterHardsuitPrivateSecurity
+    suitstorage: OxygenTankFilled
     id: ParamedicPDA
     ears: ClothingHeadsetMedical
     belt: ClothingBeltSecurityFilled
@@ -41,3 +64,4 @@
     - CombatMedipen
     - BruteAutoInjector
     - BurnAutoInjector
+    - DoubleEmergencyOxygenTankFilled

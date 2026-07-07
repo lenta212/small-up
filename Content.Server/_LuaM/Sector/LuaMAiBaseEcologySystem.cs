@@ -22,6 +22,7 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
     private const double StuckCheckIntervalSeconds = 5;
     private const float StuckMovementEpsilon = 0.2f;
     private const int StuckChecksBeforeReport = 2;
+    private static readonly TimeSpan DisabledCleanupInterval = TimeSpan.FromSeconds(30);
 
     private static readonly (string ZoneType, string Label, Vector2 Offset)[] RequiredZones =
     {
@@ -38,14 +39,99 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
     [Dependency] private MetaDataSystem _metaData = default!;
     [Dependency] private LuaMSectorStorySystem _stories = default!;
 
+    private TimeSpan _nextDisabledCleanup;
+
+    public override void Initialize()
+    {
+        base.Initialize();
+
+        SubscribeLocalEvent<LuaMAiBaseAnchorComponent, ComponentStartup>(OnDisabledAnchorStartup);
+        SubscribeLocalEvent<LuaMAiBaseZoneComponent, ComponentStartup>(OnDisabledZoneStartup);
+        SubscribeLocalEvent<LuaMAiSupplyDropComponent, ComponentStartup>(OnDisabledSupplyDropStartup);
+        SubscribeLocalEvent<LuaMAiDroneTaskComponent, ComponentStartup>(OnDisabledDroneTaskStartup);
+    }
+
     public override void Update(float frameTime)
     {
         base.Update(frameTime);
+
+        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        {
+            if (_nextDisabledCleanup == TimeSpan.Zero || _timing.CurTime >= _nextDisabledCleanup)
+            {
+                CleanupDisabledAiBase();
+                _nextDisabledCleanup = _timing.CurTime + DisabledCleanupInterval;
+            }
+
+            return;
+        }
 
         EnsureZonesForAnchors();
         UpdateZoneCompensationPlans();
         AssignDroneTasks();
         UpdateDroneTaskProgress();
+    }
+
+    private void OnDisabledAnchorStartup(EntityUid uid, LuaMAiBaseAnchorComponent component, ComponentStartup args)
+    {
+        QueueDisabledPhysicalEntity(uid);
+    }
+
+    private void OnDisabledZoneStartup(EntityUid uid, LuaMAiBaseZoneComponent component, ComponentStartup args)
+    {
+        QueueDisabledPhysicalEntity(uid);
+    }
+
+    private void OnDisabledSupplyDropStartup(EntityUid uid, LuaMAiSupplyDropComponent component, ComponentStartup args)
+    {
+        QueueDisabledPhysicalEntity(uid);
+    }
+
+    private void OnDisabledDroneTaskStartup(EntityUid uid, LuaMAiDroneTaskComponent component, ComponentStartup args)
+    {
+        if (LuaMAiPhysicalBaseFeature.Enabled || TerminatingOrDeleted(uid))
+            return;
+
+        RemCompDeferred<LuaMAiDroneTaskComponent>(uid);
+    }
+
+    private void QueueDisabledPhysicalEntity(EntityUid uid)
+    {
+        if (LuaMAiPhysicalBaseFeature.Enabled || TerminatingOrDeleted(uid))
+            return;
+
+        QueueDel(uid);
+    }
+
+    private void CleanupDisabledAiBase()
+    {
+        var anchorQuery = EntityQueryEnumerator<LuaMAiBaseAnchorComponent>();
+        while (anchorQuery.MoveNext(out var uid, out _))
+        {
+            if (!TerminatingOrDeleted(uid))
+                QueueDel(uid);
+        }
+
+        var zoneQuery = EntityQueryEnumerator<LuaMAiBaseZoneComponent>();
+        while (zoneQuery.MoveNext(out var uid, out _))
+        {
+            if (!TerminatingOrDeleted(uid))
+                QueueDel(uid);
+        }
+
+        var dropQuery = EntityQueryEnumerator<LuaMAiSupplyDropComponent>();
+        while (dropQuery.MoveNext(out var uid, out _))
+        {
+            if (!TerminatingOrDeleted(uid))
+                QueueDel(uid);
+        }
+
+        var taskQuery = EntityQueryEnumerator<LuaMAiDroneTaskComponent>();
+        while (taskQuery.MoveNext(out var uid, out _))
+        {
+            if (!TerminatingOrDeleted(uid))
+                RemCompDeferred<LuaMAiDroneTaskComponent>(uid);
+        }
     }
 
     private void EnsureZonesForAnchors()

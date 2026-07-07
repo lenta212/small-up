@@ -302,10 +302,10 @@ public sealed class LuaMSectorStoryTest
             Assert.That(adminState.AiBaseSummary, Does.Contain("faction luam-ai-contour"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("roles"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("improvement"));
-            Assert.That(adminState.AiBaseSummary, Does.Contain("physical beacons 1"));
+            Assert.That(adminState.AiBaseSummary, Does.Contain("physical beacons 0"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("logistics ships 1"));
-            Assert.That(adminState.AiBaseSummary, Does.Contain("drones 1"));
-            Assert.That(adminState.AiBaseSummary, Does.Contain("supply drops 1"));
+            Assert.That(adminState.AiBaseSummary, Does.Contain("drones 0"));
+            Assert.That(adminState.AiBaseSummary, Does.Contain("supply drops 0"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("compensate"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("autofix"));
             Assert.That(adminState.AiBaseDiagnostics, Does.Contain("AI base diagnostics"));
@@ -371,6 +371,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiLogisticsShipSystemCreatesVisibleSupplyDrop()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -430,6 +431,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiLogisticsShipSpawnsRoleManifestCrew()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -706,6 +708,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiLogisticsShipUsesMappedCrewMarkers()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -790,6 +793,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiLogisticsShipWithoutMarkersUsesInternalGridTiles()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -894,6 +898,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneMovesAndDeliversOreToAiBase()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -963,6 +968,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneReactsToNearbyPeople()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1017,6 +1023,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneWarnsAndBacksOffWhenPeopleAreTooClose()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1074,6 +1081,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneRolesProduceDifferentSocialStates()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1137,6 +1145,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneLeavesWorldTraceWithoutSpam()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1225,6 +1234,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneRemembersRepeatedHumanContacts()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1292,6 +1302,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiBaseCreatesWorkZonesAndAssignsDroneTasks()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1379,6 +1390,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiBaseRoleDronesProduceDifferentTaskContributions()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1488,6 +1500,7 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
+    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiBaseDroneAndTraceExamineExplainCurrentWork()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });

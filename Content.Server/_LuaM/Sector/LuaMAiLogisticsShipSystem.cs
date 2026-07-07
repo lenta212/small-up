@@ -45,6 +45,9 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
     {
         base.Update(frameTime);
 
+        if (!LuaMAiPhysicalBaseFeature.Enabled)
+            return;
+
         var now = _timing.CurTime;
         var query = EntityQueryEnumerator<LuaMAiLogisticsShipComponent>();
         while (query.MoveNext(out var uid, out var logistics))
@@ -85,6 +88,13 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
 
     public string EnsureCrewForShip(EntityUid shipUid, LuaMAiLogisticsShipComponent logistics)
     {
+        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        {
+            logistics.CrewRoleManifest.Clear();
+            logistics.LastCrewReport = LuaMAiPhysicalBaseFeature.DisabledReason;
+            return logistics.LastCrewReport;
+        }
+
         EnsureCrewManifest(logistics);
 
         if (!_prototypes.HasIndex<EntityPrototype>(AiMiningDronePrototype))

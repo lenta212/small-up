@@ -5,6 +5,7 @@ using System.Numerics;
 using Content.Server._LuaM.Sector;
 using Content.Server._NF.Shipyard.Systems;
 using Content.Server.Administration;
+using Content.Server.Bed.Components;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Systems;
 using Content.Server.Radio.EntitySystems;
@@ -12,6 +13,7 @@ using Content.Server.Shuttles.Components;
 using Content.Server.Station.Systems;
 using Content.Shared._NF.Shipyard.Prototypes;
 using Content.Shared.Administration;
+using Content.Shared.Buckle.Components;
 using Content.Shared.Mobs;
 using Content.Shared.Radio;
 using Content.Shared.Station.Components;
@@ -308,6 +310,18 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             return false;
         }
 
+        if (spawnAgent &&
+            _rescueAgent.TryFindActiveAgent(out var activeAgent, out var activeRescue))
+        {
+            shuttle = activeRescue.AssignedShuttle;
+            agent = activeAgent;
+            autopilotConsole = activeRescue.AssignedShuttleConsole;
+            status =
+                $"Only one Aibolit rescue agent may be active. Existing agent={GetNetEntity(activeAgent)}; " +
+                "new rescue shuttle purchase and agent spawn blocked.";
+            return false;
+        }
+
         if (!deathSignal &&
             spawnAgent &&
             spawnTeam &&
@@ -354,7 +368,14 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             ? anchorEntity
             : shuttle.Value;
 
-        agent = _rescueAgent.SpawnAgent(anchor, followTarget, controller, control);
+        if (!_rescueAgent.TrySpawnAgent(anchor, followTarget, controller, control, out var spawnedAgent, out var spawnStatus))
+        {
+            status = spawnStatus;
+            agent = spawnedAgent;
+            return false;
+        }
+
+        agent = spawnedAgent;
         var rescue = EnsureComp<LuaMRescueAgentComponent>(agent.Value);
         rescue.AssignedShuttle = shuttle;
         rescue.AssignedShuttleAnchor = anchor;
@@ -412,6 +433,9 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         rescue.DeathSignalDispatchReported = true;
         rescue.LastAutoCommsKey = $"death-signal-dispatch:{target}";
         rescue.NextAutoCommsAt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoCommsCooldown));
+        rescue.LastRescueSpeechKey = rescue.LastAutoCommsKey;
+        rescue.NextRescueSpeechAt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.RescueSpeechCooldown));
+        rescue.LastRescueSpeechStatus = $"speech:auto-comms:{rescue.LastAutoCommsKey}; cooldown={rescue.RescueSpeechCooldown:0}s";
         Dirty(agent, rescue);
     }
 
@@ -422,6 +446,9 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
 
         rescue.LastAutoCommsKey = $"critical-signal-dispatch:{target}";
         rescue.NextAutoCommsAt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoCommsCooldown));
+        rescue.LastRescueSpeechKey = rescue.LastAutoCommsKey;
+        rescue.NextRescueSpeechAt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.RescueSpeechCooldown));
+        rescue.LastRescueSpeechStatus = $"speech:auto-comms:{rescue.LastAutoCommsKey}; cooldown={rescue.RescueSpeechCooldown:0}s";
         Dirty(agent, rescue);
     }
 
@@ -497,6 +524,9 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
 
     private bool TryFindShuttleAnchor(EntityUid shuttle, out EntityUid anchor)
     {
+        if (TryFindPatientCareAnchor(shuttle, out anchor))
+            return true;
+
         var consoleQuery = EntityQueryEnumerator<ShuttleConsoleComponent, TransformComponent>();
         while (consoleQuery.MoveNext(out var uid, out _, out var xform))
         {
@@ -515,6 +545,47 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
                 anchor = uid;
                 return true;
             }
+        }
+
+        anchor = default;
+        return false;
+    }
+
+    private bool TryFindPatientCareAnchor(EntityUid shuttle, out EntityUid anchor)
+    {
+        EntityUid? careAnchor = null;
+        EntityUid? fallbackStrap = null;
+        var strapQuery = EntityQueryEnumerator<StrapComponent, TransformComponent>();
+        while (strapQuery.MoveNext(out var uid, out var strap, out var xform))
+        {
+            if (xform.GridUid != shuttle ||
+                !strap.Enabled)
+            {
+                continue;
+            }
+
+            if (HasComp<StasisBedComponent>(uid))
+            {
+                anchor = uid;
+                return true;
+            }
+
+            if (HasComp<HealOnBuckleComponent>(uid))
+                careAnchor ??= uid;
+
+            fallbackStrap ??= uid;
+        }
+
+        if (careAnchor is { Valid: true } care)
+        {
+            anchor = care;
+            return true;
+        }
+
+        if (fallbackStrap is { Valid: true } fallback)
+        {
+            anchor = fallback;
+            return true;
         }
 
         anchor = default;

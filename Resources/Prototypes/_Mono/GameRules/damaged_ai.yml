@@ -26,6 +26,7 @@
     startAudio:
       path: /Audio/Misc/notice1.ogg
     weight: 2
+    minimumPlayers: 32
     maxOccurrences: 4
   - type: GameRule
     minPlayers: 32
@@ -41,6 +42,7 @@
     startAudio:
       path: /Audio/Misc/notice1.ogg
     weight: 3
+    minimumPlayers: 32
     maxOccurrences: 2
   - type: GameRule
     minPlayers: 32
@@ -56,6 +58,7 @@
     startAudio:
       path: /Audio/Misc/notice1.ogg
     weight: 2
+    minimumPlayers: 32
     maxOccurrences: 4
   - type: GameRule
     minPlayers: 32
@@ -71,6 +74,7 @@
     startAudio:
       path: /Audio/Misc/notice1.ogg
     weight: 3
+    minimumPlayers: 15
     maxOccurrences: 6
   - type: GameRule
     minPlayers: 15
@@ -86,6 +90,7 @@
     startAudio:
       path: /Audio/Misc/delta_alt.ogg # LuaM: /Audio/Misc/notice1.ogg > /Audio/Misc/delta_alt.ogg
     weight: 2 # rare but not too rare since it's in the T2 spawner
+    minimumPlayers: 15
     maxOccurrences: 2
   - type: GameRule
     minPlayers: 15
@@ -101,6 +106,7 @@
     startAudio:
       path: /Audio/Misc/delta_alt.ogg
     weight: 1.5
+    minimumPlayers: 60
     maxOccurrences: 1
   - type: GameRule
     minPlayers: 60

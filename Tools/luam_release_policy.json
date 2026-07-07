@@ -1,6 +1,6 @@
 {
   "remoteDeployFrozen": true,
-  "reason": "Remote deploy frozen after forced LuaM patch deployment on 2026-07-06; require explicit operator approval before the next upload, restart, or update.",
+  "reason": "Remote deploy frozen after emergency update on 2026-07-06; LuaM AI-base cleanup throttling and virtual logistics memory cooldown are deployed, require explicit operator approval before the next upload, restart, or update.",
   "lastReviewed": "2026-07-06",
   "requiredChecksBeforeDeploy": [
     "powershell -NoProfile -ExecutionPolicy Bypass -File Tools\\check_luam_release_ready.ps1 -RunTests -RunLocalSmoke",
