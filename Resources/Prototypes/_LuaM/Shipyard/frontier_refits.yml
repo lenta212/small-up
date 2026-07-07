@@ -2,8 +2,8 @@
 # GitHub: orvarod
 #
 # LuaM Frontier armed refit batch.
-# These variants use dedicated LuaM Frontier physical refit maps and raise their price to reflect
-# reinforced hull swaps, tuned-drive pricing, and armed patrol equipment.
+# These variants reuse proven Frontier hulls and raise their price to reflect
+# reinforced fitting, tuned drives, and armed patrol equipment.
 
 - type: vessel
   id: LuaMFrontierOre01
@@ -13,7 +13,7 @@
   price: 210000
   category: Large
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre01.yml
+  shuttlePath: /Maps/_Mono/Shuttles/mclass.yml
   guidebookPage: null
   class:
   - Salvage
@@ -24,7 +24,7 @@
 - type: gameMap
   id: LuaMFrontierOre01
   mapName: 'LMC Frontier Prospector'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre01.yml
+  mapPath: /Maps/_Mono/Shuttles/mclass.yml
   minPlayers: 0
   stations:
     LuaMFrontierOre01:
@@ -49,7 +49,7 @@
   price: 142000
   category: Medium
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre02.yml
+  shuttlePath: /Maps/_Mono/Shuttles/rig.yml
   guidebookPage: null
   class:
   - Salvage
@@ -60,7 +60,7 @@
 - type: gameMap
   id: LuaMFrontierOre02
   mapName: 'LMC Frontier Refinery'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre02.yml
+  mapPath: /Maps/_Mono/Shuttles/rig.yml
   minPlayers: 0
   stations:
     LuaMFrontierOre02:
@@ -85,7 +85,7 @@
   price: 149000
   category: Medium
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre03.yml
+  shuttlePath: /Maps/_Mono/Shuttles/caracara.yml
   guidebookPage: null
   class:
   - Salvage
@@ -96,7 +96,7 @@
 - type: gameMap
   id: LuaMFrontierOre03
   mapName: 'LMC Frontier Quarry'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre03.yml
+  mapPath: /Maps/_Mono/Shuttles/caracara.yml
   minPlayers: 0
   stations:
     LuaMFrontierOre03:
@@ -121,7 +121,7 @@
   price: 70400
   category: Medium
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre04.yml
+  shuttlePath: /Maps/_Mono/Shuttles/noble.yml
   guidebookPage: null
   class:
   - Salvage
@@ -132,7 +132,7 @@
 - type: gameMap
   id: LuaMFrontierOre04
   mapName: 'LMC Frontier Lode'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre04.yml
+  mapPath: /Maps/_Mono/Shuttles/noble.yml
   minPlayers: 0
   stations:
     LuaMFrontierOre04:
@@ -157,7 +157,7 @@
   price: 80400
   category: Medium
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre05.yml
+  shuttlePath: /Maps/_Mono/Shuttles/peregrine.yml
   guidebookPage: null
   class:
   - Salvage
@@ -168,7 +168,7 @@
 - type: gameMap
   id: LuaMFrontierOre05
   mapName: 'LMC Frontier Vein'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre05.yml
+  mapPath: /Maps/_Mono/Shuttles/peregrine.yml
   minPlayers: 0
   stations:
     LuaMFrontierOre05:
@@ -193,7 +193,7 @@
   price: 60800
   category: Medium
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre06.yml
+  shuttlePath: /Maps/_Mono/Shuttles/victoria.yml
   guidebookPage: null
   class:
   - Salvage
@@ -205,7 +205,7 @@
 - type: gameMap
   id: LuaMFrontierOre06
   mapName: 'LMC Frontier Driller'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre06.yml
+  mapPath: /Maps/_Mono/Shuttles/victoria.yml
   minPlayers: 0
   stations:
     LuaMFrontierOre06:
@@ -230,7 +230,7 @@
   price: 78700
   category: Medium
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre07.yml
+  shuttlePath: /Maps/_Mono/Shuttles/sakuratsu.yml
   guidebookPage: null
   class:
   - Salvage
@@ -242,7 +242,7 @@
 - type: gameMap
   id: LuaMFrontierOre07
   mapName: 'LMC Frontier Surveyor'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre07.yml
+  mapPath: /Maps/_Mono/Shuttles/sakuratsu.yml
   minPlayers: 0
   stations:
     LuaMFrontierOre07:
@@ -267,7 +267,7 @@
   price: 51200
   category: Small
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre08.yml
+  shuttlePath: /Maps/_Mono/Shuttles/vaquita.yml
   guidebookPage: null
   class:
   - Salvage
@@ -278,7 +278,7 @@
 - type: gameMap
   id: LuaMFrontierOre08
   mapName: 'LMC Frontier Claim'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre08.yml
+  mapPath: /Maps/_Mono/Shuttles/vaquita.yml
   minPlayers: 0
   stations:
     LuaMFrontierOre08:
@@ -303,7 +303,7 @@
   price: 173000
   category: Medium
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre09.yml
+  shuttlePath: /Maps/_Mono/Shuttles/USSP/remontnik.yml
   guidebookPage: null
   class:
   - Engineering
@@ -315,7 +315,7 @@
 - type: gameMap
   id: LuaMFrontierOre09
   mapName: 'LMC Frontier Forge'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre09.yml
+  mapPath: /Maps/_Mono/Shuttles/USSP/remontnik.yml
   minPlayers: 0
   stations:
     LuaMFrontierOre09:
@@ -340,7 +340,7 @@
   price: 143500
   category: Small
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre10.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Nfsd/welder.yml
   guidebookPage: null
   class:
   - Salvage
@@ -352,7 +352,7 @@
 - type: gameMap
   id: LuaMFrontierOre10
   mapName: 'LMC Frontier Weld'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierOre10.yml
+  mapPath: /Maps/_Mono/Shuttles/Nfsd/welder.yml
   minPlayers: 0
   stations:
     LuaMFrontierOre10:
@@ -377,7 +377,7 @@
   price: 54800
   category: Medium
   group: Expedition
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition01.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/duran.yml
   guidebookPage: null
   class:
   - Expedition
@@ -388,7 +388,7 @@
 - type: gameMap
   id: LuaMFrontierExpedition01
   mapName: 'LMC Frontier Pathfinder'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition01.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/duran.yml
   minPlayers: 0
   stations:
     LuaMFrontierExpedition01:
@@ -413,7 +413,7 @@
   price: 93800
   category: Medium
   group: Expedition
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition02.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/magus.yml
   guidebookPage: null
   class:
   - Expedition
@@ -425,7 +425,7 @@
 - type: gameMap
   id: LuaMFrontierExpedition02
   mapName: 'LMC Frontier Ranger'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition02.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/magus.yml
   minPlayers: 0
   stations:
     LuaMFrontierExpedition02:
@@ -451,7 +451,7 @@
   price: 94600
   category: Medium
   group: Expedition
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition03.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/judiciary.yml
   guidebookPage: null
   class:
   - Expedition
@@ -463,7 +463,7 @@
 - type: gameMap
   id: LuaMFrontierExpedition03
   mapName: 'LMC Frontier Outrider'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition03.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/judiciary.yml
   minPlayers: 0
   stations:
     LuaMFrontierExpedition03:
@@ -488,7 +488,7 @@
   price: 104200
   category: Medium
   group: Expedition
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition04.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/picses.yml
   guidebookPage: null
   class:
   - Expedition
@@ -499,7 +499,7 @@
 - type: gameMap
   id: LuaMFrontierExpedition04
   mapName: 'LMC Frontier Scoutline'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition04.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/picses.yml
   minPlayers: 0
   stations:
     LuaMFrontierExpedition04:
@@ -524,7 +524,7 @@
   price: 106700
   category: Medium
   group: Expedition
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition05.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/padval.yml
   guidebookPage: null
   class:
   - Expedition
@@ -536,7 +536,7 @@
 - type: gameMap
   id: LuaMFrontierExpedition05
   mapName: 'LMC Frontier Trailblazer'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition05.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/padval.yml
   minPlayers: 0
   stations:
     LuaMFrontierExpedition05:
@@ -561,7 +561,7 @@
   price: 109100
   category: Medium
   group: Expedition
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition06.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/sirius.yml
   guidebookPage: null
   class:
   - Expedition
@@ -573,7 +573,7 @@
 - type: gameMap
   id: LuaMFrontierExpedition06
   mapName: 'LMC Frontier Nomad'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition06.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/sirius.yml
   minPlayers: 0
   stations:
     LuaMFrontierExpedition06:
@@ -598,7 +598,7 @@
   price: 112100
   category: Medium
   group: Expedition
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition07.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/twilightmk2.yml
   guidebookPage: null
   class:
   - Expedition
@@ -609,7 +609,7 @@
 - type: gameMap
   id: LuaMFrontierExpedition07
   mapName: 'LMC Frontier Wayfarer'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition07.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/twilightmk2.yml
   minPlayers: 0
   stations:
     LuaMFrontierExpedition07:
@@ -634,7 +634,7 @@
   price: 287600
   category: Medium
   group: Expedition
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition08.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/fortunate.yml
   guidebookPage: null
   class:
   - Expedition
@@ -645,7 +645,7 @@
 - type: gameMap
   id: LuaMFrontierExpedition08
   mapName: 'LMC Frontier Spearpoint'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition08.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/fortunate.yml
   minPlayers: 0
   stations:
     LuaMFrontierExpedition08:
@@ -670,7 +670,7 @@
   price: 330800
   category: Medium
   group: Expedition
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition09.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/siebel.yml
   guidebookPage: null
   class:
   - Expedition
@@ -681,7 +681,7 @@
 - type: gameMap
   id: LuaMFrontierExpedition09
   mapName: 'LMC Frontier Vanguard'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition09.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/siebel.yml
   minPlayers: 0
   stations:
     LuaMFrontierExpedition09:
@@ -706,7 +706,7 @@
   price: 162000
   category: Large
   group: Expedition
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition10.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/comet.yml
   guidebookPage: null
   class:
   - Expedition
@@ -718,7 +718,7 @@
 - type: gameMap
   id: LuaMFrontierExpedition10
   mapName: 'LMC Frontier Comet-Lance'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierExpedition10.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/comet.yml
   minPlayers: 0
   stations:
     LuaMFrontierExpedition10:
@@ -743,7 +743,7 @@
   price: 162000
   category: Large
   group: Medical
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical01.yml
+  shuttlePath: /Maps/_Mono/Shuttles/tokarev.yml
   guidebookPage: null
   class:
   - Medical
@@ -755,7 +755,7 @@
 - type: gameMap
   id: LuaMFrontierMedical01
   mapName: 'LMC Frontier Lifeline'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical01.yml
+  mapPath: /Maps/_Mono/Shuttles/tokarev.yml
   minPlayers: 0
   stations:
     LuaMFrontierMedical01:
@@ -781,7 +781,7 @@
   price: 181900
   category: Large
   group: Medical
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical02.yml
+  shuttlePath: /Maps/_Mono/Shuttles/intermission.yml
   guidebookPage: null
   class:
   - Medical
@@ -793,7 +793,7 @@
 - type: gameMap
   id: LuaMFrontierMedical02
   mapName: 'LMC Frontier Wardline'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical02.yml
+  mapPath: /Maps/_Mono/Shuttles/intermission.yml
   minPlayers: 0
   stations:
     LuaMFrontierMedical02:
@@ -819,7 +819,7 @@
   price: 196500
   category: Large
   group: Medical
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical03.yml
+  shuttlePath: /Maps/_Mono/Shuttles/tzipora.yml
   guidebookPage: null
   class:
   - Medical
@@ -831,7 +831,7 @@
 - type: gameMap
   id: LuaMFrontierMedical03
   mapName: 'LMC Frontier Triage-Hawk'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical03.yml
+  mapPath: /Maps/_Mono/Shuttles/tzipora.yml
   minPlayers: 0
   stations:
     LuaMFrontierMedical03:
@@ -857,7 +857,7 @@
   price: 93800
   category: Medium
   group: Medical
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical04.yml
+  shuttlePath: /Maps/_Mono/Shuttles/leaf.yml
   guidebookPage: null
   class:
   - Medical
@@ -869,7 +869,7 @@
 - type: gameMap
   id: LuaMFrontierMedical04
   mapName: 'LMC Frontier Medevac'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical04.yml
+  mapPath: /Maps/_Mono/Shuttles/leaf.yml
   minPlayers: 0
   stations:
     LuaMFrontierMedical04:
@@ -895,7 +895,7 @@
   price: 102800
   category: Medium
   group: Medical
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical05.yml
+  shuttlePath: /Maps/_Mono/Shuttles/velios.yml
   guidebookPage: null
   class:
   - Medical
@@ -907,7 +907,7 @@
 - type: gameMap
   id: LuaMFrontierMedical05
   mapName: 'LMC Frontier Scalpel'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical05.yml
+  mapPath: /Maps/_Mono/Shuttles/velios.yml
   minPlayers: 0
   stations:
     LuaMFrontierMedical05:
@@ -933,7 +933,7 @@
   price: 103300
   category: Medium
   group: Medical
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical06.yml
+  shuttlePath: /Maps/_Mono/Shuttles/medicus.yml
   guidebookPage: null
   class:
   - Medical
@@ -945,7 +945,7 @@
 - type: gameMap
   id: LuaMFrontierMedical06
   mapName: 'LMC Frontier Remedy'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical06.yml
+  mapPath: /Maps/_Mono/Shuttles/medicus.yml
   minPlayers: 0
   stations:
     LuaMFrontierMedical06:
@@ -971,7 +971,7 @@
   price: 128300
   category: Medium
   group: Medical
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical07.yml
+  shuttlePath: /Maps/_Mono/Shuttles/kuldi.yml
   guidebookPage: null
   class:
   - Medical
@@ -983,7 +983,7 @@
 - type: gameMap
   id: LuaMFrontierMedical07
   mapName: 'LMC Frontier Pulse'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical07.yml
+  mapPath: /Maps/_Mono/Shuttles/kuldi.yml
   minPlayers: 0
   stations:
     LuaMFrontierMedical07:
@@ -1009,7 +1009,7 @@
   price: 143800
   category: Medium
   group: Medical
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical08.yml
+  shuttlePath: /Maps/_Mono/Shuttles/promise.yml
   guidebookPage: null
   class:
   - Medical
@@ -1021,7 +1021,7 @@
 - type: gameMap
   id: LuaMFrontierMedical08
   mapName: 'LMC Frontier Stasis'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical08.yml
+  mapPath: /Maps/_Mono/Shuttles/promise.yml
   minPlayers: 0
   stations:
     LuaMFrontierMedical08:
@@ -1047,7 +1047,7 @@
   price: 212000
   category: Medium
   group: Medical
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical09.yml
+  shuttlePath: /Maps/_Mono/Shuttles/odenta.yml
   guidebookPage: null
   class:
   - Medical
@@ -1059,7 +1059,7 @@
 - type: gameMap
   id: LuaMFrontierMedical09
   mapName: 'LMC Frontier Trauma'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical09.yml
+  mapPath: /Maps/_Mono/Shuttles/odenta.yml
   minPlayers: 0
   stations:
     LuaMFrontierMedical09:
@@ -1085,7 +1085,7 @@
   price: 66400
   category: Small
   group: Medical
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical10.yml
+  shuttlePath: /Maps/_Mono/Shuttles/triage.yml
   guidebookPage: null
   class:
   - Medical
@@ -1096,7 +1096,7 @@
 - type: gameMap
   id: LuaMFrontierMedical10
   mapName: 'LMC Frontier Field-Triage'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierMedical10.yml
+  mapPath: /Maps/_Mono/Shuttles/triage.yml
   minPlayers: 0
   stations:
     LuaMFrontierMedical10:
@@ -1122,7 +1122,7 @@
   price: 162000
   category: Large
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience01.yml
+  shuttlePath: /Maps/_Mono/Shuttles/ethereal.yml
   guidebookPage: null
   class:
   - Science
@@ -1134,7 +1134,7 @@
 - type: gameMap
   id: LuaMFrontierScience01
   mapName: 'LMC Frontier Vector'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience01.yml
+  mapPath: /Maps/_Mono/Shuttles/ethereal.yml
   minPlayers: 0
   stations:
     LuaMFrontierScience01:
@@ -1159,7 +1159,7 @@
   price: 337500
   category: Large
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience02.yml
+  shuttlePath: /Maps/_Mono/Shuttles/windreign.yml
   guidebookPage: null
   class:
   - Science
@@ -1171,7 +1171,7 @@
 - type: gameMap
   id: LuaMFrontierScience02
   mapName: 'LMC Frontier Beacon'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience02.yml
+  mapPath: /Maps/_Mono/Shuttles/windreign.yml
   minPlayers: 0
   stations:
     LuaMFrontierScience02:
@@ -1196,7 +1196,7 @@
   price: 364500
   category: Large
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience03.yml
+  shuttlePath: /Maps/_Mono/Shuttles/hammerhead.yml
   guidebookPage: null
   class:
   - Science
@@ -1209,7 +1209,7 @@
 - type: gameMap
   id: LuaMFrontierScience03
   mapName: 'LMC Frontier Lens'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience03.yml
+  mapPath: /Maps/_Mono/Shuttles/hammerhead.yml
   minPlayers: 0
   stations:
     LuaMFrontierScience03:
@@ -1235,7 +1235,7 @@
   price: 133700
   category: Medium
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience04.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Rosetta.yml
   guidebookPage: null
   class:
   - Science
@@ -1246,7 +1246,7 @@
 - type: gameMap
   id: LuaMFrontierScience04
   mapName: 'LMC Frontier Index'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience04.yml
+  mapPath: /Maps/_Mono/Shuttles/Rosetta.yml
   minPlayers: 0
   stations:
     LuaMFrontierScience04:
@@ -1271,7 +1271,7 @@
   price: 49900
   category: Small
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience05.yml
+  shuttlePath: /Maps/_Mono/Shuttles/iapetus.yml
   guidebookPage: null
   class:
   - Science
@@ -1282,7 +1282,7 @@
 - type: gameMap
   id: LuaMFrontierScience05
   mapName: 'LMC Frontier Survey'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience05.yml
+  mapPath: /Maps/_Mono/Shuttles/iapetus.yml
   minPlayers: 0
   stations:
     LuaMFrontierScience05:
@@ -1307,7 +1307,7 @@
   price: 122900
   category: Small
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience06.yml
+  shuttlePath: /Maps/_LuaM/Shuttles/PDV/SpyglassMK2LuaM.yml
   guidebookPage: null
   class:
   - Science
@@ -1318,7 +1318,7 @@
 - type: gameMap
   id: LuaMFrontierScience06
   mapName: 'LMC Frontier Archive'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience06.yml
+  mapPath: /Maps/_LuaM/Shuttles/PDV/SpyglassMK2LuaM.yml
   minPlayers: 0
   stations:
     LuaMFrontierScience06:
@@ -1343,7 +1343,7 @@
   price: 77700
   category: Small
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience07.yml
+  shuttlePath: /Maps/_Mono/Shuttles/kestrel.yml
   guidebookPage: null
   class:
   - Science
@@ -1354,7 +1354,7 @@
 - type: gameMap
   id: LuaMFrontierScience07
   mapName: 'LMC Frontier Spire'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience07.yml
+  mapPath: /Maps/_Mono/Shuttles/kestrel.yml
   minPlayers: 0
   stations:
     LuaMFrontierScience07:
@@ -1379,7 +1379,7 @@
   price: 1182300
   category: Large
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience08.yml
+  shuttlePath: /Maps/_Mono/Shuttles/ravager.yml
   guidebookPage: null
   class:
   - Science
@@ -1390,7 +1390,7 @@
 - type: gameMap
   id: LuaMFrontierScience08
   mapName: 'LMC Frontier Relic'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience08.yml
+  mapPath: /Maps/_Mono/Shuttles/ravager.yml
   minPlayers: 0
   stations:
     LuaMFrontierScience08:
@@ -1415,7 +1415,7 @@
   price: 108000
   category: Small
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience09.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Nfsd/shiv.yml
   guidebookPage: null
   class:
   - Science
@@ -1427,7 +1427,7 @@
 - type: gameMap
   id: LuaMFrontierScience09
   mapName: 'LMC Frontier Method'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience09.yml
+  mapPath: /Maps/_Mono/Shuttles/Nfsd/shiv.yml
   minPlayers: 0
   stations:
     LuaMFrontierScience09:
@@ -1452,7 +1452,7 @@
   price: 354000
   category: Large
   group: Shipyard
-  shuttlePath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience10.yml
+  shuttlePath: /Maps/_Mono/Shuttles/Expedition/arkansaw.yml
   guidebookPage: null
   class:
   - Science
@@ -1464,7 +1464,7 @@
 - type: gameMap
   id: LuaMFrontierScience10
   mapName: 'LMC Frontier Horizon'
-  mapPath: /Maps/_LuaM/Shuttles/Frontier/LuaMFrontierScience10.yml
+  mapPath: /Maps/_Mono/Shuttles/Expedition/arkansaw.yml
   minPlayers: 0
   stations:
     LuaMFrontierScience10:

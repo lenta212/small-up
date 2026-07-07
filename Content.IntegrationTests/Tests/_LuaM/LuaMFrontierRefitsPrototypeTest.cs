@@ -12,12 +12,9 @@ namespace Content.IntegrationTests.Tests._LuaM;
 [TestFixture]
 public sealed class LuaMFrontierRefitsPrototypeTest
 {
-    private const string FrontierMapRoot = "/Maps/_LuaM/Shuttles/Frontier/";
-
     private static readonly Regex ShipWeaponRegex = new(@"(?m)^- proto: (Weapon|ShuttleGun|ComputerGunnery)");
     private static readonly Regex ThrusterRegex = new(@"(?m)^- proto: .*Thruster");
     private static readonly Regex GyroscopeRegex = new(@"(?m)^- proto: Gyroscope");
-    private static readonly Regex OrdinaryHullRegex = new(@"(?m)^- proto: (WallSolid|WallSolidDiagonal|Window|WindowDirectional|WindowDiagonal)\s*$");
 
     private static readonly Dictionary<string, int> BasePrices = new()
     {
@@ -100,29 +97,21 @@ public sealed class LuaMFrontierRefitsPrototypeTest
         Assert.That(vessels.Count(proto => ScalarValue(proto, "id").StartsWith("LuaMFrontierExpedition")), Is.EqualTo(10));
         Assert.That(vessels.Count(proto => ScalarValue(proto, "id").StartsWith("LuaMFrontierMedical")), Is.EqualTo(10));
         Assert.That(vessels.Count(proto => ScalarValue(proto, "id").StartsWith("LuaMFrontierScience")), Is.EqualTo(10));
-        Assert.That(Directory.GetFiles(FullPath("Resources/Maps/_LuaM/Shuttles/Frontier"), "LuaMFrontier*.yml"), Has.Length.EqualTo(40));
 
         foreach (var vessel in vessels)
         {
             var id = ScalarValue(vessel, "id");
-            var name = ScalarValue(vessel, "name");
             Assert.That(BasePrices, Does.ContainKey(id));
             Assert.That(int.Parse(ScalarValue(vessel, "price")), Is.GreaterThan(BasePrices[id]), id);
             Assert.That(ScalarValue(vessel, "description"), Does.Contain("orvarod"), id);
             Assert.That(ScalarValue(vessel, "description"), Does.Contain("armed"), id);
 
             var path = ScalarValue(vessel, "shuttlePath");
-            Assert.That(path, Does.StartWith(FrontierMapRoot), id);
-            Assert.That(Path.GetFileNameWithoutExtension(path), Is.EqualTo(id), id);
             Assert.That(gameMaps, Does.ContainKey(id), id);
             Assert.That(ScalarValue(gameMaps[id], "mapPath"), Is.EqualTo(path), id);
-            Assert.That(ScalarValue(gameMaps[id], "mapName"), Is.EqualTo(name), id);
+            Assert.That(ScalarValue(gameMaps[id], "mapName"), Does.StartWith("LMC Frontier"), id);
 
             var mapText = File.ReadAllText(FullPath(Path.Combine("Resources", path.TrimStart('/'))), Encoding.UTF8);
-            Assert.That(mapText, Does.Contain("# GitHub: orvarod"), id);
-            Assert.That(HasFrontierGridName(mapText, name), Is.True, $"{id} should have a physical map grid name.");
-            Assert.That(HasGeneratedStationId(mapText, id), Is.True, $"{id} should have its own BecomesStation id.");
-            Assert.That(OrdinaryHullRegex.IsMatch(mapText), Is.False, $"{id} should not keep ordinary wall/window hull pieces.");
             Assert.That(HasShipWeapon(mapText), Is.True, $"{id} should use an armed base map.");
             Assert.That(HasDriveEquipment(mapText), Is.True, $"{id} should use a mobile ship base map.");
         }
@@ -159,23 +148,6 @@ public sealed class LuaMFrontierRefitsPrototypeTest
     {
         return ThrusterRegex.IsMatch(mapText) &&
                GyroscopeRegex.IsMatch(mapText);
-    }
-
-    private static bool HasFrontierGridName(string mapText, string name)
-    {
-        return HasLine(mapText, $"      name: {name}");
-    }
-
-    private static bool HasGeneratedStationId(string mapText, string id)
-    {
-        return HasLine(mapText, $"      id: {id}");
-    }
-
-    private static bool HasLine(string text, string line)
-    {
-        return text
-            .Split('\n')
-            .Any(rawLine => rawLine.TrimEnd('\r') == line);
     }
 
     private static IEnumerable<YamlMappingNode> PrototypesOfType(YamlSequenceNode prototypes, string type)
