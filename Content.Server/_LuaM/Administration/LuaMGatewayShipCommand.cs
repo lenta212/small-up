@@ -23,13 +23,14 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
     private const string DefaultGameMap = "Twilight";
     private const string GatewayPrototype = "Gateway";
     private const string PairHereFlag = "--pair-here";
+    private const string NoJumpFlag = "--no-jump";
 
     [Dependency] private IEntityManager _entities = default!;
     [Dependency] private IPrototypeManager _prototypes = default!;
 
     public string Command => "luam_gateway_ship";
-    public string Description => "Loads a game-map ship and places an enabled gateway on its first grid.";
-    public string Help => $"Usage: {Command} {LuaMAiConsoleConfirmation.ConfirmFlag} <mapId> [gameMap={DefaultGameMap}] [x=0] [y=0] [name...] [{PairHereFlag}]";
+    public string Description => "Loads a game-map ship and places a gateway on its first grid.";
+    public string Help => $"Usage: {Command} {LuaMAiConsoleConfirmation.ConfirmFlag} <mapId> [gameMap={DefaultGameMap}] [x=0] [y=0] [name...] [{PairHereFlag}] [{NoJumpFlag}]";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
     {
@@ -38,6 +39,7 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
 
         var cleanArgs = new List<string>(confirmedArgs);
         var pairHere = cleanArgs.RemoveAll(arg => arg.Equals(PairHereFlag, StringComparison.OrdinalIgnoreCase)) > 0;
+        var noJump = cleanArgs.RemoveAll(arg => arg.Equals(NoJumpFlag, StringComparison.OrdinalIgnoreCase)) > 0;
 
         if (cleanArgs.Count < 1)
         {
@@ -118,10 +120,11 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
             return;
         }
 
-        var shipGateway = SpawnEnabledGateway(
+        var shipGateway = SpawnGateway(
             gatewaySystem,
             PickGatewayCoordinates(mapSystem, shipGrid, grid),
-            $"{displayName} Gate");
+            $"{displayName} Gate",
+            enabled: !noJump);
 
         EntityUid? localGateway = null;
         if (pairHere)
@@ -132,19 +135,23 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
             }
             else if (_entities.TryGetComponent<TransformComponent>(attached, out var xform))
             {
-                localGateway = SpawnEnabledGateway(
+                localGateway = SpawnGateway(
                     gatewaySystem,
                     xform.Coordinates,
-                    $"{displayName} Local Gate");
+                    $"{displayName} Local Gate",
+                    enabled: !noJump);
             }
         }
 
         gatewaySystem.UpdateAllGateways();
-        shell.WriteLine($"Loaded {gameMapId} on map {mapIdValue}; placed Gateway {shipGateway} on grid {shipGrid}.");
+        var gatewayState = noJump ? "locked/no-jump" : "enabled";
+        shell.WriteLine($"Loaded {gameMapId} on map {mapIdValue}; placed {gatewayState} Gateway {shipGateway} on grid {shipGrid}.");
         if (localGateway != null)
-            shell.WriteLine($"Placed paired local Gateway {localGateway} at your current position.");
+            shell.WriteLine($"Placed paired {gatewayState} local Gateway {localGateway} at your current position.");
         else
-            shell.WriteLine($"Use {PairHereFlag} or place another enabled Gateway to create a selectable destination pair.");
+            shell.WriteLine(noJump
+                ? $"Gateway jumping is disabled by {NoJumpFlag}; enable the Gateway later before using it as a destination."
+                : $"Use {PairHereFlag} or place another enabled Gateway to create a selectable destination pair.");
     }
 
     private IReadOnlyList<EntityUid> LoadGameMapOrGrid(
@@ -233,12 +240,12 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
         }
     }
 
-    private EntityUid SpawnEnabledGateway(GatewaySystem gatewaySystem, EntityCoordinates coordinates, string name)
+    private EntityUid SpawnGateway(GatewaySystem gatewaySystem, EntityCoordinates coordinates, string name, bool enabled)
     {
         var gateway = _entities.SpawnEntity(GatewayPrototype, coordinates);
         var gatewayComp = _entities.GetComponent<GatewayComponent>(gateway);
         gatewaySystem.SetDestinationName(gateway, FormattedMessage.FromUnformatted(name), gatewayComp);
-        gatewaySystem.SetEnabled(gateway, true, gatewayComp);
+        gatewaySystem.SetEnabled(gateway, enabled, gatewayComp);
         return gateway;
     }
 
@@ -272,7 +279,7 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
             2 => CompletionResult.FromHintOptions(CompletionHelper.PrototypeIDs<GameMapPrototype>(), $"gameMap prototype, default {DefaultGameMap}"),
             3 => CompletionResult.FromHint("x offset"),
             4 => CompletionResult.FromHint("y offset"),
-            _ => CompletionResult.FromHint($"optional name or {PairHereFlag}"),
+            _ => CompletionResult.FromHint($"optional name, {PairHereFlag}, or {NoJumpFlag}"),
         };
     }
 }
