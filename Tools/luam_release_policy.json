@@ -1,6 +1,6 @@
 {
-  "remoteDeployFrozen": true,
-  "reason": "The durable-transfer, animal-control, and sector-interception update is under fresh local validation. Remote deployment stays frozen until the new commits, full readiness, package verification, server build, surface audit, and a zero-player guarded rollout are all confirmed.",
+  "remoteDeployFrozen": false,
+  "reason": "The durable-transfer, animal-control, and sector-interception release passed strict readiness, tests, local smoke, package verification, binary build, surface audit, config review, capacity checks, and the zero-player gate at 2026-07-13 22:56 MSK. One guarded rollout is authorized without Force.",
   "lastReviewed": "2026-07-13",
   "approvedReleaseAdditions": [
     "Content.Client/PDA/PdaBoundUserInterface.cs",
