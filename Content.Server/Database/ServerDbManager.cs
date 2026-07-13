@@ -43,6 +43,23 @@ namespace Content.Server.Database
 
         Task SaveCharacterSlotAsync(NetUserId userId, ICharacterProfile? profile, int slot);
 
+        /// <summary>
+        /// Gets the stable server-side profile id for a playable character slot.
+        /// This id is independent of RoundId and is used by long-lived progression.
+        /// </summary>
+        Task<int?> GetCharacterIdAsync(NetUserId userId, int slot, CancellationToken cancel = default);
+
+        /// <summary>
+        /// Restores a specific archived profile into an unoccupied slot.
+        /// This is an explicit server-side recovery operation; ordinary character
+        /// creation must never revive archived identities automatically.
+        /// </summary>
+        Task<bool> RestoreArchivedCharacterAsync(
+            NetUserId userId,
+            int profileId,
+            int slot,
+            CancellationToken cancel = default);
+
         Task SaveAdminOOCColorAsync(NetUserId userId, Color color);
 
         // Single method for two operations for transaction.
@@ -498,6 +515,25 @@ namespace Content.Server.Database
         {
             DbWriteOpsMetric.Inc();
             return RunDbCommand(() => _db.SaveCharacterSlotAsync(userId, profile, slot));
+        }
+
+        public Task<int?> GetCharacterIdAsync(NetUserId userId, int slot, CancellationToken cancel = default)
+        {
+            DbReadOpsMetric.Inc();
+            return RunDbCommand(() => _db.GetCharacterIdAsync(userId, slot, cancel));
+        }
+
+        public Task<bool> RestoreArchivedCharacterAsync(
+            NetUserId userId,
+            int profileId,
+            int slot,
+            CancellationToken cancel = default)
+        {
+            DbWriteOpsMetric.Inc();
+            if (slot < 0 || slot >= _cfg.GetCVar(CCVars.GameMaxCharacterSlots))
+                return Task.FromResult(false);
+
+            return RunDbCommand(() => _db.RestoreArchivedCharacterAsync(userId, profileId, slot, cancel));
         }
 
         public Task DeleteSlotAndSetSelectedIndex(NetUserId userId, int deleteSlot, int newSlot)

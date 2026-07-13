@@ -48,10 +48,13 @@ namespace Content.Server.Database
 
             var prefs = await db.DbContext
                 .Preference
-                .Include(p => p.Profiles).ThenInclude(h => h.Jobs)
-                .Include(p => p.Profiles).ThenInclude(h => h.Antags)
-                .Include(p => p.Profiles).ThenInclude(h => h.Traits)
-                .Include(p => p.Profiles)
+                .Include(p => p.Profiles.Where(h => !h.IsArchived && h.Slot.HasValue))
+                    .ThenInclude(h => h.Jobs)
+                .Include(p => p.Profiles.Where(h => !h.IsArchived && h.Slot.HasValue))
+                    .ThenInclude(h => h.Antags)
+                .Include(p => p.Profiles.Where(h => !h.IsArchived && h.Slot.HasValue))
+                    .ThenInclude(h => h.Traits)
+                .Include(p => p.Profiles.Where(h => !h.IsArchived && h.Slot.HasValue))
                     .ThenInclude(h => h.Loadouts)
                     .ThenInclude(l => l.Groups)
                     .ThenInclude(group => group.Loadouts)
@@ -61,14 +64,19 @@ namespace Content.Server.Database
             if (prefs is null)
                 return null;
 
-            var maxSlot = prefs.Profiles.Max(p => p.Slot) + 1;
-            var profiles = new Dictionary<int, ICharacterProfile>(maxSlot);
-            foreach (var profile in prefs.Profiles)
+            var activeProfiles = prefs.Profiles
+                .Where(profile => !profile.IsArchived && profile.Slot.HasValue)
+                .ToArray();
+            var profiles = new Dictionary<int, ICharacterProfile>(activeProfiles.Length);
+            foreach (var profile in activeProfiles)
             {
-                profiles[profile.Slot] = ConvertProfiles(profile);
+                profiles[profile.Slot!.Value] = ConvertProfiles(profile);
             }
 
-            return new PlayerPreferences(profiles, prefs.SelectedCharacterSlot, Color.FromHex(prefs.AdminOOCColor));
+            var selectedSlot = profiles.ContainsKey(prefs.SelectedCharacterSlot)
+                ? prefs.SelectedCharacterSlot
+                : profiles.Keys.FirstOrDefault();
+            return new PlayerPreferences(profiles, selectedSlot, Color.FromHex(prefs.AdminOOCColor));
         }
 
         public async Task SaveSelectedCharacterIndexAsync(NetUserId userId, int index)
@@ -107,20 +115,92 @@ namespace Content.Server.Database
                     .ThenInclude(l => l.Groups)
                     .ThenInclude(group => group.Loadouts)
                 .AsSplitQuery()
-                .SingleOrDefault(h => h.Slot == slot);
+                .SingleOrDefault(h => h.Slot == slot && !h.IsArchived);
 
             var newProfile = ConvertProfiles(humanoid, slot, oldProfile);
+
             if (oldProfile == null)
             {
-                var prefs = await db.DbContext
-                    .Preference
-                    .Include(p => p.Profiles)
-                    .SingleAsync(p => p.UserId == userId.UserId);
-
-                prefs.Profiles.Add(newProfile);
+                newProfile.PreferenceId = await db.DbContext.Preference
+                    .Where(p => p.UserId == userId.UserId)
+                    .Select(p => p.Id)
+                    .SingleAsync();
+                db.DbContext.Profile.Add(newProfile);
             }
 
             await db.DbContext.SaveChangesAsync();
+        }
+
+        public async Task<int?> GetCharacterIdAsync(NetUserId userId, int slot, CancellationToken cancel = default)
+        {
+            if (slot < 0)
+                return null;
+
+            await using var db = await GetDb(cancel);
+
+            return await db.DbContext.Profile
+                .Where(profile => profile.Preference.UserId == userId.UserId &&
+                                  profile.Slot == slot &&
+                                  !profile.IsArchived)
+                .Select(profile => (int?) profile.Id)
+                .SingleOrDefaultAsync(cancel);
+        }
+
+        /// <summary>
+        /// Explicitly restores an archived profile into an unoccupied slot.
+        /// Normal character creation never calls this method and therefore never
+        /// reuses an archived profile id.
+        /// </summary>
+        public async Task<bool> RestoreArchivedCharacterAsync(
+            NetUserId userId,
+            int profileId,
+            int slot,
+            CancellationToken cancel = default)
+        {
+            if (slot < 0)
+                return false;
+
+            await using var db = await GetDb(cancel);
+
+            var profile = await db.DbContext.Profile
+                .Include(p => p.Preference)
+                .SingleOrDefaultAsync(p => p.Id == profileId &&
+                                           p.Preference.UserId == userId.UserId,
+                    cancel);
+
+            if (profile == null)
+                return false;
+
+            // Make retries idempotent without allowing an active character to move.
+            if (!profile.IsArchived)
+                return profile.Slot == slot;
+
+            var slotOccupied = await db.DbContext.Profile.AnyAsync(p =>
+                p.PreferenceId == profile.PreferenceId &&
+                p.Slot == slot &&
+                !p.IsArchived,
+                cancel);
+
+            if (slotOccupied)
+                return false;
+
+            profile.Slot = slot;
+            profile.IsArchived = false;
+            profile.ArchivedAt = null;
+            try
+            {
+                await db.DbContext.SaveChangesAsync(cancel);
+            }
+            catch (DbUpdateException e)
+            {
+                // The pre-check above provides a useful fast path. The archive-state
+                // concurrency token and unique slot constraint remain authoritative
+                // if another restore wins the race.
+                _opsLog.Warning($"Could not restore archived profile {profileId} to slot {slot}: {e.Message}");
+                return false;
+            }
+
+            return true;
         }
 
         private static async Task DeleteCharacterSlot(ServerDbContext db, NetUserId userId, int slot)
@@ -134,7 +214,11 @@ namespace Content.Server.Database
                 return;
             }
 
-            db.Profile.Remove(profile);
+            // Character rows are never physically deleted. Keeping the row preserves
+            // the stable Profile.Id used by long-lived progression and audit records.
+            profile.Slot = null;
+            profile.IsArchived = true;
+            profile.ArchivedAt = DateTime.UtcNow;
         }
 
         public async Task<PlayerPreferences> InitPrefsAsync(NetUserId userId, ICharacterProfile defaultProfile)
@@ -173,7 +257,6 @@ namespace Content.Server.Database
             await using var db = await GetDb();
             var prefs = await db.DbContext
                 .Preference
-                .Include(p => p.Profiles)
                 .SingleAsync(p => p.UserId == userId.UserId);
             prefs.AdminOOCColor = color.ToHex();
 

@@ -58,6 +58,19 @@ namespace Content.Server.Database
                 .HasIndex(p => new {p.Slot, PrefsId = p.PreferenceId})
                 .IsUnique();
 
+            // Prevent concurrent restore/archive operations from silently moving or
+            // reviving the same identity. A full revision column belongs to the
+            // later career/audit model; this token protects the current lifecycle bit.
+            modelBuilder.Entity<Profile>()
+                .Property(p => p.IsArchived)
+                .IsConcurrencyToken();
+
+            modelBuilder.Entity<Profile>()
+                .ToTable("profile", table => table.HasCheckConstraint(
+                    "CK_profile_archive_state",
+                    "(is_archived = TRUE AND slot IS NULL AND archived_at IS NOT NULL) OR " +
+                    "(is_archived = FALSE AND slot IS NOT NULL AND archived_at IS NULL)"));
+
             modelBuilder.Entity<Antag>()
                 .HasIndex(p => new {HumanoidProfileId = p.ProfileId, p.AntagName})
                 .IsUnique();
@@ -408,7 +421,17 @@ namespace Content.Server.Database
     public class Profile
     {
         public int Id { get; set; }
-        public int Slot { get; set; }
+        /// <summary>
+        /// The playable preference slot occupied by this profile.
+        /// Archived profiles release their slot and keep a null value here.
+        /// </summary>
+        public int? Slot { get; set; }
+        /// <summary>
+        /// Keeps the character row and its stable database id after a player archives a slot.
+        /// Archived profiles are not offered as playable preferences.
+        /// </summary>
+        public bool IsArchived { get; set; }
+        public DateTime? ArchivedAt { get; set; }
         [Column("char_name")] public string CharacterName { get; set; } = null!;
         public string FlavorText { get; set; } = null!;
         public int Age { get; set; }
