@@ -1,14 +1,18 @@
+using Content.Server._LuaM.Animals;
 using Content.Server.StationEvents.Components;
 using Content.Shared.GameTicking.Components;
 using Content.Shared.Station.Components;
 using Content.Shared.Storage;
 using Robust.Shared.Map;
+using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
 
 namespace Content.Server.StationEvents.Events;
 
 public sealed class VentCrittersRule : StationEventSystem<VentCrittersRuleComponent>
 {
+    [Dependency] private LuaMAnimalPopulationSystem _animalPopulation = default!;
+
     /*
      * DO NOT COPY PASTE THIS TO MAKE YOUR MOB EVENT.
      * USE THE PROTOTYPE.
@@ -31,7 +35,7 @@ public sealed class VentCrittersRule : StationEventSystem<VentCrittersRuleCompon
                 validLocations.Add(transform.Coordinates);
                 foreach (var spawn in EntitySpawnCollection.GetSpawns(component.Entries, RobustRandom))
                 {
-                    Spawn(spawn, transform.Coordinates);
+                    TrySpawnPopulationControlled(spawn, transform.Coordinates, transform.MapID);
                 }
             }
         }
@@ -44,14 +48,31 @@ public sealed class VentCrittersRule : StationEventSystem<VentCrittersRuleCompon
         // guaranteed spawn
         var specialEntry = RobustRandom.Pick(component.SpecialEntries);
         var specialSpawn = RobustRandom.Pick(validLocations);
-        Spawn(specialEntry.PrototypeId, specialSpawn);
+        if (specialEntry.PrototypeId is { } specialPrototype)
+        {
+            TrySpawnPopulationControlled(
+                specialPrototype,
+                specialSpawn,
+                Transform(specialSpawn.EntityId).MapID);
+        }
 
         foreach (var location in validLocations)
         {
             foreach (var spawn in EntitySpawnCollection.GetSpawns(component.SpecialEntries, RobustRandom))
             {
-                Spawn(spawn, location);
+                TrySpawnPopulationControlled(spawn, location, Transform(location.EntityId).MapID);
             }
         }
+    }
+
+    private void TrySpawnPopulationControlled(EntProtoId prototype, EntityCoordinates coordinates, MapId mapId)
+    {
+        if (_animalPopulation.IsPopulationControlledPrototype(prototype) &&
+            _animalPopulation.GetRemainingPopulationSlots(mapId) == 0)
+        {
+            return;
+        }
+
+        Spawn(prototype, coordinates);
     }
 }

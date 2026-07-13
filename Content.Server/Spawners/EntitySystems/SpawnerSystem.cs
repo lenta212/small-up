@@ -1,4 +1,5 @@
 using Content.Server.Spawners.Components;
+using Content.Server._LuaM.Animals;
 using Content.Shared.Nutrition.AnimalHusbandry;
 using Robust.Shared.Random;
 using Robust.Shared.Timing;
@@ -9,6 +10,7 @@ public sealed partial class SpawnerSystem : EntitySystem
 {
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private IRobustRandom _random = default!;
+    [Dependency] private LuaMAnimalPopulationSystem _animalPopulation = default!;
 
     public override void Initialize()
     {
@@ -64,6 +66,13 @@ public sealed partial class SpawnerSystem : EntitySystem
         for (var i = 0; i < number; i++)
         {
             var entity = _random.Pick(component.Prototypes);
+            if (!transferOffspringReservation &&
+                _animalPopulation.IsPopulationControlledPrototype(entity) &&
+                _animalPopulation.GetRemainingPopulationSlots(Transform(uid).MapID) == 0)
+            {
+                continue;
+            }
+
             if (transferOffspringReservation)
                 RemComp<AnimalHusbandryOffspringComponent>(uid);
 

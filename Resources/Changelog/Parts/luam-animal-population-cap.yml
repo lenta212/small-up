@@ -7,3 +7,9 @@ changes:
     message: Timed mouse and cockroach markers now stop after their intended five-creature lifetime budget.
   - type: Fix
     message: Mouse, cockroach, and snail vent migrations now run at most once per long campaign round without guaranteed bonus pest spawns.
+  - type: Add
+    message: Administrators can now inspect capped animal totals per map and species, with throttled overflow warnings during long rounds.
+  - type: Add
+    message: A two-step, fingerprint-confirmed cleanup command can remove only safe excess pests while preserving pets, player-controlled animals, livestock, named creatures, and at least two of each pest species.
+  - type: Fix
+    message: Pest events and timed spawners now share the same per-map capacity with every reproductive animal species, including populations that already existed before the cap was reached.
