@@ -723,17 +723,63 @@ def main() -> int:
         "PdaBankAccountRegistryPath",
         "CreateDir(PdaBankAccountRegistryPath.Directory)",
         "BuildPdaBankAccountCollisionId",
+        "PdaBankTransferPreviewMessage",
+        "PendingPdaBankTransfer",
+        "PdaBankTransferConfirmation",
         "TryRegisteredBankTransfer",
         "TryBankTransferPersistedAsync",
         "CharacterBankTransferStatus.UnknownOutcome",
         "IsBankTransferRetryBlocked",
-        "TryGetRegisteredRecipientProfile",
+        "GetPdaBankAccountAsync",
+        "RegisterPdaBankAccountAsync",
+        "GetUnacknowledgedCharacterBankTransferAsync",
+        "AcknowledgeCharacterBankTransferAsync",
+        "Legacy PDA bank registry is malformed",
+        "source file was left untouched",
         "BankTransferErrorToLocale",
         "comp-pda-ui-bank-transfer-recipient-not-found",
         "ExtractPdaBankAccountId",
-        "RegisterPdaBankAccount",
     ]:
         assert_contains(pda_system, required_api, "PdaSystem bank transfer contract")
+
+    server_db = (ROOT / "Content.Server/Database/ServerDbBase.cs").read_text(encoding="utf-8")
+    for required_api in [
+        "TransferCharacterBankBalanceAsync",
+        "CharacterBankTransferJournal",
+        "OperationId == operationId",
+        "Read idempotency proof before live-profile validation",
+        "ResolveCharacterBankTransferOutcomeAsync",
+        "GetPdaBankAccountAsync",
+        "RegisterPdaBankAccountAsync",
+        "GetUnacknowledgedCharacterBankTransferAsync",
+        "AcknowledgeCharacterBankTransferAsync",
+    ]:
+        assert_contains(server_db, required_api, "ServerDbBase durable bank transfer contract")
+
+    database_model = (ROOT / "Content.Server.Database/Model.cs").read_text(encoding="utf-8")
+    for required_model_marker in [
+        "DbSet<PdaBankAccount>",
+        "DbSet<CharacterBankTransferJournal>",
+        "public class PdaBankAccount",
+        "public class CharacterBankTransferJournal",
+        "public Guid OperationId",
+        "public DateTime? AcknowledgedAt",
+    ]:
+        assert_contains(database_model, required_model_marker, "durable PDA bank database model")
+
+    for migration_path in [
+        "Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.cs",
+        "Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.cs",
+    ]:
+        migration = (ROOT / migration_path).read_text(encoding="utf-8")
+        for required_migration_marker in [
+            'name: "character_bank_transfer_journal"',
+            'name: "pda_bank_accounts"',
+            "operation_id",
+            "acknowledged_at",
+            "unique: true",
+        ]:
+            assert_contains(migration, required_migration_marker, migration_path)
 
     bank_system = (ROOT / "Content.Server/_NF/Bank/BankSystem.cs").read_text(encoding="utf-8")
     for required_api in [
@@ -756,6 +802,7 @@ def main() -> int:
     for required_test_marker in [
         "PdaBankIdsStayCopyFriendlyAndNormalized",
         "PdaBankTransferByIdWorksForOfflineRecipient",
+        "InFlightDuplicatePdaBankTransferIsRejectedAndConservesFunds",
         "PdaBankTransferByIdMissingRecipientShowsRegistrationHint",
         "TryRegisteredBankTransfer",
         "pda-bank-accounts.json",
@@ -763,6 +810,17 @@ def main() -> int:
         "LastBankTransferStatus",
     ]:
         assert_contains(bank_contracts_test, required_test_marker, "LuaMBankAndPdaContractsTest")
+
+    bank_persistence_test = (ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMBankPersistenceTest.cs").read_text(encoding="utf-8")
+    for required_test_marker in [
+        "OperationJournalMakesRetryIdempotentAndRecoverableUntilAcknowledged",
+        "JournalReplaySurvivesRecipientArchiveAndRejectsChangedRequest",
+        "PdaBankIdMappingIsCanonicalAndCollisionSafe",
+        "BatchedTransfersNeverOverdrawAndConserveFunds",
+        "AlreadyProcessed",
+        "OperationConflict",
+    ]:
+        assert_contains(bank_persistence_test, required_test_marker, "LuaMBankPersistenceTest")
 
     donation_shop_system = (ROOT / "Content.Server/_LuaM/Donation/LuaMDonationShopSystem.cs").read_text(encoding="utf-8")
     for required_donation_marker in [
@@ -3121,8 +3179,8 @@ def main() -> int:
         "component.NextBreedAttempt = _timing.CurTime +",
         "ScheduleNextBreedAttempt(reproductive)",
         "GetRemainingPopulationSlots",
-        "EntityQueryEnumerator<ReproductivePartnerComponent, TransformComponent>()",
-        "EntityQueryEnumerator<AnimalHusbandryOffspringComponent, TransformComponent>()",
+        "LuaMAnimalPopulationSystem _animalPopulation",
+        "_animalPopulation.GetRemainingPopulationSlots(Transform(uid).MapID)",
         "if (GetRemainingPopulationSlots(uid) == 0)",
         "var remainingSlots = GetRemainingPopulationSlots(uid)",
         "EnsureComp<AnimalHusbandryOffspringComponent>(offspring)",
@@ -3150,13 +3208,83 @@ def main() -> int:
     ]:
         assert_contains(animal_husbandry_test, required_husbandry_test_marker, "LuaMAnimalHusbandryIntervalTest")
 
+    animal_population_system = (
+        ROOT / "Content.Server/_LuaM/Animals/LuaMAnimalPopulationSystem.cs"
+    ).read_text(encoding="utf-8")
+    for required_population_marker in [
+        "LuaMAnimalPopulationSystem",
+        "KnownPestSpecies",
+        "IsPopulationControlledPrototype",
+        "prototype.HasComponent<ReproductivePartnerComponent>()",
+        "CountPopulationUnits",
+        "GetPopulationReports",
+        "BuildCleanupPreview",
+        "TryExecuteCleanup",
+        "MinimumPestsPreservedPerSpecies = 2",
+        "CryptographicOperations.FixedTimeEquals",
+        "HasDefaultPrototypeName",
+        "MindContainerComponent",
+        "NPCBlackboard.FollowTarget",
+        "PlayerPetProtectionRadius = 5f",
+        "SendAdminAlert",
+        "LogImpact.High",
+    ]:
+        assert_contains(
+            animal_population_system,
+            required_population_marker,
+            "LuaMAnimalPopulationSystem",
+        )
+
+    animal_population_commands = (
+        ROOT / "Content.Server/_LuaM/Administration/LuaMAnimalPopulationCommands.cs"
+    ).read_text(encoding="utf-8")
+    for required_command_marker in [
+        'Command => "luam_animal_population"',
+        'Command => "luam_animal_cleanup"',
+        "[AdminCommand(AdminFlags.Server)]",
+        'ConfirmFlag = "--confirm"',
+        "BuildCleanupPreview",
+        "TryExecuteCleanup",
+        "preview.Fingerprint",
+    ]:
+        assert_contains(
+            animal_population_commands,
+            required_command_marker,
+            "LuaMAnimalPopulationCommands",
+        )
+
+    animal_population_test = (
+        ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMAnimalPopulationControlTest.cs"
+    ).read_text(encoding="utf-8")
+    for required_population_test_marker in [
+        "PestsShareTheHardMapCapWithHusbandryAndTimedSpawners",
+        "CleanupRequiresUnchangedPreviewAndProtectsPlayerLikeOrSpecialPests",
+        'cowSpawner.Prototypes = ["MobCow"]',
+        "External spawners must trim reproductive species",
+        "BuildCleanupPreview",
+        "TryExecuteCleanup",
+        "Fingerprint",
+        "MobState.Critical",
+        "SetEntityName",
+    ]:
+        assert_contains(
+            animal_population_test,
+            required_population_test_marker,
+            "LuaMAnimalPopulationControlTest",
+        )
+
     traffic_component = (
         ROOT / "Content.Server/_LuaM/Sector/LuaMSectorTrafficContactComponent.cs"
     ).read_text(encoding="utf-8")
     for required_traffic_component_marker in [
         "LuaMSectorTrafficContactComponent",
+        "LuaMSectorTrafficProfile Profile",
+        "DynamicEventTemplateId",
+        "ContactCode",
         "public TimeSpan ExpiresAt",
         "public Vector2 RouteVelocity",
+        "LuaMSectorTrafficRecoveryComponent",
+        "public string StoryId",
     ]:
         assert_contains(traffic_component, required_traffic_component_marker, "LuaMSectorTrafficContactComponent")
 
@@ -3177,6 +3305,22 @@ def main() -> int:
         "MaximumRetentionDistance",
         "RemoveContactsOutsideActiveMaps",
         "SubscribeLocalEvent<RoundRestartCleanupEvent>",
+        "LuaMSectorTrafficProfile.Civilian",
+        "LuaMSectorTrafficProfile.Cargo",
+        "LuaMSectorTrafficProfile.Distress",
+        "LuaMSectorTrafficProfile.Unknown",
+        "TryInterceptContact",
+        "TryGetClosestDetectingRadar",
+        "spawnDebrisSite: false",
+        "spawnSiteNote: false",
+        "allowDirectSubmission: false",
+        "SpawnRecovery",
+        "RequireSectorTerminal = true",
+        "DirectSubmissionAllowed = false",
+        "HasPendingRecovery",
+        "RecoveryLifetime = TimeSpan.FromMinutes(30)",
+        "CleanupExpiredRecoveries",
+        "ClearAllTrafficEntities",
         "QueueDel(uid)",
     ]:
         assert_contains(traffic_system, required_traffic_system_marker, "LuaMSectorTrafficSystem")
@@ -3194,6 +3338,14 @@ def main() -> int:
         "requireNoGrid: true",
         "maxDistance: 3072",
         "shape: Arrow",
+        "id: LuaMSectorTrafficContactCargo",
+        "shape: Square",
+        "id: LuaMSectorTrafficContactDistress",
+        "shape: Star",
+        "id: LuaMSectorTrafficContactUnknown",
+        "shape: Diamond",
+        "id: LuaMSectorTrafficRecoveryCargo",
+        "id: LuaMSectorTrafficRecoveryEvidence",
         "type: LuaMSectorTrafficContact",
     ]:
         assert_contains(traffic_prototype, required_traffic_prototype_marker, "sector_traffic.yml")
@@ -3220,6 +3372,58 @@ def main() -> int:
     ]:
         assert_contains(traffic_test, required_traffic_test_marker, "LuaMSectorTrafficTest")
 
+    traffic_intercept_test = (
+        ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficInterceptTest.cs"
+    ).read_text(encoding="utf-8")
+    for required_traffic_test_marker in [
+        "CargoContactBecomesRecoverableContractAndClosesThroughEvidence",
+        "LuaMSectorTrafficProfile.Cargo",
+        "TryInterceptContact",
+        "LuaMDynamicEventDebrisComponent",
+        "LuaMSectorTrafficRecoveryComponent",
+        "TryFileEvidence",
+        "LuaMSectorLeadReportComponent",
+        "DirectSubmissionAllowed, Is.False",
+        "TrySubmitMarkerTask",
+        "TryPrintRuntimeClosureReport",
+        "must not bypass a pending intercept recovery",
+        "EntityExists(recoveryUid), Is.False",
+        "HardMaxContacts",
+    ]:
+        assert_contains(
+            traffic_intercept_test,
+            required_traffic_test_marker,
+            "LuaMSectorTrafficInterceptTest",
+        )
+
+    evidence_system = (
+        ROOT / "Content.Server/_LuaM/Sector/LuaMSectorEvidenceSystem.cs"
+    ).read_text(encoding="utf-8")
+    for required_evidence_marker in [
+        "component.RequireSectorTerminal",
+        "IsNearSectorTerminal",
+        "SectorTerminalFilingRadius = 3f",
+        "LuaMSectorLeadReportComponent",
+    ]:
+        assert_contains(evidence_system, required_evidence_marker, "LuaMSectorEvidenceSystem")
+
+    dynamic_event_system = (
+        ROOT / "Content.Server/_LuaM/Sector/LuaMSectorDynamicEventSystem.cs"
+    ).read_text(encoding="utf-8")
+    for required_dynamic_event_marker in [
+        "bool spawnDebrisSite = true",
+        "bool spawnSiteNote = true",
+        "bool allowDirectSubmission = true",
+        "if (!marker.DirectSubmissionAllowed)",
+        "if (!site.DirectSubmissionAllowed)",
+        "markerComponent.DirectSubmissionAllowed = allowDirectSubmission",
+    ]:
+        assert_contains(
+            dynamic_event_system,
+            required_dynamic_event_marker,
+            "LuaMSectorDynamicEventSystem interception lifecycle",
+        )
+
     timed_spawner_component = (
         ROOT / "Content.Server/Spawners/Components/TimedSpawnerComponent.cs"
     ).read_text(encoding="utf-8")
@@ -3242,6 +3446,8 @@ def main() -> int:
         "component.TotalSpawned >= maximumTotal",
         "Math.Min(number, maximum - component.TotalSpawned)",
         "transferOffspringReservation",
+        "IsPopulationControlledPrototype(entity)",
+        "GetRemainingPopulationSlots(Transform(uid).MapID) == 0",
         "number = Math.Min(number, 1)",
         "RemComp<AnimalHusbandryOffspringComponent>(uid)",
         "EnsureComp<AnimalHusbandryOffspringComponent>(spawned)",
@@ -3249,6 +3455,16 @@ def main() -> int:
         "component.TotalSpawned++",
     ]:
         assert_contains(spawner_system, required_spawner_system_marker, "SpawnerSystem finite lifetime budget")
+
+    vent_critters = (
+        ROOT / "Content.Server/StationEvents/Events/VentCrittersRule.cs"
+    ).read_text(encoding="utf-8")
+    for required_vent_marker in [
+        "TrySpawnPopulationControlled",
+        "IsPopulationControlledPrototype(prototype)",
+        "GetRemainingPopulationSlots(mapId) == 0",
+    ]:
+        assert_contains(vent_critters, required_vent_marker, "VentCrittersRule population cap")
 
     timed_spawner_prototypes = (
         ROOT / "Resources/Prototypes/Entities/Markers/Spawners/Conditional/timed.yml"

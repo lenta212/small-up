@@ -1,6 +1,6 @@
 # LuaM Local Release Manifest
 
-Current policy: the 2026-07-12 seven-day round release is deployed and passed post-deploy verification. The operator explicitly requested the 2026-07-13 update rollout; remote deployment remains technically frozen while the final tests, package audit, backup plan, and wait-for-empty gate run.
+Current policy: the 2026-07-12 seven-day round release remains live. The operator explicitly requested the 2026-07-13 durable-transfer, animal-control, and sector-interception update; remote deployment remains frozen while its fresh full readiness, package audit, release build, backup plan, and wait-for-empty gate run.
 
 The machine-readable policy lives in `Tools\luam_release_policy.json`. The deploy helper reads that JSON file first and falls back to this manifest only if the JSON file is missing.
 
@@ -21,12 +21,15 @@ The local pack currently covers:
 - AI Director review API: `POST /review` returns structured influence/process, risk, tempo, economy, crew-load, safety, and recommended-action remarks for admins.
 - AI Director admin UI keeps the latest AI review separately, can copy it to clipboard, can save it to the server log, and shows a short review history.
 - PDA sector status display without a free-form AI message input.
-- PDA bank transfers by short copy-friendly bank ID.
+- PDA bank transfers by short copy-friendly database-backed bank ID, with a confirmation preview showing recipient, ID, amount, and operation ID.
+- An atomic transfer journal keyed by durable operation ID, restart reconciliation, explicit acknowledgement, and idempotent replay protection against duplicate debits.
 - Durable, fail-closed settlement for PDA transfers, ATM cash exchange, cargo order payments, and shipyard purchases and sales before irreversible world changes.
 - Donation shop state, PDA listings, and manual account access.
 - Sector story memory, dynamic tasks, route text, site notes, evidence, terminal/report flows.
 - Dynamic quest debris and periodic hostile contacts on every fifth debris site.
-- Two staggered, radar-only civilian transit contacts on the active primary sector map, with a global hard cap of four, player-presence gating, collision-free routes, expiry, and round cleanup.
+- Four staggered radar-only contact profiles (civilian, cargo, distress, unknown) on the active primary sector map, with a global hard cap of four, player-presence gating, collision-free routes, expiry, and round cleanup.
+- Physical sector-terminal interception that converts contacts into bounded route, distress, or cargo tasks without NPC ships or debris grids; recoveries must be delivered back to a terminal and are removed on completion, expiry, reset, or round cleanup.
+- Per-map animal population reports and throttled overflow alerts, plus a fingerprint-confirmed cleanup command restricted to safe excess pests while preserving pets, livestock, named/player-controlled creatures, and species minimums.
 - Subspace/stargate-style temporary portal actions.
 - Synthetic/robot control hooks and tests.
 - Payroll mapping, pioneer starting grant, payroll status, and real hourly payout.
@@ -83,14 +86,21 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.Server.Database/Model.cs`
 - `Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.cs`
 - `Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs`
+- `Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.cs`
+- `Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.Designer.cs`
 - `Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs`
 - `Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs`
 - `Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs`
+- `Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.cs`
+- `Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.Designer.cs`
 - `Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs`
 - `Content.Shared/_LuaM/Sector/LuaMAiTtsAudioEvent.cs`
 - `Content.Server/Nutrition/EntitySystems/AnimalHusbandrySystem.cs`
 - `Content.Server/Spawners/Components/TimedSpawnerComponent.cs`
 - `Content.Server/Spawners/EntitySystems/SpawnerSystem.cs`
+- `Content.Server/StationEvents/Events/VentCrittersRule.cs`
+- `Content.Server/_LuaM/Administration/LuaMAnimalPopulationCommands.cs`
+- `Content.Server/_LuaM/Animals/LuaMAnimalPopulationSystem.cs`
 - `Content.Shared/Nutrition/AnimalHusbandry/ReproductiveComponent.cs`
 - `Content.Server/Gateway/Components/GatewayGeneratorDestinationComponent.cs`
 - `Content.Server/Gateway/Systems/GatewayGeneratorSystem.cs`
@@ -99,7 +109,9 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.IntegrationTests/PoolManager.Cvars.cs`
 - `Content.IntegrationTests/Tests/Gateway/GatewayGeneratorGrowthLimitTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMAnimalHusbandryIntervalTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMAnimalPopulationControlTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficInterceptTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMTimedSpawnerLimitTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMBankAndPdaContractsTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMBankDurableMutationContractTest.cs`
@@ -194,7 +206,7 @@ These six prototype/map pairs are deliberately excluded from the LuaM source pac
 Before any release, confirm the exact untracked list with:
 
 ```powershell
-git ls-files --others --exclude-standard Content.Client/_LuaM Content.Server/_LuaM Content.Shared/_LuaM Content.Server/Database/ServerDbBase.cs Content.Server/Database/ServerDbManager.cs Content.Server.Database/Model.cs Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.cs Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs Content.IntegrationTests/Tests/_LuaM Content.IntegrationTests/Tests/_NF/BountyContracts Content.Tests/Client/_LuaM Content.Tests/Server/_LuaM Content.Tests/Shared/_NF/BountyContracts Resources/Changelog/Parts Resources/ConfigPresets/_LuaM Resources/Locale/en-US/_LuaM Resources/Locale/ru-RU/_LuaM Resources/Prototypes/_LuaM Resources/Prototypes/_Mono/Entities/Markers/Spawners/shuttles.yml Resources/ServerInfo/_LuaM Resources/Textures/_LuaM Tools
+git ls-files --others --exclude-standard Content.Client/_LuaM Content.Server/_LuaM Content.Shared/_LuaM Content.Server/Database/ServerDbBase.cs Content.Server/Database/ServerDbManager.cs Content.Server.Database/Model.cs Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.cs Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.cs Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.Designer.cs Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.cs Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.Designer.cs Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs Content.Server/StationEvents/Events/VentCrittersRule.cs Content.IntegrationTests/Tests/_LuaM Content.IntegrationTests/Tests/_NF/BountyContracts Content.Tests/Client/_LuaM Content.Tests/Server/_LuaM Content.Tests/Shared/_NF/BountyContracts Resources/Changelog/Parts Resources/ConfigPresets/_LuaM Resources/Locale/en-US/_LuaM Resources/Locale/ru-RU/_LuaM Resources/Prototypes/_LuaM Resources/Prototypes/_Mono/Entities/Markers/Spawners/shuttles.yml Resources/ServerInfo/_LuaM Resources/Textures/_LuaM Tools
 ```
 
 For a real git-based release gate, run it without `-AllowUntracked`. It must pass before deployment:
@@ -262,6 +274,11 @@ The 2026-07-13 expedition/persistence work is deliberately covered by the source
 ## Verification Records
 
 ### 2026-07-13 — current development slice (not deployed)
+
+- The selected update is committed as three reviewed gameplay slices: durable PDA operation journaling, bounded animal-population administration, and playable sector contact interception. Remote deployment remains frozen pending the fresh full release gate and zero-player rollout.
+- A combined final-state integration filter passed 39/39 across bank/PDA, animal husbandry/population/timed spawners, and sector traffic/interception. The focused workstreams additionally exercised all 31 bank scenarios, six animal scenarios, and two sector scenarios after their last fixes.
+- SQLite and PostgreSQL both report no pending EF model changes after the new durable-transfer migrations. The database, server, client, and integration-test projects build with zero errors.
+- The quick release readiness gate passed with no issues; before the feature commits its sole warning was the expected eight untracked implementation/test/migration files. Strict readiness, full local smoke, source-package verification, binary release build, and release-surface audit are the remaining pre-deploy gates.
 
 - `Tools\check_luam_release_ready.ps1 -AllowUntracked -Json` passed with no issues. Its sole warning is the expected set of 18 untracked source/test/migration/design files; a strict git-based release remains blocked until those files are intentionally reviewed and added.
 - The focused persistence/expedition/progression/TTS regression filter passed 53/53, including a non-empty SQLite upgrade, fail-closed downgrade, archive CHECK constraint, 2048 expedition seeds, the v2 golden hash, culture invariance, bounded gateway JSON, and structured WAV/Ogg validation.
