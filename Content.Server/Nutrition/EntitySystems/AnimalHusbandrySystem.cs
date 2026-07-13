@@ -1,5 +1,6 @@
 using Content.Server.Administration.Logs;
 using Content.Server.Popups;
+using Content.Shared.CCVar;
 using Content.Shared.Database;
 using Content.Shared.IdentityManagement;
 using Content.Shared.Interaction.Components;
@@ -12,6 +13,7 @@ using Content.Shared.Nutrition.EntitySystems;
 using Content.Shared.Storage;
 using Content.Shared.Whitelist;
 using Robust.Shared.Audio.Systems;
+using Robust.Shared.Configuration;
 using Robust.Shared.Player;
 using Robust.Shared.Random;
 using Robust.Shared.Timing;
@@ -26,6 +28,7 @@ public sealed partial class AnimalHusbandrySystem : EntitySystem
     [Dependency] private EntityLookupSystem _entityLookup = default!;
     [Dependency] private HungerSystem _hunger = default!;
     [Dependency] private IAdminLogManager _adminLog = default!;
+    [Dependency] private IConfigurationManager _configuration = default!;
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private IRobustRandom _random = default!;
     [Dependency] private MobStateSystem _mobState = default!;
@@ -37,6 +40,7 @@ public sealed partial class AnimalHusbandrySystem : EntitySystem
 
     private readonly HashSet<EntityUid> _failedAttempts = new();
     private readonly HashSet<EntityUid> _birthQueue = new();
+    private readonly HashSet<EntityUid> _populationUnits = new();
 
     /// <inheritdoc/>
     public override void Initialize()
@@ -55,6 +59,32 @@ public sealed partial class AnimalHusbandrySystem : EntitySystem
     {
         component.NextBreedAttempt = _timing.CurTime +
                                      _random.Next(component.MinBreedAttemptInterval, component.MaxBreedAttemptInterval);
+    }
+
+    private int GetRemainingPopulationSlots(EntityUid uid)
+    {
+        var maximum = Math.Max(0, _configuration.GetCVar(CCVars.LuaMAnimalHusbandryMaxPopulationPerMap));
+        if (maximum == 0)
+            return 0;
+
+        var mapId = Transform(uid).MapID;
+        _populationUnits.Clear();
+
+        var partnerQuery = EntityQueryEnumerator<ReproductivePartnerComponent, TransformComponent>();
+        while (partnerQuery.MoveNext(out var partner, out _, out var partnerTransform))
+        {
+            if (partnerTransform.MapID == mapId)
+                _populationUnits.Add(partner);
+        }
+
+        var offspringQuery = EntityQueryEnumerator<AnimalHusbandryOffspringComponent, TransformComponent>();
+        while (offspringQuery.MoveNext(out var offspring, out _, out var offspringTransform))
+        {
+            if (offspringTransform.MapID == mapId)
+                _populationUnits.Add(offspring);
+        }
+
+        return Math.Max(0, maximum - _populationUnits.Count);
     }
 
     // we express EZ-pass terminate the pregnancy if a player takes the role
@@ -111,6 +141,9 @@ public sealed partial class AnimalHusbandrySystem : EntitySystem
             return false;
 
         if (uid == partner)
+            return false;
+
+        if (GetRemainingPopulationSlots(uid) == 0)
             return false;
 
         if (!CanReproduce(uid, component))
@@ -193,27 +226,42 @@ public sealed partial class AnimalHusbandrySystem : EntitySystem
         if (!Resolve(uid, ref component))
             return;
 
-        // this is kinda wack but it's the only sound associated with most animals
-        if (TryComp<InteractionPopupComponent>(uid, out var interactionPopup))
-            _audio.PlayPvs(interactionPopup.InteractSuccessSound, uid);
-
         var xform = Transform(uid);
-        var spawns = EntitySpawnCollection.GetSpawns(component.Offspring, _random);
-        foreach (var spawn in spawns)
+        var remainingSlots = GetRemainingPopulationSlots(uid);
+        var spawnedAny = false;
+
+        if (remainingSlots > 0)
         {
-            var offspring = Spawn(spawn, xform.Coordinates.Offset(_random.NextVector2(0.3f)));
-            _transform.AttachToGridOrMap(offspring);
-            if (component.MakeOffspringInfant)
+            var spawns = EntitySpawnCollection.GetSpawns(component.Offspring, _random);
+            foreach (var spawn in spawns)
             {
-                var infant = AddComp<InfantComponent>(offspring);
-                infant.InfantEndTime = _timing.CurTime + infant.InfantDuration;
-                // Make sure the name prefix is applied
-                _nameMod.RefreshNameModifiers(offspring);
+                if (remainingSlots == 0)
+                    break;
+
+                remainingSlots--;
+                var offspring = Spawn(spawn, xform.Coordinates.Offset(_random.NextVector2(0.3f)));
+                EnsureComp<AnimalHusbandryOffspringComponent>(offspring);
+                _transform.AttachToGridOrMap(offspring);
+                if (component.MakeOffspringInfant)
+                {
+                    var infant = AddComp<InfantComponent>(offspring);
+                    infant.InfantEndTime = _timing.CurTime + infant.InfantDuration;
+                    // Make sure the name prefix is applied
+                    _nameMod.RefreshNameModifiers(offspring);
+                }
+                _adminLog.Add(LogType.Action, $"{ToPrettyString(uid)} gave birth to {ToPrettyString(offspring)}.");
+                spawnedAny = true;
             }
-            _adminLog.Add(LogType.Action, $"{ToPrettyString(uid)} gave birth to {ToPrettyString(offspring)}.");
         }
 
-        _popup.PopupEntity(Loc.GetString(component.BirthPopup, ("parent", Identity.Entity(uid, EntityManager))), uid);
+        if (spawnedAny)
+        {
+            // this is kinda wack but it's the only sound associated with most animals
+            if (TryComp<InteractionPopupComponent>(uid, out var interactionPopup))
+                _audio.PlayPvs(interactionPopup.InteractSuccessSound, uid);
+
+            _popup.PopupEntity(Loc.GetString(component.BirthPopup, ("parent", Identity.Entity(uid, EntityManager))), uid);
+        }
 
         component.Gestating = false;
         component.GestationEndTime = null;

@@ -1,0 +1,9 @@
+author: LuaM
+category: Fix
+changes:
+  - type: Fix
+    message: Animal husbandry now enforces a per-map population cap, including pending fertilized offspring.
+  - type: Fix
+    message: Timed mouse and cockroach markers now stop after their intended five-creature lifetime budget.
+  - type: Fix
+    message: Mouse, cockroach, and snail vent migrations now run at most once per long campaign round without guaranteed bonus pest spawns.

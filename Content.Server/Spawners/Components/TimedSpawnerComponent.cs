@@ -46,6 +46,20 @@ public sealed partial class TimedSpawnerComponent : Component, ISerializationHoo
     public int MaximumEntitiesSpawned = 1;
 
     /// <summary>
+    /// Optional lifetime budget for this spawner. Once this many entities have been
+    /// created, later timer firings are ignored. Null keeps the legacy unlimited behavior.
+    /// </summary>
+    [DataField]
+    public int? MaximumTotalSpawns;
+
+    /// <summary>
+    /// Number of entities successfully created by this spawner so far.
+    /// Serialized so a persistent map reload cannot reset a finite spawn budget.
+    /// </summary>
+    [DataField]
+    public int TotalSpawned;
+
+    /// <summary>
     /// The time at which the current interval will have elapsed and entities may be spawned.
     /// </summary>
     [DataField(customTypeSerializer: typeof(TimeOffsetSerializer)), AutoPausedField]
@@ -55,5 +69,11 @@ public sealed partial class TimedSpawnerComponent : Component, ISerializationHoo
     {
         if (MinimumEntitiesSpawned > MaximumEntitiesSpawned)
             throw new ArgumentException("MaximumEntitiesSpawned can't be lower than MinimumEntitiesSpawned!");
+
+        if (MaximumTotalSpawns is < 0)
+            throw new ArgumentException("MaximumTotalSpawns can't be negative!");
+
+        if (TotalSpawned < 0)
+            throw new ArgumentException("TotalSpawned can't be negative!");
     }
 }

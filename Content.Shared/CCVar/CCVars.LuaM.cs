@@ -74,6 +74,13 @@ public sealed partial class CCVars
         CVarDef.Create("luam.dynamic_events.max_active_sites", 3, CVar.SERVERONLY);
 
     /// <summary>
+    /// Maximum number of animal-husbandry population units allowed on one map.
+    /// Values less than one prevent new conceptions and births without removing existing entities.
+    /// </summary>
+    public static readonly CVarDef<int> LuaMAnimalHusbandryMaxPopulationPerMap =
+        CVarDef.Create("luam.animal_husbandry.max_population_per_map", 32, CVar.SERVERONLY);
+
+    /// <summary>
     /// Sends a local sector AI greeting to players when they enter the round.
     /// </summary>
     public static readonly CVarDef<bool> LuaMAiDirectorGreetOnJoin =

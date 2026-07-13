@@ -106,3 +106,11 @@ public sealed partial class ReproductiveComponent : Component
     [DataField(required: true)]
     public EntityWhitelist PartnerWhitelist = default!;
 }
+
+/// <summary>
+/// Marks an entity produced by animal husbandry so pending offspring such as fertilized eggs reserve population capacity.
+/// </summary>
+[RegisterComponent]
+public sealed partial class AnimalHusbandryOffspringComponent : Component
+{
+}

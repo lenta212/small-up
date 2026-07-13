@@ -40,16 +40,26 @@ public sealed partial class SpawnerSystem : EntitySystem
 
     private void OnTimerFired(EntityUid uid, TimedSpawnerComponent component)
     {
+        if (component.MaximumTotalSpawns is { } maximumTotal &&
+            component.TotalSpawned >= maximumTotal)
+        {
+            return;
+        }
+
         if (!_random.Prob(component.Chance))
             return;
 
         var number = _random.Next(component.MinimumEntitiesSpawned, component.MaximumEntitiesSpawned);
+        if (component.MaximumTotalSpawns is { } maximum)
+            number = Math.Min(number, maximum - component.TotalSpawned);
+
         var coordinates = Transform(uid).Coordinates;
 
         for (var i = 0; i < number; i++)
         {
             var entity = _random.Pick(component.Prototypes);
             SpawnAtPosition(entity, coordinates);
+            component.TotalSpawned++;
         }
     }
 }

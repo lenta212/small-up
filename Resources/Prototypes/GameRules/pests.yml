@@ -28,6 +28,8 @@
     earliestStart: 15
     weight: 6
     duration: 50
+    # LuaM rounds can run for a week; one migration per round is enough.
+    maxOccurrences: 1
   - type: VentCrittersRule
     entries:
     - id: MobMouse
@@ -38,9 +40,6 @@
       prob: 0.05 # Mono
     - id: MobMouseCancer
       prob: 0.005 # Mono
-    specialEntries: # Mono
-    - id: MobCorticalBorer # Mono
-      prob: 0.001 # Mono
 # Events always spawn a critter regardless of Probability https://github.com/space-wizards/space-station-14/issues/28480 I added the Rat King to their own event with a player cap.
 
 - type: entity
@@ -79,6 +78,8 @@
       path: /Audio/Announcements/attention.ogg
     weight: 6
     duration: 50
+    # LuaM rounds can run for a week; one migration per round is enough.
+    maxOccurrences: 1
   - type: VentCrittersRule
     entries:
     - id: MobCockroach
@@ -87,9 +88,6 @@
       prob: 0.005 # Mono
     - id: MobRosyMothroach # Frontier
       prob: 0.005 # Mono
-    specialEntries: # Mono
-    - id: MobCorticalBorer # Mono
-      prob: 0.001 # Mono
 
 - type: entity
   id: SnailMigrationLowPop
@@ -101,6 +99,8 @@
       path: /Audio/Announcements/attention.ogg
     weight: 6
     duration: 50
+    # LuaM rounds can run for a week; one migration per round is enough.
+    maxOccurrences: 1
   - type: VentCrittersRule
     entries:
     - id: MobSnail
@@ -122,6 +122,8 @@
     weight: 6
     duration: 50
     minimumPlayers: 30
+    # Keep the high-pop variant finite during long campaign rounds too.
+    maxOccurrences: 1
   - type: VentCrittersRule
     entries:
     - id: MobSnail
@@ -132,6 +134,3 @@
       prob: 0.005 # Mono
     - id: MobSnailInstantDeath
       prob: 0.00001 #  ~ 1:2000 snails
-    specialEntries: # Mono
-    - id: MobCorticalBorer # Mono
-      prob: 0.001 # Mono

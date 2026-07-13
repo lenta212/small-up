@@ -86,6 +86,8 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs`
 - `Content.Shared/_LuaM/Sector/LuaMAiTtsAudioEvent.cs`
 - `Content.Server/Nutrition/EntitySystems/AnimalHusbandrySystem.cs`
+- `Content.Server/Spawners/Components/TimedSpawnerComponent.cs`
+- `Content.Server/Spawners/EntitySystems/SpawnerSystem.cs`
 - `Content.Shared/Nutrition/AnimalHusbandry/ReproductiveComponent.cs`
 - `Content.Server/Gateway/Components/GatewayGeneratorDestinationComponent.cs`
 - `Content.Server/Gateway/Systems/GatewayGeneratorSystem.cs`
@@ -93,6 +95,7 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.IntegrationTests/PoolManager.Cvars.cs`
 - `Content.IntegrationTests/Tests/Gateway/GatewayGeneratorGrowthLimitTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMAnimalHusbandryIntervalTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMTimedSpawnerLimitTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMBankAndPdaContractsTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMBankDurableMutationContractTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMBankPersistenceTest.cs`
@@ -103,7 +106,10 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.IntegrationTests/Tests/_LuaM/LuaMExpeditionPlannerTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMProgressionRulesTest.cs`
 - `Resources/Prototypes/_LuaM/Sector/rescue_after_action.yml`
+- `Resources/Prototypes/Entities/Markers/Spawners/Conditional/timed.yml`
+- `Resources/Prototypes/GameRules/pests.yml`
 - `Resources/Maps/_NF/Shuttles/Scrap/bison.yml`
+- `Resources/Changelog/Parts/luam-animal-population-cap.yml`
 - `Resources/Changelog/Parts/luam-pda-bank-transfer-fix.yml`
 - `Content.Client/_LuaM/**`
 - `Content.Server/_LuaM/**`
@@ -251,11 +257,13 @@ The 2026-07-13 expedition/persistence work is deliberately covered by the source
 
 - `Tools\check_luam_release_ready.ps1 -AllowUntracked -Json` passed with no issues. Its sole warning is the expected set of 18 untracked source/test/migration/design files; a strict git-based release remains blocked until those files are intentionally reviewed and added.
 - The focused persistence/expedition/progression/TTS regression filter passed 53/53, including a non-empty SQLite upgrade, fail-closed downgrade, archive CHECK constraint, 2048 expedition seeds, the v2 golden hash, culture invariance, bounded gateway JSON, and structured WAV/Ogg validation.
-- The full `Content.IntegrationTests` LuaM filter passed 299 tests and skipped the 13 intentionally disabled physical AI-base tests; `Content.Tests` LuaM passed 32/32.
+- The full `Content.IntegrationTests` LuaM filter passed 321 tests and skipped the 13 intentionally disabled physical AI-base tests; `Content.Tests` LuaM passed 32/32.
 - `python Tools\validate_luam_feature_pack.py` and `python Tools\test_luam_ai_gateway.py` passed.
 - A temporary source package built with explicit `-AllowUntracked` and verified successfully: 496 files, payload hashes/UTF-8/required artifacts/readiness evidence all valid, and zero unexpected changed files outside the package. The verifier only warned that `RunTests` and `RunLocalSmoke` were not embedded in that package run; tests were run separately as recorded above.
 - Both unstaged and staged release-scope whitespace checks passed. No package was deployed and `remoteDeployFrozen` remains unchanged.
 - The PDA/bank/shipyard durability filter passed 36/36 after a fresh integration-test build. Coverage includes collision-safe PDA IDs, offline routing, duplicate submission guards, both database row-order branches, conservation/overflow/insufficient-funds behavior, stale profile-save protection, unknown-COMMIT fail-closed mapping, fresh-balance classification after initial save exceptions, durable callback rollback before world side effects, and shipyard purchase reservation/revalidation/cleanup contracts.
+- A clean strict readiness run passed with no issues or warnings after the first-run PDA registry loader was hardened to create its parent directory. The two affected clean-server scenarios passed 3/3 each, and the dynamic sensor-drift contract passed 3/3 after removing unstable live-position assertions for its intentionally unanchored physics entity.
+- Read-only round-123 evidence identified 13 mouse, 13 cockroach, and 12 low-pop snail vent migrations in roughly 14 hours 40 minutes. The release now limits each migration to one occurrence per round, removes unintended guaranteed bonus pests, caps map husbandry at 32 population units including fertilized eggs, and gives mouse/cockroach timed markers a persisted five-spawn lifetime budget. The combined animal-cap integration filter passed 4/4.
 - The existing `CargoTest` fixture passed 4 tests and kept its 1 intentional skip. Server, client, and integration-test builds completed with zero errors; only the documented baseline warnings remain.
 - Read-only production preflight found `monolith-ds.service` active with `NRestarts=0`, matching local/remote config SHA256 `0f17c2794b5e6aca9e61ac31ce5e7fdb07a87916d0ec4788bce8a4c3bf62ff77`, 12 GiB free, a healthy immutable client archive, and no warning-or-higher journal entries in the preceding 30 minutes. One player was online, so any approved rollout must use wait-for-empty rather than force.
 

@@ -3091,6 +3091,18 @@ def main() -> int:
         raise AssertionError(
             "ReproductiveComponent: minimum and maximum breeding intervals must both be exactly one hour"
         )
+    assert_contains(
+        reproductive_component,
+        "AnimalHusbandryOffspringComponent",
+        "ReproductiveComponent husbandry population reservation",
+    )
+
+    luam_cvars = (ROOT / "Content.Shared/CCVar/CCVars.LuaM.cs").read_text(encoding="utf-8")
+    for required_husbandry_cvar_marker in [
+        "LuaMAnimalHusbandryMaxPopulationPerMap",
+        'CVarDef.Create("luam.animal_husbandry.max_population_per_map", 32, CVar.SERVERONLY)',
+    ]:
+        assert_contains(luam_cvars, required_husbandry_cvar_marker, "CCVars.LuaM animal husbandry cap")
 
     animal_husbandry_system = (
         ROOT / "Content.Server/Nutrition/EntitySystems/AnimalHusbandrySystem.cs"
@@ -3100,6 +3112,12 @@ def main() -> int:
         "ScheduleNextBreedAttempt(component)",
         "component.NextBreedAttempt = _timing.CurTime +",
         "ScheduleNextBreedAttempt(reproductive)",
+        "GetRemainingPopulationSlots",
+        "EntityQueryEnumerator<ReproductivePartnerComponent, TransformComponent>()",
+        "EntityQueryEnumerator<AnimalHusbandryOffspringComponent, TransformComponent>()",
+        "if (GetRemainingPopulationSlots(uid) == 0)",
+        "var remainingSlots = GetRemainingPopulationSlots(uid)",
+        "EnsureComp<AnimalHusbandryOffspringComponent>(offspring)",
     ]:
         assert_contains(animal_husbandry_system, required_husbandry_marker, "AnimalHusbandrySystem")
     assert_not_contains(
@@ -3118,6 +3136,99 @@ def main() -> int:
         "instead of replaying every missed interval",
     ]:
         assert_contains(animal_husbandry_test, required_husbandry_test_marker, "LuaMAnimalHusbandryIntervalTest")
+
+    timed_spawner_component = (
+        ROOT / "Content.Server/Spawners/Components/TimedSpawnerComponent.cs"
+    ).read_text(encoding="utf-8")
+    for required_timed_spawner_component_marker in [
+        "public int? MaximumTotalSpawns",
+        "public int TotalSpawned",
+        "MaximumTotalSpawns can't be negative",
+        "TotalSpawned can't be negative",
+    ]:
+        assert_contains(
+            timed_spawner_component,
+            required_timed_spawner_component_marker,
+            "TimedSpawnerComponent finite lifetime budget",
+        )
+
+    spawner_system = (
+        ROOT / "Content.Server/Spawners/EntitySystems/SpawnerSystem.cs"
+    ).read_text(encoding="utf-8")
+    for required_spawner_system_marker in [
+        "component.TotalSpawned >= maximumTotal",
+        "Math.Min(number, maximum - component.TotalSpawned)",
+        "component.TotalSpawned++",
+    ]:
+        assert_contains(spawner_system, required_spawner_system_marker, "SpawnerSystem finite lifetime budget")
+
+    timed_spawner_prototypes = (
+        ROOT / "Resources/Prototypes/Entities/Markers/Spawners/Conditional/timed.yml"
+    ).read_text(encoding="utf-8")
+    assert_contains(timed_spawner_prototypes, "maximumTotalSpawns: 5", "finite rodent timed spawner budget")
+
+    bounded_pest_migrations = {
+        "MouseMigration",
+        "CockroachMigration",
+        "SnailMigrationLowPop",
+        "SnailMigration",
+    }
+    pest_prototypes = {
+        prototype.get("id"): prototype
+        for prototype in load_yaml(ROOT / "Resources/Prototypes/GameRules/pests.yml")
+        if isinstance(prototype.get("id"), str)
+    }
+    for migration_id in sorted(bounded_pest_migrations):
+        migration = pest_prototypes.get(migration_id)
+        if migration is None:
+            raise AssertionError(f"pests.yml: missing bounded migration {migration_id}")
+
+        components = migration.get("components")
+        if not isinstance(components, list):
+            raise AssertionError(f"pests.yml: {migration_id} has no component list")
+
+        station_event = next(
+            (component for component in components if component.get("type") == "StationEvent"),
+            None,
+        )
+        vent_rule = next(
+            (component for component in components if component.get("type") == "VentCrittersRule"),
+            None,
+        )
+        if not isinstance(station_event, dict) or station_event.get("maxOccurrences") != 1:
+            raise AssertionError(f"pests.yml: {migration_id} must have maxOccurrences: 1")
+        if not isinstance(vent_rule, dict):
+            raise AssertionError(f"pests.yml: {migration_id} has no VentCrittersRule")
+        if "specialEntries" in vent_rule:
+            raise AssertionError(f"pests.yml: {migration_id} must not define specialEntries")
+
+    king_rat = pest_prototypes.get("KingRatMigration")
+    king_rat_components = king_rat.get("components") if isinstance(king_rat, dict) else None
+    king_rat_vent_rule = next(
+        (
+            component
+            for component in king_rat_components
+            if component.get("type") == "VentCrittersRule"
+        ),
+        None,
+    ) if isinstance(king_rat_components, list) else None
+    if not isinstance(king_rat_vent_rule, dict) or "specialEntries" not in king_rat_vent_rule:
+        raise AssertionError("pests.yml: KingRatMigration must retain its intentional specialEntries")
+
+    timed_spawner_test = (
+        ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMTimedSpawnerLimitTest.cs"
+    ).read_text(encoding="utf-8")
+    for required_timed_spawner_test_marker in [
+        "RodentSpawnersStopAfterTheirLifetimeBudget",
+        "PestMigrationsRunAtMostOnceAndDoNotGuaranteeBonusMobs",
+        "BoundedPestMigrations",
+        "MaximumTotalSpawns",
+        "TotalSpawned",
+        "MaxOccurrences",
+        "SpecialEntries",
+        "An exhausted timed spawner must remain inert",
+    ]:
+        assert_contains(timed_spawner_test, required_timed_spawner_test_marker, "LuaMTimedSpawnerLimitTest")
 
     prototypes, all_prototypes = collect_prototypes()
 
@@ -3579,6 +3690,11 @@ def main() -> int:
     assert_equal(low_pop_config["luam"]["sector"]["all_hazards_enabled"], True, "low-pop luam.sector.all_hazards_enabled")
     assert_equal(low_pop_config["luam"]["dynamic_events"]["enabled"], True, "low-pop luam.dynamic_events.enabled")
     assert_equal(low_pop_config["luam"]["dynamic_events"]["max_active_sites"], 2, "low-pop luam.dynamic_events.max_active_sites")
+    assert_equal(
+        low_pop_config["luam"]["animal_husbandry"]["max_population_per_map"],
+        32,
+        "low-pop luam.animal_husbandry.max_population_per_map",
+    )
     assert_equal(low_pop_config["nf14"]["worldgen"]["market_stations"], 1, "market_stations")
     assert_equal(low_pop_config["nf14"]["worldgen"]["cargo_depots"], 4, "cargo_depots")
     assert_equal(low_pop_config["nf14"]["worldgen"]["optional_stations"], 6, "optional_stations")
@@ -3612,6 +3728,11 @@ def main() -> int:
     assert_equal(remote_config["events"]["enabled"], True, "remote events.enabled")
     assert_equal(remote_config["gateway"]["generator_enabled"], False, "remote gateway.generator_enabled")
     assert_equal(remote_config["luam"]["sector"]["all_hazards_enabled"], True, "remote luam.sector.all_hazards_enabled")
+    assert_equal(
+        remote_config["luam"]["animal_husbandry"]["max_population_per_map"],
+        32,
+        "remote luam.animal_husbandry.max_population_per_map",
+    )
 
     rescue_agent_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs").read_text(encoding="utf-8")
     assert_contains(rescue_agent_system, 'Command => "luam_rescue_agent"', "LuaMRescueAgentCommand")

@@ -61,6 +61,9 @@
       intervalSeconds: 540
       minimumEntitiesSpawned: 1
       maximumEntitiesSpawned: 1
+      # LuaM rounds can run for a week. Preserve the original design budget instead
+      # of allowing this marker to create hundreds of rodents indefinitely.
+      maximumTotalSpawns: 5
 
 - type: entity
   name: Cockroach Timed Spawner
