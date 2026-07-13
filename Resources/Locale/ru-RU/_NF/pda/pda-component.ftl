@@ -8,6 +8,16 @@ comp-pda-ui-bank-id-copied = [color=green]Банковский ID { $id } ско
 comp-pda-ui-bank-transfer-recipient-placeholder = ID получателя
 comp-pda-ui-bank-transfer-amount-placeholder = Сумма
 comp-pda-ui-bank-transfer-send = Перевести
+comp-pda-ui-bank-transfer-confirm = Подтвердить перевод
+comp-pda-ui-bank-transfer-cancel = Отмена
+comp-pda-ui-bank-transfer-acknowledge = Подтвердить результат
+comp-pda-ui-bank-transfer-confirmation = [color=yellow]Подтвердите перевод[/color]\nПолучатель: [bold]{ $recipient }[/bold]\nБанковский ID: [bold]{ $id }[/bold]\nСумма: [bold]{ $amount }[/bold]\nОперация: { $operation }
+comp-pda-ui-bank-transfer-recovered = [color=yellow]Восстановлен выполненный перевод[/color]\nПолучатель: [bold]{ $recipient }[/bold] [{ $id }]\nСумма: [bold]{ $amount }[/bold]\nБаланс после перевода: { $balance }\nОперация: { $operation }\nПодтвердите этот сохранённый результат перед созданием нового перевода.
+comp-pda-ui-bank-transfer-confirmation-ready = Проверьте имя получателя, банковский ID и сумму, затем подтвердите перевод.
+comp-pda-ui-bank-transfer-confirmation-expired = [color=orange]Время подтверждения истекло. Сформируйте перевод заново.[/color]
+comp-pda-ui-bank-transfer-cancelled = Перевод отменён до перемещения денег.
+comp-pda-ui-bank-transfer-acknowledged = Сохранённый результат перевода подтверждён.
+comp-pda-ui-bank-transfer-reconcile-required = [color=orange]Идёт сверка банковского журнала. Новые переводы временно отключены.[/color]
 comp-pda-ui-bank-transfer-missing-recipient = [color=orange]Введите банковский ID получателя.[/color]
 comp-pda-ui-bank-transfer-invalid-amount = [color=orange]Введите положительную целую сумму.[/color]
 comp-pda-ui-bank-transfer-no-sender = [color=red]Перевод не выполнен: пользователь КПК не найден.[/color]
@@ -21,7 +31,7 @@ comp-pda-ui-bank-transfer-conflict = [color=orange]Не удалось подт�
 comp-pda-ui-bank-transfer-outcome-unknown = [color=red]Результат перевода не удалось проверить. Повтор заблокирован до перезапуска сервера; проверьте баланс или обратитесь к администратору.[/color]
 comp-pda-ui-bank-transfer-internal-error = [color=red]Не удалось подтвердить статус перевода. Проверьте баланс перед повторной попыткой.[/color]
 comp-pda-ui-bank-transfer-failed = [color=red]Перевод не выполнен ({ $reason }).[/color]
-comp-pda-ui-bank-transfer-success = [color=green]Отправлено { $amount } игроку { $recipient } [{ $id }]. Баланс: { $balance }.[/color]
+comp-pda-ui-bank-transfer-success = [color=green]Отправлено { $amount } игроку { $recipient } [{ $id }]. Баланс: { $balance }. Операция: { $operation }.[/color]
 comp-pda-ui-bank-transfer-received = Получен банковский перевод: { $amount } от { $sender }.
 comp-pda-ui-donation-shop-title = Магазин поддержки LuaM
 comp-pda-ui-donation-shop-access = Магазин поддержки: [color=white]{ $balance } { $currency }[/color]. Доступ до: [color=white]{ $until }[/color].

@@ -37,6 +37,7 @@ namespace Content.Server.Database
         InsufficientFunds,
         RecipientOverflow,
         IronmanBlocked,
+        OperationConflict,
         Conflict,
         UnknownOutcome,
     }
@@ -44,7 +45,9 @@ namespace Content.Server.Database
     public readonly record struct CharacterBankTransferResult(
         CharacterBankTransferStatus Status,
         int SenderBalance = 0,
-        int RecipientBalance = 0)
+        int RecipientBalance = 0,
+        Guid OperationId = default,
+        bool AlreadyProcessed = false)
     {
         public bool Success => Status == CharacterBankTransferStatus.Success;
 
@@ -58,10 +61,31 @@ namespace Content.Server.Database
             CharacterBankTransferStatus.InsufficientFunds => "insufficient-funds",
             CharacterBankTransferStatus.RecipientOverflow => "recipient-overflow",
             CharacterBankTransferStatus.IronmanBlocked => "ironman-blocked",
+            CharacterBankTransferStatus.OperationConflict => "operation-conflict",
             CharacterBankTransferStatus.UnknownOutcome => "outcome-unknown",
             _ => "conflict",
         };
     }
+
+    public readonly record struct PdaBankAccountRecord(
+        string BankId,
+        NetUserId UserId,
+        int ProfileId,
+        int Slot,
+        string CharacterName,
+        string LastUserName);
+
+    public readonly record struct CharacterBankTransferJournalRecord(
+        Guid OperationId,
+        int SenderProfileId,
+        int RecipientProfileId,
+        int Amount,
+        int SenderBalanceBefore,
+        int SenderBalanceAfter,
+        int RecipientBalanceBefore,
+        int RecipientBalanceAfter,
+        DateTime CreatedAt,
+        DateTime? AcknowledgedAt);
 
     public interface IServerDbManager
     {
@@ -94,6 +118,40 @@ namespace Content.Server.Database
             NetUserId recipientUserId,
             int recipientProfileId,
             int amount,
+            Guid operationId,
+            CancellationToken cancel = default);
+
+        /// <summary>
+        /// Returns the canonical PDA account routed by a public bank id.
+        /// Archived or missing profiles are never returned.
+        /// </summary>
+        Task<PdaBankAccountRecord?> GetPdaBankAccountAsync(string bankId, CancellationToken cancel = default);
+
+        Task<PdaBankAccountRecord?> GetPdaBankAccountByProfileIdAsync(
+            int profileId,
+            CancellationToken cancel = default);
+
+        /// <summary>
+        /// Assigns the first available candidate id to the durable profile. If the
+        /// profile already owns an id, that stable id is returned instead.
+        /// </summary>
+        Task<PdaBankAccountRecord?> RegisterPdaBankAccountAsync(
+            NetUserId userId,
+            int slot,
+            string expectedCharacterName,
+            string lastUserName,
+            IReadOnlyList<string> candidateBankIds,
+            CancellationToken cancel = default);
+
+        Task<CharacterBankTransferJournalRecord?> GetUnacknowledgedCharacterBankTransferAsync(
+            NetUserId senderUserId,
+            int senderProfileId,
+            CancellationToken cancel = default);
+
+        Task<bool> AcknowledgeCharacterBankTransferAsync(
+            NetUserId senderUserId,
+            int senderProfileId,
+            Guid operationId,
             CancellationToken cancel = default);
 
         /// <summary>
@@ -580,6 +638,7 @@ namespace Content.Server.Database
             NetUserId recipientUserId,
             int recipientProfileId,
             int amount,
+            Guid operationId,
             CancellationToken cancel = default)
         {
             DbWriteOpsMetric.Inc();
@@ -589,6 +648,67 @@ namespace Content.Server.Database
                 recipientUserId,
                 recipientProfileId,
                 amount,
+                operationId,
+                cancel));
+        }
+
+        public Task<PdaBankAccountRecord?> GetPdaBankAccountAsync(
+            string bankId,
+            CancellationToken cancel = default)
+        {
+            DbReadOpsMetric.Inc();
+            return RunDbCommand(() => _db.GetPdaBankAccountAsync(bankId, cancel));
+        }
+
+        public Task<PdaBankAccountRecord?> GetPdaBankAccountByProfileIdAsync(
+            int profileId,
+            CancellationToken cancel = default)
+        {
+            DbReadOpsMetric.Inc();
+            return RunDbCommand(() => _db.GetPdaBankAccountByProfileIdAsync(profileId, cancel));
+        }
+
+        public Task<PdaBankAccountRecord?> RegisterPdaBankAccountAsync(
+            NetUserId userId,
+            int slot,
+            string expectedCharacterName,
+            string lastUserName,
+            IReadOnlyList<string> candidateBankIds,
+            CancellationToken cancel = default)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.RegisterPdaBankAccountAsync(
+                userId,
+                slot,
+                expectedCharacterName,
+                lastUserName,
+                candidateBankIds,
+                cancel));
+        }
+
+        public Task<CharacterBankTransferJournalRecord?> GetUnacknowledgedCharacterBankTransferAsync(
+            NetUserId senderUserId,
+            int senderProfileId,
+            CancellationToken cancel = default)
+        {
+            DbReadOpsMetric.Inc();
+            return RunDbCommand(() => _db.GetUnacknowledgedCharacterBankTransferAsync(
+                senderUserId,
+                senderProfileId,
+                cancel));
+        }
+
+        public Task<bool> AcknowledgeCharacterBankTransferAsync(
+            NetUserId senderUserId,
+            int senderProfileId,
+            Guid operationId,
+            CancellationToken cancel = default)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.AcknowledgeCharacterBankTransferAsync(
+                senderUserId,
+                senderProfileId,
+                operationId,
                 cancel));
         }
 

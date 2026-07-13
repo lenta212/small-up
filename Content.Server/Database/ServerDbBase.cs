@@ -152,19 +152,23 @@ namespace Content.Server.Database
             NetUserId recipientUserId,
             int recipientProfileId,
             int amount,
+            Guid operationId,
             CancellationToken cancel = default)
         {
+            if (operationId == Guid.Empty)
+                return new CharacterBankTransferResult(CharacterBankTransferStatus.OperationConflict);
+
             if (amount <= 0)
-                return new CharacterBankTransferResult(CharacterBankTransferStatus.InvalidAmount);
+                return new CharacterBankTransferResult(CharacterBankTransferStatus.InvalidAmount, OperationId: operationId);
 
             if (senderProfileId <= 0)
-                return new CharacterBankTransferResult(CharacterBankTransferStatus.SenderNotFound);
+                return new CharacterBankTransferResult(CharacterBankTransferStatus.SenderNotFound, OperationId: operationId);
 
             if (recipientProfileId <= 0)
-                return new CharacterBankTransferResult(CharacterBankTransferStatus.RecipientNotFound);
+                return new CharacterBankTransferResult(CharacterBankTransferStatus.RecipientNotFound, OperationId: operationId);
 
             if (senderProfileId == recipientProfileId)
-                return new CharacterBankTransferResult(CharacterBankTransferStatus.SameAccount);
+                return new CharacterBankTransferResult(CharacterBankTransferStatus.SameAccount, OperationId: operationId);
 
             Exception? commitException = null;
             var commitCompleted = false;
@@ -182,6 +186,45 @@ namespace Content.Server.Database
                         await using var transaction = await db.DbContext.Database.BeginTransactionAsync(cancel);
 
                         var accountIds = new[] { senderProfileId, recipientProfileId };
+                        var recordedTransfer = await db.DbContext.CharacterBankTransferJournal
+                            .AsNoTracking()
+                            .SingleOrDefaultAsync(transfer => transfer.OperationId == operationId, cancel);
+                        if (recordedTransfer != null)
+                        {
+                            if (recordedTransfer.SenderProfileId != senderProfileId ||
+                                recordedTransfer.RecipientProfileId != recipientProfileId ||
+                                recordedTransfer.Amount != amount)
+                            {
+                                return new CharacterBankTransferResult(
+                                    CharacterBankTransferStatus.OperationConflict,
+                                    recordedTransfer.SenderBalanceAfter,
+                                    recordedTransfer.RecipientBalanceAfter,
+                                    operationId,
+                                    true);
+                            }
+
+                            // Read idempotency proof before live-profile validation.
+                            // A committed operation remains successful even if either
+                            // character was archived or exceptionally deleted later.
+                            var currentBalances = await db.DbContext.Profile
+                                .AsNoTracking()
+                                .Where(profile => accountIds.Contains(profile.Id))
+                                .Select(profile => new { profile.Id, profile.BankBalance })
+                                .ToDictionaryAsync(profile => profile.Id, profile => profile.BankBalance, cancel);
+                            var replaySenderBalance = currentBalances.GetValueOrDefault(
+                                senderProfileId,
+                                recordedTransfer.SenderBalanceAfter);
+                            var replayRecipientBalance = currentBalances.GetValueOrDefault(
+                                recipientProfileId,
+                                recordedTransfer.RecipientBalanceAfter);
+                            return new CharacterBankTransferResult(
+                                CharacterBankTransferStatus.Success,
+                                replaySenderBalance,
+                                replayRecipientBalance,
+                                operationId,
+                                true);
+                        }
+
                         var accounts = await db.DbContext.Profile
                             .AsNoTracking()
                             .Where(profile => accountIds.Contains(profile.Id))
@@ -298,6 +341,20 @@ namespace Content.Server.Database
                             return new CharacterBankTransferResult(CharacterBankTransferStatus.Conflict);
                         }
 
+                        db.DbContext.CharacterBankTransferJournal.Add(new CharacterBankTransferJournal
+                        {
+                            OperationId = operationId,
+                            SenderProfileId = senderProfileId,
+                            RecipientProfileId = recipientProfileId,
+                            Amount = amount,
+                            SenderBalanceBefore = senderBalanceBefore,
+                            SenderBalanceAfter = senderBalanceAfter,
+                            RecipientBalanceBefore = recipientBalanceBefore,
+                            RecipientBalanceAfter = recipientBalanceAfter,
+                            CreatedAt = DateTime.UtcNow,
+                        });
+                        await db.DbContext.SaveChangesAsync(cancel);
+
                         try
                         {
                             await transaction.CommitAsync(cancel);
@@ -328,12 +385,20 @@ namespace Content.Server.Database
             catch (DbUpdateException exception)
             {
                 _opsLog.Warning($"Atomic character bank transfer failed: {exception.Message}");
-                return new CharacterBankTransferResult(CharacterBankTransferStatus.Conflict);
+                return await ResolveCharacterBankTransferOutcomeAsync(
+                    operationId,
+                    senderProfileId,
+                    recipientProfileId,
+                    amount);
             }
             catch (DbException exception)
             {
                 _opsLog.Warning($"Atomic character bank transfer failed: {exception.Message}");
-                return new CharacterBankTransferResult(CharacterBankTransferStatus.Conflict);
+                return await ResolveCharacterBankTransferOutcomeAsync(
+                    operationId,
+                    senderProfileId,
+                    recipientProfileId,
+                    amount);
             }
 
             if (commitException != null)
@@ -344,7 +409,8 @@ namespace Content.Server.Database
                 return new CharacterBankTransferResult(
                     CharacterBankTransferStatus.Success,
                     senderBalanceAfter,
-                    recipientBalanceAfter);
+                    recipientBalanceAfter,
+                    operationId);
             }
 
             if (commitException == null)
@@ -352,29 +418,46 @@ namespace Content.Server.Database
                 return new CharacterBankTransferResult(
                     CharacterBankTransferStatus.UnknownOutcome,
                     senderBalanceAfter,
-                    recipientBalanceAfter);
+                    recipientBalanceAfter,
+                    operationId);
             }
 
             return await ResolveCharacterBankTransferOutcomeAsync(
+                operationId,
                 senderProfileId,
                 recipientProfileId,
-                senderBalanceBefore,
-                recipientBalanceBefore,
-                senderBalanceAfter,
-                recipientBalanceAfter);
+                amount);
         }
 
         private async Task<CharacterBankTransferResult> ResolveCharacterBankTransferOutcomeAsync(
+            Guid operationId,
             int senderProfileId,
             int recipientProfileId,
-            int senderBalanceBefore,
-            int recipientBalanceBefore,
-            int senderBalanceAfter,
-            int recipientBalanceAfter)
+            int amount)
         {
             try
             {
                 await using var db = await GetDb(CancellationToken.None);
+                var transfer = await db.DbContext.CharacterBankTransferJournal
+                    .AsNoTracking()
+                    .SingleOrDefaultAsync(entry => entry.OperationId == operationId, CancellationToken.None);
+                if (transfer == null)
+                {
+                    return new CharacterBankTransferResult(
+                        CharacterBankTransferStatus.Conflict,
+                        OperationId: operationId);
+                }
+
+                if (transfer.SenderProfileId != senderProfileId ||
+                    transfer.RecipientProfileId != recipientProfileId ||
+                    transfer.Amount != amount)
+                {
+                    return new CharacterBankTransferResult(
+                        CharacterBankTransferStatus.OperationConflict,
+                        OperationId: operationId,
+                        AlreadyProcessed: true);
+                }
+
                 var accountIds = new[] { senderProfileId, recipientProfileId };
                 var balances = await db.DbContext.Profile
                     .AsNoTracking()
@@ -383,41 +466,288 @@ namespace Content.Server.Database
                     .ToArrayAsync(CancellationToken.None);
 
                 if (balances.Length != 2)
-                    return new CharacterBankTransferResult(CharacterBankTransferStatus.UnknownOutcome);
+                {
+                    return new CharacterBankTransferResult(
+                        CharacterBankTransferStatus.Success,
+                        transfer.SenderBalanceAfter,
+                        transfer.RecipientBalanceAfter,
+                        operationId,
+                        true);
+                }
 
                 var sender = balances.SingleOrDefault(profile => profile.Id == senderProfileId);
                 var recipient = balances.SingleOrDefault(profile => profile.Id == recipientProfileId);
                 if (sender == null || recipient == null)
-                    return new CharacterBankTransferResult(CharacterBankTransferStatus.UnknownOutcome);
-
-                if (sender.BankBalance == senderBalanceAfter &&
-                    recipient.BankBalance == recipientBalanceAfter)
-                {
                     return new CharacterBankTransferResult(
                         CharacterBankTransferStatus.Success,
-                        sender.BankBalance,
-                        recipient.BankBalance);
-                }
-
-                if (sender.BankBalance == senderBalanceBefore &&
-                    recipient.BankBalance == recipientBalanceBefore)
-                {
-                    return new CharacterBankTransferResult(
-                        CharacterBankTransferStatus.Conflict,
-                        sender.BankBalance,
-                        recipient.BankBalance);
-                }
+                        transfer.SenderBalanceAfter,
+                        transfer.RecipientBalanceAfter,
+                        operationId,
+                        true);
 
                 return new CharacterBankTransferResult(
-                    CharacterBankTransferStatus.UnknownOutcome,
+                    CharacterBankTransferStatus.Success,
                     sender.BankBalance,
-                    recipient.BankBalance);
+                    recipient.BankBalance,
+                    operationId,
+                    true);
             }
             catch (Exception exception)
             {
                 _opsLog.Warning($"Could not resolve atomic character bank transfer COMMIT outcome: {exception.Message}");
-                return new CharacterBankTransferResult(CharacterBankTransferStatus.UnknownOutcome);
+                return new CharacterBankTransferResult(
+                    CharacterBankTransferStatus.UnknownOutcome,
+                    OperationId: operationId);
             }
+        }
+
+        public async Task<PdaBankAccountRecord?> GetPdaBankAccountAsync(
+            string bankId,
+            CancellationToken cancel = default)
+        {
+            if (string.IsNullOrWhiteSpace(bankId))
+                return null;
+
+            await using var db = await GetDb(cancel);
+            var account = await (
+                    from mapping in db.DbContext.PdaBankAccounts.AsNoTracking()
+                    join profile in db.DbContext.Profile.AsNoTracking() on mapping.ProfileId equals profile.Id
+                    join preference in db.DbContext.Preference.AsNoTracking() on profile.PreferenceId equals preference.Id
+                    where mapping.BankId == bankId && !profile.IsArchived && profile.Slot.HasValue
+                    select new
+                    {
+                        mapping.BankId,
+                        mapping.ProfileId,
+                        mapping.LastUserName,
+                        preference.UserId,
+                        Slot = profile.Slot!.Value,
+                        profile.CharacterName,
+                    })
+                .SingleOrDefaultAsync(cancel);
+
+            return account == null
+                ? null
+                : new PdaBankAccountRecord(
+                    account.BankId,
+                    new NetUserId(account.UserId),
+                    account.ProfileId,
+                    account.Slot,
+                    account.CharacterName,
+                    account.LastUserName);
+        }
+
+        public async Task<PdaBankAccountRecord?> GetPdaBankAccountByProfileIdAsync(
+            int profileId,
+            CancellationToken cancel = default)
+        {
+            if (profileId <= 0)
+                return null;
+
+            await using var db = await GetDb(cancel);
+            var account = await (
+                    from mapping in db.DbContext.PdaBankAccounts.AsNoTracking()
+                    join profile in db.DbContext.Profile.AsNoTracking() on mapping.ProfileId equals profile.Id
+                    join preference in db.DbContext.Preference.AsNoTracking() on profile.PreferenceId equals preference.Id
+                    where mapping.ProfileId == profileId && !profile.IsArchived && profile.Slot.HasValue
+                    select new
+                    {
+                        mapping.BankId,
+                        mapping.ProfileId,
+                        mapping.LastUserName,
+                        preference.UserId,
+                        Slot = profile.Slot!.Value,
+                        profile.CharacterName,
+                    })
+                .SingleOrDefaultAsync(cancel);
+
+            return account == null
+                ? null
+                : new PdaBankAccountRecord(
+                    account.BankId,
+                    new NetUserId(account.UserId),
+                    account.ProfileId,
+                    account.Slot,
+                    account.CharacterName,
+                    account.LastUserName);
+        }
+
+        public async Task<PdaBankAccountRecord?> RegisterPdaBankAccountAsync(
+            NetUserId userId,
+            int slot,
+            string expectedCharacterName,
+            string lastUserName,
+            IReadOnlyList<string> candidateBankIds,
+            CancellationToken cancel = default)
+        {
+            if (slot < 0 || string.IsNullOrWhiteSpace(expectedCharacterName) || candidateBankIds.Count == 0)
+                return null;
+
+            var candidates = candidateBankIds
+                .Where(candidate => !string.IsNullOrWhiteSpace(candidate) && candidate.Length <= 7)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (candidates.Length == 0)
+                return null;
+
+            // Unique constraints on both bank_id and profile_id arbitrate concurrent
+            // registrations. A loser retries and observes the winner's stable id.
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                try
+                {
+                    await using var db = await GetDb(cancel);
+                    await using var transaction = await db.DbContext.Database.BeginTransactionAsync(cancel);
+
+                    var profile = await db.DbContext.Profile
+                        .AsNoTracking()
+                        .Where(candidate =>
+                            candidate.Preference.UserId == userId.UserId &&
+                            candidate.Slot == slot &&
+                            !candidate.IsArchived &&
+                            candidate.CharacterName == expectedCharacterName)
+                        .Select(candidate => new
+                        {
+                            candidate.Id,
+                            candidate.Slot,
+                            candidate.CharacterName,
+                        })
+                        .SingleOrDefaultAsync(cancel);
+                    if (profile == null)
+                        return null;
+
+                    var existing = await db.DbContext.PdaBankAccounts
+                        .SingleOrDefaultAsync(mapping => mapping.ProfileId == profile.Id, cancel);
+                    if (existing != null)
+                    {
+                        existing.LastUserName = lastUserName;
+                        existing.UpdatedAt = DateTime.UtcNow;
+                        await db.DbContext.SaveChangesAsync(cancel);
+                        await transaction.CommitAsync(cancel);
+                        return new PdaBankAccountRecord(
+                            existing.BankId,
+                            userId,
+                            profile.Id,
+                            profile.Slot!.Value,
+                            profile.CharacterName,
+                            existing.LastUserName);
+                    }
+
+                    var occupied = await db.DbContext.PdaBankAccounts
+                        .AsNoTracking()
+                        .Where(mapping => candidates.Contains(mapping.BankId))
+                        .Select(mapping => mapping.BankId)
+                        .ToArrayAsync(cancel);
+                    var occupiedSet = occupied.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var selected = candidates.FirstOrDefault(candidate => !occupiedSet.Contains(candidate));
+                    if (selected == null)
+                        return null;
+
+                    var mapping = new PdaBankAccount
+                    {
+                        BankId = selected,
+                        ProfileId = profile.Id,
+                        LastUserName = lastUserName,
+                        UpdatedAt = DateTime.UtcNow,
+                    };
+                    db.DbContext.PdaBankAccounts.Add(mapping);
+                    await db.DbContext.SaveChangesAsync(cancel);
+                    await transaction.CommitAsync(cancel);
+                    return new PdaBankAccountRecord(
+                        mapping.BankId,
+                        userId,
+                        profile.Id,
+                        profile.Slot!.Value,
+                        profile.CharacterName,
+                        mapping.LastUserName);
+                }
+                catch (DbUpdateException) when (attempt < 2)
+                {
+                    // A concurrent registration selected the same candidate.
+                }
+                catch (DbException) when (attempt < 2)
+                {
+                    // SQLite can surface a concurrent writer as a provider error.
+                }
+            }
+
+            return null;
+        }
+
+        public async Task<CharacterBankTransferJournalRecord?> GetUnacknowledgedCharacterBankTransferAsync(
+            NetUserId senderUserId,
+            int senderProfileId,
+            CancellationToken cancel = default)
+        {
+            if (senderProfileId <= 0)
+                return null;
+
+            await using var db = await GetDb(cancel);
+            var ownsProfile = await db.DbContext.Profile
+                .AsNoTracking()
+                .AnyAsync(profile =>
+                    profile.Id == senderProfileId &&
+                    profile.Preference.UserId == senderUserId.UserId &&
+                    !profile.IsArchived &&
+                    profile.Slot.HasValue,
+                    cancel);
+            if (!ownsProfile)
+                return null;
+
+            var transfer = await db.DbContext.CharacterBankTransferJournal
+                .AsNoTracking()
+                .Where(entry => entry.SenderProfileId == senderProfileId && entry.AcknowledgedAt == null)
+                .OrderBy(entry => entry.CreatedAt)
+                .ThenBy(entry => entry.OperationId)
+                .FirstOrDefaultAsync(cancel);
+
+            return transfer == null ? null : ToJournalRecord(transfer);
+        }
+
+        public async Task<bool> AcknowledgeCharacterBankTransferAsync(
+            NetUserId senderUserId,
+            int senderProfileId,
+            Guid operationId,
+            CancellationToken cancel = default)
+        {
+            if (senderProfileId <= 0 || operationId == Guid.Empty)
+                return false;
+
+            await using var db = await GetDb(cancel);
+            var ownsProfile = await db.DbContext.Profile
+                .AsNoTracking()
+                .AnyAsync(profile =>
+                    profile.Id == senderProfileId &&
+                    profile.Preference.UserId == senderUserId.UserId &&
+                    !profile.IsArchived &&
+                    profile.Slot.HasValue,
+                    cancel);
+            if (!ownsProfile)
+                return false;
+
+            var affected = await db.DbContext.CharacterBankTransferJournal
+                .Where(entry =>
+                    entry.OperationId == operationId &&
+                    entry.SenderProfileId == senderProfileId &&
+                    entry.AcknowledgedAt == null)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(entry => entry.AcknowledgedAt, DateTime.UtcNow),
+                    cancel);
+            return affected == 1;
+        }
+
+        private static CharacterBankTransferJournalRecord ToJournalRecord(CharacterBankTransferJournal transfer)
+        {
+            return new CharacterBankTransferJournalRecord(
+                transfer.OperationId,
+                transfer.SenderProfileId,
+                transfer.RecipientProfileId,
+                transfer.Amount,
+                transfer.SenderBalanceBefore,
+                transfer.SenderBalanceAfter,
+                transfer.RecipientBalanceBefore,
+                transfer.RecipientBalanceAfter,
+                transfer.CreatedAt,
+                transfer.AcknowledgedAt);
         }
 
         public async Task<int?> GetCharacterIdAsync(NetUserId userId, int slot, CancellationToken cancel = default)

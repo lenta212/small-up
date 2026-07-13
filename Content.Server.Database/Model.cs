@@ -47,6 +47,8 @@ namespace Content.Server.Database
         public DbSet<BanTemplate> BanTemplate { get; set; } = null!;
         public DbSet<IPIntelCache> IPIntelCache { get; set; } = null!;
         public DbSet<CompanyMember> CompanyMembers { get; set; } = null!;
+        public DbSet<PdaBankAccount> PdaBankAccounts { get; set; } = null!;
+        public DbSet<CharacterBankTransferJournal> CharacterBankTransferJournal { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -70,6 +72,35 @@ namespace Content.Server.Database
                     "CK_profile_archive_state",
                     "(is_archived = TRUE AND slot IS NULL AND archived_at IS NOT NULL) OR " +
                     "(is_archived = FALSE AND slot IS NOT NULL AND archived_at IS NULL)"));
+
+            modelBuilder.Entity<PdaBankAccount>()
+                .HasKey(account => account.BankId);
+
+            modelBuilder.Entity<PdaBankAccount>()
+                .Property(account => account.BankId)
+                .HasMaxLength(7);
+
+            modelBuilder.Entity<PdaBankAccount>()
+                .HasIndex(account => account.ProfileId)
+                .IsUnique();
+
+            modelBuilder.Entity<PdaBankAccount>()
+                .HasOne<Profile>()
+                .WithOne()
+                .HasForeignKey<PdaBankAccount>(account => account.ProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<CharacterBankTransferJournal>()
+                .HasKey(transfer => transfer.OperationId);
+
+            modelBuilder.Entity<CharacterBankTransferJournal>()
+                .HasIndex(transfer => new { transfer.SenderProfileId, transfer.AcknowledgedAt });
+
+            modelBuilder.Entity<CharacterBankTransferJournal>()
+                .HasIndex(transfer => transfer.RecipientProfileId);
+
+            modelBuilder.Entity<CharacterBankTransferJournal>()
+                .HasIndex(transfer => transfer.CreatedAt);
 
             modelBuilder.Entity<Antag>()
                 .HasIndex(p => new {HumanoidProfileId = p.ProfileId, p.AntagName})
@@ -462,6 +493,40 @@ namespace Content.Server.Database
 
         public int PreferenceId { get; set; }
         public Preference Preference { get; set; } = null!;
+    }
+
+    /// <summary>
+    /// Canonical public PDA identifier for a durable character profile.
+    /// The profile id, not the mutable character slot, owns the mapping.
+    /// </summary>
+    public class PdaBankAccount
+    {
+        [Key, MaxLength(7)]
+        public string BankId { get; set; } = null!;
+        public int ProfileId { get; set; }
+        public string LastUserName { get; set; } = string.Empty;
+        public DateTime UpdatedAt { get; set; }
+    }
+
+    /// <summary>
+    /// Append-only proof that a character-to-character transfer committed.
+    /// This row is inserted in the same transaction as the debit and credit.
+    /// Profile ids intentionally are not foreign keys so audit and idempotency
+    /// survive any exceptional hard deletion of an old profile.
+    /// </summary>
+    public class CharacterBankTransferJournal
+    {
+        [Key]
+        public Guid OperationId { get; set; }
+        public int SenderProfileId { get; set; }
+        public int RecipientProfileId { get; set; }
+        public int Amount { get; set; }
+        public int SenderBalanceBefore { get; set; }
+        public int SenderBalanceAfter { get; set; }
+        public int RecipientBalanceBefore { get; set; }
+        public int RecipientBalanceAfter { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? AcknowledgedAt { get; set; }
     }
 
     public class Job

@@ -1255,8 +1255,12 @@ public sealed partial class BankSystem : SharedBankSystem
         int recipientSlot,
         string expectedRecipientName,
         int amount,
+        Guid operationId,
         CancellationToken cancel = default)
     {
+        if (operationId == Guid.Empty)
+            return new CharacterBankTransferResult(CharacterBankTransferStatus.OperationConflict);
+
         if (amount <= 0)
             return new CharacterBankTransferResult(CharacterBankTransferStatus.InvalidAmount);
 
@@ -1352,6 +1356,7 @@ public sealed partial class BankSystem : SharedBankSystem
                 recipientUserId,
                 recipientProfileId.Value,
                 amount,
+                operationId,
                 cancel);
             if (!result.Success)
             {
@@ -1459,7 +1464,9 @@ public sealed partial class BankSystem : SharedBankSystem
             return new CharacterBankTransferResult(
                 CharacterBankTransferStatus.Success,
                 result.SenderBalance,
-                result.RecipientBalance);
+                result.RecipientBalance,
+                operationId,
+                result.AlreadyProcessed);
         }
         finally
         {

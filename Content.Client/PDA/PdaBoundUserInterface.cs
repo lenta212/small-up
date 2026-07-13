@@ -72,9 +72,24 @@ namespace Content.Client.PDA
                 SendMessage(new PdaLockUplinkMessage());
             };
 
-            _menu.OnBankTransferPressed += (recipientId, amount) =>
+            _menu.OnBankTransferPreviewPressed += (recipientId, amount) =>
             {
-                SendMessage(new PdaBankTransferMessage(recipientId, amount));
+                SendMessage(new PdaBankTransferPreviewMessage(recipientId, amount));
+            };
+
+            _menu.OnBankTransferPressed += operationId =>
+            {
+                SendMessage(new PdaBankTransferMessage(operationId));
+            };
+
+            _menu.OnBankTransferCancelPressed += operationId =>
+            {
+                SendMessage(new PdaBankTransferCancelMessage(operationId));
+            };
+
+            _menu.OnBankTransferAcknowledgePressed += operationId =>
+            {
+                SendMessage(new PdaBankTransferAcknowledgeMessage(operationId));
             };
 
             _menu.OnDonationShopPurchasePressed += listingId =>

@@ -222,6 +222,18 @@ public sealed class LuaMBankAndPdaContractsTest
                     },
                     new JsonSerializerOptions { WriteIndented = true }));
 
+            // A pooled server may already have completed its process-local import
+            // before this test writes the compatibility fixture. Reset only that
+            // in-memory task to simulate a fresh server process; the JSON itself is
+            // deliberately left untouched.
+            var importTaskField = typeof(PdaSystem).GetField(
+                "_legacyBankRegistryImportTask",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.That(importTaskField, Is.Not.Null);
+            importTaskField!.SetValue(pdaSystem, null);
+            await InvokePrivateAsync(pdaSystem, "EnsureLegacyPdaBankRegistryImportedAsync");
+            Assert.That((await db.GetPdaBankAccountAsync(recipientBankId))?.BankId, Is.EqualTo(recipientBankId));
+
             EntityUid sender = default;
             await server.WaitPost(() =>
             {
@@ -243,12 +255,19 @@ public sealed class LuaMBankAndPdaContractsTest
             Assert.That(bankAccount, Is.Not.Null);
 
             var formattedRecipientBankId = $"{recipientBankId[..2].ToLowerInvariant()}-{recipientBankId[2..4]} {recipientBankId[4..]}";
+            var normalizedRecipientBankId = InvokePrivateStatic<string>(
+                typeof(PdaSystem),
+                "ExtractPdaBankAccountId",
+                formattedRecipientBankId);
+            var recipientRecord = await db.GetPdaBankAccountAsync(normalizedRecipientBankId);
+            Assert.That(recipientRecord, Is.Not.Null);
             var result = await InvokePrivateAsync(
                 pdaSystem,
                 "TryRegisteredBankTransfer",
                 sender,
-                formattedRecipientBankId,
-                5000);
+                recipientRecord!.Value,
+                5000,
+                Guid.NewGuid());
 
             Assert.That(result, Is.Not.Null);
             Assert.That(GetPrivateProperty<bool>(result, "Success"), Is.True);
@@ -324,6 +343,14 @@ public sealed class LuaMBankAndPdaContractsTest
                 0,
                 1);
 
+            var recipientRecord = await db.RegisterPdaBankAccountAsync(
+                recipientId,
+                0,
+                recipientProfile.Name,
+                "Duplicate",
+                new[] { recipientBankId });
+            Assert.That(recipientRecord, Is.Not.Null);
+
             resourceManager.UserData.CreateDir(new ResPath("/luam"));
             resourceManager.UserData.WriteAllText(
                 new ResPath("/luam/pda-bank-accounts.json"),
@@ -367,8 +394,9 @@ public sealed class LuaMBankAndPdaContractsTest
                     pdaSystem,
                     "TryRegisteredBankTransfer",
                     sender,
-                    recipientBankId,
-                    5000);
+                    recipientRecord!.Value,
+                    5000,
+                    Guid.NewGuid());
             }
             finally
             {
@@ -382,8 +410,9 @@ public sealed class LuaMBankAndPdaContractsTest
                 pdaSystem,
                 "TryRegisteredBankTransfer",
                 sender,
-                recipientBankId,
-                5000);
+                recipientRecord!.Value,
+                5000,
+                Guid.NewGuid());
             Assert.That(GetPrivateProperty<bool>(accepted, "Success"), Is.True);
 
             Assert.That(bankSystem.TryGetBalance(sender, out var senderBalance), Is.True);
@@ -453,9 +482,14 @@ public sealed class LuaMBankAndPdaContractsTest
                 senderPda = entMan.SpawnEntity("PassengerPDA", testMap.GridCoords);
                 Assert.That(entMan.TryGetComponent(senderPda, out pda), Is.True);
                 Assert.That(pda, Is.Not.Null);
+                pdaSystem.UpdatePdaUi(senderPda, pda, sender);
             });
 
-            var transfer = new PdaBankTransferMessage("ZZ-99999", 5000)
+            // Account registration and the unacknowledged-journal check are
+            // asynchronous and fail closed until both complete.
+            await pair.RunTicksSync(10);
+
+            var transfer = new PdaBankTransferPreviewMessage("ZZ-99999", 5000)
             {
                 UiKey = PdaUiKey.Key,
                 Actor = sender,
@@ -464,7 +498,7 @@ public sealed class LuaMBankAndPdaContractsTest
 
             await InvokePrivateAsync(
                 pdaSystem,
-                "HandleBankTransferMessageAsync",
+                "HandleBankTransferPreviewAsync",
                 senderPda,
                 pda!,
                 transfer);

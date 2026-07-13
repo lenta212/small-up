@@ -7,3 +7,9 @@ changes:
     message: PDA transfer requests reject overlapping submissions and keep the displayed bank ID and balance stable across UI refreshes.
   - type: Fix
     message: ATM exchanges, cargo order payments, shipyard purchases, and shuttle sales now wait for durable bank settlement before applying irreversible world changes.
+  - type: Fix
+    message: Every PDA transfer now has a durable operation ID and an atomic database journal, so retries after a timeout or restart cannot debit the sender twice.
+  - type: Add
+    message: PDA bank IDs are now stored against the durable character profile in the database and legacy JSON registrations are imported without rewriting the source file.
+  - type: Add
+    message: Before sending, the PDA now asks for confirmation with the recipient name, bank ID, amount, and operation ID; unacknowledged committed transfers are recovered on reopen.

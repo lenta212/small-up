@@ -20,6 +20,9 @@ namespace Content.Shared.PDA
         public string? BankAccountId; // Frontier
         public string? BankTransferStatus; // Frontier
         public bool BankTransferRetryBlocked; // LuaM
+        public bool BankTransferReady; // LuaM
+        public PdaBankTransferConfirmation? BankTransferConfirmation; // LuaM
+        public PdaBankTransferRecovery? BankTransferRecovery; // LuaM
         public int PayrollHourly; // LuaM
         public int PayrollNextSeconds; // LuaM
         public string? OwnedShipName; // Frontier
@@ -40,6 +43,9 @@ namespace Content.Shared.PDA
             string? bankAccountId, // Frontier
             string? bankTransferStatus, // Frontier
             bool bankTransferRetryBlocked, // LuaM
+            bool bankTransferReady, // LuaM
+            PdaBankTransferConfirmation? bankTransferConfirmation, // LuaM
+            PdaBankTransferRecovery? bankTransferRecovery, // LuaM
             int payrollHourly, // LuaM
             int payrollNextSeconds, // LuaM
             string? ownedShipName, // Frontier
@@ -66,6 +72,9 @@ namespace Content.Shared.PDA
             BankAccountId = bankAccountId; // Frontier
             BankTransferStatus = bankTransferStatus; // Frontier
             BankTransferRetryBlocked = bankTransferRetryBlocked; // LuaM
+            BankTransferReady = bankTransferReady; // LuaM
+            BankTransferConfirmation = bankTransferConfirmation; // LuaM
+            BankTransferRecovery = bankTransferRecovery; // LuaM
             PayrollHourly = payrollHourly; // LuaM
             PayrollNextSeconds = payrollNextSeconds; // LuaM
             OwnedShipName = ownedShipName; // Frontier
@@ -74,6 +83,55 @@ namespace Content.Shared.PDA
             DonationShopAccessUntil = donationShopAccessUntil; // LuaM
             DonationShopStatus = donationShopStatus; // LuaM
             DonationShopListings = donationShopListings ?? new List<PdaDonationShopListing>(); // LuaM
+        }
+    }
+
+    [Serializable, NetSerializable]
+    public sealed class PdaBankTransferConfirmation
+    {
+        public Guid OperationId;
+        public string RecipientName = string.Empty;
+        public string RecipientBankId = string.Empty;
+        public int Amount;
+
+        public PdaBankTransferConfirmation()
+        {
+        }
+
+        public PdaBankTransferConfirmation(Guid operationId, string recipientName, string recipientBankId, int amount)
+        {
+            OperationId = operationId;
+            RecipientName = recipientName;
+            RecipientBankId = recipientBankId;
+            Amount = amount;
+        }
+    }
+
+    [Serializable, NetSerializable]
+    public sealed class PdaBankTransferRecovery
+    {
+        public Guid OperationId;
+        public string RecipientName = string.Empty;
+        public string RecipientBankId = string.Empty;
+        public int Amount;
+        public int SenderBalance;
+
+        public PdaBankTransferRecovery()
+        {
+        }
+
+        public PdaBankTransferRecovery(
+            Guid operationId,
+            string recipientName,
+            string recipientBankId,
+            int amount,
+            int senderBalance)
+        {
+            OperationId = operationId;
+            RecipientName = recipientName;
+            RecipientBankId = recipientBankId;
+            Amount = amount;
+            SenderBalance = senderBalance;
         }
     }
 

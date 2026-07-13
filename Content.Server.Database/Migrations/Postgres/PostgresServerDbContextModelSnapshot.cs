@@ -581,6 +581,61 @@ namespace Content.Server.Database.Migrations.Postgres
                     b.ToTable("blacklist", (string)null);
                 });
 
+            modelBuilder.Entity("Content.Server.Database.CharacterBankTransferJournal", b =>
+                {
+                    b.Property<Guid>("OperationId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<DateTime?>("AcknowledgedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("acknowledged_at");
+
+                    b.Property<int>("Amount")
+                        .HasColumnType("integer")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("RecipientBalanceAfter")
+                        .HasColumnType("integer")
+                        .HasColumnName("recipient_balance_after");
+
+                    b.Property<int>("RecipientBalanceBefore")
+                        .HasColumnType("integer")
+                        .HasColumnName("recipient_balance_before");
+
+                    b.Property<int>("RecipientProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("recipient_profile_id");
+
+                    b.Property<int>("SenderBalanceAfter")
+                        .HasColumnType("integer")
+                        .HasColumnName("sender_balance_after");
+
+                    b.Property<int>("SenderBalanceBefore")
+                        .HasColumnType("integer")
+                        .HasColumnName("sender_balance_before");
+
+                    b.Property<int>("SenderProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("sender_profile_id");
+
+                    b.HasKey("OperationId")
+                        .HasName("PK_character_bank_transfer_journal");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("RecipientProfileId");
+
+                    b.HasIndex("SenderProfileId", "AcknowledgedAt");
+
+                    b.ToTable("character_bank_transfer_journal", (string)null);
+                });
+
             modelBuilder.Entity("Content.Server.Database.CompanyMember", b =>
                 {
                     b.Property<Guid>("PlayerUserId")
@@ -721,6 +776,35 @@ namespace Content.Server.Database.Migrations.Postgres
                         .HasFilter("priority = 3");
 
                     b.ToTable("job", (string)null);
+                });
+
+            modelBuilder.Entity("Content.Server.Database.PdaBankAccount", b =>
+                {
+                    b.Property<string>("BankId")
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)")
+                        .HasColumnName("bank_id");
+
+                    b.Property<string>("LastUserName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("last_user_name");
+
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("profile_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("BankId")
+                        .HasName("PK_pda_bank_accounts");
+
+                    b.HasIndex("ProfileId")
+                        .IsUnique();
+
+                    b.ToTable("pda_bank_accounts", (string)null);
                 });
 
             modelBuilder.Entity("Content.Server.Database.PlayTime", b =>
@@ -1780,6 +1864,16 @@ namespace Content.Server.Database.Migrations.Postgres
                         .HasConstraintName("FK_job_profile_profile_id");
 
                     b.Navigation("Profile");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.PdaBankAccount", b =>
+                {
+                    b.HasOne("Content.Server.Database.Profile", null)
+                        .WithOne()
+                        .HasForeignKey("Content.Server.Database.PdaBankAccount", "ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_pda_bank_accounts_profile_profile_id");
                 });
 
             modelBuilder.Entity("Content.Server.Database.Player", b =>

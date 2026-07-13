@@ -8,6 +8,16 @@ comp-pda-ui-bank-id-copied = [color=green]Bank ID { $id } copied.[/color]
 comp-pda-ui-bank-transfer-recipient-placeholder = Recipient ID
 comp-pda-ui-bank-transfer-amount-placeholder = Amount
 comp-pda-ui-bank-transfer-send = Transfer
+comp-pda-ui-bank-transfer-confirm = Confirm transfer
+comp-pda-ui-bank-transfer-cancel = Cancel
+comp-pda-ui-bank-transfer-acknowledge = Acknowledge result
+comp-pda-ui-bank-transfer-confirmation = [color=yellow]Confirm transfer[/color]\nRecipient: [bold]{ $recipient }[/bold]\nBank ID: [bold]{ $id }[/bold]\nAmount: [bold]{ $amount }[/bold]\nOperation: { $operation }
+comp-pda-ui-bank-transfer-recovered = [color=yellow]Recovered completed transfer[/color]\nRecipient: [bold]{ $recipient }[/bold] [{ $id }]\nAmount: [bold]{ $amount }[/bold]\nBalance after transfer: { $balance }\nOperation: { $operation }\nAcknowledge this durable result before creating another transfer.
+comp-pda-ui-bank-transfer-confirmation-ready = Verify the recipient name, bank ID, and amount, then confirm the transfer.
+comp-pda-ui-bank-transfer-confirmation-expired = [color=orange]The confirmation expired. Create a new transfer preview.[/color]
+comp-pda-ui-bank-transfer-cancelled = Transfer cancelled before money was moved.
+comp-pda-ui-bank-transfer-acknowledged = Durable transfer result acknowledged.
+comp-pda-ui-bank-transfer-reconcile-required = [color=orange]Bank history is being reconciled. New transfers are disabled until it completes.[/color]
 comp-pda-ui-bank-transfer-missing-recipient = [color=orange]Enter recipient bank ID.[/color]
 comp-pda-ui-bank-transfer-invalid-amount = [color=orange]Enter a positive whole amount.[/color]
 comp-pda-ui-bank-transfer-no-sender = [color=red]Transfer failed: PDA user not found.[/color]
@@ -21,7 +31,7 @@ comp-pda-ui-bank-transfer-conflict = [color=orange]The transfer could not be con
 comp-pda-ui-bank-transfer-outcome-unknown = [color=red]The transfer result could not be verified. Repeating it is blocked for this server session; check your balance or contact an administrator.[/color]
 comp-pda-ui-bank-transfer-internal-error = [color=red]Transfer status could not be confirmed. Check your balance before trying again.[/color]
 comp-pda-ui-bank-transfer-failed = [color=red]Transfer failed ({ $reason }).[/color]
-comp-pda-ui-bank-transfer-success = [color=green]Sent { $amount } to { $recipient } [{ $id }]. Balance: { $balance }.[/color]
+comp-pda-ui-bank-transfer-success = [color=green]Sent { $amount } to { $recipient } [{ $id }]. Balance: { $balance }. Operation: { $operation }.[/color]
 comp-pda-ui-bank-transfer-received = Bank transfer received: { $amount } from { $sender }.
 comp-pda-ui-donation-shop-title = LuaM support shop
 comp-pda-ui-donation-shop-access = Support shop: [color=white]{ $balance } { $currency }[/color]. Access until: [color=white]{ $until }[/color].

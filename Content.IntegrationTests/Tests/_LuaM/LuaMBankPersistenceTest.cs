@@ -42,7 +42,8 @@ public sealed class LuaMBankPersistenceTest
             senderProfileId,
             recipientUserId,
             recipientProfileId,
-            4_500);
+            4_500,
+            Guid.NewGuid());
 
         var senderBalance = await GetBalance(db, senderUserId);
         var recipientBalance = await GetBalance(db, recipientUserId);
@@ -78,7 +79,8 @@ public sealed class LuaMBankPersistenceTest
             senderProfileId,
             recipientUserId,
             recipientProfileId,
-            3_000);
+            3_000,
+            Guid.NewGuid());
 
         var senderBalance = await GetBalance(db, senderUserId);
         var recipientBalance = await GetBalance(db, recipientUserId);
@@ -111,7 +113,8 @@ public sealed class LuaMBankPersistenceTest
             senderProfileId,
             recipientUserId,
             recipientProfileId,
-            1_001);
+            1_001,
+            Guid.NewGuid());
 
         var senderBalance = await GetBalance(db, senderUserId);
         var recipientBalance = await GetBalance(db, recipientUserId);
@@ -149,7 +152,8 @@ public sealed class LuaMBankPersistenceTest
             senderProfileId,
             recipientUserId,
             recipientProfileId,
-            50);
+            50,
+            Guid.NewGuid());
 
         var senderBalance = await GetBalance(db, senderUserId);
         var recipientBalance = await GetBalance(db, recipientUserId);
@@ -185,7 +189,8 @@ public sealed class LuaMBankPersistenceTest
             await GetProfileId(db, senderUserId),
             recipientUserId,
             await GetProfileId(db, recipientUserId),
-            4_000);
+            4_000,
+            Guid.NewGuid());
         Assert.That(result.Success, Is.True);
 
         await db.SaveCharacterSlotAsync(
@@ -201,6 +206,157 @@ public sealed class LuaMBankPersistenceTest
         {
             Assert.That(savedProfile.Name, Is.EqualTo("Profile Save Renamed"));
             Assert.That(savedProfile.BankBalance, Is.EqualTo(6_000));
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task OperationJournalMakesRetryIdempotentAndRecoverableUntilAcknowledged()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var db = pair.Server.ResolveDependency<IServerDbManager>();
+        var senderUserId = NewUserId();
+        var recipientUserId = NewUserId();
+        var operationId = Guid.NewGuid();
+
+        await db.InitPrefsAsync(senderUserId, NewProfile("Journal Sender", 9_000), default);
+        await db.InitPrefsAsync(recipientUserId, NewProfile("Journal Recipient", 1_000), default);
+        var senderProfileId = await GetProfileId(db, senderUserId);
+        var recipientProfileId = await GetProfileId(db, recipientUserId);
+
+        var first = await db.TransferCharacterBankBalanceAsync(
+            senderUserId,
+            senderProfileId,
+            recipientUserId,
+            recipientProfileId,
+            2_500,
+            operationId);
+        var replay = await db.TransferCharacterBankBalanceAsync(
+            senderUserId,
+            senderProfileId,
+            recipientUserId,
+            recipientProfileId,
+            2_500,
+            operationId);
+        var recovered = await db.GetUnacknowledgedCharacterBankTransferAsync(senderUserId, senderProfileId);
+        var senderBalance = await GetBalance(db, senderUserId);
+        var recipientBalance = await GetBalance(db, recipientUserId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Success, Is.True);
+            Assert.That(first.AlreadyProcessed, Is.False);
+            Assert.That(replay.Success, Is.True);
+            Assert.That(replay.AlreadyProcessed, Is.True);
+            Assert.That(recovered?.OperationId, Is.EqualTo(operationId));
+            Assert.That(recovered?.Amount, Is.EqualTo(2_500));
+            Assert.That(senderBalance, Is.EqualTo(6_500));
+            Assert.That(recipientBalance, Is.EqualTo(3_500));
+        });
+
+        Assert.That(
+            await db.AcknowledgeCharacterBankTransferAsync(senderUserId, senderProfileId, operationId),
+            Is.True);
+        Assert.That(
+            await db.GetUnacknowledgedCharacterBankTransferAsync(senderUserId, senderProfileId),
+            Is.Null);
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task JournalReplaySurvivesRecipientArchiveAndRejectsChangedRequest()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var db = pair.Server.ResolveDependency<IServerDbManager>();
+        var senderUserId = NewUserId();
+        var recipientUserId = NewUserId();
+        var operationId = Guid.NewGuid();
+
+        await db.InitPrefsAsync(senderUserId, NewProfile("Archive Replay Sender", 8_000), default);
+        await db.InitPrefsAsync(recipientUserId, NewProfile("Archive Replay Recipient", 2_000), default);
+        var senderProfileId = await GetProfileId(db, senderUserId);
+        var recipientProfileId = await GetProfileId(db, recipientUserId);
+
+        var committed = await db.TransferCharacterBankBalanceAsync(
+            senderUserId,
+            senderProfileId,
+            recipientUserId,
+            recipientProfileId,
+            1_500,
+            operationId);
+        Assert.That(committed.Success, Is.True);
+
+        await db.SaveCharacterSlotAsync(recipientUserId, null, 0);
+
+        var replay = await db.TransferCharacterBankBalanceAsync(
+            senderUserId,
+            senderProfileId,
+            recipientUserId,
+            recipientProfileId,
+            1_500,
+            operationId);
+        var changedRequest = await db.TransferCharacterBankBalanceAsync(
+            senderUserId,
+            senderProfileId,
+            recipientUserId,
+            recipientProfileId,
+            1_501,
+            operationId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(replay.Status, Is.EqualTo(CharacterBankTransferStatus.Success));
+            Assert.That(replay.AlreadyProcessed, Is.True);
+            Assert.That(replay.SenderBalance, Is.EqualTo(6_500));
+            Assert.That(replay.RecipientBalance, Is.EqualTo(3_500));
+            Assert.That(changedRequest.Status, Is.EqualTo(CharacterBankTransferStatus.OperationConflict));
+            Assert.That(changedRequest.AlreadyProcessed, Is.True);
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task PdaBankIdMappingIsCanonicalAndCollisionSafe()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var db = pair.Server.ResolveDependency<IServerDbManager>();
+        var firstUserId = NewUserId();
+        var secondUserId = NewUserId();
+
+        await db.InitPrefsAsync(firstUserId, NewProfile("Mapped First", 1_000), default);
+        await db.InitPrefsAsync(secondUserId, NewProfile("Mapped Second", 1_000), default);
+
+        var first = await db.RegisterPdaBankAccountAsync(
+            firstUserId,
+            0,
+            "Mapped First",
+            "first-user",
+            new[] { "MP12345", "MF12346" });
+        var second = await db.RegisterPdaBankAccountAsync(
+            secondUserId,
+            0,
+            "Mapped Second",
+            "second-user",
+            new[] { "MP12345", "MS12347" });
+        var stableFirst = await db.RegisterPdaBankAccountAsync(
+            firstUserId,
+            0,
+            "Mapped First",
+            "renamed-user",
+            new[] { "ZZ99999" });
+        var routed = await db.GetPdaBankAccountAsync("MP12345");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first?.BankId, Is.EqualTo("MP12345"));
+            Assert.That(second?.BankId, Is.EqualTo("MS12347"));
+            Assert.That(stableFirst?.BankId, Is.EqualTo("MP12345"));
+            Assert.That(stableFirst?.LastUserName, Is.EqualTo("renamed-user"));
+            Assert.That(routed?.UserId, Is.EqualTo(firstUserId));
+            Assert.That(routed?.CharacterName, Is.EqualTo("Mapped First"));
         });
 
         await pair.CleanReturnAsync();
@@ -232,7 +388,8 @@ public sealed class LuaMBankPersistenceTest
                     senderProfileId,
                     recipientUserId,
                     recipientProfileId,
-                    transferAmount))
+                    transferAmount,
+                    Guid.NewGuid()))
             .ToArray();
 
         var results = await Task.WhenAll(transfers);

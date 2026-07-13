@@ -63,6 +63,26 @@
                               MinWidth="76"/>
                     <Button Name="BankTransferButton" Text="{Loc 'comp-pda-ui-bank-transfer-send'}"/>
                 </GridContainer>
+                <BoxContainer Name="BankTransferConfirmationPanel"
+                              Orientation="Vertical"
+                              HorizontalExpand="True"
+                              Visible="False">
+                    <RichTextLabel Name="BankTransferConfirmationLabel" Access="Public"/>
+                    <GridContainer Columns="2" HorizontalExpand="True">
+                        <Button Name="BankTransferConfirmButton"
+                                Text="{Loc 'comp-pda-ui-bank-transfer-confirm'}"/>
+                        <Button Name="BankTransferCancelButton"
+                                Text="{Loc 'comp-pda-ui-bank-transfer-cancel'}"/>
+                    </GridContainer>
+                </BoxContainer>
+                <BoxContainer Name="BankTransferRecoveryPanel"
+                              Orientation="Vertical"
+                              HorizontalExpand="True"
+                              Visible="False">
+                    <RichTextLabel Name="BankTransferRecoveryLabel" Access="Public"/>
+                    <Button Name="BankTransferAcknowledgeButton"
+                            Text="{Loc 'comp-pda-ui-bank-transfer-acknowledge'}"/>
+                </BoxContainer>
                 <RichTextLabel Name="BankTransferStatusLabel" Access="Public"/>
                 <ContainerButton Name="DonationShopInfoButton">
                     <RichTextLabel Name="DonationShopInfoLabel" Access="Public"/>

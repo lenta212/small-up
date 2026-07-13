@@ -39,15 +39,48 @@ public sealed class PdaRequestUpdateInterfaceMessage : BoundUserInterfaceMessage
 }
 
 [Serializable, NetSerializable]
-public sealed class PdaBankTransferMessage : BoundUserInterfaceMessage
+public sealed class PdaBankTransferPreviewMessage : BoundUserInterfaceMessage
 {
     public string RecipientBankId { get; }
     public int Amount { get; }
 
-    public PdaBankTransferMessage(string recipientBankId, int amount)
+    public PdaBankTransferPreviewMessage(string recipientBankId, int amount)
     {
         RecipientBankId = recipientBankId;
         Amount = amount;
+    }
+}
+
+[Serializable, NetSerializable]
+public sealed class PdaBankTransferMessage : BoundUserInterfaceMessage
+{
+    public Guid OperationId { get; }
+
+    public PdaBankTransferMessage(Guid operationId)
+    {
+        OperationId = operationId;
+    }
+}
+
+[Serializable, NetSerializable]
+public sealed class PdaBankTransferAcknowledgeMessage : BoundUserInterfaceMessage
+{
+    public Guid OperationId { get; }
+
+    public PdaBankTransferAcknowledgeMessage(Guid operationId)
+    {
+        OperationId = operationId;
+    }
+}
+
+[Serializable, NetSerializable]
+public sealed class PdaBankTransferCancelMessage : BoundUserInterfaceMessage
+{
+    public Guid OperationId { get; }
+
+    public PdaBankTransferCancelMessage(Guid operationId)
+    {
+        OperationId = operationId;
     }
 }
 

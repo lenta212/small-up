@@ -40,6 +40,8 @@ namespace Content.Client.PDA
         private string _bankAccountId = Loc.GetString("comp-pda-ui-unknown"); // Frontier
         private string _shuttleDeed = Loc.GetString("comp-pda-ui-unknown"); // Frontier
         private string _donationShopInfo = Loc.GetString("comp-pda-ui-unknown"); // LuaM
+        private PdaBankTransferConfirmation? _bankTransferConfirmation; // LuaM
+        private PdaBankTransferRecovery? _bankTransferRecovery; // LuaM
         private const string DonationCurrencyCode = "LC"; // LuaM
 
         private int _currentView;
@@ -47,7 +49,10 @@ namespace Content.Client.PDA
         public event Action<EntityUid>? OnProgramItemPressed;
         public event Action<EntityUid>? OnUninstallButtonPressed;
         public event Action<EntityUid>? OnInstallButtonPressed;
-        public event Action<string, int>? OnBankTransferPressed; // Frontier
+        public event Action<string, int>? OnBankTransferPreviewPressed; // LuaM
+        public event Action<Guid>? OnBankTransferPressed; // LuaM
+        public event Action<Guid>? OnBankTransferCancelPressed; // LuaM
+        public event Action<Guid>? OnBankTransferAcknowledgePressed; // LuaM
         public event Action<string>? OnDonationShopPurchasePressed; // LuaM
         public PdaMenu()
         {
@@ -135,6 +140,21 @@ namespace Content.Client.PDA
                 BankTransferStatusLabel.SetMarkup(Loc.GetString("comp-pda-ui-bank-id-copied", ("id", _bankAccountId)));
             };
             BankTransferButton.OnPressed += _ => SubmitBankTransfer();
+            BankTransferConfirmButton.OnPressed += _ =>
+            {
+                if (_bankTransferConfirmation != null)
+                    OnBankTransferPressed?.Invoke(_bankTransferConfirmation.OperationId);
+            };
+            BankTransferCancelButton.OnPressed += _ =>
+            {
+                if (_bankTransferConfirmation != null)
+                    OnBankTransferCancelPressed?.Invoke(_bankTransferConfirmation.OperationId);
+            };
+            BankTransferAcknowledgeButton.OnPressed += _ =>
+            {
+                if (_bankTransferRecovery != null)
+                    OnBankTransferAcknowledgePressed?.Invoke(_bankTransferRecovery.OperationId);
+            };
             DonationShopInfoButton.OnPressed += _ =>
             {
                 _clipboard.SetText(_donationShopInfo);
@@ -224,7 +244,7 @@ namespace Content.Client.PDA
             _bankAccountId = state.BankAccountId ?? Loc.GetString("comp-pda-ui-unknown"); // Frontier
             BankIdLabel.SetMarkup(Loc.GetString("comp-pda-ui-bank-id", ("id", _bankAccountId))); // Frontier
             BankTransferStatusLabel.SetMarkup(state.BankTransferStatus ?? string.Empty); // Frontier
-            BankTransferButton.Disabled = state.BankTransferRetryBlocked;
+            UpdateBankTransferState(state); // LuaM
             UpdateDonationShop(state); // LuaM
 
             _shuttleDeed = state.OwnedShipName ?? ""; // Frontier
@@ -278,7 +298,48 @@ namespace Content.Client.PDA
             }
 
             BankTransferButton.Disabled = true;
-            OnBankTransferPressed?.Invoke(recipientId, amount);
+            OnBankTransferPreviewPressed?.Invoke(recipientId, amount);
+        }
+
+        private void UpdateBankTransferState(PdaUpdateState state)
+        {
+            _bankTransferConfirmation = state.BankTransferConfirmation;
+            _bankTransferRecovery = state.BankTransferRecovery;
+
+            BankTransferConfirmationPanel.Visible = _bankTransferConfirmation != null;
+            BankTransferRecoveryPanel.Visible = _bankTransferRecovery != null;
+
+            if (_bankTransferConfirmation != null)
+            {
+                BankTransferConfirmationLabel.SetMarkup(Loc.GetString(
+                    "comp-pda-ui-bank-transfer-confirmation",
+                    ("recipient", _bankTransferConfirmation.RecipientName),
+                    ("id", _bankTransferConfirmation.RecipientBankId),
+                    ("amount", BankSystemExtensions.ToSpesoString(_bankTransferConfirmation.Amount)),
+                    ("operation", _bankTransferConfirmation.OperationId.ToString("N"))));
+            }
+
+            if (_bankTransferRecovery != null)
+            {
+                BankTransferRecoveryLabel.SetMarkup(Loc.GetString(
+                    "comp-pda-ui-bank-transfer-recovered",
+                    ("recipient", _bankTransferRecovery.RecipientName),
+                    ("id", _bankTransferRecovery.RecipientBankId),
+                    ("amount", BankSystemExtensions.ToSpesoString(_bankTransferRecovery.Amount)),
+                    ("balance", BankSystemExtensions.ToSpesoString(_bankTransferRecovery.SenderBalance)),
+                    ("operation", _bankTransferRecovery.OperationId.ToString("N"))));
+            }
+
+            var locked = !state.BankTransferReady ||
+                         state.BankTransferRetryBlocked ||
+                         _bankTransferConfirmation != null ||
+                         _bankTransferRecovery != null;
+            BankTransferButton.Disabled = locked;
+            BankTransferRecipientEdit.Editable = !locked;
+            BankTransferAmountEdit.Editable = !locked;
+            BankTransferConfirmButton.Disabled = _bankTransferConfirmation == null || state.BankTransferRetryBlocked;
+            BankTransferCancelButton.Disabled = _bankTransferConfirmation == null;
+            BankTransferAcknowledgeButton.Disabled = _bankTransferRecovery == null;
         }
 
         private static bool TryParseBankTransferAmount(string value, out int amount)
