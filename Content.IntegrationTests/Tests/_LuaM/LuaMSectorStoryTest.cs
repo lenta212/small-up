@@ -1620,7 +1620,9 @@ public sealed class LuaMSectorStoryTest
         var eventSystem = entManager.System<LuaMSectorStoryTestEventSystem>();
         eventSystem.Reset();
 
-        var stories = prototypeManager.EnumeratePrototypes<LuaMSectorStoryPrototype>().ToList();
+        var stories = prototypeManager.EnumeratePrototypes<LuaMSectorStoryPrototype>()
+            .Where(story => story.ID != LuaMSectorStorySystem.RescueAfterActionStoryId)
+            .ToList();
         var initialStories = stories.Where(story => story.RequiredReputation <= 0).ToList();
         var expectedDistress = initialStories.Count(story => story.ContractCollection == "Distress");
         var expectedPublic = initialStories.Count(story => story.ContractCollection == "Public");
@@ -3333,13 +3335,13 @@ public sealed class LuaMSectorStoryTest
             var markerQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventMarkerComponent>();
             while (markerQuery.MoveNext(out var marker, out _))
             {
-                entManager.DeleteEntity(marker);
+                entManager.QueueDeleteEntity(marker);
             }
 
             var siteQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventSiteObjectComponent>();
             while (siteQuery.MoveNext(out var site, out _))
             {
-                entManager.DeleteEntity(site);
+                entManager.QueueDeleteEntity(site);
             }
 
             mapSystem.CreateMap(out mapId);
@@ -3779,25 +3781,25 @@ public sealed class LuaMSectorStoryTest
             var markerQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventMarkerComponent>();
             while (markerQuery.MoveNext(out var marker, out _))
             {
-                entManager.DeleteEntity(marker);
+                entManager.QueueDeleteEntity(marker);
             }
 
             var siteQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventSiteObjectComponent>();
             while (siteQuery.MoveNext(out var site, out _))
             {
-                entManager.DeleteEntity(site);
+                entManager.QueueDeleteEntity(site);
             }
 
             var hazardQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventConditionHazardComponent>();
             while (hazardQuery.MoveNext(out var hazard, out _))
             {
-                entManager.DeleteEntity(hazard);
+                entManager.QueueDeleteEntity(hazard);
             }
 
             var driftQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventSensorDriftComponent>();
             while (driftQuery.MoveNext(out var drift, out _))
             {
-                entManager.DeleteEntity(drift);
+                entManager.QueueDeleteEntity(drift);
             }
 
             mapSystem.CreateMap(out mapId);
@@ -3989,13 +3991,13 @@ public sealed class LuaMSectorStoryTest
             var markerQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventMarkerComponent>();
             while (markerQuery.MoveNext(out var marker, out _))
             {
-                entManager.DeleteEntity(marker);
+                entManager.QueueDeleteEntity(marker);
             }
 
             var siteQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventSiteObjectComponent>();
             while (siteQuery.MoveNext(out var site, out _))
             {
-                entManager.DeleteEntity(site);
+                entManager.QueueDeleteEntity(site);
             }
 
             mapSystem.CreateMap(out mapId);
@@ -4810,19 +4812,19 @@ public sealed class LuaMSectorStoryTest
             var markerQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventMarkerComponent>();
             while (markerQuery.MoveNext(out var marker, out _))
             {
-                entManager.DeleteEntity(marker);
+                entManager.QueueDeleteEntity(marker);
             }
 
             var siteQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventSiteObjectComponent>();
             while (siteQuery.MoveNext(out var site, out _))
             {
-                entManager.DeleteEntity(site);
+                entManager.QueueDeleteEntity(site);
             }
 
             var hazardQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventConditionHazardComponent>();
             while (hazardQuery.MoveNext(out var hazard, out _))
             {
-                entManager.DeleteEntity(hazard);
+                entManager.QueueDeleteEntity(hazard);
             }
 
             mapSystem.CreateMap(out mapId);
@@ -5302,25 +5304,25 @@ public sealed class LuaMSectorStoryTest
             var markerQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventMarkerComponent>();
             while (markerQuery.MoveNext(out var marker, out _))
             {
-                entManager.DeleteEntity(marker);
+                entManager.QueueDeleteEntity(marker);
             }
 
             var siteQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventSiteObjectComponent>();
             while (siteQuery.MoveNext(out var site, out _))
             {
-                entManager.DeleteEntity(site);
+                entManager.QueueDeleteEntity(site);
             }
 
             var hazardQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventConditionHazardComponent>();
             while (hazardQuery.MoveNext(out var hazard, out _))
             {
-                entManager.DeleteEntity(hazard);
+                entManager.QueueDeleteEntity(hazard);
             }
 
             var driftQuery = entManager.EntityQueryEnumerator<LuaMDynamicEventSensorDriftComponent>();
             while (driftQuery.MoveNext(out var drift, out _))
             {
-                entManager.DeleteEntity(drift);
+                entManager.QueueDeleteEntity(drift);
             }
 
             mapSystem.CreateMap(out mapId);

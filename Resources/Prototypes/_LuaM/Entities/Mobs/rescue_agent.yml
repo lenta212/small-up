@@ -23,7 +23,7 @@
         quantity: 15
         minDamage: 0
       Critical:
-        reagent: Omnizine
+        reagent: Inaprovaline
         quantity: 20
   - type: HTN
     rootTask:

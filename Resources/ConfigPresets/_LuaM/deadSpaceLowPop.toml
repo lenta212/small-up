@@ -1,23 +1,26 @@
-# Optional low-pop configuration layer for "Мёртвый космос: Абсолютное одиночество".
+# Production configuration layer for "Мёртвый космос: Абсолютное одиночество": Apocalypse with Mixed fallback.
 # Load with: config.presets = "_Mono/monolithCore,_LuaM/deadSpaceLowPop"
 
 [log]
-level = 3
+level = 2
 
 [game]
-defaultpreset = "LuaMDeadSpaceLowPop"
+defaultpreset = "MonoAllAtOnce"
 fallbackenabled = true
-fallbackpreset = "LuaMDeadSpaceLowPop,MonoMixed,NFAdventure"
+fallbackpreset = "MonoMixed"
 lobbyenabled = true
 lobbyduration = 30
 soft_max_players = 100
+auto_pause_empty = true
 role_timers = true
 dynamic_roles.enabled = false
 role_timer_override = "LuaMRoleLadder"
 
 [net]
-lidgren_log_warning = false
-lidgren_log_error = false
+max_connections = 128
+sendbuffersize = 4194304
+lidgren_log_warning = true
+lidgren_log_error = true
 log_late_msg = false
 
 [shuttle]
@@ -27,31 +30,37 @@ auto_call_time = 10080
 preset_autovote_enabled = false
 
 [playtime]
-save_interval = 60
+save_interval = 900
 
 [events]
 enabled = true
 
 [gateway]
-generator_enabled = true
+generator_enabled = false
+generator_max_destinations = 4
+generator_destination_ttl = 21600
 
 [luam.ai_director]
 enabled = true
 fallback_enabled = true
-admin_mode = true
+admin_mode = false
 local_bridge_enabled = false
 local_bridge_unsafe_actions_enabled = false
-greet_on_join = true
+greet_on_join = false
 world_pulse_enabled = true
-max_danger = true
-initial_delay = 60
-interval = 300
-world_pulse_interval = 60
-request_timeout = 12
+max_danger = false
+initial_delay = 120
+interval = 900
+world_pulse_interval = 300
+request_timeout = 15
 gateway_url = ""
 
 [luam.sector]
 all_hazards_enabled = true
+
+[luam.dynamic_events]
+enabled = true
+max_active_sites = 2
 
 [status]
 connectaddress = "udp://188.127.225.57:1212"
@@ -63,8 +72,23 @@ deadmin_on_join = false
 [nf14.worldgen]
 market_stations = 1
 cargo_depots = 4
-optional_stations = 1
+optional_stations = 6
+
+[nf14.publictransit]
+enabled = false
 
 [mono.cleanup]
 debug = false
 log = false
+mob.distance = 1280
+grid.distance = 628
+space.distance = 628
+
+[procgen]
+preload = false
+
+[npc]
+max_updates = 128
+pause_when_no_players_in_range = true
+player_pause_distance = 32
+movement_check_player_distances = false

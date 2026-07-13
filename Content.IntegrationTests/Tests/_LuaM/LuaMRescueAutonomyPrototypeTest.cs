@@ -17,14 +17,14 @@ public sealed class LuaMRescueAutonomyPrototypeTest
             "LuaMRescueAgentGear");
         var agentEquipment = Mapping(agentGear, "equipment");
 
-        Assert.That(ScalarValue(agentEquipment, "outerClothing"), Is.EqualTo("ClothingOuterHardsuitMedical"));
-        Assert.That(ScalarValue(agentEquipment, "head"), Is.EqualTo("ClothingHeadHelmetHardsuitMedical"));
+        Assert.That(ScalarValue(agentEquipment, "outerClothing"), Is.EqualTo("ClothingOuterArmorBasicSlim"));
+        Assert.That(ScalarValue(agentEquipment, "head"), Is.EqualTo("ClothingHeadHelmetBasic"));
         Assert.That(ScalarValue(agentEquipment, "mask"), Is.EqualTo("ClothingMaskBreathMedical"));
         Assert.That(ScalarValue(agentEquipment, "shoes"), Is.EqualTo("LuaMClothingShoesBootsMagRescue"));
         Assert.That(ScalarValue(agentEquipment, "suitstorage"), Is.EqualTo("OxygenTankFilled"));
         Assert.That(ScalarValue(agentEquipment, "eyes"), Is.EqualTo("ClothingEyesHudMedical"));
         Assert.That(ScalarValue(agentEquipment, "gloves"), Is.EqualTo("ClothingHandsGlovesCombat"));
-        Assert.That(agentGear.Children.Keys.OfType<YamlScalarNode>().Select(key => key.Value), Does.Not.Contain("inhand"));
+        Assert.That(SequenceValues(Sequence(agentGear, "inhand")), Does.Contain("WeaponLaserCarbine"));
         var agentBackpack = SequenceValues(Sequence(Mapping(agentGear, "storage"), "back"));
         Assert.That(agentBackpack, Does.Contain("MedkitCombatFilled"));
         Assert.That(agentBackpack, Does.Contain("DefibrillatorCompact"));
@@ -38,8 +38,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
             "LuaMRescueEscortGear");
         var escortEquipment = Mapping(escortGear, "equipment");
 
-        Assert.That(ScalarValue(escortEquipment, "outerClothing"), Is.EqualTo("ClothingOuterHardsuitPrivateSecurity"));
-        Assert.That(ScalarValue(escortEquipment, "head"), Is.EqualTo("ClothingHeadHelmetHardsuitPrivateSecurity"));
+        Assert.That(ScalarValue(escortEquipment, "outerClothing"), Is.EqualTo("ClothingOuterArmorBPVestHeavy"));
+        Assert.That(ScalarValue(escortEquipment, "head"), Is.EqualTo("ClothingHeadHelmetSwat"));
         Assert.That(ScalarValue(escortEquipment, "mask"), Is.EqualTo("ClothingMaskGasSecurity"));
         Assert.That(ScalarValue(escortEquipment, "shoes"), Is.EqualTo("LuaMClothingShoesBootsMagSecurityRescue"));
         Assert.That(ScalarValue(escortEquipment, "suitstorage"), Is.EqualTo("OxygenTankFilled"));
@@ -519,7 +519,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
 
         Assert.That(component, Does.Contain("AutoDefibDeadPatients = true"));
-        Assert.That(component, Does.Contain("AutoDefibCooldown = 5f"));
+        Assert.That(component, Does.Contain("AutoDefibCooldown = 8f"));
         Assert.That(component, Does.Contain("NextAutoDefibAttempt"));
         Assert.That(component, Does.Contain("LastAutoDefibStatus"));
         Assert.That(source, Does.Contain("DefibrillatorSystem"));
@@ -545,17 +545,17 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         var alive = Mapping(treatments, "Alive");
         var critical = Mapping(treatments, "Critical");
 
-        Assert.That(component, Does.Contain("AutoTakeNearbyStoredMedicalSupplies = false"));
-        Assert.That(component, Does.Contain("AutoTreatCooldown = 2f"));
-        Assert.That(component, Does.Contain("AutoPickupSupplyRange = 3f"));
-        Assert.That(component, Does.Contain("AutoResupplyRange = 8f"));
+        Assert.That(component, Does.Contain("AutoTakeNearbyStoredMedicalSupplies = true"));
+        Assert.That(component, Does.Contain("AutoTreatCooldown = 6f"));
+        Assert.That(component, Does.Contain("AutoPickupSupplyRange = 12f"));
+        Assert.That(component, Does.Contain("AutoResupplyRange = 24f"));
         Assert.That(
             agent,
             Does.Contain("\"back\",\r\n        \"belt\",").Or.Contain("\"back\",\n        \"belt\","));
         Assert.That(ScalarValue(alive, "reagent"), Is.EqualTo("Tricordrazine"));
         Assert.That(ScalarValue(alive, "quantity"), Is.EqualTo("15"));
         Assert.That(alive.Children.Keys.OfType<YamlScalarNode>().Select(key => key.Value), Does.Not.Contain("maxDamage"));
-        Assert.That(ScalarValue(critical, "reagent"), Is.EqualTo("Omnizine"));
+        Assert.That(ScalarValue(critical, "reagent"), Is.EqualTo("Inaprovaline"));
         Assert.That(ScalarValue(critical, "quantity"), Is.EqualTo("20"));
     }
 
@@ -565,7 +565,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
 
-        Assert.That(component, Does.Contain("AutoCommsCooldown = 25f"));
+        Assert.That(component, Does.Contain("AutoCommsCooldown = 10f"));
         Assert.That(component, Does.Contain("NextAutoCommsAt"));
         Assert.That(component, Does.Contain("LastAutoCommsKey"));
         Assert.That(component, Does.Contain("ArrivalReportedTarget"));
@@ -577,8 +577,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("LastOnboardCareStatus"));
         Assert.That(component, Does.Contain("LastOnboardActionStatus"));
         Assert.That(component, Does.Contain("LastRescueActionStatus"));
-        Assert.That(component, Does.Contain("OnboardActionCooldown = 20f"));
-        Assert.That(component, Does.Contain("RescueActionCooldown = 18f"));
+        Assert.That(component, Does.Contain("OnboardActionCooldown = 10f"));
+        Assert.That(component, Does.Contain("RescueActionCooldown = 6f"));
         Assert.That(component, Does.Contain("RescueSpeechCooldown = 18f"));
         Assert.That(component, Does.Contain("LastRescueSpeechKey"));
         Assert.That(component, Does.Contain("NextRescueSpeechAt"));
@@ -748,7 +748,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("RecentTeamLines"));
         Assert.That(component, Does.Contain("LuaMRescueTeamSpeechMemoryEntry"));
         Assert.That(source, Does.Contain("TeamPhaseAnnouncementCooldownSeconds"));
-        Assert.That(source, Does.Contain("TeamSharedSpeechCooldownSeconds = 15"));
+        Assert.That(source, Does.Contain("TeamSharedSpeechCooldownSeconds = 6"));
         Assert.That(source, Does.Contain("EscortSpeechCooldownSeconds = 30"));
         Assert.That(source, Does.Contain("TeamRecentLineMemorySeconds"));
         Assert.That(source, Does.Contain("TrySayTeamPhaseLine"));
@@ -876,7 +876,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("LastThreatNeutralizedBy"));
         Assert.That(component, Does.Contain("LastThreatNeutralizedStatus"));
         Assert.That(component, Does.Contain("NextThreatNeutralizedReportAt"));
-        Assert.That(source, Does.Contain("ThreatNeutralizedReportCooldownSeconds = 20"));
+        Assert.That(source, Does.Contain("ThreatNeutralizedReportCooldownSeconds = 6"));
         Assert.That(source, Does.Contain("TryReportThreatNeutralized"));
         Assert.That(source, Does.Contain("SetThreatNeutralizedStatus"));
         Assert.That(source, Does.Contain("BuildThreatNeutralizedLine"));
@@ -898,7 +898,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("LastCrewHelpStatus"));
         Assert.That(component, Does.Contain("LastCrewHelpKey"));
         Assert.That(component, Does.Contain("NextCrewHelpRequestAt"));
-        Assert.That(source, Does.Contain("CrewHelpRequestCooldownSeconds = 30"));
+        Assert.That(source, Does.Contain("CrewHelpRequestCooldownSeconds = 12"));
         Assert.That(source, Does.Contain("TryRequestCrewHelp"));
         Assert.That(source, Does.Contain("crew-help:{key}; {status}"));
         Assert.That(source, Does.Contain("crewHelp={escort.LastCrewHelpStatus}"));

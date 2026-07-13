@@ -23,13 +23,13 @@ public sealed partial class ReproductiveComponent : Component
     /// Minimum length between each attempt to breed.
     /// </summary>
     [DataField, ViewVariables(VVAccess.ReadWrite)]
-    public TimeSpan MinBreedAttemptInterval = TimeSpan.FromSeconds(45);
+    public TimeSpan MinBreedAttemptInterval = TimeSpan.FromHours(1);
 
     /// <summary>
     /// Maximum length between each attempt to breed.
     /// </summary>
     [DataField, ViewVariables(VVAccess.ReadWrite)]
-    public TimeSpan MaxBreedAttemptInterval = TimeSpan.FromSeconds(60);
+    public TimeSpan MaxBreedAttemptInterval = TimeSpan.FromHours(1);
 
     /// <summary>
     /// How close to a partner an entity must be in order to breed.

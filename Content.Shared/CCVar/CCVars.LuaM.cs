@@ -61,6 +61,19 @@ public sealed partial class CCVars
         CVarDef.Create("luam.sector.all_hazards_enabled", false, CVar.SERVERONLY);
 
     /// <summary>
+    /// Enables automatic, manual, and AI-proposed LuaM dynamic sector events.
+    /// Existing sites remain available for completion when this is disabled.
+    /// </summary>
+    public static readonly CVarDef<bool> LuaMDynamicEventsEnabled =
+        CVarDef.Create("luam.dynamic_events.enabled", true, CVar.SERVERONLY);
+
+    /// <summary>
+    /// Maximum number of unresolved LuaM runtime event sites. Values less than one block new sites.
+    /// </summary>
+    public static readonly CVarDef<int> LuaMDynamicEventsMaxActiveSites =
+        CVarDef.Create("luam.dynamic_events.max_active_sites", 3, CVar.SERVERONLY);
+
+    /// <summary>
     /// Sends a local sector AI greeting to players when they enter the round.
     /// </summary>
     public static readonly CVarDef<bool> LuaMAiDirectorGreetOnJoin =
@@ -119,4 +132,52 @@ public sealed partial class CCVars
     /// </summary>
     public static readonly CVarDef<int> LuaMAiDirectorGatewayBudgetRoundRequests =
         CVarDef.Create("luam.ai_director.gateway_budget_round_requests", 60, CVar.SERVERONLY);
+
+    /// <summary>
+    /// Plays local TTS audio for LuaM AI director chat and radio messages through the configured gateway /tts route.
+    /// </summary>
+    public static readonly CVarDef<bool> LuaMAiDirectorTtsEnabled =
+        CVarDef.Create("luam.ai_director.tts_enabled", false, CVar.SERVERONLY);
+
+    /// <summary>
+    /// Plays TTS audio for in-character character speech through the configured gateway /tts route.
+    /// </summary>
+    public static readonly CVarDef<bool> LuaMCharacterTtsEnabled =
+        CVarDef.Create("luam.ai_director.tts_characters_enabled", false, CVar.SERVERONLY);
+
+    /// <summary>
+    /// Maximum characters sent to the TTS gateway for one in-character speech line.
+    /// </summary>
+    public static readonly CVarDef<int> LuaMCharacterTtsMaxChars =
+        CVarDef.Create("luam.ai_director.tts_character_max_chars", 180, CVar.SERVERONLY);
+
+    /// <summary>
+    /// Per-speaker cooldown in seconds for in-character TTS lines.
+    /// </summary>
+    public static readonly CVarDef<float> LuaMCharacterTtsCooldown =
+        CVarDef.Create("luam.ai_director.tts_character_cooldown", 1.25f, CVar.SERVERONLY);
+
+    /// <summary>
+    /// Comma-separated Piper voice names used for deterministic in-character voice selection.
+    /// </summary>
+    public static readonly CVarDef<string> LuaMCharacterTtsVoices =
+        CVarDef.Create("luam.ai_director.tts_character_voices", "ru_RU-irina-medium,ru_RU-denis-medium,ru_RU-dmitri-medium,ru_RU-ruslan-medium", CVar.SERVERONLY);
+
+    /// <summary>
+    /// Client-side volume in decibels for LuaM TTS playback.
+    /// </summary>
+    public static readonly CVarDef<float> LuaMAiDirectorTtsVolume =
+        CVarDef.Create("luam.ai_director.tts_volume", -5f, CVar.SERVERONLY);
+
+    /// <summary>
+    /// Maximum WAV/OGG bytes accepted from the local LuaM AI gateway for one TTS line.
+    /// </summary>
+    public static readonly CVarDef<int> LuaMAiDirectorTtsMaxBytes =
+        CVarDef.Create("luam.ai_director.tts_max_bytes", 524288, CVar.SERVERONLY);
+
+    /// <summary>
+    /// Maximum queued LuaM TTS lines waiting for the gateway.
+    /// </summary>
+    public static readonly CVarDef<int> LuaMAiDirectorTtsMaxQueue =
+        CVarDef.Create("luam.ai_director.tts_max_queue", 8, CVar.SERVERONLY);
 }

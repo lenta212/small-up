@@ -36,6 +36,14 @@ public static class JobRequirements
         if (success)
             return true;
 
+        // A server override replaces every normal unlock path for this job. Falling through to
+        // the prototype's original alternate sets would bypass role-specific LuaM gates.
+        if (sys.HasJobRequirementOverride(job))
+        {
+            reason ??= FormattedMessage.FromMarkupPermissive(Loc.GetString("role-timer-no-reason-given"));
+            return false;
+        }
+
         var altRequirementsSets = job.AlternateRequirementSets ?? new();
         foreach (var requirementSet in altRequirementsSets.Values)
         {

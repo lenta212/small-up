@@ -19,15 +19,17 @@
   equipment:
     back: ClothingBackpackERTMedical
     shoes: LuaMClothingShoesBootsMagRescue
-    head: ClothingHeadHelmetHardsuitMedical
+    head: ClothingHeadHelmetBasic
     mask: ClothingMaskBreathMedical
     eyes: ClothingEyesHudMedical
     gloves: ClothingHandsGlovesCombat
-    outerClothing: ClothingOuterHardsuitMedical
+    outerClothing: ClothingOuterArmorBasicSlim
     suitstorage: OxygenTankFilled
     id: ParamedicPDA
     ears: ClothingHeadsetMedical
     belt: ClothingBeltMedicalEMTFilled
+  inhand:
+  - WeaponLaserCarbine
   storage:
     back:
     - EmergencyRollerBedSpawnFolded
@@ -46,11 +48,11 @@
   equipment:
     back: ClothingBackpackERTSecurity
     shoes: LuaMClothingShoesBootsMagSecurityRescue
-    head: ClothingHeadHelmetHardsuitPrivateSecurity
+    head: ClothingHeadHelmetSwat
     mask: ClothingMaskGasSecurity
     eyes: ClothingEyesGlassesSecurity
     gloves: ClothingHandsGlovesCombat
-    outerClothing: ClothingOuterHardsuitPrivateSecurity
+    outerClothing: ClothingOuterArmorBPVestHeavy
     suitstorage: OxygenTankFilled
     id: ParamedicPDA
     ears: ClothingHeadsetMedical

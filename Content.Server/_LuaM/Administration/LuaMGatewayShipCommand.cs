@@ -120,7 +120,7 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
             return;
         }
 
-        var shipGateway = SpawnGateway(
+        var shipGateway = SpawnEnabledGateway(
             gatewaySystem,
             PickGatewayCoordinates(mapSystem, shipGrid, grid),
             $"{displayName} Gate",
@@ -135,7 +135,7 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
             }
             else if (_entities.TryGetComponent<TransformComponent>(attached, out var xform))
             {
-                localGateway = SpawnGateway(
+                localGateway = SpawnEnabledGateway(
                     gatewaySystem,
                     xform.Coordinates,
                     $"{displayName} Local Gate",
@@ -240,7 +240,7 @@ public sealed class LuaMGatewayShipCommand : IConsoleCommand
         }
     }
 
-    private EntityUid SpawnGateway(GatewaySystem gatewaySystem, EntityCoordinates coordinates, string name, bool enabled)
+    private EntityUid SpawnEnabledGateway(GatewaySystem gatewaySystem, EntityCoordinates coordinates, string name, bool enabled)
     {
         var gateway = _entities.SpawnEntity(GatewayPrototype, coordinates);
         var gatewayComp = _entities.GetComponent<GatewayComponent>(gateway);

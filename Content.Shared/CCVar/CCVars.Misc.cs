@@ -86,6 +86,20 @@ public sealed partial class CCVars
     public static readonly CVarDef<bool> GatewayGeneratorEnabled =
         CVarDef.Create("gateway.generator_enabled", false); // Frontier: false
 
+    /// <summary>
+    ///     Maximum number of destination maps retained by one gateway generator.
+    ///     Values less than one prevent new destinations from being generated.
+    /// </summary>
+    public static readonly CVarDef<int> GatewayGeneratorMaxDestinations =
+        CVarDef.Create("gateway.generator_max_destinations", 6, CVar.SERVERONLY);
+
+    /// <summary>
+    ///     Lifetime of an unopened generated destination, in seconds.
+    ///     Values less than or equal to zero disable TTL cleanup. Opened destinations are never deleted by this cleanup.
+    /// </summary>
+    public static readonly CVarDef<float> GatewayGeneratorDestinationTtl =
+        CVarDef.Create("gateway.generator_destination_ttl", 21600f, CVar.SERVERONLY);
+
     public static readonly CVarDef<string> TippyEntity =
         CVarDef.Create("tippy.entity", "NFTippy", CVar.SERVER | CVar.REPLICATED); // Frontier: Tippy<NFTippy
 

@@ -19,7 +19,7 @@ using Robust.Shared.Utility;
 namespace Content.Server.Gateway.Systems;
 
 /// <summary>
-/// Generates gateway destinations regularly and indefinitely that can be chosen from.
+/// Maintains a bounded pool of generated gateway destinations.
 /// </summary>
 public sealed partial class GatewayGeneratorSystem : EntitySystem
 {
@@ -35,10 +35,15 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
     [Dependency] private MetaDataSystem _metadata = default!;
     [Dependency] private SharedMapSystem _maps = default!;
     [Dependency] private SharedSalvageSystem _salvage = default!;
+    [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private TileSystem _tile = default!;
 
     [ValidatePrototypeId<LocalizedDatasetPrototype>]
     private const string PlanetNames = "NamesBorer";
+
+    private const int InitialDestinationCount = 3;
+    private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(1);
+    private TimeSpan _nextCleanup;
 
     // TODO:
     // Fix shader some more
@@ -66,15 +71,33 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         SubscribeLocalEvent<GatewayGeneratorDestinationComponent, GatewayOpenEvent>(OnGeneratorOpen);
     }
 
+    public override void Update(float frameTime)
+    {
+        base.Update(frameTime);
+
+        if (_timing.CurTime < _nextCleanup)
+            return;
+
+        _nextCleanup = _timing.CurTime + CleanupInterval;
+
+        var query = EntityQueryEnumerator<GatewayGeneratorComponent>();
+        while (query.MoveNext(out var uid, out var generator))
+        {
+            CleanupExpiredDestinations(uid, generator);
+
+            if (_cfgManager.GetCVar(CCVars.GatewayGeneratorEnabled))
+                EnsureDestinationPool(uid, generator);
+        }
+    }
+
     private void OnGeneratorShutdown(EntityUid uid, GatewayGeneratorComponent component, ComponentShutdown args)
     {
-        foreach (var genUid in component.Generated)
+        foreach (var genUid in component.Generated.ToArray())
         {
-            if (Deleted(genUid))
-                continue;
-
-            QueueDel(genUid);
+            QueueDestinationMapDeletion(genUid);
         }
+
+        component.Generated.Clear();
     }
 
     private void OnGeneratorMapInit(EntityUid uid, GatewayGeneratorComponent generator, MapInitEvent args)
@@ -84,16 +107,119 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
 
         generator.NextUnlock = TimeSpan.FromMinutes(5);
 
-        for (var i = 0; i < 3; i++)
+        EnsureDestinationPool(uid, generator);
+    }
+
+    /// <summary>
+    /// Deletes expired unopened destinations, removes dead references and enforces the configured hard cap.
+    /// Loaded destinations are deliberately retained because players or property may still be on them.
+    /// </summary>
+    internal int CleanupExpiredDestinations(EntityUid uid, GatewayGeneratorComponent generator)
+    {
+        var removed = 0;
+        var ttlSeconds = _cfgManager.GetCVar(CCVars.GatewayGeneratorDestinationTtl);
+        var ttl = float.IsFinite(ttlSeconds) && ttlSeconds > 0f
+            ? TimeSpan.FromSeconds(Math.Min(ttlSeconds, TimeSpan.MaxValue.TotalSeconds / 2d))
+            : TimeSpan.Zero;
+
+        for (var i = generator.Generated.Count - 1; i >= 0; i--)
         {
-            GenerateDestination(uid, generator);
+            var destinationUid = generator.Generated[i];
+            if (!destinationUid.IsValid() ||
+                !Exists(destinationUid) ||
+                Terminating(destinationUid))
+            {
+                generator.Generated.RemoveAt(i);
+                continue;
+            }
+
+            if (!TryComp(destinationUid, out GatewayGeneratorDestinationComponent? destination))
+            {
+                generator.Generated.RemoveAt(i);
+                QueueDestinationMapDeletion(destinationUid);
+                removed++;
+                continue;
+            }
+
+            if (destination.Generator != uid)
+            {
+                generator.Generated.RemoveAt(i);
+                continue;
+            }
+
+            if (destination.Loaded || ttl == TimeSpan.Zero)
+                continue;
+
+            if (destination.GeneratedAt + ttl > _timing.CurTime)
+                continue;
+
+            generator.Generated.RemoveAt(i);
+            QueueDestinationMapDeletion(destinationUid);
+            removed++;
+        }
+
+        var maxDestinations = Math.Max(0, _cfgManager.GetCVar(CCVars.GatewayGeneratorMaxDestinations));
+        for (var i = 0; generator.Generated.Count > maxDestinations && i < generator.Generated.Count;)
+        {
+            var destinationUid = generator.Generated[i];
+            if (TryComp(destinationUid, out GatewayGeneratorDestinationComponent? destination) && destination.Loaded)
+            {
+                i++;
+                continue;
+            }
+
+            generator.Generated.RemoveAt(i);
+            QueueDestinationMapDeletion(destinationUid);
+            removed++;
+        }
+
+        if (removed > 0)
+            _gateway.UpdateAllGateways();
+
+        return removed;
+    }
+
+    private void EnsureDestinationPool(EntityUid uid, GatewayGeneratorComponent generator)
+    {
+        var maxDestinations = Math.Max(0, _cfgManager.GetCVar(CCVars.GatewayGeneratorMaxDestinations));
+        var targetAvailable = Math.Min(InitialDestinationCount, maxDestinations);
+
+        while (CountAvailableDestinations(generator) < targetAvailable &&
+               generator.Generated.Count < maxDestinations)
+        {
+            if (!TryGenerateDestination(uid, generator))
+                break;
         }
     }
 
-    private void GenerateDestination(EntityUid uid, GatewayGeneratorComponent? generator = null)
+    private int CountAvailableDestinations(GatewayGeneratorComponent generator)
+    {
+        var count = 0;
+        foreach (var destinationUid in generator.Generated)
+        {
+            if (TryComp(destinationUid, out GatewayGeneratorDestinationComponent? destination) &&
+                !destination.Loaded &&
+                !Terminating(destinationUid))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    internal bool TryGenerateDestination(EntityUid uid, GatewayGeneratorComponent? generator = null)
     {
         if (!Resolve(uid, ref generator))
-            return;
+            return false;
+
+        if (!_cfgManager.GetCVar(CCVars.GatewayGeneratorEnabled))
+            return false;
+
+        CleanupExpiredDestinations(uid, generator);
+        var maxDestinations = Math.Max(0, _cfgManager.GetCVar(CCVars.GatewayGeneratorMaxDestinations));
+        if (generator.Generated.Count >= maxDestinations)
+            return false;
 
         var tileDef = _tileDefManager["FloorSteel"];
         const int MaxOffset = 256;
@@ -135,6 +261,7 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         genDest.Origin = origin;
         genDest.Seed = seed;
         genDest.Generator = uid;
+        genDest.GeneratedAt = _timing.CurTime;
 
         // Create the gateway.
         var gatewayUid = SpawnAtPosition(generator.Proto, originCoords);
@@ -142,6 +269,26 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         _gateway.SetDestinationName(gatewayUid, FormattedMessage.FromMarkupOrThrow($"[color=#D381C996]{gatewayName}[/color]"), gatewayComp);
         _gateway.SetEnabled(gatewayUid, true, gatewayComp);
         generator.Generated.Add(mapUid);
+        return true;
+    }
+
+    private void QueueDestinationMapDeletion(EntityUid destinationUid)
+    {
+        if (!destinationUid.IsValid() ||
+            !Exists(destinationUid) ||
+            Terminating(destinationUid))
+        {
+            return;
+        }
+
+        var mapId = _transform.GetMapId(destinationUid);
+        if (mapId == MapId.Nullspace)
+        {
+            QueueDel(destinationUid);
+            return;
+        }
+
+        _maps.QueueDeleteMap(mapId);
     }
 
     private void OnGeneratorAttemptOpen(Entity<GatewayGeneratorDestinationComponent> ent, ref AttemptGatewayOpenEvent args)
@@ -163,19 +310,18 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         if (ent.Comp.Loaded)
             return;
 
-        if (TryComp(ent.Comp.Generator, out GatewayGeneratorComponent? generatorComp))
-        {
-            generatorComp.NextUnlock = _timing.CurTime + generatorComp.UnlockCooldown;
-            _gateway.UpdateAllGateways();
-            // Generate another destination to keep them going.
-            GenerateDestination(ent.Comp.Generator);
-        }
-
         if (!TryComp(args.MapUid, out MapGridComponent? grid))
             return;
 
         ent.Comp.Locked = false;
         ent.Comp.Loaded = true;
+
+        if (TryComp(ent.Comp.Generator, out GatewayGeneratorComponent? generatorComp))
+        {
+            generatorComp.NextUnlock = _timing.CurTime + generatorComp.UnlockCooldown;
+            _gateway.UpdateAllGateways();
+            EnsureDestinationPool(ent.Comp.Generator, generatorComp);
+        }
 
         // Do dungeon
         var seed = ent.Comp.Seed;

@@ -16,7 +16,7 @@ mono-ads-description = Native PD imperials threaten TSF colonial expansion into 
 mono-chimera-title = Biothreat (TSF|PDV)
 mono-chimera-description = Native PDV imperials threaten TSF colonial expansion into the sector. The effects of a far away letoferol outbreak seep in.
 
-mono-allatonce-title = Apocalypse (ALL, 3hr)
+mono-allatonce-title = Apocalypse (ALL, 7d)
 mono-allatonce-description = A battleground between PDV, and TSF forces alike, with ancient ADS systems and Chimera bioweapons seeping in.
 
 luam-dead-space-low-pop-title = Dead Space: Low Pop

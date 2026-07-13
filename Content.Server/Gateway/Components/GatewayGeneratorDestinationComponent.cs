@@ -1,3 +1,5 @@
+using Robust.Shared.Serialization.TypeSerializers.Implementations.Custom;
+
 namespace Content.Server.Gateway.Components;
 
 /// <summary>
@@ -21,6 +23,12 @@ public sealed partial class GatewayGeneratorDestinationComponent : Component
 
     [DataField]
     public bool Loaded;
+
+    /// <summary>
+    /// Time at which this destination was generated. Used to retire unopened maps after their configured TTL.
+    /// </summary>
+    [DataField(customTypeSerializer: typeof(TimeOffsetSerializer))]
+    public TimeSpan GeneratedAt;
 
     /// <summary>
     /// Seed used for this destination.

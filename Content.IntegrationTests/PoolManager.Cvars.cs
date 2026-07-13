@@ -26,6 +26,8 @@ public static partial class PoolManager
         (CCVars.ProcgenPreload.Name,          "false"),
         (CCVars.WorldgenEnabled.Name,         "false"),
         (CCVars.GatewayGeneratorEnabled.Name, "false"),
+        (CCVars.LuaMDynamicEventsEnabled.Name, "true"),
+        (CCVars.LuaMDynamicEventsMaxActiveSites.Name, "8"),
         (CCVars.GameDummyTicker.Name, "true"),
         (CCVars.GameLobbyEnabled.Name, "false"),
         (CCVars.ConfigPresetDevelopment.Name, "false"),

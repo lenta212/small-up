@@ -66,13 +66,14 @@ public sealed class LuaMDynamicEventDebrisTest
 
         await pair.RunTicksSync(5);
 
-        await server.WaitPost(() =>
+        for (var i = 0; i < LuaMSectorDynamicEventSystem.DynamicDebrisHostileInterval; i++)
         {
-            for (var i = 0; i < LuaMSectorDynamicEventSystem.DynamicDebrisHostileInterval; i++)
+            var eventIndex = i;
+            await server.WaitPost(() =>
             {
-                var targetCoordinates = new MapCoordinates(expectedCoordinates[i], mapId);
+                var targetCoordinates = new MapCoordinates(expectedCoordinates[eventIndex], mapId);
                 var generated = dynamicEvents.TryGenerateDynamicEvent(
-                    $"integration-test-{i}",
+                    $"integration-test-{eventIndex}",
                     out var record,
                     out var error,
                     templateId: "quiet-distress",
@@ -82,8 +83,9 @@ public sealed class LuaMDynamicEventDebrisTest
 
                 Assert.That(generated, Is.True, error);
                 Assert.That(record, Is.Not.Null);
-            }
-        });
+            });
+            await pair.RunTicksSync(2);
+        }
 
         await pair.RunTicksSync(10);
 
@@ -97,7 +99,8 @@ public sealed class LuaMDynamicEventDebrisTest
             Assert.That(debrisSites, Has.Count.EqualTo(LuaMSectorDynamicEventSystem.DynamicDebrisHostileInterval));
             Assert.That(
                 debrisSites.Select(entry => entry.Debris.DebrisSerial),
-                Is.EquivalentTo(Enumerable.Range(1, LuaMSectorDynamicEventSystem.DynamicDebrisHostileInterval)));
+                Is.EquivalentTo(Enumerable.Range(1, LuaMSectorDynamicEventSystem.DynamicDebrisHostileInterval)),
+                "Active debris serials must remain monotonic across server update ticks.");
             Assert.That(
                 debrisSites.Where(entry => entry.Debris.HostileContact).Select(entry => entry.Debris.DebrisSerial),
                 Is.EquivalentTo(new[] { LuaMSectorDynamicEventSystem.DynamicDebrisHostileInterval }));

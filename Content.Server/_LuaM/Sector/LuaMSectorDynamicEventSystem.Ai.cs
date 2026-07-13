@@ -40,6 +40,9 @@ public sealed partial class LuaMSectorDynamicEventSystem
         }
 
         var status = _stories.GetStatusSnapshot();
+        if (!CanCreateDynamicEvent(status, out error))
+            return false;
+
         if (!ignoreOpenRuntimeLead && HasOpenRuntimeLead(status))
         {
             error = "Открытая активная зацепка сектора LuaM уже существует.";

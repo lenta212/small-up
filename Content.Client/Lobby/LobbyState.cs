@@ -131,7 +131,10 @@ namespace Content.Client.Lobby
             {
                 Lobby!.StartTime.Text = string.Empty;
                 var roundTime = _gameTiming.CurTime.Subtract(_gameTicker.RoundStartTimeSpan);
-                Lobby!.StationTime.Text = Loc.GetString("lobby-state-player-status-round-time", ("hours", roundTime.Hours), ("minutes", roundTime.Minutes));
+                Lobby!.StationTime.Text = Loc.GetString(
+                    "lobby-state-player-status-round-time",
+                    ("hours", (int) Math.Floor(roundTime.TotalHours)),
+                    ("minutes", roundTime.Minutes));
                 return;
             }
 

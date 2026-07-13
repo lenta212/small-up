@@ -1,11 +1,4 @@
 - type: entity
-  id: RoundEndRuleHour3
-  parent: BaseGameRule
-  components:
-  - type: RoundEndTimeRule
-    endAt: 10800 # 3 hour
-
-- type: entity
   id: PortstrikeAnnounceRuleHour3 # LuaM: PortstrikeAnnounceRuleHour4 > PortstrikeAnnounceRuleHour3
   parent: BaseGameRule
   components:

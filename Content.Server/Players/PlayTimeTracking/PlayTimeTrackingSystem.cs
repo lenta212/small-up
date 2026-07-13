@@ -78,6 +78,12 @@ public sealed partial class PlayTimeTrackingSystem : EntitySystem
         {
             trackers.Add(PlayTimeTrackingShared.TrackerAdmin);
             trackers.Add(PlayTimeTrackingShared.TrackerOverall);
+
+            // LuaM: low-pop administrators commonly play regular jobs without deadminning.
+            // Keep their role progression working while still tracking admin/overall time.
+            if (IsPlayerAlive(player))
+                trackers.UnionWith(GetTimedRoles(player));
+
             return;
         }
 

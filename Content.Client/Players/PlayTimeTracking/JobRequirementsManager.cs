@@ -113,13 +113,19 @@ public sealed partial class JobRequirementsManager : ISharedPlaytimeManager
 
     public bool CheckRoleRequirements(JobPrototype job, HumanoidCharacterProfile? profile, [NotNullWhen(false)] out FormattedMessage? reason)
     {
-        var reqs = _entManager.System<SharedRoleSystem>().GetJobRequirement(job);
+        var roleSystem = _entManager.System<SharedRoleSystem>();
+        var reqs = roleSystem.GetJobRequirement(job);
 
         //return CheckRoleRequirements(reqs, profile, out reason); // Frontier: old implementation
 
         // Frontier: alternate role time checks
         if (CheckRoleRequirements(reqs, profile, out reason))
             return true;
+
+        // Match server enforcement: a configured override is authoritative and cannot be
+        // bypassed through alternate requirements left on the base job prototype.
+        if (roleSystem.HasJobRequirementOverride(job))
+            return false;
 
         var altReqs = job.AlternateRequirementSets;
         if (altReqs != null)

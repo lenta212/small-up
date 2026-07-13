@@ -41,8 +41,20 @@ public sealed partial class AnimalHusbandrySystem : EntitySystem
     /// <inheritdoc/>
     public override void Initialize()
     {
+        SubscribeLocalEvent<ReproductiveComponent, ComponentStartup>(OnReproductiveStartup);
         SubscribeLocalEvent<ReproductiveComponent, MindAddedMessage>(OnMindAdded);
         SubscribeLocalEvent<InfantComponent, RefreshNameModifiersEvent>(OnRefreshNameModifiers);
+    }
+
+    private void OnReproductiveStartup(EntityUid uid, ReproductiveComponent component, ComponentStartup args)
+    {
+        ScheduleNextBreedAttempt(component);
+    }
+
+    private void ScheduleNextBreedAttempt(ReproductiveComponent component)
+    {
+        component.NextBreedAttempt = _timing.CurTime +
+                                     _random.Next(component.MinBreedAttemptInterval, component.MaxBreedAttemptInterval);
     }
 
     // we express EZ-pass terminate the pregnancy if a player takes the role
@@ -224,7 +236,7 @@ public sealed partial class AnimalHusbandrySystem : EntitySystem
 
             if (_timing.CurTime < reproductive.NextBreedAttempt)
                 continue;
-            reproductive.NextBreedAttempt += _random.Next(reproductive.MinBreedAttemptInterval, reproductive.MaxBreedAttemptInterval);
+            ScheduleNextBreedAttempt(reproductive);
 
             // no.
             if (HasComp<ActorComponent>(uid) || TryComp<MindContainerComponent>(uid, out var mind) && mind.HasMind)

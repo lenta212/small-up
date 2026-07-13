@@ -48,12 +48,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const double HandoffPhaseHoldSeconds = 6;
     private const double SortiePlanHoldSeconds = 4;
     private const double TeamPhaseAnnouncementCooldownSeconds = 20;
-    private const double TeamSharedSpeechCooldownSeconds = 15;
+    private const double TeamSharedSpeechCooldownSeconds = 6;
     private const int TeamRecentLineMemoryLimit = 8;
     private const double TeamRecentLineMemorySeconds = 90;
-    private const double ThreatNeutralizedReportCooldownSeconds = 20;
+    private const double ThreatNeutralizedReportCooldownSeconds = 6;
     private const double TriageCoverConfirmCooldownSeconds = 20;
-    private const double CrewHelpRequestCooldownSeconds = 30;
+    private const double CrewHelpRequestCooldownSeconds = 12;
     private const double EscortSpeechCooldownSeconds = 30;
     private const double EscortDutyHoldSeconds = 2;
     private const double EscortDutyActionIntervalSeconds = 2;

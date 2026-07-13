@@ -1413,7 +1413,8 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     {
         var added = new List<LuaMSectorStoryRecord>();
 
-        foreach (var story in _prototype.EnumeratePrototypes<LuaMSectorStoryPrototype>())
+        foreach (var story in _prototype.EnumeratePrototypes<LuaMSectorStoryPrototype>()
+                     .Where(story => story.ID != RescueAfterActionStoryId))
         {
             if (!IsStoryUnlocked(story, memory.ReputationLedger) ||
                 memory.Records.Any(record => record.Story == story.ID))
@@ -1549,6 +1550,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     private IReadOnlyList<LuaMSectorLockedStoryStatus> BuildLockedStoryStatuses(LuaMSectorMemoryComponent memory)
     {
         return _prototype.EnumeratePrototypes<LuaMSectorStoryPrototype>()
+            .Where(story => story.ID != RescueAfterActionStoryId)
             .Where(story => !memory.Records.Any(record => record.Story == story.ID))
             .OrderBy(story => story.RequiredReputationTarget)
             .ThenBy(story => story.RequiredReputation)

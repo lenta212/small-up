@@ -91,7 +91,7 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public bool AutoPickupNearbyMedicalSupplies = true;
 
     [DataField]
-    public bool AutoTakeNearbyStoredMedicalSupplies = false;
+    public bool AutoTakeNearbyStoredMedicalSupplies = true;
 
     [DataField]
     public bool AutoStowHeldItemsForTreatment = true;
@@ -184,31 +184,31 @@ public sealed partial class LuaMRescueAgentComponent : Component
     public float AutoTreatMinDamage = 5f;
 
     [DataField]
-    public float AutoTreatCooldown = 2f;
+    public float AutoTreatCooldown = 6f;
 
     [DataField]
-    public float AutoDefibCooldown = 5f;
+    public float AutoDefibCooldown = 8f;
 
     [DataField]
-    public float AutoCommsCooldown = 25f;
+    public float AutoCommsCooldown = 10f;
 
     [DataField]
     public float AutoAnalyzeCooldown = 45f;
 
     [DataField]
-    public float OnboardActionCooldown = 20f;
+    public float OnboardActionCooldown = 10f;
 
     [DataField]
-    public float RescueActionCooldown = 18f;
+    public float RescueActionCooldown = 6f;
 
     [DataField]
     public float RescueSpeechCooldown = 18f;
 
     [DataField]
-    public float AutoPickupSupplyRange = 3f;
+    public float AutoPickupSupplyRange = 12f;
 
     [DataField]
-    public float AutoResupplyRange = 8f;
+    public float AutoResupplyRange = 24f;
 
     public float TargetRefreshAccumulator;
 

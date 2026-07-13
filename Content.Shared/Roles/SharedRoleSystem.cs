@@ -609,6 +609,16 @@ public abstract partial class SharedRoleSystem : EntitySystem
         return job.Requirements;
     }
 
+    /// <summary>
+    /// Returns whether the active server requirement override replaces this job's requirements.
+    /// An override is authoritative and must not fall through to alternate requirement sets from
+    /// the original job prototype.
+    /// </summary>
+    public bool HasJobRequirementOverride(JobPrototype job)
+    {
+        return _requirementOverride?.Jobs.ContainsKey(job.ID) == true;
+    }
+
     // TODO ROLES Change to readonly.
     public HashSet<JobRequirement>? GetJobRequirement(ProtoId<JobPrototype> job)
     {

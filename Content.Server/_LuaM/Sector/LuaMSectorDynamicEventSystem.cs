@@ -288,6 +288,12 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
             _nextMarkerSweep = _timing.CurTime + TimeSpan.FromSeconds(MarkerSweepSeconds);
         }
 
+        if (!_cfg.GetCVar(CCVars.LuaMDynamicEventsEnabled))
+        {
+            _nextAutomaticEvent = TimeSpan.Zero;
+            return;
+        }
+
         if (_nextAutomaticEvent == TimeSpan.Zero)
         {
             _nextAutomaticEvent = _timing.CurTime + TimeSpan.FromSeconds(InitialDelaySeconds);
@@ -323,6 +329,9 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         }
 
         var status = _stories.GetStatusSnapshot();
+        if (!CanCreateDynamicEvent(status, out error))
+            return false;
+
         if (!ignoreOpenRuntimeLead && HasOpenRuntimeLead(status))
         {
             error = "Открытая активная зацепка сектора LuaM уже существует.";
@@ -643,8 +652,15 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         var status = _stories.GetStatusSnapshot();
         var playerCount = CountActivePlayers();
         var inRound = _ticker.RunLevel == GameRunLevel.InRound;
+        var dynamicEventsEnabled = _cfg.GetCVar(CCVars.LuaMDynamicEventsEnabled);
+        var atSiteCapacity = IsAtDynamicEventSiteCapacity(status);
         var hasOpenRuntimeLead = HasOpenRuntimeLead(status);
-        var requestBlockReason = BuildRequestBlockReason(inRound, playerCount, hasOpenRuntimeLead);
+        var requestBlockReason = BuildRequestBlockReason(
+            inRound,
+            playerCount,
+            hasOpenRuntimeLead,
+            dynamicEventsEnabled,
+            atSiteCapacity);
 
         return Templates
             .OrderBy(template => template.ReputationTarget)
@@ -653,7 +669,12 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
             {
                 var reputation = GetReputationValue(template.ReputationTarget, status.ReputationLedger);
                 var unlocked = reputation >= PreferredProcessRequiredReputation;
-                var canRequestNow = unlocked && inRound && playerCount > 0 && !hasOpenRuntimeLead;
+                var canRequestNow = unlocked &&
+                                    inRound &&
+                                    playerCount > 0 &&
+                                    !hasOpenRuntimeLead &&
+                                    dynamicEventsEnabled &&
+                                    !atSiteCapacity;
                 return new LuaMSectorPreferredProcessUiEntry
                 {
                     TemplateId = template.Id,
@@ -696,8 +717,14 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
             !hazard.Resolved &&
             hazard.Story.ToString().StartsWith(LuaMSectorStorySystem.RuntimeDistressStoryPrefix, StringComparison.Ordinal));
         var inRound = _ticker.RunLevel == GameRunLevel.InRound;
+        var dynamicEventsEnabled = _cfg.GetCVar(CCVars.LuaMDynamicEventsEnabled);
+        var atSiteCapacity = IsAtDynamicEventSiteCapacity(status);
         var hasOpenRuntimeLead = openRuntimeLead != null;
-        var canRequest = inRound && playerCount > 0 && !hasOpenRuntimeLead;
+        var canRequest = inRound &&
+                         playerCount > 0 &&
+                         !hasOpenRuntimeLead &&
+                         dynamicEventsEnabled &&
+                         !atSiteCapacity;
         var dispatchReputation = GetDispatchReputationScore(status);
         var dispatchReduction = GetDispatchCooldownReductionPercent(dispatchReputation);
         var (dispatchMin, dispatchMax) = GetAdjustedCooldownRange(dispatchReduction);
@@ -719,7 +746,12 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
             HasOpenRuntimeLead = hasOpenRuntimeLead,
             OpenRuntimeLead = openRuntimeLead?.Title ?? string.Empty,
             CanRequestDynamicEvent = canRequest,
-            RequestBlockReason = BuildRequestBlockReason(inRound, playerCount, hasOpenRuntimeLead),
+            RequestBlockReason = BuildRequestBlockReason(
+                inRound,
+                playerCount,
+                hasOpenRuntimeLead,
+                dynamicEventsEnabled,
+                atSiteCapacity),
             CanPingRoute = activeRouteHasBeacon && !activeRouteStabilized && (!hasCommsBlackout || activeRouteHasSurveyCommsRelay),
             RoutePingBlockReason = BuildRoutePingBlockReason(hasOpenRuntimeLead, hasActiveRouteMarker, activeRouteHasBeacon, activeRouteStabilized, activeRouteFieldPacketPrinted, hasCommsBlackout, activeRouteHasSurveyCommsRelay),
             ActiveRouteStory = activeRuntimeStory?.Story.ToString() ?? openRuntimeLead?.Story.ToString() ?? string.Empty,
@@ -1108,6 +1140,9 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         if (!inRound)
             return Loc.GetString("luam-sector-terminal-next-round-inactive");
 
+        if (!_cfg.GetCVar(CCVars.LuaMDynamicEventsEnabled))
+            return Loc.GetString("luam-sector-terminal-next-disabled");
+
         if (_nextAutomaticEvent == TimeSpan.Zero)
             return Loc.GetString("luam-sector-terminal-next-initial-delay", ("minutes", InitialDelaySeconds / 60));
 
@@ -1118,16 +1153,27 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         return Loc.GetString("luam-sector-terminal-next-minutes", ("minutes", (int) Math.Ceiling(remaining.TotalMinutes)));
     }
 
-    private string BuildRequestBlockReason(bool inRound, int playerCount, bool hasOpenRuntimeLead)
+    private string BuildRequestBlockReason(
+        bool inRound,
+        int playerCount,
+        bool hasOpenRuntimeLead,
+        bool dynamicEventsEnabled,
+        bool atSiteCapacity)
     {
         if (!inRound)
             return Loc.GetString("luam-sector-terminal-request-block-round-inactive");
+
+        if (!dynamicEventsEnabled)
+            return Loc.GetString("luam-sector-terminal-request-block-disabled");
 
         if (playerCount <= 0)
             return Loc.GetString("luam-sector-terminal-request-block-no-operators");
 
         if (hasOpenRuntimeLead)
             return Loc.GetString("luam-sector-terminal-request-block-open-lead");
+
+        if (atSiteCapacity)
+            return Loc.GetString("luam-sector-terminal-request-block-site-capacity");
 
         return string.Empty;
     }
@@ -1863,7 +1909,17 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
             return new DebrisSitePlan(false, 0, false);
         }
 
-        var serial = _generatedDebrisSites + 1;
+        var maxActiveSerial = _generatedDebrisSites;
+        var debrisQuery = EntityQueryEnumerator<LuaMDynamicEventDebrisComponent>();
+        while (debrisQuery.MoveNext(out var uid, out var debris))
+        {
+            if (TerminatingOrDeleted(uid))
+                continue;
+
+            maxActiveSerial = Math.Max(maxActiveSerial, debris.DebrisSerial);
+        }
+
+        var serial = maxActiveSerial + 1;
         return new DebrisSitePlan(
             true,
             serial,
@@ -2718,6 +2774,43 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         return status.Hazards.Any(hazard =>
             !hazard.Resolved &&
             hazard.Story.ToString().StartsWith(LuaMSectorStorySystem.RuntimeDistressStoryPrefix, StringComparison.Ordinal));
+    }
+
+    private bool CanCreateDynamicEvent(LuaMSectorStatusSnapshot status, out string error)
+    {
+        if (!_cfg.GetCVar(CCVars.LuaMDynamicEventsEnabled))
+        {
+            error = "Динамические события сектора LuaM отключены конфигурацией.";
+            return false;
+        }
+
+        var maxActiveSites = Math.Max(0, _cfg.GetCVar(CCVars.LuaMDynamicEventsMaxActiveSites));
+        var activeSites = CountActiveDynamicEventSites(status);
+        if (activeSites >= maxActiveSites)
+        {
+            error = $"Достигнут лимит активных точек LuaM: {activeSites}/{maxActiveSites}.";
+            return false;
+        }
+
+        error = string.Empty;
+        return true;
+    }
+
+    private bool IsAtDynamicEventSiteCapacity(LuaMSectorStatusSnapshot status)
+    {
+        var maxActiveSites = Math.Max(0, _cfg.GetCVar(CCVars.LuaMDynamicEventsMaxActiveSites));
+        return CountActiveDynamicEventSites(status) >= maxActiveSites;
+    }
+
+    private static int CountActiveDynamicEventSites(LuaMSectorStatusSnapshot status)
+    {
+        return status.Hazards
+            .Where(hazard =>
+                !hazard.Resolved &&
+                hazard.Story.ToString().StartsWith(LuaMSectorStorySystem.RuntimeDistressStoryPrefix, StringComparison.Ordinal))
+            .Select(hazard => hazard.Story)
+            .Distinct()
+            .Count();
     }
 
     private static bool TryFindTemplate(string templateId, out DynamicEventTemplate template)

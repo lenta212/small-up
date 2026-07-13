@@ -2,9 +2,6 @@
   id: LuaMSoloCalmEventsTable
   table: !type:AllSelector
     children:
-    - id: CockroachMigration
-    - id: MouseMigration
-    - id: SnailMigrationLowPop
     - id: GasLeak
     - id: IonStorm
     - id: SolarFlare
