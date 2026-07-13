@@ -5,7 +5,7 @@
   id: LuaMProspector
   parent: BaseVessel
   name: LMC Prospector
-  description: A medium multi-role expedition vessel configured for ore work, field expeditions, compact science and emergency medical support.
+  description: Средний многоцелевой экспедиционный корабль для добычи руды, полевых вылетов, компактной науки и экстренной медицинской поддержки.
   price: 86000
   category: Medium
   group: Expedition

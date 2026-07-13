@@ -13268,13 +13268,6 @@ entities:
     - type: Transform
       pos: 11.541668,-32.242126
       parent: 1
-- proto: MouseTimedSpawner
-  entities:
-  - uid: 742
-    components:
-    - type: Transform
-      pos: 3.5,-36.5
-      parent: 1
 - proto: Multitool
   entities:
   - uid: 2487
