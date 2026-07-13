@@ -1,5 +1,6 @@
 using Content.Server.Chat.Systems;
 using Content.Server.Emp;
+using Content.Server._LuaM.Sector;
 using Content.Server.Radio.Components;
 using Content.Shared._Mono.Radio;
 using Content.Shared.Inventory.Events;
@@ -20,6 +21,7 @@ public sealed partial class HeadsetSystem : SharedHeadsetSystem
     [Dependency] private INetManager _netMan = default!;
     [Dependency] private RadioSystem _radio = default!;
     [Dependency] private LanguageSystem _language = default!;
+    [Dependency] private LuaMCharacterTtsSystem _luamCharacterTts = default!;
 
 
     public override void Initialize()
@@ -120,6 +122,13 @@ public sealed partial class HeadsetSystem : SharedHeadsetSystem
                 Message = canUnderstand ? args.OriginalChatMsg : args.LanguageObfuscatedChatMsg
             };
             _netMan.ServerSendMessage(msg, actor.PlayerSession.Channel);
+
+            if (canUnderstand)
+                _luamCharacterTts.QueueRadioSpeech(
+                    args.MessageSource,
+                    args.Channel.ID,
+                    args.OriginalChatMsg.Message,
+                    new[] { actor.PlayerSession });
 
             // Einstein Engines - Language end
 

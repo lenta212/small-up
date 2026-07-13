@@ -8,6 +8,7 @@ using Content.Server.Chat.Managers;
 using Content.Server.Discord.DiscordLink;
 using Content.Server.GameTicking;
 using Content.Server._EinsteinEngines.Language; // Einstein Engines - Language
+using Content.Server._LuaM.Sector;
 using Content.Server.Speech; // Einstein Engines - Language
 using Content.Server.Players.RateLimiting;
 using Content.Server.Speech.Prototypes;
@@ -70,6 +71,7 @@ public sealed partial class ChatSystem : SharedChatSystem
     [Dependency] private DiscordChatLink _discordLink = default!;
     [Dependency] private LanguageSystem _language = default!; // Einstein Engines - Language
     [Dependency] private CollectiveMindUpdateSystem _collectiveMind = default!; // Goobstation - Starlight collective mind port
+    [Dependency] private LuaMCharacterTtsSystem _luamCharacterTts = default!;
 
     public const int VoiceRange = 10; // how far voice goes in world units
     public const int WhisperClearRange = 2; // how far whisper goes while still being understandable, in world units
@@ -649,6 +651,7 @@ public sealed partial class ChatSystem : SharedChatSystem
             (!CultureInfo.CurrentCulture.IsNeutralCulture && CultureInfo.CurrentCulture.Parent.Name == "en")
             || (CultureInfo.CurrentCulture.IsNeutralCulture && CultureInfo.CurrentCulture.Name == "en")); // Einstein Engines - Language
 
+        List<ICommonSession>? ttsRecipients = null;
 
         foreach (var (session, data) in GetRecipients(source, WhisperMuffledRange))
         {
@@ -671,6 +674,9 @@ public sealed partial class ChatSystem : SharedChatSystem
                 // Scenario 1: the listener can clearly understand the message
                 result = perceivedMessage;
                 wrappedMessage = WrapWhisperMessage(source, "chat-manager-entity-whisper-wrap-message", name, result, language);
+
+                if (canUnderstandLanguage)
+                    (ttsRecipients ??= new List<ICommonSession>()).Add(session);
             }
             else if (_examineSystem.InRangeUnOccluded(source, listener, WhisperMuffledRange)) // UNEDIT FROM Einstein Engines - Language // They are out of date, this has been reverted to current ChatSystem
             {
@@ -687,6 +693,9 @@ public sealed partial class ChatSystem : SharedChatSystem
 
             _chatManager.ChatMessageToOne(ChatChannel.Whisper, result, wrappedMessage, source, false, session.Channel);
         }
+
+        if (ttsRecipients is { Count: > 0 })
+            _luamCharacterTts.QueueWhisper(source, message, ttsRecipients, WhisperClearRange);
 
         var replayWrap = WrapWhisperMessage(source, "chat-manager-entity-whisper-wrap-message", name, message, language);
         _replay.RecordServerMessage(new ChatMessage(ChatChannel.Whisper, message, replayWrap, GetNetEntity(source), null, MessageRangeHideChatForReplay(range)));
@@ -943,6 +952,7 @@ public sealed partial class ChatSystem : SharedChatSystem
     private void SendInVoiceRange(ChatChannel channel, string name, string message, string wrappedMessage, string obfuscated, string obfuscatedWrappedMessage, EntityUid source, ChatTransmitRange range, NetUserId? author = null, LanguagePrototype? languageOverride = null) // Einstein Engines - Language
     {
         var language = languageOverride ?? _language.GetLanguage(source); // Einstein Engines - Language
+        List<ICommonSession>? ttsRecipients = null;
 
         foreach (var (session, data) in GetRecipients(source, VoiceRange))
         {
@@ -957,12 +967,23 @@ public sealed partial class ChatSystem : SharedChatSystem
             EntityUid listener = session.AttachedEntity.Value;
 
             // If the channel does not support languages, or the entity can understand the message, send the original message, otherwise send the obfuscated version
-            if (channel == ChatChannel.LOOC || channel == ChatChannel.Emotes || _language.CanUnderstand(listener, language.ID))
+            var canUnderstand = _language.CanUnderstand(listener, language.ID);
+            if (channel == ChatChannel.LOOC || channel == ChatChannel.Emotes || canUnderstand)
+            {
                 _chatManager.ChatMessageToOne(channel, message, wrappedMessage, source, entHideChat, session.Channel, author: author);
+
+                if (channel == ChatChannel.Local && !entHideChat && canUnderstand)
+                    (ttsRecipients ??= new List<ICommonSession>()).Add(session);
+            }
             else
+            {
                 _chatManager.ChatMessageToOne(channel, obfuscated, obfuscatedWrappedMessage, source, entHideChat, session.Channel, author: author);
+            }
             // Einstein Engines - Language end
         }
+
+        if (channel == ChatChannel.Local && ttsRecipients is { Count: > 0 })
+            _luamCharacterTts.QueueLocalSpeech(source, message, ttsRecipients, VoiceRange);
 
         _replay.RecordServerMessage(new ChatMessage(channel, message, wrappedMessage, GetNetEntity(source), null, MessageRangeHideChatForReplay(range)));
     }

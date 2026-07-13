@@ -36,10 +36,22 @@ Useful environment variables:
   LUAM_AI_CACHE_CREATION_RUB_PER_MILLION_TOKENS optional Anthropic cache-write price for audit
   LUAM_AI_CACHE_READ_RUB_PER_MILLION_TOKENS     optional Anthropic cache-read price for audit
   LUAM_AI_CACHED_INPUT_RUB_PER_MILLION_TOKENS   optional OpenAI cached-input price for audit
+  LUAM_TTS_PROVIDER         disabled, piper, piper-http, or mock; defaults to disabled
+  LUAM_TTS_PIPER_MODEL      Piper model path or voice name; defaults to ru_RU-irina-medium
+  LUAM_TTS_PIPER_VOICES     comma-separated allowlist for request voice names
+  LUAM_TTS_PIPER_DATA_DIR   directory with downloaded Piper voice files
+  LUAM_TTS_PIPER_USE_CUDA   true to load Piper with CUDA
+  LUAM_TTS_PIPER_CACHE_SIZE maximum loaded Piper voices; defaults to 2
+  LUAM_TTS_PIPER_HTTP_URL   base URL for python -m piper.http_server when provider=piper-http
+  LUAM_TTS_MAX_CHARS        maximum text length per synthesis request
+  LUAM_TTS_MAX_BYTES        maximum WAV bytes returned to the game server
 """
 
 from __future__ import annotations
 
+import base64
+from collections import OrderedDict
+import io
 import json
 import os
 import re
@@ -56,8 +68,10 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+import wave
 
 
 OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -76,7 +90,14 @@ ANTHROPIC_MODEL_ALIASES = {
     "claude-haiku-4.5": DEFAULT_ANTHROPIC_MODEL,
     "haiku-4.5": DEFAULT_ANTHROPIC_MODEL,
 }
+DEFAULT_TTS_PIPER_MODEL = "ru_RU-irina-medium"
+DEFAULT_TTS_PIPER_VOICES = "ru_RU-irina-medium,ru_RU-denis-medium,ru_RU-dmitri-medium,ru_RU-ruslan-medium"
+DEFAULT_TTS_PIPER_CACHE_SIZE = 2
+DEFAULT_TTS_MAX_CHARS = 300
+DEFAULT_TTS_MAX_BYTES = 524_288
 AUDIT_LOCK = threading.Lock()
+PIPER_LOCK = threading.RLock()
+PIPER_VOICE_CACHE: OrderedDict[str, Any] = OrderedDict()
 CURRENT_AUDIT_REQUEST_ID: ContextVar[str | None] = ContextVar("CURRENT_AUDIT_REQUEST_ID", default=None)
 UUID_PATTERN = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
 SECRET_VALUE_PATTERN = re.compile(
@@ -1263,6 +1284,291 @@ def require_gateway_auth(handler: BaseHTTPRequestHandler) -> bool:
 
     header = handler.headers.get("Authorization", "")
     return header == f"Bearer {expected}"
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        return max(minimum, min(maximum, int(os.environ.get(name, str(default)))))
+    except ValueError:
+        return default
+
+
+def env_float(name: str, default: float, minimum: float, maximum: float) -> float:
+    try:
+        return max(minimum, min(maximum, float(os.environ.get(name, str(default)))))
+    except ValueError:
+        return default
+
+
+def get_tts_provider() -> str:
+    return os.environ.get("LUAM_TTS_PROVIDER", "disabled").strip().lower() or "disabled"
+
+
+def get_tts_max_chars() -> int:
+    return env_int("LUAM_TTS_MAX_CHARS", DEFAULT_TTS_MAX_CHARS, 32, 2_000)
+
+
+def get_tts_max_bytes() -> int:
+    return env_int("LUAM_TTS_MAX_BYTES", DEFAULT_TTS_MAX_BYTES, 16_384, 2_097_152)
+
+
+def get_tts_piper_cache_size() -> int:
+    return env_int("LUAM_TTS_PIPER_CACHE_SIZE", DEFAULT_TTS_PIPER_CACHE_SIZE, 1, 16)
+
+
+def get_tts_model_label(model: str | None = None) -> str:
+    provider = get_tts_provider()
+    if provider.startswith("piper"):
+        return (model or os.environ.get("LUAM_TTS_PIPER_MODEL", DEFAULT_TTS_PIPER_MODEL)).strip()
+    return provider
+
+
+def get_tts_piper_voices() -> list[str]:
+    raw = os.environ.get("LUAM_TTS_PIPER_VOICES", DEFAULT_TTS_PIPER_VOICES)
+    voices = []
+    for item in raw.split(","):
+        voice = item.strip()
+        if is_safe_piper_voice_name(voice):
+            voices.append(voice)
+
+    default_model = os.environ.get("LUAM_TTS_PIPER_MODEL", DEFAULT_TTS_PIPER_MODEL).strip() or DEFAULT_TTS_PIPER_MODEL
+    if is_safe_piper_voice_name(default_model) and default_model not in voices:
+        voices.insert(0, default_model)
+
+    return voices or [DEFAULT_TTS_PIPER_MODEL]
+
+
+def is_safe_piper_voice_name(value: str) -> bool:
+    return re.fullmatch(r"[A-Za-z0-9_-]+", value) is not None
+
+
+def select_tts_piper_model(context: dict[str, Any]) -> str:
+    requested = context.get("voice", context.get("model", ""))
+    requested_voice = requested.strip() if isinstance(requested, str) else ""
+    voices = get_tts_piper_voices()
+    if requested_voice in voices:
+        return requested_voice
+
+    default_model = os.environ.get("LUAM_TTS_PIPER_MODEL", DEFAULT_TTS_PIPER_MODEL).strip() or DEFAULT_TTS_PIPER_MODEL
+    if default_model in voices:
+        return default_model
+
+    return voices[0]
+
+
+def normalize_tts_text(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("tts text must be a string")
+
+    text = re.sub(r"\s+", " ", value).strip()
+    if not text:
+        raise ValueError("tts text is empty")
+
+    return text[:get_tts_max_chars()]
+
+
+def resolve_piper_model_path(model: str | None = None) -> Path:
+    model = (model or os.environ.get("LUAM_TTS_PIPER_MODEL", DEFAULT_TTS_PIPER_MODEL)).strip()
+    if not model:
+        model = DEFAULT_TTS_PIPER_MODEL
+
+    direct = Path(model)
+    if direct.is_file():
+        return direct
+
+    data_dir_value = os.environ.get("LUAM_TTS_PIPER_DATA_DIR", "").strip()
+    if data_dir_value:
+        data_dir = Path(data_dir_value)
+        candidates = [
+            data_dir / model,
+            data_dir / f"{model}.onnx",
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+
+        matches = list(data_dir.rglob(f"{model}.onnx"))
+        if matches:
+            return matches[0]
+
+    raise RuntimeError(
+        "Piper voice model is not configured. Set LUAM_TTS_PIPER_MODEL to a .onnx file "
+        "or set LUAM_TTS_PIPER_DATA_DIR with a downloaded voice."
+    )
+
+
+def release_piper_voice(voice: Any) -> None:
+    close = getattr(voice, "close", None)
+    if not callable(close):
+        return
+
+    try:
+        close()
+    except Exception:
+        # Piper currently frees its ONNX session when the last reference is dropped.
+        # A future/provider-specific close method must not break cache eviction.
+        pass
+
+
+def trim_piper_voice_cache(max_size: int | None = None) -> None:
+    max_size = max_size if max_size is not None else get_tts_piper_cache_size()
+    with PIPER_LOCK:
+        while len(PIPER_VOICE_CACHE) > max_size:
+            _, voice = PIPER_VOICE_CACHE.popitem(last=False)
+            release_piper_voice(voice)
+
+
+def clear_piper_voice_cache() -> None:
+    with PIPER_LOCK:
+        while PIPER_VOICE_CACHE:
+            _, voice = PIPER_VOICE_CACHE.popitem(last=False)
+            release_piper_voice(voice)
+
+
+def get_piper_voice(model: str | None = None) -> Any:
+    model_path = resolve_piper_model_path(model)
+    use_cuda = env_bool("LUAM_TTS_PIPER_USE_CUDA")
+    cache_key = f"{model_path.resolve()}|cuda={use_cuda}"
+
+    with PIPER_LOCK:
+        if cache_key in PIPER_VOICE_CACHE:
+            voice = PIPER_VOICE_CACHE[cache_key]
+            PIPER_VOICE_CACHE.move_to_end(cache_key)
+            trim_piper_voice_cache()
+            return voice
+
+        try:
+            from piper import PiperVoice
+        except Exception as exc:
+            raise RuntimeError("piper-tts is not installed for this gateway Python") from exc
+
+        try:
+            voice = PiperVoice.load(str(model_path), use_cuda=use_cuda)
+        except TypeError:
+            voice = PiperVoice.load(str(model_path))
+
+        PIPER_VOICE_CACHE[cache_key] = voice
+        trim_piper_voice_cache()
+        return voice
+
+
+def build_piper_synthesis_config() -> Any | None:
+    try:
+        from piper import SynthesisConfig  # type: ignore
+    except Exception:
+        try:
+            from piper.config import SynthesisConfig  # type: ignore
+        except Exception:
+            return None
+
+    kwargs = {
+        "volume": env_float("LUAM_TTS_PIPER_VOLUME", 1.0, 0.05, 3.0),
+        "length_scale": env_float("LUAM_TTS_PIPER_LENGTH_SCALE", 1.0, 0.5, 2.0),
+        "noise_scale": env_float("LUAM_TTS_PIPER_NOISE_SCALE", 0.667, 0.0, 2.0),
+        "noise_w_scale": env_float("LUAM_TTS_PIPER_NOISE_W_SCALE", 0.8, 0.0, 2.0),
+        "normalize_audio": not env_bool("LUAM_TTS_PIPER_NO_NORMALIZE"),
+    }
+
+    try:
+        return SynthesisConfig(**kwargs)
+    except TypeError:
+        return None
+
+
+def synthesize_piper_wav(text: str, model: str | None = None) -> bytes:
+    # Keep eviction from closing a voice while another request is synthesizing with it.
+    with PIPER_LOCK:
+        voice = get_piper_voice(model)
+        output = io.BytesIO()
+        syn_config = build_piper_synthesis_config()
+
+        with wave.open(output, "wb") as wav_file:
+            if syn_config is not None:
+                try:
+                    voice.synthesize_wav(text, wav_file, syn_config=syn_config)
+                except TypeError:
+                    voice.synthesize_wav(text, wav_file)
+            else:
+                voice.synthesize_wav(text, wav_file)
+
+    return output.getvalue()
+
+
+def synthesize_piper_http_wav(text: str) -> bytes:
+    base_url = os.environ.get("LUAM_TTS_PIPER_HTTP_URL", "").strip().rstrip("/")
+    if not base_url:
+        raise RuntimeError("LUAM_TTS_PIPER_HTTP_URL is required when LUAM_TTS_PROVIDER=piper-http")
+
+    body = json.dumps({"text": text}, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base_url}/synthesize",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.read(get_tts_max_bytes() + 1)
+
+
+def synthesize_mock_wav(text: str) -> bytes:
+    duration_seconds = max(0.25, min(2.0, len(text) / 80.0))
+    sample_rate = 16_000
+    frames = int(sample_rate * duration_seconds)
+    output = io.BytesIO()
+    with wave.open(output, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(b"\x00\x00" * frames)
+    return output.getvalue()
+
+
+def build_tts_response(context: dict[str, Any], request_id: str) -> dict[str, Any]:
+    provider = get_tts_provider()
+    if provider in {"", "disabled", "off", "none"}:
+        raise RuntimeError("tts provider is disabled")
+
+    text = normalize_tts_text(context.get("text", ""))
+    voice = ""
+    if provider == "piper":
+        voice = select_tts_piper_model(context)
+        try:
+            audio = synthesize_piper_wav(text, voice)
+        except Exception:
+            fallback_voice = os.environ.get("LUAM_TTS_PIPER_MODEL", DEFAULT_TTS_PIPER_MODEL).strip() or DEFAULT_TTS_PIPER_MODEL
+            if fallback_voice == voice:
+                raise
+
+            voice = fallback_voice
+            audio = synthesize_piper_wav(text, voice)
+    elif provider in {"piper-http", "piper_http"}:
+        audio = synthesize_piper_http_wav(text)
+    elif provider == "mock":
+        audio = synthesize_mock_wav(text)
+    else:
+        raise RuntimeError(f"unsupported tts provider: {provider}")
+
+    max_bytes = get_tts_max_bytes()
+    if len(audio) > max_bytes:
+        raise RuntimeError(f"tts audio exceeds LUAM_TTS_MAX_BYTES ({len(audio)} > {max_bytes})")
+
+    return {
+        "format": "wav",
+        "audioBase64": base64.b64encode(audio).decode("ascii"),
+        "byteLength": len(audio),
+        "requestId": request_id,
+        "provider": provider,
+        "model": get_tts_model_label(voice),
+        "voice": voice,
+    }
 
 
 def build_responses_request(context: dict[str, Any]) -> dict[str, Any]:
@@ -3199,6 +3505,11 @@ class Handler(BaseHTTPRequestHandler):
                     "model": get_model(),
                     "baseUrl": get_base_url(),
                     "hasApiKey": has_provider_api_key(),
+                    "ttsProvider": get_tts_provider(),
+                    "ttsModel": get_tts_model_label(),
+                    "ttsVoices": get_tts_piper_voices() if get_tts_provider() == "piper" else [],
+                    "ttsMaxChars": get_tts_max_chars(),
+                    "ttsMaxBytes": get_tts_max_bytes(),
                 }
             )
             return
@@ -3213,7 +3524,7 @@ class Handler(BaseHTTPRequestHandler):
         error = ""
 
         try:
-            if self.path not in {"/propose_event", "/chat", "/review"}:
+            if self.path not in {"/propose_event", "/chat", "/review", "/tts"}:
                 status = HTTPStatus.NOT_FOUND
                 self.send_error(status)
                 return
@@ -3225,6 +3536,11 @@ class Handler(BaseHTTPRequestHandler):
 
             try:
                 context = read_json(self)
+                if self.path == "/tts":
+                    proposal = build_tts_response(context, request_id)
+                    self.respond_json(proposal)
+                    return
+
                 context = normalize_context_safety(context)
             except Exception as exc:
                 error = truncate_for_audit(exc)
@@ -3235,6 +3551,10 @@ class Handler(BaseHTTPRequestHandler):
                 if self.path == "/review":
                     fallback = True
                     self.respond_json(build_hard_fallback_review_response(str(exc)))
+                    return
+                if self.path == "/tts":
+                    status = HTTPStatus.BAD_GATEWAY
+                    self.respond_json({"error": str(exc)}, status)
                     return
                 status = HTTPStatus.BAD_GATEWAY
                 self.respond_json({"error": str(exc)}, status)
@@ -3286,6 +3606,7 @@ class Handler(BaseHTTPRequestHandler):
                 "path": self.path,
                 "client": self.client_address[0] if self.client_address else "",
                 "provider": get_provider(),
+                "ttsProvider": get_tts_provider() if self.path == "/tts" else "",
                 "api": get_api_protocol(get_api_mode()),
                 "model": get_model(),
                 "hasApiKey": has_provider_api_key(),
@@ -3318,8 +3639,10 @@ def main() -> int:
     print(
         f"LuaM AI gateway listening on http://{host}:{port}/propose_event "
         f"http://{host}:{port}/chat http://{host}:{port}/review "
+        f"http://{host}:{port}/tts "
         f"api={get_api_protocol(get_api_mode())} mode={get_api_mode()} "
-        f"base={get_base_url()} model={get_model()}",
+        f"base={get_base_url()} model={get_model()} "
+        f"tts={get_tts_provider()} ttsModel={get_tts_model_label()}",
         flush=True,
     )
     httpd.serve_forever()

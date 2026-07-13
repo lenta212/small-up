@@ -67,7 +67,7 @@ public sealed class LuaMRadioAiReceiveTest
             var language = SharedLanguageSystem.Universal;
             var component = new ActiveRadioComponent();
             var message = new ChatMessage(ChatChannel.Radio, "ИИ, статус", "ИИ, статус", NetEntity.Invalid, null);
-            var eventArgs = new RadioReceiveEvent(speaker, radioChannel, message, message, language, speaker);
+            var eventArgs = new RadioReceiveEvent(speaker, radioChannel, message, message, language, speaker, []);
 
             var method = typeof(LuaMSectorAiDirectorSystem).GetMethod(
                 "OnRadioReceive",
@@ -138,7 +138,7 @@ public sealed class LuaMRadioAiReceiveTest
             var component = new ActiveRadioComponent();
             var messageText = "\u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u0441\u0442\u0430\u0442\u0443\u0441";
             var message = new ChatMessage(ChatChannel.Radio, messageText, messageText, NetEntity.Invalid, null);
-            var eventArgs = new RadioReceiveEvent(speaker, radioChannel, message, message, language, speaker);
+            var eventArgs = new RadioReceiveEvent(speaker, radioChannel, message, message, language, speaker, []);
 
             var method = typeof(LuaMSectorAiDirectorSystem).GetMethod(
                 "OnRadioReceive",
@@ -218,7 +218,7 @@ public sealed class LuaMRadioAiReceiveTest
             var component = new ActiveRadioComponent();
             var messageText = "\u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u043d\u0443\u0436\u043d\u0430 \u043f\u043e\u043c\u043e\u0449\u044c \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443";
             var message = new ChatMessage(ChatChannel.Radio, messageText, messageText, NetEntity.Invalid, null);
-            var eventArgs = new RadioReceiveEvent(speaker, radioChannel, message, message, language, speaker);
+            var eventArgs = new RadioReceiveEvent(speaker, radioChannel, message, message, language, speaker, []);
 
             var method = typeof(LuaMSectorAiDirectorSystem).GetMethod(
                 "OnRadioReceive",

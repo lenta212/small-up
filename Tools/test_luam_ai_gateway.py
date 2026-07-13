@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import base64
+import importlib.util
 import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import types
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1169,11 +1173,135 @@ def run_anthropic_mock_test() -> dict[str, object]:
         thread.join(timeout=5)
 
 
+def run_tts_mock_test() -> dict[str, object]:
+    env = {}
+    env["LUAM_AI_GATEWAY_PORT"] = str(PORT)
+    env["LUAM_AI_PROVIDER"] = "anthropic"
+    env["ANTHROPIC_API_KEY"] = ""
+    env["OPENAI_API_KEY"] = ""
+    env["LUAM_TTS_PROVIDER"] = "mock"
+    audit_path = ROOT / "TestResults" / "luam_ai_gateway_tts_audit.jsonl"
+    audit_path.parent.mkdir(exist_ok=True)
+    audit_path.unlink(missing_ok=True)
+    env["LUAM_AI_AUDIT_LOG"] = str(audit_path)
+    proc = start_gateway(env)
+    try:
+        health = wait_for_gateway(PORT)
+        tts = request_json(
+            f"http://127.0.0.1:{PORT}/tts",
+            {
+                "version": 1,
+                "text": "LuaM TTS smoke test",
+                "actor": "test",
+                "format": "wav",
+            },
+        )
+
+        audio = base64.b64decode(str(tts["audioBase64"]))
+        for _ in range(20):
+            if audit_path.exists():
+                break
+            time.sleep(0.05)
+
+        audit_events = read_audit_events(audit_path)
+        gateway_events = [event for event in audit_events if event["event"] == "gateway_request"]
+
+        assert health["ttsProvider"] == "mock"
+        assert tts["format"] == "wav"
+        assert tts["provider"] == "mock"
+        assert tts["byteLength"] == len(audio)
+        assert audio.startswith(b"RIFF")
+        assert any(event["path"] == "/tts" and event["status"] == 200 for event in gateway_events)
+
+        return {
+            "health": health,
+            "byteLength": len(audio),
+            "auditEventCount": len(audit_events),
+        }
+    finally:
+        stop_process(proc)
+        audit_path.unlink(missing_ok=True)
+
+
+def run_piper_lru_cache_test() -> dict[str, object]:
+    spec = importlib.util.spec_from_file_location("luam_ai_gateway_lru_test", GW_PATH)
+    assert spec is not None and spec.loader is not None
+    gateway = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gateway)
+
+    class FakeVoice:
+        loaded: list[FakeVoice] = []
+
+        def __init__(self, model_path: str) -> None:
+            self.model_path = model_path
+            self.close_count = 0
+            self.loaded.append(self)
+
+        @classmethod
+        def load(cls, model_path: str, use_cuda: bool = False) -> FakeVoice:
+            return cls(model_path)
+
+        def close(self) -> None:
+            self.close_count += 1
+
+    fake_piper = types.ModuleType("piper")
+    fake_piper.PiperVoice = FakeVoice  # type: ignore[attr-defined]
+    previous_piper = sys.modules.get("piper")
+    previous_cache_size = os.environ.get("LUAM_TTS_PIPER_CACHE_SIZE")
+    sys.modules["piper"] = fake_piper
+
+    try:
+        os.environ.pop("LUAM_TTS_PIPER_CACHE_SIZE", None)
+        assert gateway.get_tts_piper_cache_size() == 2
+        os.environ["LUAM_TTS_PIPER_CACHE_SIZE"] = "2"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            paths = [Path(temp_dir) / f"voice-{index}.onnx" for index in range(3)]
+            for path in paths:
+                path.touch()
+
+            first = gateway.get_piper_voice(str(paths[0]))
+            second = gateway.get_piper_voice(str(paths[1]))
+            assert gateway.get_piper_voice(str(paths[0])) is first
+            assert len(FakeVoice.loaded) == 2
+
+            third = gateway.get_piper_voice(str(paths[2]))
+            assert len(gateway.PIPER_VOICE_CACHE) == 2
+            assert second.close_count == 1
+            assert first.close_count == 0
+            assert third.close_count == 0
+
+            os.environ["LUAM_TTS_PIPER_CACHE_SIZE"] = "1"
+            assert gateway.get_piper_voice(str(paths[2])) is third
+            assert len(gateway.PIPER_VOICE_CACHE) == 1
+            assert first.close_count == 1
+
+            return {
+                "defaultSize": gateway.DEFAULT_TTS_PIPER_CACHE_SIZE,
+                "loadedVoices": len(FakeVoice.loaded),
+                "evictedVoices": sum(voice.close_count > 0 for voice in FakeVoice.loaded),
+                "cachedVoices": len(gateway.PIPER_VOICE_CACHE),
+            }
+    finally:
+        gateway.clear_piper_voice_cache()
+        if previous_piper is None:
+            sys.modules.pop("piper", None)
+        else:
+            sys.modules["piper"] = previous_piper
+
+        if previous_cache_size is None:
+            os.environ.pop("LUAM_TTS_PIPER_CACHE_SIZE", None)
+        else:
+            os.environ["LUAM_TTS_PIPER_CACHE_SIZE"] = previous_cache_size
+
+
 def main() -> int:
     result = {
         "fallback": run_no_key_fallback_test(),
         "openaiMock": run_openai_mock_test(),
         "anthropicMock": run_anthropic_mock_test(),
+        "ttsMock": run_tts_mock_test(),
+        "piperLruCache": run_piper_lru_cache_test(),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

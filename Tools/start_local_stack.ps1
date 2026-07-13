@@ -5,6 +5,11 @@ param(
     [string]$ServerPort = "1213",
     [switch]$OfficialOpenAI,
     [string]$OpenAIModel = "gpt-5.5",
+    [switch]$PiperTts,
+    [string]$PiperPython = "C:\MonolithTemp\luam-piper-venv\Scripts\python.exe",
+    [string]$PiperDataDir = "C:\MonolithTemp\luam-piper-voices",
+    [string]$PiperVoice = "ru_RU-irina-medium",
+    [string]$PiperVoices = "ru_RU-irina-medium,ru_RU-denis-medium,ru_RU-dmitri-medium,ru_RU-ruslan-medium",
     [switch]$SkipClient,
     [switch]$Reset
 )
@@ -36,9 +41,14 @@ Copy-Item (Join-Path $Root "server_config_local.toml") $serverConfig -Force
 
 $serverConfigText = Get-Content $serverConfig -Raw
 $serverConfigText = $serverConfigText -replace 'path = "logs"', ('path = "' + ($serverLogDir -replace '\\','/') + '"')
+if ($PiperTts) {
+    $serverConfigText = $serverConfigText -replace '(?m)^tts_enabled = true$', 'tts_enabled = false'
+    $serverConfigText = $serverConfigText -replace '(?m)^tts_characters_enabled = false$', 'tts_characters_enabled = true'
+}
 Set-Content -LiteralPath $serverConfig -Value $serverConfigText -Encoding UTF8
 
 $python = (Get-Command python).Source
+$gatewayPython = $python
 
 function Stop-LocalStackProcess {
     param(
@@ -160,7 +170,15 @@ try {
         "LUAM_COMPAT_MODEL",
         "LUAM_COMPAT_API_MODE",
         "LUAM_COMPAT_RESPONSES_URL",
-        "LUAM_COMPAT_CHAT_COMPLETIONS_URL"
+        "LUAM_COMPAT_CHAT_COMPLETIONS_URL",
+        "LUAM_TTS_PROVIDER",
+        "LUAM_TTS_PIPER_MODEL",
+        "LUAM_TTS_PIPER_VOICES",
+        "LUAM_TTS_PIPER_DATA_DIR",
+        "LUAM_TTS_PIPER_USE_CUDA",
+        "LUAM_TTS_PIPER_HTTP_URL",
+        "LUAM_TTS_MAX_CHARS",
+        "LUAM_TTS_MAX_BYTES"
     )
     $previousGatewayEnv = Save-ProcessEnv -Names $gatewayEnvNames
     $env:LUAM_AI_AUDIT_LOG = $gatewayAudit
@@ -197,8 +215,33 @@ try {
         Remove-Item Env:LUAM_COMPAT_RESPONSES_URL -ErrorAction SilentlyContinue
         Remove-Item Env:LUAM_COMPAT_CHAT_COMPLETIONS_URL -ErrorAction SilentlyContinue
     }
+    if ($PiperTts) {
+        if (-not (Test-Path -LiteralPath $PiperPython)) {
+            throw "Piper Python was not found: $PiperPython. Run Tools\setup_luam_piper_tts.ps1 first or pass -PiperPython."
+        }
+
+        $directModel = Join-Path $PiperDataDir ($PiperVoice + ".onnx")
+        $modelMatch = $null
+        if (Test-Path -LiteralPath $directModel) {
+            $modelMatch = $directModel
+        } elseif (Test-Path -LiteralPath $PiperDataDir) {
+            $modelMatch = Get-ChildItem -LiteralPath $PiperDataDir -Recurse -Filter ($PiperVoice + ".onnx") -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        }
+
+        if ($null -eq $modelMatch) {
+            throw "Piper voice was not found: $PiperVoice under $PiperDataDir. Run Tools\setup_luam_piper_tts.ps1 first or pass -PiperDataDir/-PiperVoice."
+        }
+
+        $gatewayPython = $PiperPython
+        $env:LUAM_TTS_PROVIDER = "piper"
+        $env:LUAM_TTS_PIPER_MODEL = $PiperVoice
+        $env:LUAM_TTS_PIPER_VOICES = $PiperVoices
+        $env:LUAM_TTS_PIPER_DATA_DIR = $PiperDataDir
+        $env:LUAM_TTS_MAX_CHARS = "300"
+        $env:LUAM_TTS_MAX_BYTES = "524288"
+    }
     try {
-        $gateway = Start-Process -FilePath $python -ArgumentList @($gatewayCopy) -WindowStyle Hidden -PassThru -RedirectStandardOutput $gatewayOut -RedirectStandardError $gatewayErr
+        $gateway = Start-Process -FilePath $gatewayPython -ArgumentList @($gatewayCopy) -WindowStyle Hidden -PassThru -RedirectStandardOutput $gatewayOut -RedirectStandardError $gatewayErr
     } finally {
         Restore-ProcessEnv -Snapshot $previousGatewayEnv
     }

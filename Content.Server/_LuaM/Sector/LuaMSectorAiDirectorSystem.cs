@@ -587,6 +587,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private TimeSpan _nextWorldPulse;
     private bool _requestInFlight;
     private bool _aibolitRadioGatewayInFlight;
+    private bool _ttsInFlight;
     private int _worldPulseCount;
     private int _aiBaseAutonomousShipCursor;
     private TimeSpan _nextAiBaseVirtualLogisticsMemory;
@@ -600,6 +601,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private readonly Dictionary<string, TimeSpan> _pendingAiRadioReplyTokens = new();
     private readonly Dictionary<string, string> _pendingAiRadioReplyActors = new();
     private readonly Dictionary<string, TimeSpan> _recentAiRadioPayloads = new();
+    private readonly Queue<string> _ttsQueue = new();
+    private readonly Dictionary<string, PendingAiTtsRequest> _pendingTtsRequests = new();
     private readonly Queue<TimeSpan> _gatewayBudgetWindow = new();
     private int _gatewayBudgetRoundUsed;
     private bool _gatewayBudgetRoundActive;
@@ -2773,6 +2776,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 hideChat: false,
                 session.Channel,
                 recordReplay: false);
+            QueueAiTts(
+                $"chat:direct:{session.UserId}:{message}",
+                message,
+                actor,
+                new[] { session });
             _sawmill.Info($"{actor}: AI direct chat to {session.Name}: {message}");
             return $"Выполнено: ИИ написал личное сообщение игроку {session.Name}.";
         }
@@ -2784,6 +2792,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             EntityUid.Invalid,
             hideChat: false,
             recordReplay: true);
+        QueueAiTts(
+            $"chat:broadcast:{message}",
+            message,
+            actor,
+            GetAiTtsBroadcastSessions());
         _sawmill.Info($"{actor}: AI chat: {message}");
         return "Выполнено: ИИ написал сообщение в общий чат.";
     }
@@ -7143,6 +7156,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         base.Update(frameTime);
 
         UpdateLocalBridge();
+        UpdateAiTtsQueue();
 
         if (!_cfg.GetCVar(CCVars.LuaMAiDirectorEnabled) ||
             _ticker.RunLevel != GameRunLevel.InRound)
@@ -8264,7 +8278,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var originalMessage = args.OriginalChatMsg.Message;
         if (IsRecentAiRadioPayload(args.Channel.ID, originalMessage) ||
             IsRadioAiReplyMessage(originalMessage))
+        {
+            QueueAiRadioTts(uid, args, originalMessage);
             return;
+        }
 
         if (!_players.TryGetSessionByEntity(args.MessageSource, out var session))
             return;
@@ -8385,6 +8402,220 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             language: language);
 
         _sawmill.Info($"{actor}: AI radio message on {channel.ID}: {message}");
+    }
+
+    private IEnumerable<ICommonSession> GetAiTtsBroadcastSessions()
+    {
+        foreach (var session in _players.Sessions)
+        {
+            if (session.Status == SessionStatus.InGame)
+                yield return session;
+        }
+    }
+
+    private void QueueAiRadioTts(EntityUid receiver, RadioReceiveEvent args, string message)
+    {
+        if (!TryFindRadioReceiverSession(receiver, out var session))
+            return;
+
+        QueueAiTts(
+            $"radio:{args.Channel.ID}:{message}",
+            message,
+            $"{DirectorActor} / radio tts {args.Channel.ID}",
+            new[] { session });
+    }
+
+    private bool TryFindRadioReceiverSession(EntityUid receiver, out ICommonSession session)
+    {
+        if (TryComp(receiver, out ActorComponent? actor))
+        {
+            session = actor.PlayerSession;
+            return true;
+        }
+
+        var parent = Transform(receiver).ParentUid;
+        if (TryComp(parent, out actor))
+        {
+            session = actor.PlayerSession;
+            return true;
+        }
+
+        session = default!;
+        return false;
+    }
+
+    private void QueueAiTts(
+        string key,
+        string rawText,
+        string actor,
+        IEnumerable<ICommonSession> recipients)
+    {
+        if (!_cfg.GetCVar(CCVars.LuaMAiDirectorTtsEnabled))
+            return;
+
+        if (string.IsNullOrWhiteSpace(_cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl)))
+            return;
+
+        var text = TrimForChat(rawText.ReplaceLineEndings(" "), 300);
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        if (_pendingTtsRequests.TryGetValue(key, out var existing))
+        {
+            AddTtsRecipients(existing, recipients);
+            return;
+        }
+
+        if (_ttsQueue.Count >= GetTtsMaxQueue())
+        {
+            _sawmill.Debug($"LuaM TTS queue is full; dropped line from {actor}.");
+            return;
+        }
+
+        var pending = new PendingAiTtsRequest(key, text, actor, _timing.CurTime);
+        AddTtsRecipients(pending, recipients);
+        if (pending.RecipientIds.Count == 0)
+            return;
+
+        _pendingTtsRequests[key] = pending;
+        _ttsQueue.Enqueue(key);
+    }
+
+    private static void AddTtsRecipients(PendingAiTtsRequest pending, IEnumerable<ICommonSession> recipients)
+    {
+        foreach (var recipient in recipients)
+        {
+            if (recipient.Status == SessionStatus.InGame)
+                pending.RecipientIds.Add(recipient.UserId);
+        }
+    }
+
+    private void UpdateAiTtsQueue()
+    {
+        if (_ttsInFlight ||
+            !_cfg.GetCVar(CCVars.LuaMAiDirectorTtsEnabled) ||
+            _ticker.RunLevel != GameRunLevel.InRound)
+        {
+            return;
+        }
+
+        while (_ttsQueue.Count > 0)
+        {
+            var key = _ttsQueue.Dequeue();
+            if (!_pendingTtsRequests.TryGetValue(key, out var pending) ||
+                pending.RecipientIds.Count == 0)
+            {
+                _pendingTtsRequests.Remove(key);
+                continue;
+            }
+
+            pending.InFlight = true;
+            _ttsInFlight = true;
+            _ = RequestAndSendAiTtsAsync(pending);
+            return;
+        }
+    }
+
+    private async Task RequestAndSendAiTtsAsync(PendingAiTtsRequest pending)
+    {
+        try
+        {
+            var response = await RequestGatewayTtsAsync(pending);
+            await RunOnMainThread(() => SendAiTtsAudio(pending, response));
+        }
+        catch (Exception e)
+        {
+            _sawmill.Debug($"LuaM TTS request failed for {pending.Actor}: {e.Message}");
+        }
+        finally
+        {
+            await RunOnMainThread(() =>
+            {
+                _pendingTtsRequests.Remove(pending.Key);
+                _ttsInFlight = false;
+            });
+        }
+    }
+
+    private async Task<LuaMAiGatewayTtsResponse?> RequestGatewayTtsAsync(PendingAiTtsRequest pending)
+    {
+        var gatewayUrl = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl).Trim();
+        if (string.IsNullOrWhiteSpace(gatewayUrl))
+            return null;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(GetTimeout()));
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildGatewayTtsUri(gatewayUrl));
+        var token = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayToken).Trim();
+        if (!string.IsNullOrWhiteSpace(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        request.Content = JsonContent.Create(
+            new LuaMAiGatewayTtsRequest
+            {
+                Version = 1,
+                Text = pending.Text,
+                Actor = pending.Actor,
+                Format = "wav",
+            },
+            options: JsonOptions);
+
+        using var response = await SendGatewayRequestAsync(request, cts, "tts");
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"gateway returned {(int) response.StatusCode} {response.ReasonPhrase}");
+
+        return await ReadGatewayJsonAsync<LuaMAiGatewayTtsResponse>(
+            response.Content,
+            "tts",
+            cts.Token);
+    }
+
+    private void SendAiTtsAudio(PendingAiTtsRequest pending, LuaMAiGatewayTtsResponse? response)
+    {
+        if (response == null ||
+            string.IsNullOrWhiteSpace(response.AudioBase64))
+        {
+            return;
+        }
+
+        var format = response.Format.Trim().ToLowerInvariant();
+        if (format != "wav" && format != "ogg")
+            return;
+
+        byte[] audio;
+        try
+        {
+            audio = Convert.FromBase64String(response.AudioBase64);
+        }
+        catch (FormatException)
+        {
+            _sawmill.Warning("LuaM TTS gateway returned invalid audioBase64.");
+            return;
+        }
+
+        var maxBytes = GetTtsMaxBytes();
+        if (audio.Length == 0 || audio.Length > maxBytes)
+        {
+            _sawmill.Warning($"LuaM TTS audio rejected: {audio.Length} bytes, limit {maxBytes}.");
+            return;
+        }
+
+        var requestId = string.IsNullOrWhiteSpace(response.RequestId)
+            ? Guid.NewGuid().ToString("N")
+            : response.RequestId;
+        var volume = GetTtsVolume();
+
+        foreach (var userId in pending.RecipientIds)
+        {
+            if (!_players.TryGetSessionById(userId, out var session) ||
+                session.Status != SessionStatus.InGame)
+            {
+                continue;
+            }
+
+            RaiseNetworkEvent(
+                new LuaMAiTtsAudioEvent(requestId, format, volume, audio),
+                session.Channel);
+        }
     }
 
     private bool TryStartAibolitRadioGatewayReply(
@@ -9081,6 +9312,17 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var builder = new UriBuilder(gatewayUrl)
         {
             Path = "/review",
+            Query = string.Empty,
+        };
+
+        return builder.Uri;
+    }
+
+    private static Uri BuildGatewayTtsUri(string gatewayUrl)
+    {
+        var builder = new UriBuilder(gatewayUrl)
+        {
+            Path = "/tts",
             Query = string.Empty,
         };
 
@@ -10173,6 +10415,21 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return Math.Clamp(_cfg.GetCVar(CCVars.LuaMAiDirectorGatewayBudgetRoundRequests), 0, 1000);
     }
 
+    private int GetTtsMaxQueue()
+    {
+        return Math.Clamp(_cfg.GetCVar(CCVars.LuaMAiDirectorTtsMaxQueue), 1, 32);
+    }
+
+    private int GetTtsMaxBytes()
+    {
+        return Math.Clamp(_cfg.GetCVar(CCVars.LuaMAiDirectorTtsMaxBytes), 16_384, 2_097_152);
+    }
+
+    private float GetTtsVolume()
+    {
+        return Math.Clamp(_cfg.GetCVar(CCVars.LuaMAiDirectorTtsVolume), -30f, 10f);
+    }
+
     private sealed record AiTarget(
         ICommonSession Session,
         MapCoordinates PlayerCoordinates,
@@ -10281,6 +10538,24 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         bool CloseEvent,
         TimeSpan CreatedAt);
 
+    private sealed class PendingAiTtsRequest
+    {
+        public PendingAiTtsRequest(string key, string text, string actor, TimeSpan createdAt)
+        {
+            Key = key;
+            Text = text;
+            Actor = actor;
+            CreatedAt = createdAt;
+        }
+
+        public string Key { get; }
+        public string Text { get; }
+        public string Actor { get; }
+        public TimeSpan CreatedAt { get; }
+        public bool InFlight { get; set; }
+        public HashSet<NetUserId> RecipientIds { get; } = new();
+    }
+
     private sealed record SyntheticControlSnapshot(
         int Total,
         int Ready,
@@ -10342,6 +10617,14 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         public LuaMAiGatewaySectorContext Sector { get; set; } = new();
     }
 
+    private sealed class LuaMAiGatewayTtsRequest
+    {
+        public int Version { get; set; }
+        public string Text { get; set; } = string.Empty;
+        public string Actor { get; set; } = string.Empty;
+        public string Format { get; set; } = "wav";
+    }
+
     private sealed class LuaMAiGatewayChatResponse
     {
         public string Reply { get; set; } = string.Empty;
@@ -10360,6 +10643,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         public string AdminCommand { get; set; } = string.Empty;
         public string SectorMessage { get; set; } = string.Empty;
         public string RadioChannelId { get; set; } = string.Empty;
+    }
+
+    private sealed class LuaMAiGatewayTtsResponse
+    {
+        public string Format { get; set; } = "wav";
+        public string AudioBase64 { get; set; } = string.Empty;
+        public string RequestId { get; set; } = string.Empty;
+        public int ByteLength { get; set; }
+        public string Provider { get; set; } = string.Empty;
+        public string Model { get; set; } = string.Empty;
     }
 
     private sealed class LuaMAiGatewayReviewResponse

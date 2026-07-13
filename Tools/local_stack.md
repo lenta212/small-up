@@ -14,6 +14,41 @@ This starts:
 - Content server on `127.0.0.1:1213`
 - Content client connected to the local server
 
+## Free local TTS with Piper
+
+Piper is the default free local TTS path for LuaM. It runs beside the local
+gateway and does not require an API key.
+
+Install Piper into an isolated venv and download the default Russian voice:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\setup_luam_piper_tts.ps1
+```
+
+Start the local stack with TTS enabled:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\start_local_stack.ps1 -Reset -PiperTts
+```
+
+`-PiperTts` starts the gateway with:
+
+- `LUAM_TTS_PROVIDER=piper`
+- `LUAM_TTS_PIPER_MODEL=ru_RU-irina-medium`
+- `LUAM_TTS_PIPER_VOICES=ru_RU-irina-medium,ru_RU-denis-medium,ru_RU-dmitri-medium,ru_RU-ruslan-medium`
+- `LUAM_TTS_PIPER_DATA_DIR=C:\MonolithTemp\luam-piper-voices`
+
+It also enables `luam.ai_director.tts_characters_enabled` only in the temporary
+local server config copy. `luam.ai_director.tts_enabled` stays disabled so the
+local Piper voice is used for character IC lines, not AI Director lines. The
+default checked-in config keeps TTS disabled.
+
+Verify the gateway sees the TTS provider:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8787/health
+```
+
 ## OpenAI GPT-5.5 through MCP
 
 To run the local LuaM gateway through the LuaM OpenAI MCP server, set an
