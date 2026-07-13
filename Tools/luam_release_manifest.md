@@ -1,6 +1,6 @@
 # LuaM Local Release Manifest
 
-Current policy: the 2026-07-12 seven-day round release remains live. The operator explicitly requested the 2026-07-13 durable-transfer, animal-control, and sector-interception update; all local release gates have passed, and remote deployment remains frozen only until the guarded zero-player rollout begins.
+Current policy: `20260713-durable-bank-animal-sector-277.2.1` is live after a guarded zero-player rollout. Remote deployment is frozen again until another release is explicitly reviewed and authorized.
 
 The machine-readable policy lives in `Tools\luam_release_policy.json`. The deploy helper reads that JSON file first and falls back to this manifest only if the JSON file is missing.
 
@@ -262,20 +262,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File Tools\deploy_luam_server_rel
 The helper checks `Tools\luam_release_policy.json` first and refuses a real upload while the current freeze policy is active. `-DryRun` remains available for inspecting the deploy plan without contacting the remote server.
 For real deployment, the helper requires `-ExpectedSha256`, verifies `Robust.Server` plus either external `build.json` metadata or emergency Hybrid ACZ, checks the live player count, uploads the package and optional approved config, verifies both SHA256 values, stages into `/opt/monolith-ds/deploy-staging`, creates server/config/data backups, starts `monolith-ds.service`, and rolls back if start verification fails. `-ConfigSourcePath` removes silent config drift by atomically deploying the reviewed TOML. Use `-AllowClientZipRestore` only for an intentional emergency rollback.
 
-## Current Development Slice (Not Deployed)
+## Current Release Slice (Deployed)
 
-The 2026-07-13 expedition/persistence work is deliberately covered by the source-package, readiness, verification, and policy lists, but it has not been approved for a remote rollout.
+The verified 2026-07-13 expedition/persistence foundations and the durable-transfer, animal-control, and sector-interception gameplay update were included in the production release. The explicitly incomplete later stages below remain future work.
 
 - The expedition planner is server-only and testable without creating ECS entities. Streaming terrain, POI materialization, persistence deltas/snapshots, and `ExpeditionDirector` remain later stages.
 - Profile deletion now preserves the database row through `is_archived`/`archived_at` and releases the active slot through `NULL`. A normal replacement receives a new `Profile.Id`; an archived identity returns only through the explicit, ownership-checked, idempotent `RestoreArchivedCharacterAsync` path.
 - The pure progression foundation resolves exact seven-day campaign shifts and enforces the documented XP/shift level gates and award identity shape; persistence tables, ledger transactions, participation tracking, and gameplay integration remain future work.
-- A strict git-based readiness run still requires every release-scope file to be tracked. `-AllowUntracked` is only for local validation while the development slice is being assembled.
+- The deployed release passed the strict tracked-scope gate. `-AllowUntracked` remains available only for local development validation and is not a production-release bypass.
 
 ## Verification Records
 
-### 2026-07-13 — current development slice (not deployed)
+### 2026-07-13 — deployed release slice
 
-- The selected update is committed as three reviewed gameplay slices plus their release-gate coverage: durable PDA operation journaling, bounded animal-population administration, and playable sector contact interception. Remote deployment remains frozen pending the zero-player rollout.
+- The selected update is committed as three reviewed gameplay slices plus their release-gate coverage: durable PDA operation journaling, bounded animal-population administration, and playable sector contact interception. It was deployed by the guarded rollout recorded below, and remote deployment is frozen again.
 - A combined final-state integration filter passed 39/39 across bank/PDA, animal husbandry/population/timed spawners, and sector traffic/interception. The focused workstreams additionally exercised all 31 bank scenarios, six animal scenarios, and two sector scenarios after their last fixes.
 - SQLite and PostgreSQL both report no pending EF model changes after the new durable-transfer migrations. The database, server, client, and integration-test projects build with zero errors.
 - The strict readiness gate with tests and local smoke passed with no issues or warnings. It covered the LuaM Content/Integration filters, dependency audit, feature validator, AI gateway, admin ranks, and local server/client smoke.
@@ -331,6 +331,15 @@ Expected existing warnings:
 - The independently verified source package and production rollout are recorded below; `remoteDeployFrozen` is `true` again after successful post-deploy checks.
 
 ## Production Rollout History
+
+### 2026-07-13 — `20260713-durable-bank-animal-sector-277.2.1`
+
+- Identity: the verified gameplay build through Git commit `3f5c61c49b` entered `active/running` at `2026-07-13 22:58:24 MSK` (`19:58:24 UTC`). The deploy helper confirmed zero players immediately before stopping the service, did not use `-Force`, and moved active round 123 to lobby round 124. Post-deploy `NRestarts=0` and `ExecMainStatus=0`.
+- Gameplay: PDA transfers now use database-backed bank IDs and a durable operation journal with idempotent replay/restart reconciliation; animal population is capped and observable per map with fingerprint-confirmed safe pest cleanup; four radar-only sector signatures can be intercepted into report, cargo, distress, and unknown-contact tasks without NPC ships.
+- Checks and artifacts: strict readiness with tests and local smoke passed with no issues or warnings; the independently verified 528-file source package has SHA256 `78a7f90bba84d532ce0f4d08ca05c2710b0b28e9ae39038f36af0c1ac3ee6ca9`; the release-surface audit found zero violations. Server SHA256 is `1dac909c6a76113012e6b49838146b3c22755e4fe3b3d33eb2d39a528f9daf1b`; client/build-version SHA256 is `dfb52888fc31af2e075bc36b6ef5f03c895cf76bd14891e1a316dc4cd782b147`; immutable client URL `http://188.127.225.57:1213/dfb52888fc31af2e075bc36b6ef5f03c895cf76bd14891e1a316dc4cd782b147/SS14.Client.zip` returned HTTP 200 with the expected 333579842-byte payload.
+- Database and config: live SQLite contains migration `20260713162532_DurablePdaBankTransfers`, both durable-bank tables, and their expected indexes. The reviewed config changed from SHA256 `0f17c2794b5e6aca9e61ac31ce5e7fdb07a87916d0ec4788bce8a4c3bf62ff77` to `cf6657fec006ee626dc25cd126556401bc3b6dfb7cced0f7209f284b0a7eb6b5`, adding only animal map limit `32`, enabled sector traffic, and `2` simultaneous sector contacts.
+- Live result: the server reached `Ready` at `22:59:03 MSK`; public status/info, hub presence, auth, capacity 100, panic-bunker, external client delivery, and build-integrity checks pass. There are no startup `ERR`/`FATAL`, database failures, exceptions, or target bank/animal/sector errors. The only post-verify warning is expected while lobby round 124 has no start time; non-blocking startup warnings are limited to the known old `PreserveCharacterProfiles` PRAGMA warning, duplicate emote words, map-load catch-up, and one obsolete `RandomItem` prototype.
+- Backups: server `/opt/monolith-ds/backups/server-20260713-durable-bank-animal-sector-277.2.1` was fully readable (10573 files, 224854622 bytes); prior config `/opt/monolith-ds/backups/server_config-before-20260713-durable-bank-animal-sector-277.2.1.toml` has SHA256 `0f17c2794b5e6aca9e61ac31ce5e7fdb07a87916d0ec4788bce8a4c3bf62ff77`; data `/opt/monolith-ds/backups/data-20260713-durable-bank-animal-sector-277.2.1.tar.gz` has SHA256 `0a7135e265312f6f8496f7070a44df93ccae4c4060af16aaf6bf8d40ee56330d` and passed both `gzip -t` and a complete `tar -tzf` listing.
 
 ### 2026-07-12 — `20260712-seven-day-rounds-277.2.1`
 
