@@ -27,6 +27,20 @@ using Robust.Shared.Network;
 
 namespace Content.Server._NF.Bank;
 
+/// <summary>
+/// A durable bank mutation has an outcome that cannot safely be retried, either
+/// because its initial commit could not be classified or because a required
+/// compensating rollback failed. Callers must keep their world reservation and
+/// prevent an automatic retry.
+/// </summary>
+public sealed class BankMutationRollbackException : Exception
+{
+    public BankMutationRollbackException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
 public sealed partial class BankSystem : SharedBankSystem
 {
     public const float PayrollIntervalSeconds = 3600f;
@@ -108,6 +122,306 @@ public sealed partial class BankSystem : SharedBankSystem
     private ISawmill _log = default!;
     private readonly Dictionary<NetUserId, float> _payrollTimers = new();
     private readonly HashSet<NetUserId> _payrollMissingJobWarnings = new();
+    private readonly object _balanceMutationLock = new();
+    private readonly HashSet<BankProfileKey> _activeBalanceMutations = new();
+    private readonly HashSet<BankProfileKey> _blockedBalanceMutations = new();
+
+    private readonly record struct BankProfileKey(NetUserId UserId, int Slot);
+
+    internal enum ProfileSaveFailureOutcome
+    {
+        ConfirmedOriginal,
+        ConfirmedMutation,
+        Unknown,
+    }
+
+    private readonly record struct ProfileSaveFailureResolution(
+        ProfileSaveFailureOutcome Outcome,
+        Exception? VerificationFailure = null);
+
+    internal static ProfileSaveFailureOutcome ClassifyProfileSaveFailure(
+        int? persistedBalance,
+        int originalBalance,
+        int mutatedBalance)
+    {
+        if (persistedBalance == mutatedBalance)
+            return ProfileSaveFailureOutcome.ConfirmedMutation;
+
+        if (persistedBalance == originalBalance)
+            return ProfileSaveFailureOutcome.ConfirmedOriginal;
+
+        return ProfileSaveFailureOutcome.Unknown;
+    }
+
+    private sealed class BalanceMutationLease : IDisposable
+    {
+        private BankSystem? _owner;
+        private readonly BankProfileKey[] _keys;
+
+        public BalanceMutationLease(BankSystem owner, BankProfileKey[] keys)
+        {
+            _owner = owner;
+            _keys = keys;
+        }
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _owner, null)?.ReleaseBalanceMutation(_keys);
+        }
+    }
+
+    private bool TryAcquireBalanceMutation(
+        NetUserId userId,
+        int slot,
+        [NotNullWhen(true)] out BalanceMutationLease? lease)
+    {
+        return TryAcquireBalanceMutation(
+            new BankProfileKey(userId, slot),
+            null,
+            out lease);
+    }
+
+    private bool TryAcquireBalanceMutation(
+        NetUserId firstUserId,
+        int firstSlot,
+        NetUserId secondUserId,
+        int secondSlot,
+        [NotNullWhen(true)] out BalanceMutationLease? lease)
+    {
+        return TryAcquireBalanceMutation(
+            new BankProfileKey(firstUserId, firstSlot),
+            new BankProfileKey(secondUserId, secondSlot),
+            out lease);
+    }
+
+    private bool TryAcquireBalanceMutation(
+        BankProfileKey first,
+        BankProfileKey? second,
+        [NotNullWhen(true)] out BalanceMutationLease? lease)
+    {
+        lock (_balanceMutationLock)
+        {
+            if (_activeBalanceMutations.Contains(first) ||
+                _blockedBalanceMutations.Contains(first) ||
+                second is { } secondKey &&
+                secondKey != first &&
+                (_activeBalanceMutations.Contains(secondKey) ||
+                 _blockedBalanceMutations.Contains(secondKey)))
+            {
+                lease = null;
+                return false;
+            }
+
+            _activeBalanceMutations.Add(first);
+            if (second is { } distinctSecond && distinctSecond != first)
+                _activeBalanceMutations.Add(distinctSecond);
+
+            lease = new BalanceMutationLease(
+                this,
+                second is { } distinct && distinct != first
+                    ? [first, distinct]
+                    : [first]);
+            return true;
+        }
+    }
+
+    private void ReleaseBalanceMutation(IEnumerable<BankProfileKey> keys)
+    {
+        lock (_balanceMutationLock)
+        {
+            foreach (var key in keys)
+                _activeBalanceMutations.Remove(key);
+        }
+    }
+
+    private void BlockBalanceMutation(NetUserId userId, int slot, string operation, Exception exception)
+    {
+        BlockBalanceMutation(
+            userId,
+            slot,
+            $"failed {operation} compensation: {exception}");
+    }
+
+    private void BlockBalanceMutation(NetUserId userId, int slot, string reason)
+    {
+        lock (_balanceMutationLock)
+            _blockedBalanceMutations.Add(new BankProfileKey(userId, slot));
+
+        _log.Error($"CRITICAL: bank profile {userId}:{slot} blocked: {reason}");
+    }
+
+    /// <summary>
+    /// Returns whether the selected character cannot safely start another bank
+    /// mutation. Resolution failures are treated as pending so callers can fail
+    /// closed before performing related world-side effects.
+    /// </summary>
+    public bool IsBankOperationPending(EntityUid mobUid)
+    {
+        if (!_playerManager.TryGetSessionByEntity(mobUid, out var session) ||
+            !_prefsManager.TryGetCachedPreferences(session.UserId, out var prefs) ||
+            !prefs.Characters.TryGetValue(prefs.SelectedCharacterIndex, out var character) ||
+            character is not HumanoidCharacterProfile)
+        {
+            return true;
+        }
+
+        var key = new BankProfileKey(session.UserId, prefs.SelectedCharacterIndex);
+        lock (_balanceMutationLock)
+        {
+            return _activeBalanceMutations.Contains(key) || _blockedBalanceMutations.Contains(key);
+        }
+    }
+
+    private void ObserveProfileSave(
+        Task saveTask,
+        BalanceMutationLease lease,
+        string operation,
+        ICommonSession firstSession,
+        Func<Task>? afterSuccessfulSave = null)
+    {
+        _ = ObserveProfileSaveAsync(
+            saveTask,
+            lease,
+            operation,
+            firstSession,
+            afterSuccessfulSave);
+    }
+
+    private async Task ObserveProfileSaveAsync(
+        Task saveTask,
+        BalanceMutationLease lease,
+        string operation,
+        ICommonSession firstSession,
+        Func<Task>? afterSuccessfulSave)
+    {
+        try
+        {
+            try
+            {
+                await saveTask;
+            }
+            catch (Exception exception)
+            {
+                _log.Error($"{operation} profile save failed: {exception}");
+                await ReconcileProfileAfterSaveFailureAsync(firstSession, operation);
+                return;
+            }
+
+            if (afterSuccessfulSave == null)
+                return;
+
+            try
+            {
+                await afterSuccessfulSave();
+            }
+            catch (Exception exception)
+            {
+                _log.Error($"{operation} post-save balance update failed: {exception}");
+            }
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+    }
+
+    private async Task ReconcileProfileAfterSaveFailureAsync(ICommonSession session, string operation)
+    {
+        try
+        {
+            await _prefsManager.RefreshPreferencesAsync(session, CancellationToken.None);
+            if (session.AttachedEntity is { Valid: true } attached)
+                SyncBankBalance(attached);
+        }
+        catch (Exception exception)
+        {
+            _log.Error($"{operation} preference reconciliation failed for {session.UserId}: {exception}");
+        }
+    }
+
+    private async Task<ProfileSaveFailureResolution> ResolveInitialProfileSaveFailureAsync(
+        ICommonSession session,
+        int slot,
+        int originalBalance,
+        int mutatedBalance,
+        string operation)
+    {
+        int? persistedBalance;
+        try
+        {
+            var persistedPreferences = await _db.GetPlayerPreferencesAsync(
+                session.UserId,
+                CancellationToken.None);
+            if (persistedPreferences == null ||
+                !persistedPreferences.Characters.TryGetValue(slot, out var persistedCharacter) ||
+                persistedCharacter is not HumanoidCharacterProfile persistedProfile)
+            {
+                var missingProfile = new InvalidOperationException(
+                    $"Fresh profile {session.UserId}:{slot} was unavailable after {operation} save failure.");
+                _log.Error(missingProfile.Message);
+                return new ProfileSaveFailureResolution(
+                    ProfileSaveFailureOutcome.Unknown,
+                    missingProfile);
+            }
+
+            persistedBalance = persistedProfile.BankBalance;
+        }
+        catch (Exception exception)
+        {
+            _log.Error($"Could not verify persisted balance after {operation} save failure for {session.UserId}:{slot}: {exception}");
+            return new ProfileSaveFailureResolution(
+                ProfileSaveFailureOutcome.Unknown,
+                exception);
+        }
+
+        var outcome = ClassifyProfileSaveFailure(
+            persistedBalance,
+            originalBalance,
+            mutatedBalance);
+
+        try
+        {
+            if (!_prefsManager.TryApplyPersistedBankBalance(
+                    session.UserId,
+                    slot,
+                    persistedBalance.Value))
+            {
+                var cacheFailure = new InvalidOperationException(
+                    $"Could not apply verified balance to cache for {session.UserId}:{slot} after {operation} save failure.");
+                _log.Error(cacheFailure.Message);
+                return new ProfileSaveFailureResolution(
+                    ProfileSaveFailureOutcome.Unknown,
+                    cacheFailure);
+            }
+        }
+        catch (Exception exception)
+        {
+            _log.Error($"Could not reconcile verified balance after {operation} save failure for {session.UserId}:{slot}: {exception}");
+            return new ProfileSaveFailureResolution(
+                ProfileSaveFailureOutcome.Unknown,
+                exception);
+        }
+
+        try
+        {
+            if (session.AttachedEntity is { Valid: true } attached)
+                SyncBankBalance(attached);
+        }
+        catch (Exception exception)
+        {
+            // The authoritative balance and cache are already reconciled. A stale
+            // component/UI projection cannot make a database retry safe or unsafe.
+            _log.Error($"Could not project verified balance after {operation} save failure for {session.UserId}:{slot}: {exception}");
+        }
+
+        if (outcome != ProfileSaveFailureOutcome.Unknown)
+            return new ProfileSaveFailureResolution(outcome);
+
+        var unexpectedBalance = new InvalidOperationException(
+            $"Fresh balance {persistedBalance.Value} matched neither original {originalBalance} nor mutation {mutatedBalance} for {session.UserId}:{slot} after {operation} save failure.");
+        _log.Error(unexpectedBalance.Message);
+        return new ProfileSaveFailureResolution(outcome, unexpectedBalance);
+    }
 
     public override void Initialize()
     {
@@ -167,11 +481,11 @@ public sealed partial class BankSystem : SharedBankSystem
             }
 
             var payoutCount = (int) MathF.Floor(elapsed / PayrollIntervalSeconds);
-            _payrollTimers[session.UserId] = elapsed - payoutCount * PayrollIntervalSeconds;
             var payout = (int) Math.Min((long) hourly * payoutCount, int.MaxValue);
 
             if (TryPayrollDeposit(uid, payout, out var newBalance))
             {
+                _payrollTimers[session.UserId] = elapsed - payoutCount * PayrollIntervalSeconds;
                 NotifyPayrollReceived(session, payout, newBalance, hourly);
                 _log.Info($"{uid} received payroll {payout}; new balance {newBalance}");
             }
@@ -297,6 +611,440 @@ public sealed partial class BankSystem : SharedBankSystem
     }
 
     /// <summary>
+    /// Durably removes money from the selected character. Unlike the legacy
+    /// synchronous API, a successful result is returned only after the profile save
+    /// has completed. The per-profile mutation lease remains held for that entire
+    /// interval, allowing callers to safely defer irreversible world-side effects.
+    /// </summary>
+    public Task<bool> TryBankWithdrawAsync(EntityUid mobUid, int amount)
+    {
+        return TryBankWithdrawCoreAsync(mobUid, amount, null);
+    }
+
+    /// <summary>
+    /// Durably debits a profile and invokes a synchronous world finalizer while
+    /// retaining the same mutation lease. A failed finalizer restores the original
+    /// balance durably before returning false.
+    /// </summary>
+    public Task<bool> TryBankWithdrawAsync(
+        EntityUid mobUid,
+        int amount,
+        Func<bool> finalizeAfterCommit)
+    {
+        ArgumentNullException.ThrowIfNull(finalizeAfterCommit);
+        return TryBankWithdrawCoreAsync(mobUid, amount, finalizeAfterCommit);
+    }
+
+    private async Task<bool> TryBankWithdrawCoreAsync(
+        EntityUid mobUid,
+        int amount,
+        Func<bool>? finalizeAfterCommit)
+    {
+        if (amount <= 0)
+        {
+            _log.Info($"TryBankWithdrawAsync: {amount} is invalid from Uid {mobUid}");
+            return false;
+        }
+
+        if (!TryComp<BankAccountComponent>(mobUid, out _))
+        {
+            _log.Info($"TryBankWithdrawAsync: {mobUid} has no bank account");
+            return false;
+        }
+
+        if (HasComp<IronmanComponent>(mobUid))
+        {
+            _log.Info($"TryBankWithdrawAsync: {mobUid} is blocked from withdrawals (Ironman)");
+            return false;
+        }
+
+        if (!_playerManager.TryGetSessionByEntity(mobUid, out var session) ||
+            !_prefsManager.TryGetCachedPreferences(session.UserId, out var prefs) ||
+            prefs.SelectedCharacter is not HumanoidCharacterProfile profile)
+        {
+            _log.Info($"TryBankWithdrawAsync: {mobUid} has no usable cached profile");
+            return false;
+        }
+
+        var slot = prefs.IndexOfCharacter(profile);
+        if (slot < 0 || !TryAcquireBalanceMutation(session.UserId, slot, out var lease))
+            return false;
+
+        try
+        {
+            if (!_prefsManager.TryGetCachedPreferences(session.UserId, out var currentPrefs) ||
+                currentPrefs.SelectedCharacterIndex != slot ||
+                !currentPrefs.Characters.TryGetValue(slot, out var currentCharacter) ||
+                currentCharacter is not HumanoidCharacterProfile currentProfile ||
+                currentProfile.BankBalance < amount)
+            {
+                return false;
+            }
+
+            var newBalance = currentProfile.BankBalance - amount;
+            try
+            {
+                await _prefsManager.SetProfile(
+                    session.UserId,
+                    slot,
+                    currentProfile.WithBankBalance(newBalance));
+            }
+            catch (Exception exception)
+            {
+                var resolution = await ResolveInitialProfileSaveFailureAsync(
+                    session,
+                    slot,
+                    currentProfile.BankBalance,
+                    newBalance,
+                    "durable withdrawal");
+                if (resolution.Outcome == ProfileSaveFailureOutcome.ConfirmedOriginal)
+                {
+                    _log.Error($"Durable bank withdrawal did not commit for {session.UserId}:{slot}: {exception}");
+                    return false;
+                }
+
+                if (resolution.Outcome == ProfileSaveFailureOutcome.Unknown)
+                {
+                    var ambiguousOutcome = resolution.VerificationFailure == null
+                        ? exception
+                        : new AggregateException(exception, resolution.VerificationFailure);
+                    BlockBalanceMutation(
+                        session.UserId,
+                        slot,
+                        $"initial durable withdrawal save outcome is unknown: {ambiguousOutcome}");
+                    throw new BankMutationRollbackException(
+                        $"Initial withdrawal outcome is unknown for {session.UserId}:{slot}.",
+                        ambiguousOutcome);
+                }
+
+                _log.Warning($"Durable bank withdrawal save threw after a confirmed commit for {session.UserId}:{slot}; continuing finalization: {exception}");
+            }
+
+            if (finalizeAfterCommit != null)
+            {
+                var finalized = false;
+                try
+                {
+                    finalized = finalizeAfterCommit();
+                }
+                catch (Exception exception)
+                {
+                    _log.Error($"Committed withdrawal finalizer failed for {session.UserId}:{slot}: {exception}");
+                }
+
+                if (!finalized)
+                {
+                    try
+                    {
+                        await _prefsManager.SetProfile(session.UserId, slot, currentProfile);
+                    }
+                    catch (Exception exception)
+                    {
+                        _log.Error($"CRITICAL: withdrawal rollback failed for {session.UserId}:{slot}: {exception}");
+                        BlockBalanceMutation(session.UserId, slot, "withdrawal rollback", exception);
+                        await ReconcileProfileAfterSaveFailureAsync(session, "Durable withdrawal rollback");
+                        throw new BankMutationRollbackException(
+                            $"Withdrawal rollback failed for {session.UserId}:{slot}.",
+                            exception);
+                    }
+
+                    try
+                    {
+                        if (TryComp<BankAccountComponent>(mobUid, out var rolledBackBank))
+                        {
+                            rolledBackBank.Balance = currentProfile.BankBalance;
+                            Dirty(mobUid, rolledBackBank);
+                        }
+
+                        RaiseLocalEvent(new BalanceChangedEvent(session, currentProfile.BankBalance));
+                    }
+                    catch (Exception exception)
+                    {
+                        _log.Error($"Could not project rolled-back withdrawal for {session.UserId}:{slot}: {exception}");
+                    }
+
+                    return false;
+                }
+            }
+
+            try
+            {
+                if (TryComp<BankAccountComponent>(mobUid, out var bank))
+                {
+                    bank.Balance = newBalance;
+                    Dirty(mobUid, bank);
+                }
+
+                RaiseLocalEvent(new BalanceChangedEvent(session, newBalance));
+                _log.Info($"{mobUid} durably withdrew {amount}");
+            }
+            catch (Exception exception)
+            {
+                // The profile save is authoritative. Runtime projection failures
+                // must not make callers repeat an already committed withdrawal.
+                _log.Error($"Could not project committed withdrawal for {session.UserId}:{slot}: {exception}");
+            }
+
+            return true;
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Durably adds money to the selected character. The returned task completes
+    /// only after the authoritative profile save, while holding the same per-profile
+    /// lease used by PDA transfers and all other bank mutations.
+    /// </summary>
+    public Task<bool> TryBankDepositAsync(EntityUid mobUid, int amount, bool tax = true)
+    {
+        return TryBankDepositCoreAsync(mobUid, amount, tax, null);
+    }
+
+    /// <summary>
+    /// Durably credits a deposit and runs a synchronous world finalizer
+    /// while the same profile lease is still held. If finalization fails, the
+    /// original profile balance is restored durably before the lease is released.
+    /// This is intended for irreversible exchanges such as a ship sale.
+    /// </summary>
+    public Task<bool> TryBankDepositAsync(
+        EntityUid mobUid,
+        int amount,
+        bool tax,
+        Func<bool> finalizeAfterCommit)
+    {
+        ArgumentNullException.ThrowIfNull(finalizeAfterCommit);
+        return TryBankDepositCoreAsync(mobUid, amount, tax, finalizeAfterCommit);
+    }
+
+    private async Task<bool> TryBankDepositCoreAsync(
+        EntityUid mobUid,
+        int amount,
+        bool tax,
+        Func<bool>? finalizeAfterCommit)
+    {
+        if (!_cfg.GetCVar(MonoCVars.DepositEnabled))
+        {
+            _log.Info("TryBankDepositAsync: DepositEnabled cvar is disabled.");
+            return false;
+        }
+
+        if (amount <= 0)
+        {
+            _log.Info($"TryBankDepositAsync: {amount} is invalid from Uid {mobUid}");
+            return false;
+        }
+
+        if (!TryComp<BankAccountComponent>(mobUid, out _) ||
+            !_playerManager.TryGetSessionByEntity(mobUid, out var session) ||
+            !_prefsManager.TryGetCachedPreferences(session.UserId, out var prefs) ||
+            prefs.SelectedCharacter is not HumanoidCharacterProfile profile)
+        {
+            _log.Info($"TryBankDepositAsync: {mobUid} has no usable bank profile");
+            return false;
+        }
+
+        var slot = prefs.IndexOfCharacter(profile);
+        if (slot < 0 || !TryAcquireBalanceMutation(session.UserId, slot, out var lease))
+            return false;
+
+        try
+        {
+            if (!_prefsManager.TryGetCachedPreferences(session.UserId, out var currentPrefs) ||
+                currentPrefs.SelectedCharacterIndex != slot ||
+                !currentPrefs.Characters.TryGetValue(slot, out var currentCharacter) ||
+                currentCharacter is not HumanoidCharacterProfile currentProfile)
+            {
+                return false;
+            }
+
+            var toSector = amount;
+            var toLongTerm = 0;
+            if (tax)
+                GetTaxedDepositAmount(amount, currentProfile.BankBalance, out toSector, out toLongTerm);
+
+            if (toSector <= 0 || currentProfile.BankBalance > int.MaxValue - toSector)
+                return false;
+
+            var newBalance = currentProfile.BankBalance + toSector;
+            try
+            {
+                await _prefsManager.SetProfile(
+                    session.UserId,
+                    slot,
+                    currentProfile.WithBankBalance(newBalance));
+            }
+            catch (Exception exception)
+            {
+                var resolution = await ResolveInitialProfileSaveFailureAsync(
+                    session,
+                    slot,
+                    currentProfile.BankBalance,
+                    newBalance,
+                    "durable deposit");
+                if (resolution.Outcome == ProfileSaveFailureOutcome.ConfirmedOriginal)
+                {
+                    _log.Error($"Durable bank deposit did not commit for {session.UserId}:{slot}: {exception}");
+                    return false;
+                }
+
+                if (resolution.Outcome == ProfileSaveFailureOutcome.Unknown)
+                {
+                    var ambiguousOutcome = resolution.VerificationFailure == null
+                        ? exception
+                        : new AggregateException(exception, resolution.VerificationFailure);
+                    BlockBalanceMutation(
+                        session.UserId,
+                        slot,
+                        $"initial durable deposit save outcome is unknown: {ambiguousOutcome}");
+                    throw new BankMutationRollbackException(
+                        $"Initial deposit outcome is unknown for {session.UserId}:{slot}.",
+                        ambiguousOutcome);
+                }
+
+                _log.Warning($"Durable bank deposit save threw after a confirmed commit for {session.UserId}:{slot}; continuing finalization: {exception}");
+            }
+
+            async Task RollbackCommittedDepositAsync(bool savingsWereCredited)
+            {
+                Exception? rollbackFailure = null;
+                try
+                {
+                    await _prefsManager.SetProfile(session.UserId, slot, currentProfile);
+                }
+                catch (Exception exception)
+                {
+                    rollbackFailure = exception;
+                }
+
+                if (savingsWereCredited && toLongTerm > 0)
+                {
+                    try
+                    {
+                        await _coins.AddMonoCoinsAsync(session.UserId, -toLongTerm);
+                    }
+                    catch (Exception exception)
+                    {
+                        rollbackFailure = rollbackFailure == null
+                            ? exception
+                            : new AggregateException(rollbackFailure, exception);
+                    }
+                }
+
+                if (rollbackFailure != null)
+                {
+                    BlockBalanceMutation(session.UserId, slot, "deposit rollback", rollbackFailure);
+                    await ReconcileProfileAfterSaveFailureAsync(session, "Durable deposit rollback");
+                    throw new BankMutationRollbackException(
+                        $"Deposit rollback failed for {session.UserId}:{slot}.",
+                        rollbackFailure);
+                }
+
+                try
+                {
+                    if (TryComp<BankAccountComponent>(mobUid, out var rolledBackBank))
+                    {
+                        rolledBackBank.Balance = currentProfile.BankBalance;
+                        Dirty(mobUid, rolledBackBank);
+                    }
+
+                    RaiseLocalEvent(new BalanceChangedEvent(session, currentProfile.BankBalance));
+                }
+                catch (Exception exception)
+                {
+                    _log.Error($"Could not project rolled-back deposit for {session.UserId}:{slot}: {exception}");
+                }
+            }
+
+            var savingsCredited = false;
+            if (toLongTerm > 0)
+            {
+                try
+                {
+                    await _coins.AddMonoCoinsAsync(session.UserId, toLongTerm);
+                    savingsCredited = true;
+                }
+                catch (Exception exception)
+                {
+                    _log.Error($"Durable bank deposit savings update failed for {session.UserId}:{slot}: {exception}");
+
+                    // MonoCoins updates are not transactional with the character
+                    // profile save. An exception can arrive after their database
+                    // commit, so the savings outcome is unknown and must never be
+                    // retried automatically. Restore the sector profile best-effort,
+                    // then keep this profile blocked even if that rollback succeeds.
+                    Exception ambiguousOutcome = exception;
+                    try
+                    {
+                        await _prefsManager.SetProfile(session.UserId, slot, currentProfile);
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        ambiguousOutcome = new AggregateException(exception, rollbackException);
+                    }
+
+                    BlockBalanceMutation(
+                        session.UserId,
+                        slot,
+                        "ambiguous savings credit",
+                        ambiguousOutcome);
+                    await ReconcileProfileAfterSaveFailureAsync(
+                        session,
+                        "Ambiguous durable deposit savings credit");
+                    throw new BankMutationRollbackException(
+                        $"Savings credit outcome is unknown for {session.UserId}:{slot}.",
+                        ambiguousOutcome);
+                }
+            }
+
+            if (finalizeAfterCommit != null)
+            {
+                var finalized = false;
+                try
+                {
+                    finalized = finalizeAfterCommit();
+                }
+                catch (Exception exception)
+                {
+                    _log.Error($"Committed deposit finalizer failed for {session.UserId}:{slot}: {exception}");
+                }
+
+                if (!finalized)
+                {
+                    await RollbackCommittedDepositAsync(savingsCredited);
+                    return false;
+                }
+            }
+
+            try
+            {
+                if (TryComp<BankAccountComponent>(mobUid, out var bank))
+                {
+                    bank.Balance = newBalance;
+                    Dirty(mobUid, bank);
+                }
+
+                RaiseLocalEvent(new BalanceChangedEvent(session, newBalance));
+                _log.Info($"{mobUid} durably deposited {amount} (sector: {toSector}, savings: {toLongTerm})");
+            }
+            catch (Exception exception)
+            {
+                // Persistence succeeded; callers must not retry due to a runtime
+                // projection failure.
+                _log.Error($"Could not project committed deposit for {session.UserId}:{slot}: {exception}");
+            }
+
+            return true;
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Attempts to remove money from a character's bank account.
     /// This should always be used instead of attempting to modify the BankAccountComponent directly.
     /// When successful, the entity's BankAccountComponent will be updated with their current balance.
@@ -398,25 +1146,53 @@ public sealed partial class BankSystem : SharedBankSystem
             return false;
         }
 
-        int toSector = amount;
-        int toLongTerm = 0;
+        var index = prefs.IndexOfCharacter(profile);
+        if (index == -1 || !TryAcquireBalanceMutation(session.UserId, index, out var lease))
+            return false;
+
+        if (!_prefsManager.TryGetCachedPreferences(session.UserId, out var currentPrefs) ||
+            !currentPrefs.Characters.TryGetValue(index, out var currentCharacter) ||
+            currentCharacter is not HumanoidCharacterProfile currentProfile)
+        {
+            lease.Dispose();
+            return false;
+        }
+
+        var toSector = amount;
+        var toLongTerm = 0;
         if (tax)
         {
-            GetTaxedDepositAmount(amount, bank.Balance, out var afterTax, out var taxedAway);
+            GetTaxedDepositAmount(amount, currentProfile.BankBalance, out var afterTax, out var taxedAway);
             toSector = afterTax;
             toLongTerm = taxedAway;
-            _ = _coins.AddMonoCoinsAsync(session.UserId, taxedAway);
         }
 
-        if (TryBankDeposit(session, prefs, profile, toSector, out var newBalance))
+        if (toSector <= 0 || currentProfile.BankBalance > int.MaxValue - toSector)
         {
-            bank.Balance = newBalance.Value;
-            Dirty(mobUid, bank);
-            _log.Info($"{mobUid} deposited {amount} (sector: {toSector}, savings: {toLongTerm})");
-            return true;
+            lease.Dispose();
+            return false;
         }
 
-        return false;
+        var newBalance = currentProfile.BankBalance + toSector;
+        var saveTask = _prefsManager.SetProfile(
+            session.UserId,
+            index,
+            currentProfile.WithBankBalance(newBalance));
+        Func<Task>? creditSavings = toLongTerm > 0
+            ? () => _coins.AddMonoCoinsAsync(session.UserId, toLongTerm)
+            : null;
+        ObserveProfileSave(
+            saveTask,
+            lease,
+            "Taxed bank deposit",
+            session,
+            afterSuccessfulSave: creditSavings);
+
+        bank.Balance = newBalance;
+        Dirty(mobUid, bank);
+        RaiseLocalEvent(new BalanceChangedEvent(session, newBalance));
+        _log.Info($"{mobUid} deposited {amount} (sector: {toSector}, savings: {toLongTerm})");
+        return true;
     }
 
     private bool TryPayrollDeposit(EntityUid mobUid, int amount, out int newBalance)
@@ -438,15 +1214,29 @@ public sealed partial class BankSystem : SharedBankSystem
             return false;
         }
 
-        if (profile.BankBalance > int.MaxValue - amount)
-            return false;
-
         var index = prefs.IndexOfCharacter(profile);
         if (index == -1)
             return false;
 
-        newBalance = profile.BankBalance + amount;
-        _prefsManager.SetProfile(session.UserId, index, profile.WithBankBalance(newBalance));
+        if (!TryAcquireBalanceMutation(session.UserId, index, out var lease))
+            return false;
+
+        if (!_prefsManager.TryGetCachedPreferences(session.UserId, out var currentPrefs) ||
+            !currentPrefs.Characters.TryGetValue(index, out var currentCharacter) ||
+            currentCharacter is not HumanoidCharacterProfile currentProfile ||
+            currentProfile.BankBalance > int.MaxValue - amount)
+        {
+            lease.Dispose();
+            return false;
+        }
+
+        newBalance = currentProfile.BankBalance + amount;
+        var saveTask = _prefsManager.SetProfile(
+            session.UserId,
+            index,
+            currentProfile.WithBankBalance(newBalance));
+        ObserveProfileSave(saveTask, lease, "Payroll deposit", session);
+
         bank.Balance = newBalance;
         Dirty(mobUid, bank);
         RaiseLocalEvent(new BalanceChangedEvent(session, newBalance));
@@ -454,116 +1244,320 @@ public sealed partial class BankSystem : SharedBankSystem
     }
 
     /// <summary>
-    /// Transfers money between two online character bank accounts.
-    /// This bypasses deposit tax and updates both saved profiles together.
+    /// Atomically transfers money from the selected character attached to
+    /// <paramref name="fromUid"/> to a registered character account. The database
+    /// commit is authoritative; cache, components, and events are updated only after
+    /// both the debit and credit have committed together.
     /// </summary>
-    public bool TryBankTransfer(
+    public async Task<CharacterBankTransferResult> TryBankTransferPersistedAsync(
         EntityUid fromUid,
-        EntityUid toUid,
+        NetUserId recipientUserId,
+        int recipientSlot,
+        string expectedRecipientName,
         int amount,
-        out int fromBalance,
-        out int toBalance,
-        out string error)
+        CancellationToken cancel = default)
     {
-        fromBalance = 0;
-        toBalance = 0;
-        error = string.Empty;
-
         if (amount <= 0)
+            return new CharacterBankTransferResult(CharacterBankTransferStatus.InvalidAmount);
+
+        if (!TryComp<BankAccountComponent>(fromUid, out var fromBank) ||
+            !_playerManager.TryGetSessionByEntity(fromUid, out var fromSession) ||
+            !_prefsManager.TryGetCachedPreferences(fromSession.UserId, out var fromPrefs) ||
+            fromPrefs.SelectedCharacter is not HumanoidCharacterProfile fromProfile)
         {
-            error = "amount-invalid";
-            _log.Info($"TryBankTransfer: {amount} is invalid from Uid {fromUid} to Uid {toUid}");
-            return false;
+            return new CharacterBankTransferResult(CharacterBankTransferStatus.SenderNotFound);
         }
 
-        if (fromUid == toUid)
+        if (HasComp<IronmanComponent>(fromUid))
+            return new CharacterBankTransferResult(CharacterBankTransferStatus.IronmanBlocked);
+
+        var fromSlot = fromPrefs.IndexOfCharacter(fromProfile);
+        if (fromSlot < 0)
+            return new CharacterBankTransferResult(CharacterBankTransferStatus.SenderNotFound);
+
+        if (recipientUserId == fromSession.UserId && recipientSlot == fromSlot)
         {
-            error = "same-account";
-            return false;
+            return new CharacterBankTransferResult(
+                CharacterBankTransferStatus.SameAccount,
+                fromProfile.BankBalance);
         }
 
-        if (!TryComp<BankAccountComponent>(fromUid, out var fromBank))
+        if (!TryAcquireBalanceMutation(
+                fromSession.UserId,
+                fromSlot,
+                recipientUserId,
+                recipientSlot,
+                out var lease))
         {
-            error = "sender-no-account";
-            _log.Info($"TryBankTransfer: {fromUid} has no bank account");
-            return false;
+            return new CharacterBankTransferResult(
+                CharacterBankTransferStatus.Conflict,
+                fromProfile.BankBalance);
         }
 
-        if (!TryComp<BankAccountComponent>(toUid, out var toBank))
+        try
         {
-            error = "recipient-no-account";
-            _log.Info($"TryBankTransfer: {toUid} has no bank account");
-            return false;
+            if (!_prefsManager.TryGetCachedPreferences(fromSession.UserId, out var currentFromPrefs) ||
+                currentFromPrefs.SelectedCharacterIndex != fromSlot ||
+                !currentFromPrefs.Characters.TryGetValue(fromSlot, out var currentFromCharacter) ||
+                currentFromCharacter is not HumanoidCharacterProfile currentFromProfile)
+            {
+                return new CharacterBankTransferResult(CharacterBankTransferStatus.SenderNotFound);
+            }
+
+            var recipientIsCached = _prefsManager.TryGetCachedPreferences(recipientUserId, out var recipientPrefs);
+            recipientPrefs ??= await _db.GetPlayerPreferencesAsync(recipientUserId, cancel);
+            if (recipientPrefs == null ||
+                !recipientPrefs.Characters.TryGetValue(recipientSlot, out var recipientCharacter) ||
+                recipientCharacter is not HumanoidCharacterProfile recipientProfile ||
+                !recipientProfile.Name.Equals(expectedRecipientName, StringComparison.Ordinal))
+            {
+                return new CharacterBankTransferResult(
+                    CharacterBankTransferStatus.RecipientNotFound,
+                    currentFromProfile.BankBalance);
+            }
+
+            if (recipientIsCached &&
+                recipientPrefs.SelectedCharacterIndex == recipientSlot &&
+                _playerManager.TryGetSessionById(recipientUserId, out var onlineRecipient) &&
+                onlineRecipient.AttachedEntity is { Valid: true } onlineRecipientEntity &&
+                HasComp<IronmanComponent>(onlineRecipientEntity))
+            {
+                return new CharacterBankTransferResult(
+                    CharacterBankTransferStatus.IronmanBlocked,
+                    currentFromProfile.BankBalance,
+                    recipientProfile.BankBalance);
+            }
+
+            var senderProfileId = await _db.GetCharacterIdAsync(fromSession.UserId, fromSlot, cancel);
+            if (senderProfileId == null)
+            {
+                return new CharacterBankTransferResult(
+                    CharacterBankTransferStatus.SenderNotFound,
+                    currentFromProfile.BankBalance,
+                    recipientProfile.BankBalance);
+            }
+
+            var recipientProfileId = await _db.GetCharacterIdAsync(recipientUserId, recipientSlot, cancel);
+            if (recipientProfileId == null)
+            {
+                return new CharacterBankTransferResult(
+                    CharacterBankTransferStatus.RecipientNotFound,
+                    currentFromProfile.BankBalance,
+                    recipientProfile.BankBalance);
+            }
+
+            var result = await _db.TransferCharacterBankBalanceAsync(
+                fromSession.UserId,
+                senderProfileId.Value,
+                recipientUserId,
+                recipientProfileId.Value,
+                amount,
+                cancel);
+            if (!result.Success)
+            {
+                if (result.Status == CharacterBankTransferStatus.UnknownOutcome)
+                {
+                    // Neither profile may accept another absolute balance write
+                    // while the transfer outcome is unknown. A later stale save
+                    // could otherwise overwrite a COMMIT that actually succeeded.
+                    BlockBalanceMutation(
+                        fromSession.UserId,
+                        fromSlot,
+                        "atomic transfer COMMIT outcome could not be verified");
+                    BlockBalanceMutation(
+                        recipientUserId,
+                        recipientSlot,
+                        "atomic transfer COMMIT outcome could not be verified");
+
+                    return await RefreshUnknownTransferOutcomeAsync(
+                        fromUid,
+                        fromSession,
+                        fromSlot,
+                        recipientUserId,
+                        recipientSlot,
+                        result);
+                }
+
+                return result;
+            }
+
+            // The database commit above is authoritative. Everything below is a
+            // best-effort projection of the committed balances into runtime state.
+            try
+            {
+                if (!_prefsManager.TryApplyPersistedBankBalance(
+                        fromSession.UserId,
+                        fromSlot,
+                        result.SenderBalance))
+                {
+                    _log.Error($"Could not apply committed bank balance to sender cache {fromSession.UserId}:{fromSlot}");
+                }
+            }
+            catch (Exception exception)
+            {
+                _log.Error($"Could not update sender cache after committed bank transfer: {exception}");
+            }
+
+            try
+            {
+                var recipientApplied = _prefsManager.TryApplyPersistedBankBalance(
+                    recipientUserId,
+                    recipientSlot,
+                    result.RecipientBalance);
+                if (!recipientApplied &&
+                    _prefsManager.TryGetCachedPreferences(recipientUserId, out _))
+                {
+                    _log.Error($"Could not apply committed bank balance to recipient cache {recipientUserId}:{recipientSlot}");
+                }
+            }
+            catch (Exception exception)
+            {
+                _log.Error($"Could not update recipient cache after committed bank transfer: {exception}");
+            }
+
+            try
+            {
+                fromBank.Balance = result.SenderBalance;
+                Dirty(fromUid, fromBank);
+                RaiseLocalEvent(new BalanceChangedEvent(fromSession, result.SenderBalance));
+            }
+            catch (Exception exception)
+            {
+                _log.Error($"Could not update sender runtime state after committed bank transfer: {exception}");
+            }
+
+            try
+            {
+                if (_playerManager.TryGetSessionById(recipientUserId, out var recipientSession) &&
+                    recipientSession.AttachedEntity is { Valid: true } recipientEntity &&
+                    _prefsManager.TryGetCachedPreferences(recipientUserId, out var updatedRecipientPrefs) &&
+                    updatedRecipientPrefs.SelectedCharacterIndex == recipientSlot)
+                {
+                    if (TryComp<BankAccountComponent>(recipientEntity, out var recipientBank))
+                    {
+                        recipientBank.Balance = result.RecipientBalance;
+                        Dirty(recipientEntity, recipientBank);
+                    }
+
+                    RaiseLocalEvent(new BalanceChangedEvent(recipientSession, result.RecipientBalance));
+                }
+            }
+            catch (Exception exception)
+            {
+                _log.Error($"Could not update recipient runtime state after committed bank transfer: {exception}");
+            }
+
+            try
+            {
+                _log.Info($"{fromUid} atomically transferred {amount} to {recipientUserId}:{recipientSlot}");
+            }
+            catch
+            {
+                // Logging must not turn a committed transfer into a reported failure.
+            }
+
+            return new CharacterBankTransferResult(
+                CharacterBankTransferStatus.Success,
+                result.SenderBalance,
+                result.RecipientBalance);
+        }
+        finally
+        {
+            lease.Dispose();
+        }
+    }
+
+    private async Task<CharacterBankTransferResult> RefreshUnknownTransferOutcomeAsync(
+        EntityUid fromUid,
+        ICommonSession fromSession,
+        int fromSlot,
+        NetUserId recipientUserId,
+        int recipientSlot,
+        CharacterBankTransferResult originalResult)
+    {
+        var senderBalance = originalResult.SenderBalance;
+        var recipientBalance = originalResult.RecipientBalance;
+        var senderBalanceLoaded = false;
+        var recipientBalanceLoaded = false;
+
+        try
+        {
+            var senderPrefs = await _db.GetPlayerPreferencesAsync(fromSession.UserId, CancellationToken.None);
+            if (senderPrefs?.Characters.TryGetValue(fromSlot, out var senderCharacter) == true &&
+                senderCharacter is HumanoidCharacterProfile senderProfile)
+            {
+                senderBalance = senderProfile.BankBalance;
+                senderBalanceLoaded = true;
+            }
+        }
+        catch (Exception exception)
+        {
+            _log.Error($"Could not reload sender after unknown bank transfer outcome: {exception}");
         }
 
-        if (HasComp<IronmanComponent>(fromUid) || HasComp<IronmanComponent>(toUid))
+        try
         {
-            error = "ironman-blocked";
-            _log.Info($"TryBankTransfer: transfer blocked by Ironman component ({fromUid} -> {toUid})");
-            return false;
+            var recipientPrefs = await _db.GetPlayerPreferencesAsync(recipientUserId, CancellationToken.None);
+            if (recipientPrefs?.Characters.TryGetValue(recipientSlot, out var recipientCharacter) == true &&
+                recipientCharacter is HumanoidCharacterProfile recipientProfile)
+            {
+                recipientBalance = recipientProfile.BankBalance;
+                recipientBalanceLoaded = true;
+            }
+        }
+        catch (Exception exception)
+        {
+            _log.Error($"Could not reload recipient after unknown bank transfer outcome: {exception}");
         }
 
-        if (!_playerManager.TryGetSessionByEntity(fromUid, out var fromSession) ||
-            !_playerManager.TryGetSessionByEntity(toUid, out var toSession))
+        if (senderBalanceLoaded)
         {
-            error = "not-online";
-            _log.Info($"TryBankTransfer: missing attached session ({fromUid} -> {toUid})");
-            return false;
+            try
+            {
+                _prefsManager.TryApplyPersistedBankBalance(fromSession.UserId, fromSlot, senderBalance);
+                if (TryComp<BankAccountComponent>(fromUid, out var senderBank))
+                {
+                    senderBank.Balance = senderBalance;
+                    Dirty(fromUid, senderBank);
+                }
+
+                RaiseLocalEvent(new BalanceChangedEvent(fromSession, senderBalance));
+            }
+            catch (Exception exception)
+            {
+                _log.Error($"Could not project sender balance after unknown transfer outcome: {exception}");
+            }
         }
 
-        if (!_prefsManager.TryGetCachedPreferences(fromSession.UserId, out var fromPrefs) ||
-            !_prefsManager.TryGetCachedPreferences(toSession.UserId, out var toPrefs))
+        if (recipientBalanceLoaded)
         {
-            error = "prefs-missing";
-            _log.Info($"TryBankTransfer: missing cached prefs ({fromSession.UserId} -> {toSession.UserId})");
-            return false;
+            try
+            {
+                _prefsManager.TryApplyPersistedBankBalance(recipientUserId, recipientSlot, recipientBalance);
+                if (_playerManager.TryGetSessionById(recipientUserId, out var recipientSession) &&
+                    recipientSession.AttachedEntity is { Valid: true } recipientEntity &&
+                    _prefsManager.TryGetCachedPreferences(recipientUserId, out var recipientCachedPrefs) &&
+                    recipientCachedPrefs.SelectedCharacterIndex == recipientSlot)
+                {
+                    if (TryComp<BankAccountComponent>(recipientEntity, out var recipientBank))
+                    {
+                        recipientBank.Balance = recipientBalance;
+                        Dirty(recipientEntity, recipientBank);
+                    }
+
+                    RaiseLocalEvent(new BalanceChangedEvent(recipientSession, recipientBalance));
+                }
+            }
+            catch (Exception exception)
+            {
+                _log.Error($"Could not project recipient balance after unknown transfer outcome: {exception}");
+            }
         }
 
-        if (fromPrefs.SelectedCharacter is not HumanoidCharacterProfile fromProfile ||
-            toPrefs.SelectedCharacter is not HumanoidCharacterProfile toProfile)
-        {
-            error = "profile-invalid";
-            _log.Info($"TryBankTransfer: invalid selected character profile ({fromSession.UserId} -> {toSession.UserId})");
-            return false;
-        }
-
-        if (fromProfile.BankBalance < amount)
-        {
-            error = "insufficient-funds";
-            fromBalance = fromProfile.BankBalance;
-            return false;
-        }
-
-        if (toProfile.BankBalance > int.MaxValue - amount)
-        {
-            error = "recipient-overflow";
-            return false;
-        }
-
-        var fromIndex = fromPrefs.IndexOfCharacter(fromProfile);
-        var toIndex = toPrefs.IndexOfCharacter(toProfile);
-        if (fromIndex == -1 || toIndex == -1)
-        {
-            error = "profile-index-missing";
-            _log.Info($"TryBankTransfer: selected character index missing ({fromSession.UserId} -> {toSession.UserId})");
-            return false;
-        }
-
-        fromBalance = fromProfile.BankBalance - amount;
-        toBalance = toProfile.BankBalance + amount;
-
-        _prefsManager.SetProfile(fromSession.UserId, fromIndex, fromProfile.WithBankBalance(fromBalance));
-        _prefsManager.SetProfile(toSession.UserId, toIndex, toProfile.WithBankBalance(toBalance));
-
-        fromBank.Balance = fromBalance;
-        toBank.Balance = toBalance;
-        Dirty(fromUid, fromBank);
-        Dirty(toUid, toBank);
-
-        RaiseLocalEvent(new BalanceChangedEvent(fromSession, fromBalance));
-        RaiseLocalEvent(new BalanceChangedEvent(toSession, toBalance));
-        _log.Info($"{fromUid} transferred {amount} to {toUid}");
-        return true;
+        return new CharacterBankTransferResult(
+            CharacterBankTransferStatus.UnknownOutcome,
+            senderBalance,
+            recipientBalance);
     }
 
     /// <summary>
@@ -586,7 +1580,25 @@ public sealed partial class BankSystem : SharedBankSystem
             return false;
         }
 
-        int balance = profile.BankBalance;
+        var index = prefs.IndexOfCharacter(profile);
+        if (index == -1)
+        {
+            _log.Info($"TryBankWithdraw: {session.UserId} tried to adjust the balance of {profile.Name}, but they were not in the user's character set.");
+            return false;
+        }
+
+        if (!TryAcquireBalanceMutation(session.UserId, index, out var lease))
+            return false;
+
+        if (!_prefsManager.TryGetCachedPreferences(session.UserId, out var currentPrefs) ||
+            !currentPrefs.Characters.TryGetValue(index, out var currentCharacter) ||
+            currentCharacter is not HumanoidCharacterProfile currentProfile)
+        {
+            lease.Dispose();
+            return false;
+        }
+
+        var balance = currentProfile.BankBalance;
         long totalBalance = balance;
 
         if (spendLongTerm)
@@ -598,27 +1610,34 @@ public sealed partial class BankSystem : SharedBankSystem
         if (totalBalance < amount)
         {
             _log.Info($"TryBankWithdraw: {session.UserId} tried to withdraw {amount}, but has insufficient funds ({balance})");
+            lease.Dispose();
             return false;
         }
 
-        int leftoverAmount = amount;
+        var leftoverAmount = amount;
+        var longTermToSpend = 0;
         if (spendLongTerm)
         {
             var longTermBalance = totalBalance - balance;
-            var toSpend = (int)Math.Min(longTermBalance, (long)leftoverAmount);
-            leftoverAmount -= toSpend;
-            _ = _coins.AddMonoCoinsAsync(session.UserId, -toSpend);
+            longTermToSpend = (int) Math.Min(longTermBalance, (long) leftoverAmount);
+            leftoverAmount -= longTermToSpend;
         }
         balance -= leftoverAmount;
 
-        var newProfile = profile.WithBankBalance(balance);
-        var index = prefs.IndexOfCharacter(profile);
-        if (index == -1)
-        {
-            _log.Info($"TryBankWithdraw: {session.UserId} tried to adjust the balance of {profile.Name}, but they were not in the user's character set.");
-            return false;
-        }
-        _prefsManager.SetProfile(session.UserId, index, newProfile);
+        var saveTask = _prefsManager.SetProfile(
+            session.UserId,
+            index,
+            currentProfile.WithBankBalance(balance));
+        Func<Task>? debitSavings = longTermToSpend > 0
+            ? () => _coins.AddMonoCoinsAsync(session.UserId, -longTermToSpend)
+            : null;
+        ObserveProfileSave(
+            saveTask,
+            lease,
+            "Bank withdrawal",
+            session,
+            afterSuccessfulSave: debitSavings);
+
         newBalance = balance;
         // Update any active admin UI with new balance
         RaiseLocalEvent(new BalanceChangedEvent(session, newBalance.Value));
@@ -644,16 +1663,32 @@ public sealed partial class BankSystem : SharedBankSystem
             return false;
         }
 
-        newBalance = profile.BankBalance + amount;
-
-        var newProfile = profile.WithBankBalance(newBalance.Value);
         var index = prefs.IndexOfCharacter(profile);
         if (index == -1)
         {
             _log.Info($"{session.UserId} tried to adjust the balance of {profile.Name}, but they were not in the user's character set.");
             return false;
         }
-        _prefsManager.SetProfile(session.UserId, index, newProfile);
+
+        if (!TryAcquireBalanceMutation(session.UserId, index, out var lease))
+            return false;
+
+        if (!_prefsManager.TryGetCachedPreferences(session.UserId, out var currentPrefs) ||
+            !currentPrefs.Characters.TryGetValue(index, out var currentCharacter) ||
+            currentCharacter is not HumanoidCharacterProfile currentProfile ||
+            currentProfile.BankBalance > int.MaxValue - amount)
+        {
+            lease.Dispose();
+            return false;
+        }
+
+        newBalance = currentProfile.BankBalance + amount;
+        var saveTask = _prefsManager.SetProfile(
+            session.UserId,
+            index,
+            currentProfile.WithBankBalance(newBalance.Value));
+        ObserveProfileSave(saveTask, lease, "Bank deposit", session);
+
         // Update any active admin UI with new balance
         RaiseLocalEvent(new BalanceChangedEvent(session, newBalance.Value));
         return true;
@@ -676,17 +1711,6 @@ public sealed partial class BankSystem : SharedBankSystem
             return false;
         }
 
-        int balance = profile.BankBalance;
-
-        if (balance < amount)
-        {
-            _log.Info($"TryBankWithdrawOffline: {userId} tried to withdraw {amount}, but has insufficient funds ({balance})");
-            return false;
-        }
-
-        balance -= amount;
-
-        var newProfile = profile.WithBankBalance(balance);
         var index = prefs.IndexOfCharacter(profile);
         if (index == -1)
         {
@@ -694,19 +1718,67 @@ public sealed partial class BankSystem : SharedBankSystem
             return false;
         }
 
-        // Update preferences in cache if the player data exists
-        if (_prefsManager.TryGetCachedPreferences(userId, out var cachedPrefs))
-        {
-            _prefsManager.SetProfile(userId, index, newProfile);
-        }
-        else
-        {
-            // If not in cache, save directly to database
-            await _db.SaveCharacterSlotAsync(userId, newProfile, index);
-        }
+        if (!TryAcquireBalanceMutation(userId, index, out var lease))
+            return false;
 
-        _log.Info($"Offline player {userId} withdrew {amount}");
-        return true;
+        try
+        {
+            var hasCachedPreferences = _prefsManager.TryGetCachedPreferences(userId, out var cachedPrefs);
+            HumanoidCharacterProfile currentProfile;
+            if (hasCachedPreferences)
+            {
+                if (!cachedPrefs!.Characters.TryGetValue(index, out var currentCharacter) ||
+                    currentCharacter is not HumanoidCharacterProfile cachedProfile ||
+                    !cachedProfile.Name.Equals(profile.Name, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                currentProfile = cachedProfile;
+            }
+            else
+            {
+                var persistedPrefs = await _db.GetPlayerPreferencesAsync(userId, CancellationToken.None);
+                if (persistedPrefs == null ||
+                    !persistedPrefs.Characters.TryGetValue(index, out var persistedCharacter) ||
+                    persistedCharacter is not HumanoidCharacterProfile persistedProfile ||
+                    !persistedProfile.Name.Equals(profile.Name, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                currentProfile = persistedProfile;
+            }
+
+            var balance = currentProfile.BankBalance;
+            if (balance < amount)
+            {
+                _log.Info($"TryBankWithdrawOffline: {userId} tried to withdraw {amount}, but has insufficient funds ({balance})");
+                return false;
+            }
+
+            balance -= amount;
+            var newProfile = currentProfile.WithBankBalance(balance);
+
+            if (hasCachedPreferences)
+                await _prefsManager.SetProfile(userId, index, newProfile);
+            else
+                await _db.SaveCharacterSlotAsync(userId, newProfile, index);
+
+            _log.Info($"Offline player {userId} withdrew {amount}");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _log.Error($"Offline bank withdrawal failed for {userId}:{index}: {exception}");
+            if (_playerManager.TryGetSessionById(userId, out var session))
+                await ReconcileProfileAfterSaveFailureAsync(session, "Offline bank withdrawal");
+            return false;
+        }
+        finally
+        {
+            lease.Dispose();
+        }
     }
 
     /// <summary>
@@ -726,9 +1798,6 @@ public sealed partial class BankSystem : SharedBankSystem
             return false;
         }
 
-        int newBalance = profile.BankBalance + amount;
-
-        var newProfile = profile.WithBankBalance(newBalance);
         var index = prefs.IndexOfCharacter(profile);
         if (index == -1)
         {
@@ -736,19 +1805,63 @@ public sealed partial class BankSystem : SharedBankSystem
             return false;
         }
 
-        // Update preferences in cache if the player data exists
-        if (_prefsManager.TryGetCachedPreferences(userId, out var cachedPrefs))
-        {
-            _prefsManager.SetProfile(userId, index, newProfile);
-        }
-        else
-        {
-            // If not in cache, save directly to database
-            await _db.SaveCharacterSlotAsync(userId, newProfile, index);
-        }
+        if (!TryAcquireBalanceMutation(userId, index, out var lease))
+            return false;
 
-        _log.Info($"Offline player {userId} deposited {amount}");
-        return true;
+        try
+        {
+            var hasCachedPreferences = _prefsManager.TryGetCachedPreferences(userId, out var cachedPrefs);
+            HumanoidCharacterProfile currentProfile;
+            if (hasCachedPreferences)
+            {
+                if (!cachedPrefs!.Characters.TryGetValue(index, out var currentCharacter) ||
+                    currentCharacter is not HumanoidCharacterProfile cachedProfile ||
+                    !cachedProfile.Name.Equals(profile.Name, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                currentProfile = cachedProfile;
+            }
+            else
+            {
+                var persistedPrefs = await _db.GetPlayerPreferencesAsync(userId, CancellationToken.None);
+                if (persistedPrefs == null ||
+                    !persistedPrefs.Characters.TryGetValue(index, out var persistedCharacter) ||
+                    persistedCharacter is not HumanoidCharacterProfile persistedProfile ||
+                    !persistedProfile.Name.Equals(profile.Name, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                currentProfile = persistedProfile;
+            }
+
+            if (currentProfile.BankBalance > int.MaxValue - amount)
+                return false;
+
+            var newBalance = currentProfile.BankBalance + amount;
+            var newProfile = currentProfile.WithBankBalance(newBalance);
+
+            if (hasCachedPreferences)
+                await _prefsManager.SetProfile(userId, index, newProfile);
+            else
+                await _db.SaveCharacterSlotAsync(userId, newProfile, index);
+
+            _log.Info($"Offline player {userId} deposited {amount}");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _log.Error($"Offline bank deposit failed for {userId}:{index}: {exception}");
+            if (_playerManager.TryGetSessionById(userId, out var session))
+                await ReconcileProfileAfterSaveFailureAsync(session, "Offline bank deposit");
+            return false;
+        }
+        finally
+        {
+            lease.Dispose();
+        }
     }
 
     /// <summary>

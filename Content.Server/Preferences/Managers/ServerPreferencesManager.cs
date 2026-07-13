@@ -124,7 +124,37 @@ namespace Content.Server.Preferences.Managers
             prefsData.Prefs = new PlayerPreferences(profiles, slot, curPrefs.AdminOOCColor);
 
             if (ShouldStorePrefs(session.Channel.AuthType))
-                await _db.SaveCharacterSlotAsync(userId, profile, slot);
+                await _db.SaveCharacterSlotAsync(
+                    userId,
+                    profile,
+                    slot,
+                    preserveBankBalance: !authoritative);
+        }
+
+        public bool TryApplyPersistedBankBalance(NetUserId userId, int slot, int balance)
+        {
+            if (balance < 0 ||
+                slot < 0 ||
+                slot >= MaxCharacterSlots ||
+                !_cachedPlayerPrefs.TryGetValue(userId, out var prefsData) ||
+                !prefsData.PrefsLoaded ||
+                prefsData.Prefs is not { } curPrefs ||
+                !curPrefs.Characters.TryGetValue(slot, out var profile) ||
+                profile is not HumanoidCharacterProfile humanoid)
+            {
+                return false;
+            }
+
+            var profiles = new Dictionary<int, ICharacterProfile>(curPrefs.Characters)
+            {
+                [slot] = humanoid.WithBankBalance(balance),
+            };
+
+            prefsData.Prefs = new PlayerPreferences(
+                profiles,
+                curPrefs.SelectedCharacterIndex,
+                curPrefs.AdminOOCColor);
+            return true;
         }
 
         private async void HandleDeleteCharacterMessage(MsgDeleteCharacter message)

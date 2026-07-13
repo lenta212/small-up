@@ -23,6 +23,7 @@ using Robust.Shared.EntitySerialization.Systems;
 using Robust.Shared.Utility;
 using Content.Shared.Doors.Components;
 using Robust.Shared.Map.Components;
+using Robust.Shared.Network;
 
 namespace Content.Server._NF.Shipyard.Systems;
 
@@ -47,6 +48,14 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     private ISawmill _sawmill = default!;
     private bool _enabled;
     private float _baseSaleRate;
+    private readonly object _shuttleSaleLock = new();
+    private readonly HashSet<EntityUid> _shuttleSalesInFlight = new();
+    private readonly HashSet<EntityUid> _shuttleSalesBlocked = new();
+    private readonly object _shuttlePurchaseLock = new();
+    private readonly HashSet<NetUserId> _shuttlePurchaseUsersInFlight = new();
+    private readonly HashSet<EntityUid> _shuttlePurchaseTargetsInFlight = new();
+    private readonly HashSet<NetUserId> _shuttlePurchaseUsersBlocked = new();
+    private readonly HashSet<EntityUid> _shuttlePurchaseTargetsBlocked = new();
 
     // The type of error from the attempted sale of a ship.
     public enum ShipyardSaleError
@@ -102,6 +111,15 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
     private void OnRoundRestart(RoundRestartCleanupEvent ev)
     {
+        lock (_shuttleSaleLock)
+            _shuttleSalesInFlight.Clear();
+
+        lock (_shuttlePurchaseLock)
+        {
+            _shuttlePurchaseUsersInFlight.Clear();
+            _shuttlePurchaseTargetsInFlight.Clear();
+        }
+
         CleanupShipyard();
     }
 
@@ -131,29 +149,40 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     /// <param name="shuttleEntityUid">The EntityUid of the shuttle that was purchased</param>
     public bool TryPurchaseShuttle(EntityUid stationUid, ResPath shuttlePath, [NotNullWhen(true)] out EntityUid? shuttleEntityUid)
     {
-        if (!TryComp<StationDataComponent>(stationUid, out var stationData)
-            || !TryAddShuttle(shuttlePath, out var shuttleGrid)
-            || !TryComp<ShuttleComponent>(shuttleGrid, out var shuttleComponent))
+        shuttleEntityUid = null;
+        if (!TryComp<StationDataComponent>(stationUid, out var stationData) ||
+            !TryAddShuttle(shuttlePath, out var shuttleGrid))
         {
-            shuttleEntityUid = null;
+            return false;
+        }
+
+        if (!TryComp<ShuttleComponent>(shuttleGrid, out var shuttleComponent))
+        {
+            QueueDel(shuttleGrid);
             return false;
         }
 
         var price = _pricing.AppraiseGrid(shuttleGrid.Value, null);
         var targetGrid = _station.GetLargestGrid((stationUid, stationData));
 
-        if (targetGrid == null) //how are we even here with no station grid
+        if (targetGrid == null)
         {
             QueueDel(shuttleGrid);
-            shuttleEntityUid = null;
             return false;
         }
 
-        _sawmill.Info($"Shuttle {shuttlePath} was purchased at {ToPrettyString(stationUid)} for {price:f2}");
+        // The grid remains staged until it is successfully placed at the target
+        // station. A failed placement is fully removed so the bank callback can
+        // safely return false and roll the debit back.
+        if (!_shuttle.TryFTLDock(shuttleGrid.Value, shuttleComponent, targetGrid.Value))
+        {
+            QueueDel(shuttleGrid);
+            return false;
+        }
+
         var ev = new ShipBoughtEvent();
         RaiseLocalEvent(shuttleGrid.Value, ev);
-        //can do TryFTLDock later instead if we need to keep the shipyard map paused
-        _shuttle.TryFTLDock(shuttleGrid.Value, shuttleComponent, targetGrid.Value);
+        _sawmill.Info($"Shuttle {shuttlePath} was purchased at {ToPrettyString(stationUid)} for {price:f2}");
         shuttleEntityUid = shuttleGrid;
         return true;
     }
@@ -183,19 +212,21 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     }
 
     /// <summary>
-    /// Checks a shuttle to make sure that it is docked to the given station, and that there are no lifeforms aboard. Then it teleports tagged items on top of the console, appraises the grid, outputs to the server log, and deletes the grid
+    /// Checks a shuttle to make sure that it is docked to the given station and
+    /// that there are no lifeforms aboard, then appraises it without mutating the
+    /// world. The caller must repeat this check immediately before finalization.
     /// </summary>
     /// <param name="stationUid">The ID of the station that the shuttle is docked to</param>
     /// <param name="shuttleUid">The grid ID of the shuttle to be appraised and sold</param>
-    /// <param name="consoleUid">The ID of the console being used to sell the ship</param>
-    public ShipyardSaleResult TrySellShuttle(EntityUid stationUid, EntityUid shuttleUid, EntityUid consoleUid, out int bill)
+    public ShipyardSaleResult TryAppraiseShuttleSale(EntityUid stationUid, EntityUid shuttleUid, out int bill)
     {
         ShipyardSaleResult result = new ShipyardSaleResult();
         bill = 0;
 
         if (!TryComp<StationDataComponent>(stationUid, out var stationGrid)
+            || Deleted(shuttleUid)
             || !HasComp<ShuttleComponent>(shuttleUid)
-            || !TryComp(shuttleUid, out TransformComponent? xform)
+            || !HasComp<TransformComponent>(shuttleUid)
             || ShipyardMap == null)
         {
             result.Error = ShipyardSaleError.InvalidShip;
@@ -247,28 +278,104 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return result;
         }
 
-        //just yeet and delete for now. Might want to split it into another function later to send back to the shipyard map first to pause for something
-        //also superman 3 moment
+        bill = (int)_pricing.AppraiseGrid(shuttleUid, LacksPreserveOnSaleComp);
+        result.Error = ShipyardSaleError.Success;
+        return result;
+    }
+
+    /// <summary>
+    /// Completes a previously validated and paid sale. No await is permitted
+    /// between the final appraisal and this method: the shuttle reservation and
+    /// bank mutation lease must both still be held by the caller.
+    /// </summary>
+    private void FinalizeAppraisedShuttleSale(EntityUid shuttleUid, EntityUid consoleUid, int bill)
+    {
+        // Just yeet and delete for now. Might want to send it back to the
+        // shipyard map first if sales ever gain a longer settlement phase.
         if (_station.GetOwningStation(shuttleUid) is { Valid: true } shuttleStationUid)
         {
             _station.DeleteStation(shuttleStationUid);
         }
 
-        if (TryComp<ShipyardConsoleComponent>(consoleUid, out var comp))
+        if (HasComp<ShipyardConsoleComponent>(consoleUid))
         {
             CleanGrid(shuttleUid, consoleUid);
         }
-
-        bill = (int)_pricing.AppraiseGrid(shuttleUid, LacksPreserveOnSaleComp);
 
         QueueDel(shuttleUid);
         _sawmill.Info($"Sold shuttle {shuttleUid} for {bill}");
 
         // Update all record UI (skip records, no new records)
         _shuttleRecordsSystem.RefreshStateForAll(true);
+    }
 
-        result.Error = ShipyardSaleError.Success;
-        return result;
+    private bool TryReserveShuttleSale(EntityUid shuttleUid, out bool recoveryRequired)
+    {
+        lock (_shuttleSaleLock)
+        {
+            recoveryRequired = _shuttleSalesBlocked.Contains(shuttleUid);
+            if (recoveryRequired)
+                return false;
+
+            return _shuttleSalesInFlight.Add(shuttleUid);
+        }
+    }
+
+    private void ReleaseShuttleSale(EntityUid shuttleUid)
+    {
+        lock (_shuttleSaleLock)
+            _shuttleSalesInFlight.Remove(shuttleUid);
+    }
+
+    private void BlockShuttleSale(EntityUid shuttleUid)
+    {
+        lock (_shuttleSaleLock)
+        {
+            _shuttleSalesInFlight.Remove(shuttleUid);
+            _shuttleSalesBlocked.Add(shuttleUid);
+        }
+    }
+
+    private bool TryReserveShuttlePurchase(
+        NetUserId userId,
+        EntityUid targetId,
+        out bool recoveryRequired)
+    {
+        lock (_shuttlePurchaseLock)
+        {
+            recoveryRequired = _shuttlePurchaseUsersBlocked.Contains(userId) ||
+                               _shuttlePurchaseTargetsBlocked.Contains(targetId);
+            if (recoveryRequired ||
+                _shuttlePurchaseUsersInFlight.Contains(userId) ||
+                _shuttlePurchaseTargetsInFlight.Contains(targetId))
+            {
+                return false;
+            }
+
+            _shuttlePurchaseUsersInFlight.Add(userId);
+            _shuttlePurchaseTargetsInFlight.Add(targetId);
+            return true;
+        }
+    }
+
+    private void ReleaseShuttlePurchase(NetUserId userId, EntityUid targetId)
+    {
+        lock (_shuttlePurchaseLock)
+        {
+            _shuttlePurchaseUsersInFlight.Remove(userId);
+            _shuttlePurchaseTargetsInFlight.Remove(targetId);
+        }
+    }
+
+    private void BlockShuttlePurchase(NetUserId userId, EntityUid targetId)
+    {
+        lock (_shuttlePurchaseLock)
+        {
+            _shuttlePurchaseUsersInFlight.Remove(userId);
+            _shuttlePurchaseTargetsInFlight.Remove(targetId);
+            _shuttlePurchaseUsersBlocked.Add(userId);
+            _shuttlePurchaseTargetsBlocked.Add(targetId);
+        }
     }
 
     private void CleanGrid(EntityUid grid, EntityUid destination)

@@ -15,6 +15,11 @@ comp-pda-ui-bank-transfer-recipient-not-found = [color=red]Перевод не �
 comp-pda-ui-bank-transfer-same-account = [color=orange]Нельзя перевести деньги на свой же счет.[/color]
 comp-pda-ui-bank-transfer-insufficient-funds = [color=red]Перевод не выполнен: недостаточно средств.[/color]
 comp-pda-ui-bank-transfer-blocked = [color=red]Перевод заблокирован для этого счета.[/color]
+comp-pda-ui-bank-transfer-recipient-overflow = [color=red]Перевод не выполнен: счет получателя не может принять эту сумму.[/color]
+comp-pda-ui-bank-transfer-pending = [color=orange]Банковский перевод уже обрабатывается. Подождите.[/color]
+comp-pda-ui-bank-transfer-conflict = [color=orange]Не удалось подтвердить перевод. Проверьте баланс перед повторной попыткой.[/color]
+comp-pda-ui-bank-transfer-outcome-unknown = [color=red]Результат перевода не удалось проверить. Повтор заблокирован до перезапуска сервера; проверьте баланс или обратитесь к администратору.[/color]
+comp-pda-ui-bank-transfer-internal-error = [color=red]Не удалось подтвердить статус перевода. Проверьте баланс перед повторной попыткой.[/color]
 comp-pda-ui-bank-transfer-failed = [color=red]Перевод не выполнен ({ $reason }).[/color]
 comp-pda-ui-bank-transfer-success = [color=green]Отправлено { $amount } игроку { $recipient } [{ $id }]. Баланс: { $balance }.[/color]
 comp-pda-ui-bank-transfer-received = Получен банковский перевод: { $amount } от { $sender }.

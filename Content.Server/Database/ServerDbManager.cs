@@ -27,6 +27,42 @@ using Content.Server._Mono.Company; // Mono
 
 namespace Content.Server.Database
 {
+    public enum CharacterBankTransferStatus
+    {
+        Success,
+        InvalidAmount,
+        SameAccount,
+        SenderNotFound,
+        RecipientNotFound,
+        InsufficientFunds,
+        RecipientOverflow,
+        IronmanBlocked,
+        Conflict,
+        UnknownOutcome,
+    }
+
+    public readonly record struct CharacterBankTransferResult(
+        CharacterBankTransferStatus Status,
+        int SenderBalance = 0,
+        int RecipientBalance = 0)
+    {
+        public bool Success => Status == CharacterBankTransferStatus.Success;
+
+        public string Error => Status switch
+        {
+            CharacterBankTransferStatus.Success => string.Empty,
+            CharacterBankTransferStatus.InvalidAmount => "amount-invalid",
+            CharacterBankTransferStatus.SameAccount => "same-account",
+            CharacterBankTransferStatus.SenderNotFound => "sender-no-account",
+            CharacterBankTransferStatus.RecipientNotFound => "recipient-not-found",
+            CharacterBankTransferStatus.InsufficientFunds => "insufficient-funds",
+            CharacterBankTransferStatus.RecipientOverflow => "recipient-overflow",
+            CharacterBankTransferStatus.IronmanBlocked => "ironman-blocked",
+            CharacterBankTransferStatus.UnknownOutcome => "outcome-unknown",
+            _ => "conflict",
+        };
+    }
+
     public interface IServerDbManager
     {
         void Init();
@@ -41,7 +77,24 @@ namespace Content.Server.Database
 
         Task SaveSelectedCharacterIndexAsync(NetUserId userId, int index);
 
-        Task SaveCharacterSlotAsync(NetUserId userId, ICharacterProfile? profile, int slot);
+        Task SaveCharacterSlotAsync(
+            NetUserId userId,
+            ICharacterProfile? profile,
+            int slot,
+            bool preserveBankBalance = false);
+
+        /// <summary>
+        /// Atomically transfers bank balance between two active character profiles.
+        /// Both profile ids are revalidated against their owners inside the database
+        /// transaction, and no partial debit or credit can be committed.
+        /// </summary>
+        Task<CharacterBankTransferResult> TransferCharacterBankBalanceAsync(
+            NetUserId senderUserId,
+            int senderProfileId,
+            NetUserId recipientUserId,
+            int recipientProfileId,
+            int amount,
+            CancellationToken cancel = default);
 
         /// <summary>
         /// Gets the stable server-side profile id for a playable character slot.
@@ -511,10 +564,32 @@ namespace Content.Server.Database
             return RunDbCommand(() => _db.SaveSelectedCharacterIndexAsync(userId, index));
         }
 
-        public Task SaveCharacterSlotAsync(NetUserId userId, ICharacterProfile? profile, int slot)
+        public Task SaveCharacterSlotAsync(
+            NetUserId userId,
+            ICharacterProfile? profile,
+            int slot,
+            bool preserveBankBalance = false)
         {
             DbWriteOpsMetric.Inc();
-            return RunDbCommand(() => _db.SaveCharacterSlotAsync(userId, profile, slot));
+            return RunDbCommand(() => _db.SaveCharacterSlotAsync(userId, profile, slot, preserveBankBalance));
+        }
+
+        public Task<CharacterBankTransferResult> TransferCharacterBankBalanceAsync(
+            NetUserId senderUserId,
+            int senderProfileId,
+            NetUserId recipientUserId,
+            int recipientProfileId,
+            int amount,
+            CancellationToken cancel = default)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.TransferCharacterBankBalanceAsync(
+                senderUserId,
+                senderProfileId,
+                recipientUserId,
+                recipientProfileId,
+                amount,
+                cancel));
         }
 
         public Task<int?> GetCharacterIdAsync(NetUserId userId, int slot, CancellationToken cancel = default)

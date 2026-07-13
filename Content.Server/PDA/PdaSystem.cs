@@ -32,7 +32,6 @@ using Robust.Shared.Player;
 using Robust.Shared.Utility;
 using Content.Shared._NF.Bank.Components; // Frontier
 using Content.Shared._NF.Shipyard.Components; // Frontier
-using Content.Shared._Mono.Traits.Physical;
 using Content.Server._NF.Shipyard.Systems; // Frontier
 using Content.Server._NF.SectorServices; // Frontier
 using Content.Shared._Mono.Company;
@@ -71,6 +70,9 @@ namespace Content.Server.PDA
         {
             WriteIndented = true,
         };
+        private readonly HashSet<EntityUid> _bankTransferMessagesInFlight = new();
+        private readonly HashSet<EntityUid> _registeredBankTransfersInFlight = new();
+        private readonly HashSet<NetUserId> _bankTransferRetryBlockedUsers = new();
 
         public override void Initialize()
         {
@@ -214,6 +216,8 @@ namespace Content.Server.PDA
             if (!_ui.HasUi(uid, PdaUiKey.Key))
                 return;
 
+            actor_uid = ResolvePdaUiActor(uid, pda, actor_uid);
+
             var address = GetDeviceNetAddress(uid);
             var hasInstrument = HasComp<InstrumentComponent>(uid);
             var showUplink = HasComp<UplinkComponent>(uid) && IsUnlocked(uid);
@@ -233,11 +237,15 @@ namespace Content.Server.PDA
             string? bankAccountId = null; // frontier
             var payrollHourly = 0; // LuaM
             var payrollNextSeconds = 0; // LuaM
+            var bankTransferRetryBlocked = false; // LuaM
             if (actor_uid != null && TryComp<BankAccountComponent>(actor_uid, out var account)) // frontier
             {
                 balance = account.Balance; // frontier
                 if (_playerManager.TryGetSessionByEntity(actor_uid.Value, out var actorSession))
                 {
+                    lock (_bankTransferRetryBlockedUsers)
+                        bankTransferRetryBlocked = _bankTransferRetryBlockedUsers.Contains(actorSession.UserId);
+
                     bankAccountId = RegisterPdaBankAccount(
                         GetPdaBankAccountId(actorSession, actor_uid.Value),
                         actorSession,
@@ -292,6 +300,7 @@ namespace Content.Server.PDA
                 balance, // Frontier
                 bankAccountId, // Frontier
                 pda.LastBankTransferStatus, // Frontier
+                bankTransferRetryBlocked, // LuaM
                 payrollHourly, // LuaM
                 payrollNextSeconds, // LuaM
                 ownedShipName, // Frontier
@@ -321,7 +330,7 @@ namespace Content.Server.PDA
             if (!PdaUiKey.Key.Equals(msg.UiKey))
                 return;
 
-            UpdatePdaUi(uid, pda);
+            UpdatePdaUi(uid, pda, msg.Actor);
         }
 
         private void OnUiMessage(EntityUid uid, PdaComponent pda, PdaToggleFlashlightMessage msg)
@@ -376,7 +385,36 @@ namespace Content.Server.PDA
 
         private void OnUiMessage(EntityUid uid, PdaComponent pda, PdaBankTransferMessage msg)
         {
-            _ = HandleBankTransferMessageAsync(uid, pda, msg);
+            _ = ObserveBankTransferMessageAsync(uid, pda, msg);
+        }
+
+        private async Task ObserveBankTransferMessageAsync(EntityUid uid, PdaComponent pda, PdaBankTransferMessage msg)
+        {
+            try
+            {
+                await HandleBankTransferMessageAsync(uid, pda, msg);
+            }
+            catch (Exception exception)
+            {
+                Log.Error($"Unhandled PDA bank transfer failure: {exception}");
+
+                // This observer must never fault: the UI event is necessarily fire-and-forget.
+                try
+                {
+                    if (TryComp<PdaComponent>(uid, out var currentPda))
+                    {
+                        SetBankTransferStatus(
+                            uid,
+                            currentPda,
+                            "comp-pda-ui-bank-transfer-internal-error",
+                            msg.Actor);
+                    }
+                }
+                catch (Exception statusException)
+                {
+                    Log.Error($"Could not report PDA bank transfer failure: {statusException}");
+                }
+            }
         }
 
         private async Task HandleBankTransferMessageAsync(EntityUid uid, PdaComponent pda, PdaBankTransferMessage msg)
@@ -404,64 +442,47 @@ namespace Content.Server.PDA
                 return;
             }
 
-            if (TryFindOnlineBankAccount(recipientId, out var recipient, out var recipientSession))
+            if (IsBankTransferRetryBlocked(actor))
             {
-                if (!_bank.TryBankTransfer(actor, recipient, msg.Amount, out var onlineSenderBalance, out _, out var onlineError))
-                {
-                    if (onlineError == "not-online")
-                    {
-                        var fallbackResult = await TryRegisteredBankTransfer(actor, recipientId, msg.Amount);
-                        if (fallbackResult.Success)
-                        {
-                            var fallbackAmount = BankSystemExtensions.ToSpesoString(msg.Amount);
-                            var fallbackBalance = BankSystemExtensions.ToSpesoString(fallbackResult.SenderBalance);
-                            SetBankTransferStatus(
-                                uid,
-                                pda,
-                                "comp-pda-ui-bank-transfer-success",
-                                actor,
-                                ("amount", fallbackAmount),
-                                ("recipient", fallbackResult.RecipientName),
-                                ("id", recipientId),
-                                ("balance", fallbackBalance));
-
-                            if (fallbackResult.RecipientSession != null)
-                                NotifyBankTransferRecipient(fallbackResult.RecipientSession, fallbackAmount, actor);
-
-                            if (fallbackResult.RecipientEntity is { Valid: true } fallbackRecipientEntity)
-                                UpdatePdaUisForActor(fallbackRecipientEntity);
-
-                            return;
-                        }
-
-                        var fallbackLocId = BankTransferErrorToLocale(fallbackResult.Error);
-                        SetBankTransferStatus(uid, pda, fallbackLocId, actor, ("id", recipientId), ("reason", fallbackResult.Error));
-                        return;
-                    }
-
-                    var locId = BankTransferErrorToLocale(onlineError);
-                    SetBankTransferStatus(uid, pda, locId, actor, ("reason", onlineError));
-                    return;
-                }
-
-                var onlineAmount = BankSystemExtensions.ToSpesoString(msg.Amount);
-                var onlineBalance = BankSystemExtensions.ToSpesoString(onlineSenderBalance);
-                SetBankTransferStatus(
-                    uid,
-                    pda,
-                    "comp-pda-ui-bank-transfer-success",
-                    actor,
-                    ("amount", onlineAmount),
-                    ("recipient", recipientSession.Name),
-                    ("id", recipientId),
-                    ("balance", onlineBalance));
-
-                NotifyBankTransferRecipient(recipientSession, onlineAmount, actor);
-                UpdatePdaUisForActor(recipient);
+                SetBankTransferStatus(uid, pda, "comp-pda-ui-bank-transfer-outcome-unknown", actor);
                 return;
             }
 
-            var result = await TryRegisteredBankTransfer(actor, recipientId, msg.Amount);
+            bool transferStarted;
+            lock (_bankTransferMessagesInFlight)
+                transferStarted = _bankTransferMessagesInFlight.Add(actor);
+
+            if (!transferStarted)
+            {
+                SetBankTransferStatus(
+                    uid,
+                    pda,
+                    "comp-pda-ui-bank-transfer-pending",
+                    actor);
+                return;
+            }
+
+            try
+            {
+                await ProcessBankTransferMessageAsync(uid, pda, actor, recipientId, msg.Amount);
+            }
+            finally
+            {
+                lock (_bankTransferMessagesInFlight)
+                {
+                    _bankTransferMessagesInFlight.Remove(actor);
+                }
+            }
+        }
+
+        private async Task ProcessBankTransferMessageAsync(
+            EntityUid uid,
+            PdaComponent pda,
+            EntityUid actor,
+            string recipientId,
+            int transferAmount)
+        {
+            var result = await TryRegisteredBankTransfer(actor, recipientId, transferAmount);
             if (!result.Success)
             {
                 var locId = BankTransferErrorToLocale(result.Error);
@@ -469,23 +490,48 @@ namespace Content.Server.PDA
                 return;
             }
 
-            var amount = BankSystemExtensions.ToSpesoString(msg.Amount);
+            var amount = BankSystemExtensions.ToSpesoString(transferAmount);
             var balance = BankSystemExtensions.ToSpesoString(result.SenderBalance);
-            SetBankTransferStatus(
-                uid,
-                pda,
-                "comp-pda-ui-bank-transfer-success",
-                actor,
-                ("amount", amount),
-                ("recipient", result.RecipientName),
-                ("id", recipientId),
-                ("balance", balance));
+            try
+            {
+                SetBankTransferStatus(
+                    uid,
+                    pda,
+                    "comp-pda-ui-bank-transfer-success",
+                    actor,
+                    ("amount", amount),
+                    ("recipient", result.RecipientName),
+                    ("id", recipientId),
+                    ("balance", balance));
+            }
+            catch (Exception exception)
+            {
+                Log.Error($"Committed PDA bank transfer, but could not update sender UI: {exception}");
+            }
 
             if (result.RecipientSession != null)
-                NotifyBankTransferRecipient(result.RecipientSession, amount, actor);
+            {
+                try
+                {
+                    NotifyBankTransferRecipient(result.RecipientSession, amount, actor);
+                }
+                catch (Exception exception)
+                {
+                    Log.Error($"Committed PDA bank transfer, but could not notify recipient: {exception}");
+                }
+            }
 
             if (result.RecipientEntity is { Valid: true } recipientEntity)
-                UpdatePdaUisForActor(recipientEntity);
+            {
+                try
+                {
+                    UpdatePdaUisForActor(recipientEntity);
+                }
+                catch (Exception exception)
+                {
+                    Log.Error($"Committed PDA bank transfer, but could not refresh recipient UI: {exception}");
+                }
+            }
         }
 
         private void OnUiMessage(EntityUid uid, PdaComponent pda, PdaDonationShopPurchaseMessage msg)
@@ -519,12 +565,27 @@ namespace Content.Server.PDA
         {
             return error switch
             {
+                "amount-invalid" => "comp-pda-ui-bank-transfer-invalid-amount",
+                "sender-no-account" => "comp-pda-ui-bank-transfer-no-sender",
                 "same-account" => "comp-pda-ui-bank-transfer-same-account",
                 "insufficient-funds" => "comp-pda-ui-bank-transfer-insufficient-funds",
                 "ironman-blocked" => "comp-pda-ui-bank-transfer-blocked",
                 "recipient-not-found" => "comp-pda-ui-bank-transfer-recipient-not-found",
+                "recipient-overflow" => "comp-pda-ui-bank-transfer-recipient-overflow",
+                "transfer-pending" => "comp-pda-ui-bank-transfer-pending",
+                "conflict" => "comp-pda-ui-bank-transfer-conflict",
+                "outcome-unknown" => "comp-pda-ui-bank-transfer-outcome-unknown",
                 _ => "comp-pda-ui-bank-transfer-failed",
             };
+        }
+
+        private bool IsBankTransferRetryBlocked(EntityUid actor)
+        {
+            if (!_playerManager.TryGetSessionByEntity(actor, out var session))
+                return false;
+
+            lock (_bankTransferRetryBlockedUsers)
+                return _bankTransferRetryBlockedUsers.Contains(session.UserId);
         }
 
         private void SetBankTransferStatus(
@@ -574,32 +635,58 @@ namespace Content.Server.PDA
             }
         }
 
-        private bool TryFindOnlineBankAccount(
-            string bankAccountId,
-            out EntityUid recipient,
-            out ICommonSession session)
+        private async Task<PdaBankTransferResult> TryRegisteredBankTransfer(EntityUid sender, string recipientId, int amount)
         {
-            recipient = EntityUid.Invalid;
-            session = default!;
-
-            foreach (var candidate in _playerManager.Sessions)
+            recipientId = ExtractPdaBankAccountId(recipientId);
+            lock (_registeredBankTransfersInFlight)
             {
-                if (candidate.AttachedEntity is not { Valid: true } attached ||
-                    !HasComp<BankAccountComponent>(attached) ||
-                    !ExtractPdaBankAccountId(GetPdaBankAccountId(candidate, attached)).Equals(bankAccountId, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                recipient = attached;
-                session = candidate;
-                return true;
+                if (!_registeredBankTransfersInFlight.Add(sender))
+                    return PdaBankTransferResult.Fail("transfer-pending");
             }
 
-            return false;
+            try
+            {
+                return await TryRegisteredBankTransferCore(sender, recipientId, amount);
+            }
+            finally
+            {
+                lock (_registeredBankTransfersInFlight)
+                {
+                    _registeredBankTransfersInFlight.Remove(sender);
+                }
+            }
         }
 
-        private async Task<PdaBankTransferResult> TryRegisteredBankTransfer(EntityUid sender, string recipientId, int amount)
+        private EntityUid? ResolvePdaUiActor(EntityUid uid, PdaComponent pda, EntityUid? requestedActor)
+        {
+            if (requestedActor.HasValue &&
+                requestedActor.Value.Valid &&
+                Exists(requestedActor.Value) &&
+                HasComp<BankAccountComponent>(requestedActor.Value))
+            {
+                return requestedActor;
+            }
+
+            if (_containerSystem.TryGetContainingContainer((uid, null, null), out var container) &&
+                container.Owner.Valid &&
+                Exists(container.Owner) &&
+                HasComp<BankAccountComponent>(container.Owner))
+            {
+                return container.Owner;
+            }
+
+            if (pda.PdaOwner.HasValue &&
+                pda.PdaOwner.Value.Valid &&
+                Exists(pda.PdaOwner.Value) &&
+                HasComp<BankAccountComponent>(pda.PdaOwner.Value))
+            {
+                return pda.PdaOwner;
+            }
+
+            return requestedActor;
+        }
+
+        private async Task<PdaBankTransferResult> TryRegisteredBankTransferCore(EntityUid sender, string recipientId, int amount)
         {
             recipientId = ExtractPdaBankAccountId(recipientId);
             if (string.IsNullOrWhiteSpace(recipientId))
@@ -607,17 +694,6 @@ namespace Content.Server.PDA
 
             if (amount <= 0)
                 return PdaBankTransferResult.Fail("amount-invalid");
-
-            if (HasComp<IronmanComponent>(sender))
-                return PdaBankTransferResult.Fail("ironman-blocked");
-
-            if (!_playerManager.TryGetSessionByEntity(sender, out var senderSession) ||
-                !_preferences.TryGetCachedPreferences(senderSession.UserId, out var senderPrefs) ||
-                senderPrefs.SelectedCharacter is not HumanoidCharacterProfile senderProfile ||
-                !senderPrefs.TryIndexOfCharacter(senderProfile, out var senderSlot))
-            {
-                return PdaBankTransferResult.Fail("sender-no-account");
-            }
 
             if (!HasComp<BankAccountComponent>(sender))
                 return PdaBankTransferResult.Fail("sender-no-account");
@@ -630,96 +706,74 @@ namespace Content.Server.PDA
             }
 
             var recipientUserId = new NetUserId(recipientGuid);
-            if (recipientUserId == senderSession.UserId && record.Slot == senderSlot)
-                return PdaBankTransferResult.Fail("same-account");
-
-            if (senderProfile.BankBalance < amount)
-                return PdaBankTransferResult.Fail("insufficient-funds", senderProfile.BankBalance);
-
             var recipientPrefs = _preferences.TryGetCachedPreferences(recipientUserId, out var cachedRecipientPrefs)
                 ? cachedRecipientPrefs
                 : await _db.GetPlayerPreferencesAsync(recipientUserId, default);
             if (recipientPrefs == null)
                 return PdaBankTransferResult.Fail("recipient-not-found");
 
-            if (!TryGetRegisteredRecipientProfile(recipientPrefs, recipientUserId, record, recipientId, out var recipientSlot, out var recipientProfile))
+            if (!TryGetRegisteredRecipientProfile(recipientPrefs, recipientUserId, record, out var recipientSlot, out var recipientProfile))
                 return PdaBankTransferResult.Fail("recipient-not-found");
 
-            if (recipientProfile.BankBalance > int.MaxValue - amount)
-                return PdaBankTransferResult.Fail("recipient-overflow");
+            // Capture the initiating account before yielding. The attached entity can
+            // disappear while the database transaction is committing, but an unknown
+            // outcome must still disable retries after the player reconnects.
+            if (!_playerManager.TryGetSessionByEntity(sender, out var senderSessionBeforeTransfer))
+                return PdaBankTransferResult.Fail("sender-no-account");
 
-            var senderBalance = senderProfile.BankBalance - amount;
-            var recipientBalance = recipientProfile.BankBalance + amount;
-
-            if (!_bank.TryBankWithdraw(senderSession, senderPrefs, senderProfile, amount, out var withdrawnBalance))
-                return PdaBankTransferResult.Fail("insufficient-funds", senderProfile.BankBalance);
-
-            senderBalance = withdrawnBalance.Value;
-            _bank.SyncBankBalance(sender);
-
-            var recipientDeposited = await _bank.TryBankDepositOffline(
+            var persistedResult = await _bank.TryBankTransferPersistedAsync(
+                sender,
                 recipientUserId,
-                recipientPrefs,
-                recipientProfile,
+                recipientSlot,
+                record.CharacterName,
                 amount);
-            if (!recipientDeposited)
+            if (!persistedResult.Success)
             {
-                int? refundedBalance = null;
-                var refunded = _preferences.TryGetCachedPreferences(senderSession.UserId, out var refundPrefs) &&
-                               refundPrefs.Characters.TryGetValue(senderSlot, out var refundProfile) &&
-                               refundProfile is HumanoidCharacterProfile refundHumanoid &&
-                               _bank.TryBankDeposit(senderSession, refundPrefs, refundHumanoid, amount, out refundedBalance);
+                if (persistedResult.Status == CharacterBankTransferStatus.UnknownOutcome)
+                {
+                    lock (_bankTransferRetryBlockedUsers)
+                        _bankTransferRetryBlockedUsers.Add(senderSessionBeforeTransfer.UserId);
+                }
 
-                _bank.SyncBankBalance(sender);
-                return PdaBankTransferResult.Fail("failed", refunded ? refundedBalance ?? senderProfile.BankBalance : senderBalance);
+                return PdaBankTransferResult.Fail(persistedResult.Error, persistedResult.SenderBalance);
             }
 
             ICommonSession? recipientSession = null;
             EntityUid? recipientEntity = null;
             if (_playerManager.TryGetSessionById(recipientUserId, out recipientSession) &&
                 recipientSession.AttachedEntity is { Valid: true } attached &&
-                recipientPrefs.SelectedCharacter is HumanoidCharacterProfile selectedRecipientProfile &&
-                recipientPrefs.TryIndexOfCharacter(selectedRecipientProfile, out var selectedRecipientSlot) &&
-                selectedRecipientSlot == recipientSlot)
+                _preferences.TryGetCachedPreferences(recipientUserId, out var updatedRecipientPrefs) &&
+                updatedRecipientPrefs.SelectedCharacterIndex == recipientSlot)
             {
                 recipientEntity = attached;
-                _bank.SyncBankBalance(attached);
             }
 
-            return PdaBankTransferResult.Ok(senderBalance, recipientBalance, recipientProfile.Name, recipientSession, recipientEntity);
+            return PdaBankTransferResult.Ok(
+                persistedResult.SenderBalance,
+                persistedResult.RecipientBalance,
+                recipientProfile.Name,
+                recipientSession,
+                recipientEntity);
         }
 
         private bool TryGetRegisteredRecipientProfile(
             PlayerPreferences prefs,
             NetUserId userId,
             PdaBankAccountRecord record,
-            string recipientId,
             out int slot,
             out HumanoidCharacterProfile profile)
         {
-            if (prefs.Characters.TryGetValue(record.Slot, out var exactProfile) &&
+            // The registry entry is authoritative for routing. Never recompute the
+            // unsalted ID here: collision-resolved IDs intentionally do not match it.
+            // Requiring the original user, slot and character name also makes an old
+            // registry entry fail closed when a deleted slot is reused.
+            if (record.UserId.Equals(userId.ToString(), StringComparison.OrdinalIgnoreCase) &&
+                prefs.Characters.TryGetValue(record.Slot, out var exactProfile) &&
                 exactProfile is HumanoidCharacterProfile exactHumanoid &&
-                (BuildPdaBankAccountId(exactHumanoid.Name, record.LastUserName, userId.ToString())
-                     .Equals(recipientId, StringComparison.OrdinalIgnoreCase) ||
-                 BuildPdaBankAccountId(record.CharacterName, record.LastUserName, userId.ToString())
-                     .Equals(recipientId, StringComparison.OrdinalIgnoreCase)))
+                exactHumanoid.Name.Equals(record.CharacterName, StringComparison.Ordinal))
             {
                 slot = record.Slot;
                 profile = exactHumanoid;
-                return true;
-            }
-
-            foreach (var (candidateSlot, candidateProfile) in prefs.Characters)
-            {
-                if (candidateProfile is not HumanoidCharacterProfile humanoid)
-                    continue;
-
-                if (!BuildPdaBankAccountId(humanoid.Name, record.LastUserName, userId.ToString())
-                        .Equals(recipientId, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                slot = candidateSlot;
-                profile = humanoid;
                 return true;
             }
 
@@ -756,19 +810,26 @@ namespace Content.Server.PDA
             if (string.IsNullOrWhiteSpace(normalized))
                 return bankAccountId;
 
-            var ownerName = owner is { Valid: true } && Exists(owner)
-                ? MetaData(owner).EntityName
-                : profile.Name;
-            var record = new PdaBankAccountRecord(session.UserId.ToString(), slot, ownerName, session.Name);
+            var record = new PdaBankAccountRecord(session.UserId.ToString(), slot, profile.Name, session.Name);
             var registry = LoadPdaBankAccountRegistry();
             var changed = false;
             var registeredId = normalized;
 
+            // Once assigned, the registry key is the account ID. This is important
+            // for collision-resolved IDs, which cannot be rediscovered by rebuilding
+            // the unsalted ID from the user UUID.
+            foreach (var (existingId, existingAccount) in registry)
+            {
+                if (!IsSamePdaBankAccount(existingAccount, record))
+                    continue;
+
+                registeredId = existingId;
+                break;
+            }
+
             if (registry.TryGetValue(registeredId, out var existingRecord) &&
                 !IsSamePdaBankAccount(existingRecord, record))
-            {
                 registeredId = PickAvailablePdaBankAccountId(record, registry);
-            }
 
             if (!registry.TryGetValue(registeredId, out var current) || !current.Equals(record))
             {
@@ -789,8 +850,10 @@ namespace Content.Server.PDA
 
             try
             {
-                return JsonSerializer.Deserialize<Dictionary<string, PdaBankAccountRecord>>(json) ??
-                       new Dictionary<string, PdaBankAccountRecord>(StringComparer.OrdinalIgnoreCase);
+                var deserialized = JsonSerializer.Deserialize<Dictionary<string, PdaBankAccountRecord>>(json);
+                return deserialized == null
+                    ? new Dictionary<string, PdaBankAccountRecord>(StringComparer.OrdinalIgnoreCase)
+                    : new Dictionary<string, PdaBankAccountRecord>(deserialized, StringComparer.OrdinalIgnoreCase);
             }
             catch (JsonException)
             {
@@ -888,10 +951,15 @@ namespace Content.Server.PDA
             PdaBankAccountRecord record,
             IReadOnlyDictionary<string, PdaBankAccountRecord> registry)
         {
-            for (var salt = 1; salt <= 100; salt++)
+            const int maxCandidateAttempts = 1_000_000;
+            for (var salt = 1; salt <= maxCandidateAttempts; salt++)
             {
-                var candidate = GetPdaBankAccountPrefix(record.CharacterName, record.LastUserName, record.UserId) +
-                                GetStablePdaBankAccountDigits($"{record.UserId}:{record.Slot}:{salt}");
+                var candidate = BuildPdaBankAccountCollisionId(
+                    record.CharacterName,
+                    record.LastUserName,
+                    record.UserId,
+                    record.Slot,
+                    salt);
 
                 if (!registry.TryGetValue(candidate, out var existingRecord) ||
                     IsSamePdaBankAccount(existingRecord, record))
@@ -900,14 +968,25 @@ namespace Content.Server.PDA
                 }
             }
 
-            return GetPdaBankAccountPrefix(record.CharacterName, record.LastUserName, record.UserId) +
-                   GetStablePdaBankAccountDigits($"{record.UserId}:{record.Slot}:fallback");
+            throw new InvalidOperationException("PDA bank account ID space is exhausted.");
+        }
+
+        private static string BuildPdaBankAccountCollisionId(
+            string? characterName,
+            string? userName,
+            string userId,
+            int slot,
+            int salt)
+        {
+            return GetPdaBankAccountPrefix(characterName, userName, userId) +
+                   GetStablePdaBankAccountDigits($"{userId}:{slot}:{salt}");
         }
 
         private static bool IsSamePdaBankAccount(PdaBankAccountRecord left, PdaBankAccountRecord right)
         {
             return left.Slot == right.Slot &&
-                   left.UserId.Equals(right.UserId, StringComparison.OrdinalIgnoreCase);
+                   left.UserId.Equals(right.UserId, StringComparison.OrdinalIgnoreCase) &&
+                   left.CharacterName.Equals(right.CharacterName, StringComparison.Ordinal);
         }
 
         private sealed record PdaBankAccountRecord(string UserId, int Slot, string CharacterName, string LastUserName);

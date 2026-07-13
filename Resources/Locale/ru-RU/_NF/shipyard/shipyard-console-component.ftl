@@ -20,6 +20,15 @@ shipyard-console-sale-organic-aboard = Экипаж должен покинут�
 # This error message is bad, but if it happens, something awful's happened.
 shipyard-console-sale-invalid-ship = Шаттл не соответствует нормам и не может быть продан.
 shipyard-console-sale-unknown-reason = Шаттл не может быть продан: { reason }
+shipyard-console-sale-bank-pending = Шаттл нельзя продать, пока обрабатывается другая банковская операция. Подождите.
+shipyard-console-sale-bank-failed = Выплату за продажу не удалось сохранить. Шаттл не продан; попробуйте ещё раз.
+shipyard-console-sale-changed = Шаттл, документ или оценка изменились во время выплаты. Выплата отменена, шаттл не продан.
+shipyard-console-sale-recovery-required = Результат продажи требует проверки администратором. Повторная продажа заблокирована.
+shipyard-console-purchase-bank-pending = Покупка шаттла или банковская операция уже обрабатывается. Подождите.
+shipyard-console-purchase-bank-failed = Списание за покупку не удалось подтвердить. Шаттл не выдан; проверьте баланс и попробуйте снова.
+shipyard-console-purchase-changed = Консоль, ID-карта, ваучер, станция или шаттл изменились во время оплаты. Списание отменено.
+shipyard-console-purchase-creation-failed = Не удалось подготовить шаттл. Списание отменено, шаттл не выдан.
+shipyard-console-purchase-recovery-required = Результат покупки требует проверки администратором. Повторные покупки заблокированы до перезапуска сервера.
 shipyard-console-deed-label = Зарегистрированный шаттл:
 shipyard-console-appraisal-label = Оценочная стоимость шаттла:{ " " }
 shipyard-console-no-voucher-redemptions = Все ваучеры использованы.

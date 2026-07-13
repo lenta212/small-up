@@ -1,0 +1,9 @@
+author: LuaM
+category: Fix
+changes:
+  - type: Fix
+    message: PDA bank transfers now resolve collision-safe account IDs and update both character balances atomically.
+  - type: Fix
+    message: PDA transfer requests reject overlapping submissions and keep the displayed bank ID and balance stable across UI refreshes.
+  - type: Fix
+    message: ATM exchanges, cargo order payments, shipyard purchases, and shuttle sales now wait for durable bank settlement before applying irreversible world changes.

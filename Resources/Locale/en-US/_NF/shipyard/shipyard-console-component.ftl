@@ -20,6 +20,15 @@ shipyard-console-sale-organic-aboard = All crew must disembark. {$name} is still
 # This error message is bad, but if it happens, something awful's happened.
 shipyard-console-sale-invalid-ship = Ship is invalid and cannot be sold.
 shipyard-console-sale-unknown-reason = Ship cannot be sold: {reason}
+shipyard-console-sale-bank-pending = Ship cannot be sold while another bank transaction is being processed. Please wait.
+shipyard-console-sale-bank-failed = The sale payout could not be committed. The ship was not sold; please try again.
+shipyard-console-sale-changed = The ship, deed, or appraisal changed while the payout was being processed. The payout was reversed and the ship was not sold.
+shipyard-console-sale-recovery-required = The sale outcome requires administrator review. Further sale attempts are locked.
+shipyard-console-purchase-bank-pending = A shuttle purchase or bank operation is already being processed. Please wait.
+shipyard-console-purchase-bank-failed = The purchase debit could not be committed. No shuttle was issued; check your balance and try again.
+shipyard-console-purchase-changed = The console, ID, voucher, station, or vessel changed while payment was being processed. The debit was reversed.
+shipyard-console-purchase-creation-failed = The shuttle could not be prepared. The debit was reversed and no shuttle was issued.
+shipyard-console-purchase-recovery-required = The purchase outcome requires administrator review. Further purchases are locked for this server process.
 shipyard-console-deed-label = Registered Ship:
 shipyard-console-appraisal-label = Shuttle Resale Value (Taxed):{" "}
 shipyard-console-no-voucher-redemptions = All voucher redemptions have been used.

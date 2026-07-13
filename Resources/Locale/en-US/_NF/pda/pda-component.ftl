@@ -15,6 +15,11 @@ comp-pda-ui-bank-transfer-recipient-not-found = [color=red]Transfer failed: bank
 comp-pda-ui-bank-transfer-same-account = [color=orange]You cannot transfer money to your own account.[/color]
 comp-pda-ui-bank-transfer-insufficient-funds = [color=red]Transfer failed: insufficient funds.[/color]
 comp-pda-ui-bank-transfer-blocked = [color=red]Transfer blocked for this account.[/color]
+comp-pda-ui-bank-transfer-recipient-overflow = [color=red]Transfer failed: the recipient account cannot accept this amount.[/color]
+comp-pda-ui-bank-transfer-pending = [color=orange]A bank transfer is already being processed. Please wait.[/color]
+comp-pda-ui-bank-transfer-conflict = [color=orange]The transfer could not be confirmed. Check your balance before trying again.[/color]
+comp-pda-ui-bank-transfer-outcome-unknown = [color=red]The transfer result could not be verified. Repeating it is blocked for this server session; check your balance or contact an administrator.[/color]
+comp-pda-ui-bank-transfer-internal-error = [color=red]Transfer status could not be confirmed. Check your balance before trying again.[/color]
 comp-pda-ui-bank-transfer-failed = [color=red]Transfer failed ({ $reason }).[/color]
 comp-pda-ui-bank-transfer-success = [color=green]Sent { $amount } to { $recipient } [{ $id }]. Balance: { $balance }.[/color]
 comp-pda-ui-bank-transfer-received = Bank transfer received: { $amount } from { $sender }.

@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Threading.Tasks;
 using Content.Server._NF.Bank; // Frontier
 using Content.Server.Cargo.Components;
 using Content.Server.Labels.Components;
@@ -38,6 +39,8 @@ namespace Content.Server.Cargo.Systems
         /// Keeps track of how much time has elapsed since last balance increase.
         /// </summary>
         private float _timer;
+        private readonly object _cargoOrderPaymentLock = new();
+        private readonly HashSet<(EntityUid Database, int OrderId)> _cargoOrdersAwaitingPayment = new();
 
         private void InitializeConsole()
         {
@@ -145,6 +148,37 @@ namespace Content.Server.Cargo.Systems
 
         private void OnApproveOrderMessage(EntityUid uid, CargoOrderConsoleComponent component, CargoConsoleApproveOrderMessage args)
         {
+            _ = ObserveApproveOrderMessageAsync(uid, component, args);
+        }
+
+        private async Task ObserveApproveOrderMessageAsync(EntityUid uid, CargoOrderConsoleComponent component, CargoConsoleApproveOrderMessage args)
+        {
+            try
+            {
+                await OnApproveOrderMessageAsync(uid, component, args);
+            }
+            catch (Exception exception)
+            {
+                Log.Error($"Unhandled durable cargo-order payment failure: {exception}");
+                try
+                {
+                    if (args.Actor is { Valid: true } actor &&
+                        Exists(actor) &&
+                        TryComp<CargoOrderConsoleComponent>(uid, out var currentComponent))
+                    {
+                        ConsolePopup(actor, Loc.GetString("bank-atm-menu-transaction-denied"));
+                        PlayDenySound(uid, currentComponent);
+                    }
+                }
+                catch (Exception reportException)
+                {
+                    Log.Error($"Could not report durable cargo-order payment failure: {reportException}");
+                }
+            }
+        }
+
+        private async Task OnApproveOrderMessageAsync(EntityUid uid, CargoOrderConsoleComponent component, CargoConsoleApproveOrderMessage args)
+        {
             if (args.Actor is not { Valid: true } player)
                 return;
 
@@ -221,6 +255,65 @@ namespace Content.Server.Cargo.Systems
                 return;
             }
 
+            var paymentKey = (dbUid!.Value, order.OrderId);
+            bool ownsPayment;
+            lock (_cargoOrderPaymentLock)
+                ownsPayment = _cargoOrdersAwaitingPayment.Add(paymentKey);
+
+            if (!ownsPayment)
+            {
+                ConsolePopup(args.Actor, Loc.GetString("bank-atm-menu-transaction-denied"));
+                PlayDenySound(uid, component);
+                return;
+            }
+
+            bool paymentCommitted;
+            var releasePaymentReservation = true;
+            try
+            {
+                paymentCommitted = await _bank.TryBankWithdrawAsync(
+                    player,
+                    cost,
+                    finalizeAfterCommit: () =>
+                    {
+                        // The order can be changed or cleared while the database
+                        // save is in flight. Approve only the exact reserved order;
+                        // returning false makes BankSystem durably roll back debit.
+                        if (!orderDatabase.Orders.Contains(order) ||
+                            order.Approved ||
+                            order.Price * order.OrderQuantity != cost)
+                        {
+                            return false;
+                        }
+
+                        order.Approved = true;
+                        return true;
+                    });
+            }
+            catch (BankMutationRollbackException)
+            {
+                // The debit outcome is unsafe to retry. Keep this order reserved
+                // until process restart/operator recovery, matching BankSystem's
+                // blocked profile.
+                releasePaymentReservation = false;
+                throw;
+            }
+            finally
+            {
+                if (releasePaymentReservation)
+                {
+                    lock (_cargoOrderPaymentLock)
+                        _cargoOrdersAwaitingPayment.Remove(paymentKey);
+                }
+            }
+
+            if (!paymentCommitted)
+            {
+                ConsolePopup(args.Actor, Loc.GetString("bank-atm-menu-transaction-denied"));
+                PlayDenySound(uid, component);
+                return;
+            }
+
             // Frontier: no cargo fulfillment check
             //var ev = new FulfillCargoOrderEvent((station.Value, stationData), order, (uid, component));
             //RaiseLocalEvent(ref ev); // Frontier
@@ -239,7 +332,6 @@ namespace Content.Server.Cargo.Systems
             // }
             // End Frontier
 
-            order.Approved = true;
             _audio.PlayPvs(component.ConfirmSound, uid);
 
             if (!_emag.CheckFlag(uid, EmagType.Interaction))
@@ -274,7 +366,6 @@ namespace Content.Server.Cargo.Systems
                 var tax = (int)Math.Floor(cost * taxCoeff);
                 _bank.TrySectorDeposit(account, tax, LedgerEntryType.CargoTax);
             }
-            _bank.TryBankWithdraw(player, cost);
             // End Frontier
 
             UpdateOrders(station.Value);
@@ -334,6 +425,12 @@ namespace Content.Server.Cargo.Systems
         {
             if (!TryGetOrderDatabase(uid, out var dbUid, out var orderDatabase, component))
                 return;
+
+            lock (_cargoOrderPaymentLock)
+            {
+                if (_cargoOrdersAwaitingPayment.Contains((dbUid!.Value, args.OrderId)))
+                    return;
+            }
 
             RemoveOrder(dbUid!.Value, args.OrderId, orderDatabase);
         }

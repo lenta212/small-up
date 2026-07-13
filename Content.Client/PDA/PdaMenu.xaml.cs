@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Linq;
 using Content.Client.GameTicking.Managers;
 using Content.Shared.PDA;
 using Robust.Shared.Utility;
@@ -222,6 +224,7 @@ namespace Content.Client.PDA
             _bankAccountId = state.BankAccountId ?? Loc.GetString("comp-pda-ui-unknown"); // Frontier
             BankIdLabel.SetMarkup(Loc.GetString("comp-pda-ui-bank-id", ("id", _bankAccountId))); // Frontier
             BankTransferStatusLabel.SetMarkup(state.BankTransferStatus ?? string.Empty); // Frontier
+            BankTransferButton.Disabled = state.BankTransferRetryBlocked;
             UpdateDonationShop(state); // LuaM
 
             _shuttleDeed = state.OwnedShipName ?? ""; // Frontier
@@ -268,13 +271,25 @@ namespace Content.Client.PDA
                 return;
             }
 
-            if (!int.TryParse(BankTransferAmountEdit.Text.Trim(), out var amount) || amount <= 0)
+            if (!TryParseBankTransferAmount(BankTransferAmountEdit.Text, out var amount))
             {
                 BankTransferStatusLabel.SetMarkup(Loc.GetString("comp-pda-ui-bank-transfer-invalid-amount"));
                 return;
             }
 
+            BankTransferButton.Disabled = true;
             OnBankTransferPressed?.Invoke(recipientId, amount);
+        }
+
+        private static bool TryParseBankTransferAmount(string value, out int amount)
+        {
+            var normalized = string.Concat(value.Where(ch => !char.IsWhiteSpace(ch)));
+            return int.TryParse(
+                       normalized,
+                       NumberStyles.None,
+                       CultureInfo.InvariantCulture,
+                       out amount) &&
+                   amount > 0;
         }
 
         private static int FormatPayrollMinutes(int nextSeconds)

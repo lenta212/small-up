@@ -19,6 +19,7 @@ namespace Content.Shared.PDA
         public int Balance; // Frontier
         public string? BankAccountId; // Frontier
         public string? BankTransferStatus; // Frontier
+        public bool BankTransferRetryBlocked; // LuaM
         public int PayrollHourly; // LuaM
         public int PayrollNextSeconds; // LuaM
         public string? OwnedShipName; // Frontier
@@ -38,6 +39,7 @@ namespace Content.Shared.PDA
             int balance, // Frontier
             string? bankAccountId, // Frontier
             string? bankTransferStatus, // Frontier
+            bool bankTransferRetryBlocked, // LuaM
             int payrollHourly, // LuaM
             int payrollNextSeconds, // LuaM
             string? ownedShipName, // Frontier
@@ -63,6 +65,7 @@ namespace Content.Shared.PDA
             Balance = balance; // Frontier
             BankAccountId = bankAccountId; // Frontier
             BankTransferStatus = bankTransferStatus; // Frontier
+            BankTransferRetryBlocked = bankTransferRetryBlocked; // LuaM
             PayrollHourly = payrollHourly; // LuaM
             PayrollNextSeconds = payrollNextSeconds; // LuaM
             OwnedShipName = ownedShipName; // Frontier
