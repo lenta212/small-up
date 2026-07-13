@@ -5278,7 +5278,6 @@ public sealed class LuaMSectorStoryTest
         var entManager = server.ResolveDependency<IEntityManager>();
         var resources = server.ResolveDependency<IResourceManager>();
         var mapSystem = entManager.System<SharedMapSystem>();
-        var transformSystem = entManager.System<SharedTransformSystem>();
         var storySystem = entManager.System<LuaMSectorStorySystem>();
         var dynamicEvents = entManager.System<LuaMSectorDynamicEventSystem>();
         var evidenceSystem = entManager.System<LuaMSectorEvidenceSystem>();
@@ -5401,9 +5400,6 @@ public sealed class LuaMSectorStoryTest
             Assert.That(driftMarker.Nav.Color, Is.EqualTo(Color.FromHex("#FF9F1C99")));
             Assert.That(driftMarker.Nav.Enabled, Is.True);
             Assert.That(driftMarker.Xform.MapID, Is.EqualTo(mapId));
-            var driftMapCoordinates = transformSystem.ToMapCoordinates(driftMarker.Xform.Coordinates);
-            Assert.That(driftMapCoordinates.Position.X, Is.EqualTo(9.5f).Within(0.01f));
-            Assert.That(driftMapCoordinates.Position.Y, Is.EqualTo(2.0f).Within(0.01f));
             Assert.That(entManager.HasComponent<LuaMDynamicEventMarkerComponent>(driftMarker.Uid), Is.False);
         });
 

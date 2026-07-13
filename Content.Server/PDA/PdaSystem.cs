@@ -845,6 +845,8 @@ namespace Content.Server.PDA
 
         private Dictionary<string, PdaBankAccountRecord> LoadPdaBankAccountRegistry()
         {
+            _resources.UserData.CreateDir(PdaBankAccountRegistryPath.Directory);
+
             if (!_resources.UserData.TryReadAllText(PdaBankAccountRegistryPath, out var json))
                 return new Dictionary<string, PdaBankAccountRecord>(StringComparer.OrdinalIgnoreCase);
 

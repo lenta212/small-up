@@ -235,7 +235,7 @@ public sealed class LuaMPlayerAiRequestTest
     [Test]
     public async Task RouteRequestReturnsCoordinatesForOpenLead()
     {
-        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        var pair = await PoolManager.GetServerClient(new PoolSettings
         {
             Connected = true,
             Dirty = true,
