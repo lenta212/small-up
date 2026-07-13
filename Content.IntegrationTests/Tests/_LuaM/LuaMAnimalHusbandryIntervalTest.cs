@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Numerics;
 using Content.Server.Nutrition.EntitySystems;
+using Content.Server.Spawners.Components;
 using Content.Shared.CCVar;
 using Content.Shared.Nutrition.AnimalHusbandry;
 using Content.Shared.Storage;
@@ -182,9 +183,67 @@ public sealed class LuaMAnimalHusbandryIntervalTest
                     Assert.That(CountPopulationUnits(entManager, cowMap), Is.EqualTo(4),
                         "Population capacity must be isolated per map.");
                 });
+
+                var configuredEggs = 0;
+                var eggQuery = entManager
+                    .EntityQueryEnumerator<TimedSpawnerComponent, MetaDataComponent, TransformComponent>();
+                while (eggQuery.MoveNext(out _, out var timedSpawner, out var metadata, out var transform))
+                {
+                    if (transform.MapID != chickenMap ||
+                        metadata.EntityPrototype?.ID != "FoodEggChickenFertilized")
+                    {
+                        continue;
+                    }
+
+                    timedSpawner.MinimumEntitiesSpawned = 3;
+                    timedSpawner.MaximumEntitiesSpawned = 3;
+                    configuredEggs++;
+                }
+
+                Assert.That(configuredEggs, Is.EqualTo(2),
+                    "The hatch test must exercise batch spawns against one reserved slot per egg.");
             });
 
-            await pair.RunSeconds(22f);
+            await pair.RunSeconds(20.5f);
+
+            await server.WaitAssertion(() =>
+            {
+                Assert.Multiple(() =>
+                {
+                    Assert.That(CountPrototypeOnMap(entManager, chickenMap, "FoodEggChickenFertilized"), Is.EqualTo(2),
+                        "The eggs must still exist before their 21-second timed despawn.");
+                    Assert.That(CountOnMap<ReproductivePartnerComponent>(entManager, chickenMap), Is.EqualTo(4));
+                    Assert.That(CountOnMap<AnimalHusbandryOffspringComponent>(entManager, chickenMap), Is.EqualTo(2),
+                        "Each successful hatch must transfer its reserved population slot from the egg to the chick.");
+                    Assert.That(CountPopulationUnits(entManager, chickenMap), Is.EqualTo(4),
+                        "Hatching must not transiently exceed the hard cap while the emptied eggs await despawn.");
+                    Assert.That(CountPopulationUnits(entManager, cowMap), Is.EqualTo(4));
+                });
+
+                var exhaustedEggSpawners = 0;
+                var eggQuery = entManager
+                    .EntityQueryEnumerator<TimedSpawnerComponent, MetaDataComponent, TransformComponent>();
+                while (eggQuery.MoveNext(out _, out var timedSpawner, out var metadata, out var transform))
+                {
+                    if (transform.MapID != chickenMap ||
+                        metadata.EntityPrototype?.ID != "FoodEggChickenFertilized")
+                    {
+                        continue;
+                    }
+
+                    Assert.Multiple(() =>
+                    {
+                        Assert.That(timedSpawner.TotalSpawned, Is.EqualTo(1));
+                        Assert.That(timedSpawner.MaximumTotalSpawns, Is.EqualTo(1),
+                            "A transferred one-slot reservation must permanently exhaust the source spawner.");
+                    });
+                    exhaustedEggSpawners++;
+                }
+
+                Assert.That(exhaustedEggSpawners, Is.EqualTo(2));
+            });
+
+            await pair.RunSeconds(1f);
 
             await server.WaitAssertion(() =>
             {
@@ -192,8 +251,7 @@ public sealed class LuaMAnimalHusbandryIntervalTest
                 {
                     Assert.That(CountPrototypeOnMap(entManager, chickenMap, "FoodEggChickenFertilized"), Is.Zero);
                     Assert.That(CountOnMap<ReproductivePartnerComponent>(entManager, chickenMap), Is.EqualTo(4));
-                    Assert.That(CountPopulationUnits(entManager, chickenMap), Is.EqualTo(4),
-                        "Hatching must replace reserved egg slots without exceeding the hard cap.");
+                    Assert.That(CountPopulationUnits(entManager, chickenMap), Is.EqualTo(4));
                     Assert.That(CountPopulationUnits(entManager, cowMap), Is.EqualTo(4));
                 });
             });

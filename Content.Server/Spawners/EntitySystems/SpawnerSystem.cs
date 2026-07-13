@@ -1,4 +1,5 @@
 using Content.Server.Spawners.Components;
+using Content.Shared.Nutrition.AnimalHusbandry;
 using Robust.Shared.Random;
 using Robust.Shared.Timing;
 
@@ -49,16 +50,43 @@ public sealed partial class SpawnerSystem : EntitySystem
         if (!_random.Prob(component.Chance))
             return;
 
+        var transferOffspringReservation = HasComp<AnimalHusbandryOffspringComponent>(uid);
         var number = _random.Next(component.MinimumEntitiesSpawned, component.MaximumEntitiesSpawned);
         if (component.MaximumTotalSpawns is { } maximum)
             number = Math.Min(number, maximum - component.TotalSpawned);
+
+        // A marked spawner represents exactly one reserved population slot.
+        if (transferOffspringReservation)
+            number = Math.Min(number, 1);
 
         var coordinates = Transform(uid).Coordinates;
 
         for (var i = 0; i < number; i++)
         {
             var entity = _random.Pick(component.Prototypes);
-            SpawnAtPosition(entity, coordinates);
+            if (transferOffspringReservation)
+                RemComp<AnimalHusbandryOffspringComponent>(uid);
+
+            EntityUid spawned;
+            try
+            {
+                spawned = SpawnAtPosition(entity, coordinates);
+            }
+            catch
+            {
+                if (transferOffspringReservation && !TerminatingOrDeleted(uid))
+                    EnsureComp<AnimalHusbandryOffspringComponent>(uid);
+
+                throw;
+            }
+
+            if (transferOffspringReservation)
+            {
+                EnsureComp<AnimalHusbandryOffspringComponent>(spawned);
+                component.MaximumTotalSpawns = component.TotalSpawned + 1;
+                transferOffspringReservation = false;
+            }
+
             component.TotalSpawned++;
         }
     }
