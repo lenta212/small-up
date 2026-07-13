@@ -1,6 +1,6 @@
 # LuaM Local Release Manifest
 
-Current policy: the 2026-07-12 seven-day round release remains live. The operator explicitly requested the 2026-07-13 durable-transfer, animal-control, and sector-interception update; remote deployment remains frozen while its fresh full readiness, package audit, release build, backup plan, and wait-for-empty gate run.
+Current policy: the 2026-07-12 seven-day round release remains live. The operator explicitly requested the 2026-07-13 durable-transfer, animal-control, and sector-interception update; all local release gates have passed, and remote deployment remains frozen only until the guarded zero-player rollout begins.
 
 The machine-readable policy lives in `Tools\luam_release_policy.json`. The deploy helper reads that JSON file first and falls back to this manifest only if the JSON file is missing.
 
@@ -275,10 +275,12 @@ The 2026-07-13 expedition/persistence work is deliberately covered by the source
 
 ### 2026-07-13 — current development slice (not deployed)
 
-- The selected update is committed as three reviewed gameplay slices: durable PDA operation journaling, bounded animal-population administration, and playable sector contact interception. Remote deployment remains frozen pending the fresh full release gate and zero-player rollout.
+- The selected update is committed as three reviewed gameplay slices plus their release-gate coverage: durable PDA operation journaling, bounded animal-population administration, and playable sector contact interception. Remote deployment remains frozen pending the zero-player rollout.
 - A combined final-state integration filter passed 39/39 across bank/PDA, animal husbandry/population/timed spawners, and sector traffic/interception. The focused workstreams additionally exercised all 31 bank scenarios, six animal scenarios, and two sector scenarios after their last fixes.
 - SQLite and PostgreSQL both report no pending EF model changes after the new durable-transfer migrations. The database, server, client, and integration-test projects build with zero errors.
-- The quick release readiness gate passed with no issues; before the feature commits its sole warning was the expected eight untracked implementation/test/migration files. Strict readiness, full local smoke, source-package verification, binary release build, and release-surface audit are the remaining pre-deploy gates.
+- The strict readiness gate with tests and local smoke passed with no issues or warnings. It covered the LuaM Content/Integration filters, dependency audit, feature validator, AI gateway, admin ranks, and local server/client smoke.
+- Source package `luam-local-release-20260713-170614.zip` independently verified 528 files with no untracked or out-of-scope entries; SHA256 is `78a7f90bba84d532ce0f4d08ca05c2710b0b28e9ae39038f36af0c1ac3ee6ca9`.
+- Release artifacts passed the zero-violation surface audit: server SHA256 `1dac909c6a76113012e6b49838146b3c22755e4fe3b3d33eb2d39a528f9daf1b`; client/build-version SHA256 `dfb52888fc31af2e075bc36b6ef5f03c895cf76bd14891e1a316dc4cd782b147`; intended immutable client URL `http://188.127.225.57:1213/dfb52888fc31af2e075bc36b6ef5f03c895cf76bd14891e1a316dc4cd782b147/SS14.Client.zip`.
 
 - `Tools\check_luam_release_ready.ps1 -AllowUntracked -Json` passed with no issues. Its sole warning is the expected set of 18 untracked source/test/migration/design files; a strict git-based release remains blocked until those files are intentionally reviewed and added.
 - The focused persistence/expedition/progression/TTS regression filter passed 53/53, including a non-empty SQLite upgrade, fail-closed downgrade, archive CHECK constraint, 2048 expedition seeds, the v2 golden hash, culture invariance, bounded gateway JSON, and structured WAV/Ogg validation.
@@ -290,7 +292,7 @@ The 2026-07-13 expedition/persistence work is deliberately covered by the source
 - A clean strict readiness run passed with no issues or warnings after the first-run PDA registry loader was hardened to create its parent directory. The two affected clean-server scenarios passed 3/3 each, and the dynamic sensor-drift contract passed 3/3 after removing unstable live-position assertions for its intentionally unanchored physics entity.
 - Read-only round-123 evidence identified 13 mouse, 13 cockroach, and 12 low-pop snail vent migrations in roughly 14 hours 40 minutes. The release now limits each migration to one occurrence per round, removes unintended guaranteed bonus pests, caps map husbandry at 32 population units including fertilized eggs, and gives mouse/cockroach timed markers a persisted five-spawn lifetime budget. The combined animal-cap integration filter passed 4/4.
 - The existing `CargoTest` fixture passed 4 tests and kept its 1 intentional skip. Server, client, and integration-test builds completed with zero errors; only the documented baseline warnings remain.
-- Read-only production preflight found `monolith-ds.service` active with `NRestarts=0`, matching local/remote config SHA256 `0f17c2794b5e6aca9e61ac31ce5e7fdb07a87916d0ec4788bce8a4c3bf62ff77`, 12 GiB free, a healthy immutable client archive, and no warning-or-higher journal entries in the preceding 30 minutes. One player was online, so any approved rollout must use wait-for-empty rather than force.
+- Read-only production preflight at `2026-07-13 20:14 MSK` found `monolith-ds.service` active in round 123 with two players online. The system journal had no priority-error entries; the broader text metric contained only known unrelated one-off transform, hub-reset, dungeon-key, and component-validation messages. Semantic config comparison confirmed that the reviewed local config preserves every live value and adds only `luam.animal_husbandry.max_population_per_map = 32`, `luam.sector_traffic.enabled = true`, and `luam.sector_traffic.contacts = 2`. The rollout must wait for zero players and must not use `-Force`.
 
 ### 2026-07-12 — deployed release baseline
 
