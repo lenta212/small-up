@@ -1,6 +1,6 @@
 {
-  "remoteDeployFrozen": true,
-  "reason": "The operator explicitly requested the 2026-07-13 update rollout. Remote deployment remains frozen until the final tests, package audit, backup plan, and wait-for-empty gate pass.",
+  "remoteDeployFrozen": false,
+  "reason": "The operator explicitly requested the 2026-07-13 rollout. Readiness, package verification, release audit, live-path confirmation, backup planning, and both dry-runs passed; deployment is authorized only through the guarded wait-for-empty path without Force.",
   "lastReviewed": "2026-07-13",
   "approvedReleaseAdditions": [
     "Content.Client/_LuaM/Sector/LuaMAiTtsAudioSystem.cs",
