@@ -12,6 +12,7 @@ public enum LuaMSectorTerminalUiKey : byte
 public enum LuaMSectorTerminalAction : byte
 {
     Refresh,
+    InterceptTrafficContact,
     RequestDynamicEvent,
     PingActiveRouteMarker,
     PrintLeadReport,
@@ -30,11 +31,17 @@ public sealed class LuaMSectorTerminalActionMessage : BoundUserInterfaceMessage
     public LuaMSectorTerminalAction Action { get; }
     public string StoryId { get; }
     public string TemplateId { get; }
+    public NetEntity? Contact { get; }
 
-    public LuaMSectorTerminalActionMessage(LuaMSectorTerminalAction action, string storyId = "", string templateId = "")
+    public LuaMSectorTerminalActionMessage(
+        LuaMSectorTerminalAction action,
+        string storyId = "",
+        string templateId = "",
+        NetEntity? contact = null)
     {
         Action = action;
         StoryId = storyId;
         TemplateId = templateId;
+        Contact = contact;
     }
 }

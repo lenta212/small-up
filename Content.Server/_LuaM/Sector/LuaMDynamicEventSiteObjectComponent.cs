@@ -4,7 +4,7 @@ using Robust.Shared.Prototypes;
 namespace Content.Server._LuaM.Sector;
 
 [RegisterComponent]
-[Access(typeof(LuaMSectorDynamicEventSystem))]
+[Access(typeof(LuaMSectorDynamicEventSystem), typeof(LuaMSectorTrafficSystem))]
 public sealed partial class LuaMDynamicEventSiteObjectComponent : Component
 {
     [DataField]
@@ -33,4 +33,11 @@ public sealed partial class LuaMDynamicEventSiteObjectComponent : Component
 
     [DataField]
     public string RouteSurveySummary = string.Empty;
+
+    /// <summary>
+    /// Whether this site object itself can resolve the linked story. Recoverable
+    /// radar-intercept cargo disables this and uses LuaMSectorEvidence instead.
+    /// </summary>
+    [DataField]
+    public bool DirectSubmissionAllowed = true;
 }

@@ -115,7 +115,17 @@ public sealed partial class LuaMSectorDynamicEventSystem
         }
 
         SpawnDebrisSite(template, record, actor, resolvedMarkerCoordinates, markerLocation, debrisPlan);
-        var routeCalibrationApplied = SpawnWorldMarker(template, record, actor, resolvedMarkerCoordinates, markerLocation, conditionRiskSummary, conditionSeverity, status, out var routeCalibrationSource);
+        var routeCalibrationApplied = SpawnWorldMarker(
+            template,
+            record,
+            actor,
+            resolvedMarkerCoordinates,
+            markerLocation,
+            conditionRiskSummary,
+            conditionSeverity,
+            status,
+            true,
+            out var routeCalibrationSource);
         SpawnSensorDriftMarker(template, record, actor, resolvedMarkerCoordinates, status, routeCalibrationApplied);
         SpawnSiteNote(template, record, actor, resolvedMarkerCoordinates, markerLocation, conditionRiskSummary, routeCalibrationSource);
         SpawnSiteObjects(template, record, actor, resolvedMarkerCoordinates, conditionRiskSummary, routeCalibrationSource);

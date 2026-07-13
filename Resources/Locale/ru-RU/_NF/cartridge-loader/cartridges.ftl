@@ -3,6 +3,22 @@ appraisal-program-name = ОцениВСЁ Плюс
 appraisal-label-name = Предмет
 appraisal-label-price = Оценочная стоимость
 
+luam-sector-terminal-section-traffic = Живые радарные контакты
+luam-sector-terminal-no-traffic = Активный секторный радар сейчас не видит контактов для перехвата.
+luam-sector-terminal-traffic-title = {$code}: {$profile} сигнатура
+luam-sector-terminal-traffic-detail = {$signature}; дальность {$range} м; окно сканирования {$seconds} с
+luam-sector-terminal-traffic-objective = {$objective} Профиль события: {$template}.
+luam-sector-terminal-traffic-intercept = Сканировать и перехватить
+luam-sector-terminal-traffic-intercept-tooltip = Преобразовать движущуюся сигнатуру в одно ограниченное задание LuaM на текущих координатах.
+luam-sector-terminal-contact-use-terminal = Для сканирования и перехвата используйте физический секторный терминал LuaM.
+luam-sector-terminal-result-contact-lost = Выбранный радарный контакт больше недоступен.
+luam-sector-terminal-result-contact-intercepted = Контакт перехвачен. Новый маршрут/задача: {$title}.
+luam-sector-terminal-intercept-delivery-required = Заберите отмеченный груз или регистратор и подайте его у физического секторного терминала LuaM.
+luam-sector-terminal-popup-intercept-recovery-pending = Сначала заберите и подайте перехваченный груз или регистратор; до этого отчёт закрытия недоступен.
+luam-sector-status-traffic = Живые радарные контакты
+luam-sector-status-no-traffic = Активный секторный радар сейчас не видит контактов для перехвата.
+luam-sector-evidence-requires-terminal = Доставьте найденное доказательство к физическому секторному терминалу LuaM перед подачей.
+
 # Ledger cartridge
 ledger-program-name = ДеньгоСчёт Лайт
 ledger-header = Гроссбух сектора

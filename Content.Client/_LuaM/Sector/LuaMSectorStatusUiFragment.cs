@@ -14,6 +14,7 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
     private readonly BoxContainer _briefing = new();
     private readonly BoxContainer _questTasks = new();
     private readonly BoxContainer _automation = new();
+    private readonly BoxContainer _trafficContacts = new();
     private readonly BoxContainer _sectorMap = new();
     private readonly BoxContainer _conditions = new();
     private readonly BoxContainer _preferredProcesses = new();
@@ -74,6 +75,11 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
         _automation.Orientation = LayoutOrientation.Vertical;
         _automation.HorizontalExpand = true;
         body.AddChild(_automation);
+
+        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-traffic")));
+        _trafficContacts.Orientation = LayoutOrientation.Vertical;
+        _trafficContacts.HorizontalExpand = true;
+        body.AddChild(_trafficContacts);
 
         body.AddChild(MakeSection(Loc.GetString("luam-sector-status-sector-map")));
         _sectorMap.Orientation = LayoutOrientation.Vertical;
@@ -197,6 +203,17 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
             ClipText = false,
         });
         _automation.AddChild(MakeMutedLabel(Loc.GetString("luam-sector-status-route-closure-instruction")));
+
+        _trafficContacts.RemoveAllChildren();
+        if (state.TrafficContacts.Length == 0)
+        {
+            _trafficContacts.AddChild(MakeMutedLabel(Loc.GetString("luam-sector-status-no-traffic")));
+        }
+        else
+        {
+            foreach (var contact in state.TrafficContacts)
+                _trafficContacts.AddChild(MakeTrafficContactRow(contact));
+        }
 
         _sectorMap.RemoveAllChildren();
         if (state.SectorMapNodes.Length == 0)
@@ -555,6 +572,45 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
             });
         }
 
+        return row;
+    }
+
+    private static BoxContainer MakeTrafficContactRow(LuaMSectorTrafficUiEntry contact)
+    {
+        var row = new BoxContainer
+        {
+            Orientation = LayoutOrientation.Vertical,
+            HorizontalExpand = true,
+            Margin = new Thickness(0, 0, 0, 6),
+        };
+        row.AddChild(new Label
+        {
+            Text = Loc.GetString(
+                "luam-sector-terminal-traffic-title",
+                ("code", contact.ContactCode),
+                ("profile", contact.Profile)),
+            ClipText = false,
+        });
+        row.AddChild(new Label
+        {
+            Text = Loc.GetString(
+                "luam-sector-terminal-traffic-detail",
+                ("signature", contact.Signature),
+                ("range", contact.RangeMeters),
+                ("seconds", contact.SecondsRemaining)),
+            StyleClasses = { "LabelSubText" },
+            ClipText = false,
+        });
+        row.AddChild(new Label
+        {
+            Text = Loc.GetString(
+                "luam-sector-terminal-traffic-objective",
+                ("objective", contact.Objective),
+                ("template", contact.TemplateId)),
+            StyleClasses = { "LabelSubText" },
+            ClipText = false,
+        });
+        row.AddChild(MakeMutedLabel(Loc.GetString("luam-sector-terminal-contact-use-terminal")));
         return row;
     }
 

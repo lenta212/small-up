@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using Content.Server._LuaM.Sector;
 using Content.Server._Mono.Radar;
+using Content.Shared._LuaM.Sector;
 using Content.Shared.GameTicking;
 using Content.Shared.Shuttles.Systems;
 using Robust.Shared.GameObjects;
@@ -52,6 +54,30 @@ public sealed class LuaMSectorTrafficTest
                     LuaMSectorTrafficSystem.HardMaxContacts + 20);
 
                 Assert.That(contacts, Has.Count.EqualTo(LuaMSectorTrafficSystem.HardMaxContacts));
+                Assert.That(
+                    contacts.Select(uid => entManager.GetComponent<LuaMSectorTrafficContactComponent>(uid).Profile),
+                    Is.EquivalentTo(Enum.GetValues<LuaMSectorTrafficProfile>()),
+                    "A complete bounded batch must expose civilian, cargo, distress, and unknown signatures.");
+                Assert.That(
+                    contacts.Select(uid => entManager.GetComponent<LuaMSectorTrafficContactComponent>(uid).ContactCode),
+                    Is.Unique,
+                    "Every terminal entry needs an unambiguous round-local contact code.");
+                Assert.That(
+                    contacts.Select(uid => entManager.GetComponent<RadarBlipComponent>(uid).Config.Shape),
+                    Is.Unique,
+                    "The four contact profiles must be visually distinguishable on the existing radar.");
+                var expectedTemplates = new Dictionary<LuaMSectorTrafficProfile, string>
+                {
+                    [LuaMSectorTrafficProfile.Civilian] = "navigation-drift",
+                    [LuaMSectorTrafficProfile.Cargo] = "courier-handoff",
+                    [LuaMSectorTrafficProfile.Distress] = "quiet-distress",
+                    [LuaMSectorTrafficProfile.Unknown] = "black-box-echo",
+                };
+                foreach (var uid in contacts)
+                {
+                    var contact = entManager.GetComponent<LuaMSectorTrafficContactComponent>(uid);
+                    Assert.That(contact.DynamicEventTemplateId, Is.EqualTo(expectedTemplates[contact.Profile]));
+                }
                 startingPosition = entManager.GetComponent<TransformComponent>(contacts[0]).LocalPosition;
             });
 
@@ -83,11 +109,14 @@ public sealed class LuaMSectorTrafficTest
                         }
 
                         var marker = entManager.GetComponent<LuaMSectorTrafficContactComponent>(uid);
+                        Assert.That(marker.DynamicEventTemplateId, Is.Not.Empty);
                         Assert.That(marker.RouteVelocity.Length(), Is.InRange(
                             LuaMSectorTrafficSystem.MinimumSpeed,
                             LuaMSectorTrafficSystem.MaximumSpeed));
 
                         var xform = entManager.GetComponent<TransformComponent>(uid);
+                        Assert.That(xform.GridUid, Is.Null,
+                            "Traffic profiles must remain radar entities, never physical shuttle grids.");
                         Assert.That(xform.GridTraversal, Is.False,
                             "A radar-only contact must stay map-parented while crossing the sector.");
                         Assert.That(xform.LocalPosition.Length(), Is.LessThanOrEqualTo(

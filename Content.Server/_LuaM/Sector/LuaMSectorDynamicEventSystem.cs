@@ -316,7 +316,10 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         string? templateId = null,
         bool ignoreOpenRuntimeLead = false,
         bool ignorePlayerGate = false,
-        MapCoordinates? markerCoordinates = null)
+        MapCoordinates? markerCoordinates = null,
+        bool spawnDebrisSite = true,
+        bool spawnSiteNote = true,
+        bool allowDirectSubmission = true)
     {
         record = null;
         error = string.Empty;
@@ -352,7 +355,9 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
 
         var resolvedMarkerCoordinates = ResolveMarkerCoordinates(markerCoordinates);
         var markerLocation = FormatMarkerLocation(resolvedMarkerCoordinates);
-        var debrisPlan = BuildDebrisSitePlan(resolvedMarkerCoordinates);
+        var debrisPlan = spawnDebrisSite
+            ? BuildDebrisSitePlan(resolvedMarkerCoordinates)
+            : new DebrisSitePlan(false, 0, false);
         var conditionRewardBonus = GetConditionRewardBonus(status);
         var queuedRouteCalibrationSource = GetQueuedRouteCalibrationSource();
         var routeCalibrationChainDepth = GetRouteCalibrationChainDepth(queuedRouteCalibrationSource);
@@ -399,10 +404,22 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
             return false;
         }
 
-        SpawnDebrisSite(template, record, actor, resolvedMarkerCoordinates, markerLocation, debrisPlan);
-        var routeCalibrationApplied = SpawnWorldMarker(template, record, actor, resolvedMarkerCoordinates, markerLocation, conditionRiskSummary, conditionSeverity, status, out var routeCalibrationSource);
+        if (spawnDebrisSite)
+            SpawnDebrisSite(template, record, actor, resolvedMarkerCoordinates, markerLocation, debrisPlan);
+        var routeCalibrationApplied = SpawnWorldMarker(
+            template,
+            record,
+            actor,
+            resolvedMarkerCoordinates,
+            markerLocation,
+            conditionRiskSummary,
+            conditionSeverity,
+            status,
+            allowDirectSubmission,
+            out var routeCalibrationSource);
         SpawnSensorDriftMarker(template, record, actor, resolvedMarkerCoordinates, status, routeCalibrationApplied);
-        SpawnSiteNote(template, record, actor, resolvedMarkerCoordinates, markerLocation, conditionRiskSummary, routeCalibrationSource);
+        if (spawnSiteNote)
+            SpawnSiteNote(template, record, actor, resolvedMarkerCoordinates, markerLocation, conditionRiskSummary, routeCalibrationSource);
         SpawnSiteObjects(template, record, actor, resolvedMarkerCoordinates, conditionRiskSummary, routeCalibrationSource);
         SpawnConditionHazards(template, record, actor, resolvedMarkerCoordinates, markerLocation, status, routeCalibrationSource);
         ScheduleNextAutomaticEvent();
@@ -1045,6 +1062,13 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         if (!Resolve(uid, ref marker, false))
             return false;
 
+        if (!marker.DirectSubmissionAllowed)
+        {
+            result = Loc.GetString("luam-sector-terminal-intercept-delivery-required");
+            _popup.PopupEntity(result, uid, user);
+            return false;
+        }
+
         if (!TryGetOpenRuntimeMarkerStory(marker.Story, out var story) ||
             story == null)
         {
@@ -1099,6 +1123,13 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
 
         if (!Resolve(uid, ref site, false))
             return false;
+
+        if (!site.DirectSubmissionAllowed)
+        {
+            result = Loc.GetString("luam-sector-terminal-intercept-delivery-required");
+            _popup.PopupEntity(result, uid, user);
+            return false;
+        }
 
         if (!TryGetOpenRuntimeMarkerStory(site.Story, out var story) ||
             story == null)
@@ -1525,13 +1556,16 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         if (!args.CanInteract || !args.CanAccess)
             return;
 
-        args.Verbs.Add(new InteractionVerb
+        if (component.DirectSubmissionAllowed)
         {
-            IconEntity = GetNetEntity(uid),
-            Text = Loc.GetString("luam-sector-terminal-marker-submit-verb"),
-            Priority = 3,
-            Act = () => TrySubmitMarkerTask(uid, args.User, out _, component),
-        });
+            args.Verbs.Add(new InteractionVerb
+            {
+                IconEntity = GetNetEntity(uid),
+                Text = Loc.GetString("luam-sector-terminal-marker-submit-verb"),
+                Priority = 3,
+                Act = () => TrySubmitMarkerTask(uid, args.User, out _, component),
+            });
+        }
 
         args.Verbs.Add(new InteractionVerb
         {
@@ -1544,7 +1578,7 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
 
     private void OnMarkerInteractHand(EntityUid uid, LuaMDynamicEventMarkerComponent component, InteractHandEvent args)
     {
-        if (args.Handled)
+        if (args.Handled || !component.DirectSubmissionAllowed)
             return;
 
         TrySubmitMarkerTask(uid, args.User, out _, component);
@@ -1556,13 +1590,16 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         if (!args.CanInteract || !args.CanAccess)
             return;
 
-        args.Verbs.Add(new InteractionVerb
+        if (component.DirectSubmissionAllowed)
         {
-            IconEntity = GetNetEntity(uid),
-            Text = Loc.GetString("luam-sector-terminal-marker-submit-verb"),
-            Priority = 3,
-            Act = () => TrySubmitSiteTask(uid, args.User, out _, component),
-        });
+            args.Verbs.Add(new InteractionVerb
+            {
+                IconEntity = GetNetEntity(uid),
+                Text = Loc.GetString("luam-sector-terminal-marker-submit-verb"),
+                Priority = 3,
+                Act = () => TrySubmitSiteTask(uid, args.User, out _, component),
+            });
+        }
 
         args.Verbs.Add(new InteractionVerb
         {
@@ -1575,7 +1612,7 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
 
     private void OnSiteObjectInteractHand(EntityUid uid, LuaMDynamicEventSiteObjectComponent component, InteractHandEvent args)
     {
-        if (args.Handled)
+        if (args.Handled || !component.DirectSubmissionAllowed)
             return;
 
         TrySubmitSiteTask(uid, args.User, out _, component);
@@ -2024,8 +2061,11 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
 
     private void AddStabilizedRouteEvidence(EntityUid report, LuaMDynamicEventMarkerComponent marker)
     {
-        if (marker.RoutePingCount < RouteStabilizationPingThreshold)
+        if (marker.RoutePingCount < RouteStabilizationPingThreshold ||
+            !marker.DirectSubmissionAllowed)
+        {
             return;
+        }
 
         var evidence = AddComp<LuaMSectorEvidenceComponent>(report);
         evidence.Story = marker.Story;
@@ -2303,6 +2343,7 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         string conditionRiskSummary,
         int conditionSeverity,
         LuaMSectorStatusSnapshot status,
+        bool allowDirectSubmission,
         out string routeCalibrationSource)
     {
         routeCalibrationSource = string.Empty;
@@ -2324,6 +2365,7 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         markerComponent.CreatedBy = actor;
         markerComponent.MarkerLocation = markerLocation;
         markerComponent.ConditionRiskSummary = conditionRiskSummary;
+        markerComponent.DirectSubmissionAllowed = allowDirectSubmission;
         SetTaskMarkerMetadata(marker, record, markerLocation);
 
         if (!string.IsNullOrWhiteSpace(conditionRiskSummary) &&

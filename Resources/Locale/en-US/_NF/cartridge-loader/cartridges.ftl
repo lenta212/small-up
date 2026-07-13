@@ -3,6 +3,22 @@ appraisal-program-name = AppraiseAll Plus
 appraisal-label-name = Item
 appraisal-label-price = Appraised Price
 
+luam-sector-terminal-section-traffic = Live radar contacts
+luam-sector-terminal-no-traffic = No interceptable traffic is currently visible to an active sector radar.
+luam-sector-terminal-traffic-title = {$code}: {$profile} signature
+luam-sector-terminal-traffic-detail = {$signature}; range {$range} m; scan window {$seconds} s
+luam-sector-terminal-traffic-objective = {$objective} Event profile: {$template}.
+luam-sector-terminal-traffic-intercept = Scan and intercept
+luam-sector-terminal-traffic-intercept-tooltip = Resolve this moving radar signature into one bounded LuaM contract at its current coordinates.
+luam-sector-terminal-contact-use-terminal = Use a physical LuaM sector terminal to scan and intercept this contact.
+luam-sector-terminal-result-contact-lost = The selected radar contact is no longer available.
+luam-sector-terminal-result-contact-intercepted = Contact intercepted. New route/task: {$title}.
+luam-sector-terminal-intercept-delivery-required = Recover the marked cargo or recorder and file it at a physical LuaM sector terminal.
+luam-sector-terminal-popup-intercept-recovery-pending = The intercepted cargo or recorder must be recovered and filed before a closure report can be issued.
+luam-sector-status-traffic = Live radar contacts
+luam-sector-status-no-traffic = No interceptable traffic is currently visible to an active sector radar.
+luam-sector-evidence-requires-terminal = Carry this recovered evidence to a physical LuaM sector terminal before filing it.
+
 # Ledger cartridge
 ledger-program-name = CreditFlow Lite
 ledger-header = Sector Ledger

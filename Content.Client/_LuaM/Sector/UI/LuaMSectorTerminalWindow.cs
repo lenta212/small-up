@@ -10,7 +10,7 @@ namespace Content.Client._LuaM.Sector.UI;
 
 public sealed class LuaMSectorTerminalWindow : FancyWindow
 {
-    public event Action<LuaMSectorTerminalAction, string, string>? ActionRequested;
+    public event Action<LuaMSectorTerminalAction, string, string, NetEntity?>? ActionRequested;
 
     [Dependency] private readonly IClipboardManager _clipboard = default!;
 
@@ -18,6 +18,7 @@ public sealed class LuaMSectorTerminalWindow : FancyWindow
     private readonly Label _actionResult = new();
     private readonly BoxContainer _questTasks = MakeList();
     private readonly BoxContainer _automation = MakeList();
+    private readonly BoxContainer _trafficContacts = MakeList();
     private readonly BoxContainer _sectorMap = MakeList();
     private readonly BoxContainer _preferredProcesses = MakeList();
     private readonly BoxContainer _insuranceCases = MakeList();
@@ -98,6 +99,7 @@ public sealed class LuaMSectorTerminalWindow : FancyWindow
 
         AddSection(body, Loc.GetString("luam-sector-terminal-section-quests"), _questTasks);
         AddSection(body, Loc.GetString("luam-sector-terminal-section-automation"), _automation);
+        AddSection(body, Loc.GetString("luam-sector-terminal-section-traffic"), _trafficContacts);
         AddSection(body, Loc.GetString("luam-sector-terminal-section-map"), _sectorMap);
         AddSection(body, Loc.GetString("luam-sector-terminal-section-preferred"), _preferredProcesses);
         AddSection(body, Loc.GetString("luam-sector-terminal-section-insurance"), _insuranceCases);
@@ -205,6 +207,17 @@ public sealed class LuaMSectorTerminalWindow : FancyWindow
                 ? Loc.GetString("luam-sector-terminal-generator-no-templates")
                 : string.Join(", ", state.Automation.TemplateIds),
             string.Empty);
+
+        _trafficContacts.RemoveAllChildren();
+        if (state.TrafficContacts.Length == 0)
+        {
+            AddMuted(_trafficContacts, Loc.GetString("luam-sector-terminal-no-traffic"));
+        }
+        else
+        {
+            foreach (var contact in state.TrafficContacts)
+                AddTrafficContact(_trafficContacts, contact);
+        }
 
         _sectorMap.RemoveAllChildren();
         if (state.SectorMapNodes.Length == 0)
@@ -393,7 +406,7 @@ public sealed class LuaMSectorTerminalWindow : FancyWindow
             ToolTip = toolTip,
         };
 
-        button.OnPressed += _ => ActionRequested?.Invoke(action, string.Empty, string.Empty);
+        button.OnPressed += _ => ActionRequested?.Invoke(action, string.Empty, string.Empty, null);
         _actionButtons[action] = button;
         actions.AddChild(button);
         return button;
@@ -695,7 +708,7 @@ public sealed class LuaMSectorTerminalWindow : FancyWindow
                 ? Loc.GetString("luam-sector-terminal-claim-filed-tooltip")
                 : Loc.GetString("luam-sector-terminal-print-claim-tooltip"),
         };
-        button.OnPressed += _ => ActionRequested?.Invoke(LuaMSectorTerminalAction.PrintInsuranceClaimVoucher, claim.StoryId, string.Empty);
+        button.OnPressed += _ => ActionRequested?.Invoke(LuaMSectorTerminalAction.PrintInsuranceClaimVoucher, claim.StoryId, string.Empty, null);
         row.AddChild(button);
         list.AddChild(row);
     }
@@ -756,6 +769,56 @@ public sealed class LuaMSectorTerminalWindow : FancyWindow
         list.AddChild(row);
     }
 
+    private void AddTrafficContact(BoxContainer list, LuaMSectorTrafficUiEntry contact)
+    {
+        var row = MakeRow();
+        row.AddChild(new Label
+        {
+            Text = Loc.GetString(
+                "luam-sector-terminal-traffic-title",
+                ("code", contact.ContactCode),
+                ("profile", contact.Profile)),
+            ClipText = false,
+        });
+        row.AddChild(new Label
+        {
+            Text = Loc.GetString(
+                "luam-sector-terminal-traffic-detail",
+                ("signature", contact.Signature),
+                ("range", contact.RangeMeters),
+                ("seconds", contact.SecondsRemaining)),
+            StyleClasses = { "LabelSubText" },
+            ClipText = false,
+        });
+        row.AddChild(new Label
+        {
+            Text = Loc.GetString(
+                "luam-sector-terminal-traffic-objective",
+                ("objective", contact.Objective),
+                ("template", contact.TemplateId)),
+            StyleClasses = { "LabelSubText" },
+            ClipText = false,
+        });
+
+        var button = new Button
+        {
+            Text = Loc.GetString("luam-sector-terminal-traffic-intercept"),
+            Disabled = !contact.CanIntercept,
+            HorizontalExpand = true,
+            MinHeight = 30,
+            ToolTip = contact.CanIntercept
+                ? Loc.GetString("luam-sector-terminal-traffic-intercept-tooltip")
+                : contact.BlockReason,
+        };
+        button.OnPressed += _ => ActionRequested?.Invoke(
+            LuaMSectorTerminalAction.InterceptTrafficContact,
+            string.Empty,
+            contact.TemplateId,
+            contact.Contact);
+        row.AddChild(button);
+        list.AddChild(row);
+    }
+
     private void AddPreferredProcess(BoxContainer list, LuaMSectorPreferredProcessUiEntry process)
     {
         var row = MakeRow();
@@ -806,7 +869,7 @@ public sealed class LuaMSectorTerminalWindow : FancyWindow
                 ? Loc.GetString("luam-sector-terminal-preferred-request-tooltip")
                 : process.BlockReason,
         };
-        button.OnPressed += _ => ActionRequested?.Invoke(LuaMSectorTerminalAction.RequestDynamicEvent, string.Empty, process.TemplateId);
+        button.OnPressed += _ => ActionRequested?.Invoke(LuaMSectorTerminalAction.RequestDynamicEvent, string.Empty, process.TemplateId, null);
         row.AddChild(button);
         list.AddChild(row);
     }
@@ -873,7 +936,7 @@ public sealed class LuaMSectorTerminalWindow : FancyWindow
                 ? Loc.GetString("luam-sector-terminal-print-charter-tooltip")
                 : Loc.GetString("luam-sector-terminal-registry-filed-tooltip"),
         };
-        button.OnPressed += _ => ActionRequested?.Invoke(LuaMSectorTerminalAction.PrintCharterVoucher, record.StoryId, string.Empty);
+        button.OnPressed += _ => ActionRequested?.Invoke(LuaMSectorTerminalAction.PrintCharterVoucher, record.StoryId, string.Empty, null);
         row.AddChild(button);
         list.AddChild(row);
     }

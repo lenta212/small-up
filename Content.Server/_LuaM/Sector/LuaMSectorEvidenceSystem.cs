@@ -17,6 +17,7 @@ namespace Content.Server._LuaM.Sector;
 public sealed partial class LuaMSectorEvidenceSystem : EntitySystem
 {
     private const float BlackBoxSnapshotRadius = 8f;
+    private const float SectorTerminalFilingRadius = 3f;
 
     [Dependency] private LuaMSectorStorySystem _stories = default!;
     [Dependency] private PopupSystem _popup = default!;
@@ -50,6 +51,15 @@ public sealed partial class LuaMSectorEvidenceSystem : EntitySystem
     {
         if (!Resolve(uid, ref component, false))
             return false;
+
+        if (component.RequireSectorTerminal && !IsNearSectorTerminal(user))
+        {
+            _popup.PopupEntity(
+                Loc.GetString("luam-sector-evidence-requires-terminal"),
+                uid,
+                user);
+            return false;
+        }
 
         var actor = MetaData(user).EntityName;
         var note = string.IsNullOrWhiteSpace(component.Note)
@@ -86,6 +96,26 @@ public sealed partial class LuaMSectorEvidenceSystem : EntitySystem
             user);
 
         return changed;
+    }
+
+    private bool IsNearSectorTerminal(EntityUid user)
+    {
+        if (!TryComp(user, out TransformComponent? userXform))
+            return false;
+
+        var userPosition = _transform.GetWorldPosition(userXform);
+        var maximumDistanceSquared = SectorTerminalFilingRadius * SectorTerminalFilingRadius;
+        var query = EntityQueryEnumerator<LuaMSectorLeadReportComponent, TransformComponent>();
+        while (query.MoveNext(out var uid, out _, out var terminalXform))
+        {
+            if (TerminatingOrDeleted(uid) || terminalXform.MapID != userXform.MapID)
+                continue;
+
+            if ((_transform.GetWorldPosition(terminalXform) - userPosition).LengthSquared() <= maximumDistanceSquared)
+                return true;
+        }
+
+        return false;
     }
 
     private string BuildBlackBoxSourceSnapshot(EntityUid uid)

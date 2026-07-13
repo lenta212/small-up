@@ -30,3 +30,85 @@
       respectZoom: false
       rotate: true
   - type: LuaMSectorTrafficContact
+    profile: Civilian
+
+- type: entity
+  parent: LuaMSectorTrafficContact
+  id: LuaMSectorTrafficContactCargo
+  name: грузовая транзитная сигнатура
+  description: Тяжёлый гражданский транспондер с нестабильной отметкой груза.
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: RadarBlip
+    requireNoGrid: true
+    visibleFromOtherGrids: true
+    maxDistance: 3072
+    config:
+      color: "#F2C14E"
+      shape: Square
+      bounds: "-3,-3,3,3"
+      respectZoom: false
+      rotate: false
+  - type: LuaMSectorTrafficContact
+    profile: Cargo
+
+- type: entity
+  parent: LuaMSectorTrafficContact
+  id: LuaMSectorTrafficContactDistress
+  name: аварийная транзитная сигнатура
+  description: Повторяющийся сигнал бедствия без физического судна в симуляции.
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: RadarBlip
+    requireNoGrid: true
+    visibleFromOtherGrids: true
+    maxDistance: 3072
+    config:
+      color: "#FF5D5D"
+      shape: Star
+      bounds: "-4,-4,4,4"
+      respectZoom: false
+      rotate: false
+  - type: LuaMSectorTrafficContact
+    profile: Distress
+
+- type: entity
+  parent: LuaMSectorTrafficContact
+  id: LuaMSectorTrafficContactUnknown
+  name: неизвестная транзитная сигнатура
+  description: Неопознанное широкополосное эхо, доступное для секторного перехвата.
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: RadarBlip
+    requireNoGrid: true
+    visibleFromOtherGrids: true
+    maxDistance: 3072
+    config:
+      color: "#B985FF"
+      shape: Diamond
+      bounds: "-4,-4,4,4"
+      respectZoom: false
+      rotate: true
+  - type: LuaMSectorTrafficContact
+    profile: Unknown
+
+- type: entity
+  parent: BriefcaseBrown
+  id: LuaMSectorTrafficRecoveryCargo
+  name: запечатанный транзитный груз
+  description: Ограниченная по времени находка с перехваченной грузовой сигнатуры.
+  categories: [ HideSpawnMenu ]
+
+- type: entity
+  parent: BaseItem
+  id: LuaMSectorTrafficRecoveryEvidence
+  name: регистратор перехваченного сигнала
+  description: Лёгкий регистратор с доказательствами аварийной или неизвестной сигнатуры.
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _LuaM/Objects/Monolith/flight_recorder.rsi
+    state: icon
+  - type: Icon
+    sprite: _LuaM/Objects/Monolith/flight_recorder.rsi
+    state: icon

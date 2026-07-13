@@ -15,6 +15,7 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
     [Dependency] private LuaMSectorInsuranceTerminalSystem _insurance = default!;
     [Dependency] private LuaMSectorRegistryTerminalSystem _registry = default!;
     [Dependency] private LuaMSectorDynamicEventSystem _dynamicEvents = default!;
+    [Dependency] private LuaMSectorTrafficSystem _traffic = default!;
     [Dependency] private PaperSystem _paper = default!;
     [Dependency] private PopupSystem _popup = default!;
     [Dependency] private UserInterfaceSystem _ui = default!;
@@ -36,6 +37,7 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
         SubscribeLocalEvent<LuaMSectorConditionChangedEvent>(OnSectorStatusChanged);
         SubscribeLocalEvent<LuaMSectorRescueAfterActionRecordedEvent>(OnSectorStatusChanged);
         SubscribeLocalEvent<LuaMSectorRescueFollowUpClearedEvent>(OnSectorStatusChanged);
+        SubscribeLocalEvent<LuaMSectorTrafficChangedEvent>(OnSectorStatusChanged);
 
         Subs.BuiEvents<LuaMSectorLeadReportComponent>(LuaMSectorTerminalUiKey.Key, subs =>
         {
@@ -56,6 +58,21 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
         {
             case LuaMSectorTerminalAction.Refresh:
                 result = Loc.GetString("luam-sector-terminal-result-refresh");
+                break;
+            case LuaMSectorTerminalAction.InterceptTrafficContact:
+                if (args.Contact is not { } netContact ||
+                    !TryGetEntity(netContact, out var contact) ||
+                    contact is not { } contactUid)
+                {
+                    result = Loc.GetString("luam-sector-terminal-result-contact-lost");
+                    break;
+                }
+
+                result = _traffic.TryInterceptContact(contactUid, args.Actor, out var intercepted, out var interceptError)
+                    ? Loc.GetString(
+                        "luam-sector-terminal-result-contact-intercepted",
+                        ("title", intercepted?.Title ?? Loc.GetString("luam-sector-terminal-result-generated")))
+                    : interceptError;
                 break;
             case LuaMSectorTerminalAction.RequestDynamicEvent:
                 LuaMSectorStoryRecord? record;
@@ -180,6 +197,7 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
                 registryRecords,
                 6),
             automation,
+            _traffic.BuildTrafficUiEntries(automation.CanRequestDynamicEvent, automation.RequestBlockReason),
             sectorMapNodes,
             preferredProcesses,
             insuranceCases,
@@ -357,6 +375,15 @@ public sealed partial class LuaMSectorLeadReportSystem : EntitySystem
         if (!_stories.TryGetOpenRuntimeDistressStory(out var story) || story == null)
         {
             _popup.PopupEntity(Loc.GetString("luam-sector-terminal-popup-no-open-runtime"), uid, user);
+            return false;
+        }
+
+        if (_traffic.HasPendingRecovery(story.Story.ToString()))
+        {
+            _popup.PopupEntity(
+                Loc.GetString("luam-sector-terminal-popup-intercept-recovery-pending"),
+                uid,
+                user);
             return false;
         }
 

@@ -38,8 +38,12 @@ public sealed class LuaMSectorTerminalBoundUserInterface(EntityUid owner, Enum u
         _window?.Dispose();
     }
 
-    private void SendTerminalAction(LuaMSectorTerminalAction action, string storyId, string templateId)
+    private void SendTerminalAction(
+        LuaMSectorTerminalAction action,
+        string storyId,
+        string templateId,
+        NetEntity? contact)
     {
-        SendMessage(new LuaMSectorTerminalActionMessage(action, storyId, templateId));
+        SendMessage(new LuaMSectorTerminalActionMessage(action, storyId, templateId, contact));
     }
 }

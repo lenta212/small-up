@@ -19,6 +19,7 @@ public sealed class LuaMSectorStatusUiState : BoundUserInterfaceState
     public readonly string[] BriefingSteps;
     public readonly LuaMSectorQuestTaskUiEntry[] QuestTasks;
     public readonly LuaMSectorAutomationUiEntry Automation;
+    public readonly LuaMSectorTrafficUiEntry[] TrafficContacts;
     public readonly LuaMSectorMapNodeUiEntry[] SectorMapNodes;
     public readonly LuaMSectorPreferredProcessUiEntry[] PreferredProcesses;
     public readonly LuaMSectorInsuranceUiEntry[] InsuranceCases;
@@ -44,6 +45,7 @@ public sealed class LuaMSectorStatusUiState : BoundUserInterfaceState
         string[] briefingSteps,
         LuaMSectorQuestTaskUiEntry[] questTasks,
         LuaMSectorAutomationUiEntry automation,
+        LuaMSectorTrafficUiEntry[] trafficContacts,
         LuaMSectorMapNodeUiEntry[] sectorMapNodes,
         LuaMSectorPreferredProcessUiEntry[] preferredProcesses,
         LuaMSectorInsuranceUiEntry[] insuranceCases,
@@ -68,6 +70,7 @@ public sealed class LuaMSectorStatusUiState : BoundUserInterfaceState
         BriefingSteps = briefingSteps;
         QuestTasks = questTasks;
         Automation = automation;
+        TrafficContacts = trafficContacts;
         SectorMapNodes = sectorMapNodes;
         PreferredProcesses = preferredProcesses;
         InsuranceCases = insuranceCases;
@@ -78,6 +81,30 @@ public sealed class LuaMSectorStatusUiState : BoundUserInterfaceState
         LockedLeads = lockedLeads;
         RecentHistory = recentHistory;
     }
+}
+
+[Serializable, NetSerializable]
+public enum LuaMSectorTrafficProfile : byte
+{
+    Civilian,
+    Cargo,
+    Distress,
+    Unknown,
+}
+
+[Serializable, NetSerializable]
+public struct LuaMSectorTrafficUiEntry
+{
+    public NetEntity Contact;
+    public string ContactCode;
+    public string Profile;
+    public string Signature;
+    public string Objective;
+    public string TemplateId;
+    public int RangeMeters;
+    public int SecondsRemaining;
+    public bool CanIntercept;
+    public string BlockReason;
 }
 
 [Serializable, NetSerializable]

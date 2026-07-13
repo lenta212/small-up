@@ -52,6 +52,13 @@ public sealed partial class LuaMDynamicEventMarkerComponent : Component
     [DataField]
     public bool RouteCalibrationRelayInherited;
 
+    /// <summary>
+    /// Whether interacting with this marker may resolve its story directly.
+    /// Radar intercepts disable this so their physical recovery must be filed.
+    /// </summary>
+    [DataField]
+    public bool DirectSubmissionAllowed = true;
+
     [DataField]
     public string PaperPrototype = "Paper";
 }

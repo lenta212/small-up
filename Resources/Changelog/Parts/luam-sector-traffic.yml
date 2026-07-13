@@ -2,6 +2,8 @@ author: LuaM
 category: Add
 changes:
   - type: Add
-    message: Ship radars now show two lightweight civilian transit contacts moving through the active sector while players are present.
+    message: Ship radars now show lightweight civilian, cargo, distress, and unknown transit signatures moving through the active sector while players are present.
+  - type: Add
+    message: The LuaM sector terminal can scan a live radar contact into a bounded route contract with cargo or signal evidence to recover and file.
   - type: Tweak
-    message: Ambient sector traffic is globally capped, staggered, collision-free, and cleaned up automatically without spawning NPC ships or crews.
+    message: Ambient sector traffic and intercept recoveries are capped, staggered, collision-free, and cleaned up automatically without spawning NPC ships, crews, or debris grids.

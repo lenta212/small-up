@@ -10,6 +10,7 @@ public sealed partial class LuaMSectorStatusCartridgeSystem : EntitySystem
     [Dependency] private CartridgeLoaderSystem _cartridgeLoader = default!;
     [Dependency] private LuaMSectorStorySystem _sectorStories = default!;
     [Dependency] private LuaMSectorDynamicEventSystem _dynamicEvents = default!;
+    [Dependency] private LuaMSectorTrafficSystem _traffic = default!;
     [Dependency] private LuaMSectorInsuranceTerminalSystem _insurance = default!;
     [Dependency] private LuaMSectorRegistryTerminalSystem _registry = default!;
 
@@ -29,6 +30,7 @@ public sealed partial class LuaMSectorStatusCartridgeSystem : EntitySystem
         SubscribeLocalEvent<LuaMSectorConditionChangedEvent>(OnSectorStatusChanged);
         SubscribeLocalEvent<LuaMSectorRescueAfterActionRecordedEvent>(OnSectorStatusChanged);
         SubscribeLocalEvent<LuaMSectorRescueFollowUpClearedEvent>(OnSectorStatusChanged);
+        SubscribeLocalEvent<LuaMSectorTrafficChangedEvent>(OnSectorStatusChanged);
     }
 
     private void OnUiReady(Entity<LuaMSectorStatusCartridgeComponent> ent, ref CartridgeUiReadyEvent args)
@@ -91,6 +93,9 @@ public sealed partial class LuaMSectorStatusCartridgeSystem : EntitySystem
                 registryRecords,
                 6),
             automation,
+            _traffic.BuildTrafficUiEntries(
+                false,
+                Loc.GetString("luam-sector-terminal-contact-use-terminal")),
             sectorMapNodes,
             preferredProcesses,
             insuranceCases,
