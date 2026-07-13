@@ -1,0 +1,11 @@
+author: LuaM
+category: Admin
+changes:
+  - type: Add
+    message: Added the server-side foundation for deterministic large-expedition planning.
+  - type: Tweak
+    message: Character slot deletion now archives the profile database row instead of physically deleting it.
+  - type: Add
+    message: Added server-only seven-day campaign-shift and career progression rule foundations.
+  - type: Tweak
+    message: Hardened character TTS validation for text, voice selection, audio URIs, and encoded WAV/OGG payloads.

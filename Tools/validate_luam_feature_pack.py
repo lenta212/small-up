@@ -70,6 +70,8 @@ def relevant_prototype_paths() -> list[Path]:
 
     paths.append(ROOT / "Resources/Prototypes/_NF/bounty_contract_collections.yml")
     paths.append(ROOT / "Resources/Prototypes/_NF/Roles/Jobs/Civilian/contractor.yml")
+    paths.append(ROOT / "Resources/Prototypes/_Mono/game_presets.yml")
+    paths.append(ROOT / "Resources/Prototypes/_Mono/GameRules/timings.yml")
     paths.append(ROOT / "Resources/Prototypes/_Mono/lobbyscreens.yml")
     paths.append(ROOT / "Resources/Prototypes/_Mono/Shipyard/triage.yml")
     return sorted(set(paths))
@@ -85,6 +87,56 @@ def collect_prototypes() -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]
             if isinstance(proto_id, str):
                 prototypes[proto_id] = proto
     return prototypes, all_prototypes
+
+
+def collect_entity_prototype_ids() -> set[str]:
+    prototype_ids: set[str] = set()
+    for path in (ROOT / "Resources/Prototypes").rglob("*.yml"):
+        in_entity = False
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("- type:"):
+                in_entity = line.split(":", 1)[1].strip() == "entity"
+                continue
+
+            if not in_entity or not line.startswith("  id:"):
+                continue
+
+            prototype_id = line.split(":", 1)[1].split("#", 1)[0].strip().strip('"')
+            if prototype_id:
+                prototype_ids.add(prototype_id)
+
+    return prototype_ids
+
+
+def collect_entity_prototype_ids_with_component(component_name: str) -> set[str]:
+    prototype_ids: set[str] = set()
+    for path in (ROOT / "Resources/Prototypes").rglob("*.yml"):
+        current_id: str | None = None
+        has_component = False
+        in_entity = False
+
+        def commit() -> None:
+            if in_entity and current_id is not None and has_component:
+                prototype_ids.add(current_id)
+
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("- type:"):
+                commit()
+                in_entity = line.split(":", 1)[1].strip() == "entity"
+                current_id = None
+                has_component = False
+                continue
+
+            if not in_entity:
+                continue
+            if line.startswith("  id:"):
+                current_id = line.split(":", 1)[1].split("#", 1)[0].strip().strip('"')
+            elif line.strip() == f"- type: {component_name}":
+                has_component = True
+
+        commit()
+
+    return prototype_ids
 
 
 def collect_job_metadata() -> tuple[set[str], set[str]]:
@@ -170,7 +222,23 @@ def assert_has_cyrillic(value: Any, label: str) -> None:
         raise AssertionError(f"{label}: expected Russian text, got {value!r}")
 
 
+def load_luam_locale_keys(locale: str) -> set[str]:
+    keys: set[str] = set()
+    locale_root = ROOT / "Resources/Locale" / locale
+    for path in locale_root.rglob("*.ftl"):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line or line[0].isspace() or line.startswith("#") or "=" not in line:
+                continue
+
+            key = line.split("=", 1)[0].strip()
+            if key:
+                keys.add(key)
+
+    return keys
+
+
 def assert_luam_direct_descriptions_russian() -> None:
+    localized_keys = load_luam_locale_keys("en-US") & load_luam_locale_keys("ru-RU")
     for path in (ROOT / "Resources/Prototypes/_LuaM").rglob("*.yml"):
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             stripped = line.strip()
@@ -178,12 +246,15 @@ def assert_luam_direct_descriptions_russian() -> None:
                 continue
 
             value = stripped.split(":", 1)[1].strip().strip('"')
-            if not value or value.startswith("luam-"):
+            if not value or value in localized_keys:
                 continue
 
             if not any("\u0400" <= char <= "\u04FF" for char in value):
                 rel_path = path.relative_to(ROOT)
-                raise AssertionError(f"{rel_path}:{line_number}: direct description must be Russian or a LuaM locale key")
+                raise AssertionError(
+                    f"{rel_path}:{line_number}: direct description must be Russian or a locale key defined "
+                    "in both LuaM locales"
+                )
 
 
 def load_rsi_state_names(sprite_path: str) -> set[str]:
@@ -2219,10 +2290,10 @@ def main() -> int:
         "[luam.ai_director]",
         "enabled = true",
         "fallback_enabled = true",
-        "admin_mode = true",
+        "admin_mode = false",
         "local_bridge_enabled = false",
         "local_bridge_unsafe_actions_enabled = false",
-        "greet_on_join = true",
+        "greet_on_join = false",
         "gateway_url = \"\"",
         "[events]",
         "[gateway]",
@@ -3004,6 +3075,41 @@ def main() -> int:
         keys = load_ftl_keys(ROOT / rel_path)
         assert_contains(keys, "bank-payroll-received", rel_path)
 
+    reproductive_component = (
+        ROOT / "Content.Shared/Nutrition/AnimalHusbandry/ReproductiveComponent.cs"
+    ).read_text(encoding="utf-8")
+    if reproductive_component.count("TimeSpan.FromHours(1)") != 2:
+        raise AssertionError(
+            "ReproductiveComponent: minimum and maximum breeding intervals must both be exactly one hour"
+        )
+
+    animal_husbandry_system = (
+        ROOT / "Content.Server/Nutrition/EntitySystems/AnimalHusbandrySystem.cs"
+    ).read_text(encoding="utf-8")
+    for required_husbandry_marker in [
+        "SubscribeLocalEvent<ReproductiveComponent, ComponentStartup>(OnReproductiveStartup)",
+        "ScheduleNextBreedAttempt(component)",
+        "component.NextBreedAttempt = _timing.CurTime +",
+        "ScheduleNextBreedAttempt(reproductive)",
+    ]:
+        assert_contains(animal_husbandry_system, required_husbandry_marker, "AnimalHusbandrySystem")
+    assert_not_contains(
+        animal_husbandry_system,
+        "reproductive.NextBreedAttempt +=",
+        "AnimalHusbandrySystem",
+    )
+
+    animal_husbandry_test = (
+        ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMAnimalHusbandryIntervalTest.cs"
+    ).read_text(encoding="utf-8")
+    for required_husbandry_test_marker in [
+        "AnimalsScheduleBreedingOncePerHourWithoutCatchUpBursts",
+        "ExpectedBreedInterval = TimeSpan.FromHours(1)",
+        "timing.CurTime - TimeSpan.FromHours(24)",
+        "instead of replaying every missed interval",
+    ]:
+        assert_contains(animal_husbandry_test, required_husbandry_test_marker, "LuaMAnimalHusbandryIntervalTest")
+
     prototypes, all_prototypes = collect_prototypes()
 
     required_ids = {
@@ -3328,6 +3434,14 @@ def main() -> int:
 
     preset = prototypes["LuaMDeadSpaceLowPop"]
     rules = preset["rules"]
+    entity_prototype_ids = collect_entity_prototype_ids()
+    missing_preset_rules = sorted(rule for rule in rules if rule not in entity_prototype_ids)
+    if missing_preset_rules:
+        raise AssertionError(
+            "LuaMDeadSpaceLowPop.rules references missing entity prototypes: "
+            + ", ".join(missing_preset_rules)
+        )
+
     for rule in [
         "NFAdventure",
         "LuaMSoloStationEventScheduler",
@@ -3344,6 +3458,43 @@ def main() -> int:
         "SmugglingEventScheduler",
     ]:
         assert_not_contains(rules, rule, "LuaMDeadSpaceLowPop.rules")
+
+    apocalypse_rules = prototypes["MonoAllAtOnce"]["rules"]
+    round_end_rule_ids = collect_entity_prototype_ids_with_component("RoundEndTimeRule")
+    apocalypse_round_end_rules = [rule for rule in apocalypse_rules if rule in round_end_rule_ids]
+    assert_equal(apocalypse_round_end_rules, [], "MonoAllAtOnce RoundEndRule overrides")
+    monolith_core_config = tomllib.loads(
+        (ROOT / "Resources/ConfigPresets/_Mono/monolithCore.toml").read_text(encoding="utf-8")
+    )
+    assert_equal(
+        monolith_core_config["shuttle"]["auto_call_time"],
+        10080,
+        "monolith core shuttle.auto_call_time",
+    )
+
+    lobby_state = (ROOT / "Content.Client/Lobby/LobbyState.cs").read_text(encoding="utf-8")
+    round_end_summary = (ROOT / "Content.Client/RoundEnd/RoundEndSummaryWindow.cs").read_text(encoding="utf-8")
+    assert_contains(lobby_state, "Math.Floor(roundTime.TotalHours)", "LobbyState long-round duration")
+    assert_not_contains(lobby_state, '("hours", roundTime.Hours)', "LobbyState long-round duration")
+    assert_contains(
+        round_end_summary,
+        "Math.Floor(roundDuration.TotalHours)",
+        "RoundEndSummaryWindow long-round duration",
+    )
+    assert_not_contains(
+        round_end_summary,
+        '("hours", roundDuration.Hours)',
+        "RoundEndSummaryWindow long-round duration",
+    )
+    apocalypse_en_locale = (
+        ROOT / "Resources/Locale/en-US/_Mono/gamerules/gamemodes.ftl"
+    ).read_text(encoding="utf-8")
+    apocalypse_ru_locale = (
+        ROOT / "Resources/Locale/ru-RU/_Mono/gamerules/gamemodes.ftl"
+    ).read_text(encoding="utf-8")
+    assert_contains(apocalypse_en_locale, "mono-allatonce-title = Apocalypse (ALL, 7d)", "en-US Apocalypse title")
+    assert_contains(apocalypse_ru_locale, "mono-allatonce-title = Апокалипсис (7 дней)", "ru-RU Apocalypse title")
+    assert_not_contains(apocalypse_en_locale, "mono-allatonce-title = Apocalypse (ALL, 3hr)", "en-US Apocalypse title")
 
     scheduler_expectations = {
         "LuaMSoloStationEventScheduler": (900, 1800, 3600),
@@ -3362,43 +3513,95 @@ def main() -> int:
     low_pop_config = tomllib.loads(
         (ROOT / "Resources/ConfigPresets/_LuaM/deadSpaceLowPop.toml").read_text(encoding="utf-8")
     )
-    assert_equal(low_pop_config["game"]["defaultpreset"], "LuaMDeadSpaceLowPop", "defaultpreset")
+    assert_equal(low_pop_config["game"]["defaultpreset"], "MonoAllAtOnce", "defaultpreset")
+    assert_equal(low_pop_config["game"]["fallbackenabled"], True, "fallbackenabled")
+    assert_equal(low_pop_config["game"]["fallbackpreset"], "MonoMixed", "fallbackpreset")
+    assert_equal(low_pop_config["game"]["role_timers"], True, "role_timers")
+    assert_equal(low_pop_config["game"]["dynamic_roles"]["enabled"], False, "dynamic_roles.enabled")
     assert_equal(low_pop_config["game"]["role_timer_override"], "LuaMRoleLadder", "role_timer_override")
+    remote_config = tomllib.loads(
+        (ROOT / "server_config.remote.toml").read_text(encoding="utf-8")
+    )
+    for config_name, config in {
+        "low-pop preset": low_pop_config,
+        "production config": remote_config,
+    }.items():
+        assert_equal(config["game"]["defaultpreset"], "MonoAllAtOnce", f"{config_name}.defaultpreset")
+        assert_equal(config["game"]["fallbackenabled"], True, f"{config_name}.fallbackenabled")
+        assert_equal(config["game"]["fallbackpreset"], "MonoMixed", f"{config_name}.fallbackpreset")
+        assert_equal(config["game"]["role_timers"], True, f"{config_name}.role_timers")
+        assert_equal(config["game"]["dynamic_roles"]["enabled"], False, f"{config_name}.dynamic_roles.enabled")
+        assert_equal(config["game"]["role_timer_override"], "LuaMRoleLadder", f"{config_name}.role_timer_override")
+        assert_equal(config["nf14"]["worldgen"]["cargo_depots"], 4, f"{config_name}.cargo_depots")
+        assert_equal(config["nf14"]["worldgen"]["optional_stations"], 6, f"{config_name}.optional_stations")
+        assert_equal(config["mono"]["cleanup"]["mob"]["distance"], 1280, f"{config_name}.cleanup.mob.distance")
+        assert_equal(config["mono"]["cleanup"]["grid"]["distance"], 628, f"{config_name}.cleanup.grid.distance")
+        assert_equal(config["mono"]["cleanup"]["space"]["distance"], 628, f"{config_name}.cleanup.space.distance")
+        assert_equal(config["shuttle"]["auto_call_time"], 10080, f"{config_name}.shuttle.auto_call_time")
+    local_config_path = ROOT / "server_config_local.toml"
+    if local_config_path.exists():
+        local_config = tomllib.loads(local_config_path.read_text(encoding="utf-8-sig"))
+        assert_equal(local_config["game"]["defaultpreset"], "MonoAllAtOnce", "local config.defaultpreset")
+        assert_equal(local_config["game"]["fallbackpreset"], "MonoMixed", "local config.fallbackpreset")
+        assert_equal(local_config["shuttle"]["auto_call_time"], 10080, "local config.shuttle.auto_call_time")
     assert_equal(low_pop_config["game"]["lobbyduration"], 30, "lobbyduration")
+    assert_equal(low_pop_config["game"]["soft_max_players"], 100, "soft_max_players")
+    assert_equal(low_pop_config["game"]["auto_pause_empty"], True, "auto_pause_empty")
+    assert_equal(low_pop_config["net"]["max_connections"], 128, "net.max_connections")
+    assert_equal(low_pop_config["net"]["sendbuffersize"], 4194304, "net.sendbuffersize")
+    assert_equal(low_pop_config["net"]["lidgren_log_warning"], True, "net.lidgren_log_warning")
+    assert_equal(low_pop_config["net"]["lidgren_log_error"], True, "net.lidgren_log_error")
+    assert_equal(low_pop_config["playtime"]["save_interval"], 900, "playtime.save_interval")
     assert_equal(low_pop_config["vote"]["preset_autovote_enabled"], False, "preset_autovote_enabled")
     assert_equal(low_pop_config["status"]["connectaddress"], "udp://188.127.225.57:1212", "connectaddress")
     assert_equal(low_pop_config["admin"]["admins_count_in_playercount"], True, "admins_count_in_playercount")
-    assert_equal(low_pop_config["luam"]["ai_director"]["admin_mode"], True, "low-pop luam.ai_director.admin_mode")
+    assert_equal(low_pop_config["luam"]["ai_director"]["admin_mode"], False, "low-pop luam.ai_director.admin_mode")
     assert_equal(low_pop_config["luam"]["ai_director"]["local_bridge_enabled"], False, "low-pop luam.ai_director.local_bridge_enabled")
     assert_equal(low_pop_config["luam"]["ai_director"]["local_bridge_unsafe_actions_enabled"], False, "low-pop luam.ai_director.local_bridge_unsafe_actions_enabled")
     assert_equal(low_pop_config["luam"]["ai_director"]["world_pulse_enabled"], True, "low-pop luam.ai_director.world_pulse_enabled")
-    assert_equal(low_pop_config["luam"]["ai_director"]["max_danger"], True, "low-pop luam.ai_director.max_danger")
-    assert_equal(low_pop_config["luam"]["ai_director"]["initial_delay"], 60, "low-pop luam.ai_director.initial_delay")
-    assert_equal(low_pop_config["luam"]["ai_director"]["interval"], 300, "low-pop luam.ai_director.interval")
-    assert_equal(low_pop_config["luam"]["ai_director"]["world_pulse_interval"], 60, "low-pop luam.ai_director.world_pulse_interval")
+    assert_equal(low_pop_config["luam"]["ai_director"]["max_danger"], False, "low-pop luam.ai_director.max_danger")
+    assert_equal(low_pop_config["luam"]["ai_director"]["initial_delay"], 120, "low-pop luam.ai_director.initial_delay")
+    assert_equal(low_pop_config["luam"]["ai_director"]["interval"], 900, "low-pop luam.ai_director.interval")
+    assert_equal(low_pop_config["luam"]["ai_director"]["world_pulse_interval"], 300, "low-pop luam.ai_director.world_pulse_interval")
     assert_equal(low_pop_config["events"]["enabled"], True, "low-pop events.enabled")
-    assert_equal(low_pop_config["gateway"]["generator_enabled"], True, "low-pop gateway.generator_enabled")
+    assert_equal(low_pop_config["gateway"]["generator_enabled"], False, "low-pop gateway.generator_enabled")
+    assert_equal(low_pop_config["gateway"]["generator_max_destinations"], 4, "low-pop gateway.generator_max_destinations")
+    assert_equal(low_pop_config["gateway"]["generator_destination_ttl"], 21600, "low-pop gateway.generator_destination_ttl")
     assert_equal(low_pop_config["luam"]["sector"]["all_hazards_enabled"], True, "low-pop luam.sector.all_hazards_enabled")
+    assert_equal(low_pop_config["luam"]["dynamic_events"]["enabled"], True, "low-pop luam.dynamic_events.enabled")
+    assert_equal(low_pop_config["luam"]["dynamic_events"]["max_active_sites"], 2, "low-pop luam.dynamic_events.max_active_sites")
     assert_equal(low_pop_config["nf14"]["worldgen"]["market_stations"], 1, "market_stations")
     assert_equal(low_pop_config["nf14"]["worldgen"]["cargo_depots"], 4, "cargo_depots")
-    assert_equal(low_pop_config["nf14"]["worldgen"]["optional_stations"], 1, "optional_stations")
+    assert_equal(low_pop_config["nf14"]["worldgen"]["optional_stations"], 6, "optional_stations")
+    assert_equal(low_pop_config["nf14"]["publictransit"]["enabled"], False, "nf14.publictransit.enabled")
     assert_equal(low_pop_config["mono"]["cleanup"]["log"], False, "mono.cleanup.log")
+    assert_equal(low_pop_config["mono"]["cleanup"]["mob"]["distance"], 1280, "mono.cleanup.mob.distance")
+    assert_equal(low_pop_config["mono"]["cleanup"]["grid"]["distance"], 628, "mono.cleanup.grid.distance")
+    assert_equal(low_pop_config["mono"]["cleanup"]["space"]["distance"], 628, "mono.cleanup.space.distance")
 
     remote_config = tomllib.loads((ROOT / "server_config.remote.toml").read_text(encoding="utf-8"))
+    assert_equal(remote_config["game"]["soft_max_players"], 100, "remote game.soft_max_players")
+    assert_equal(remote_config["net"]["max_connections"], 128, "remote net.max_connections")
+    remote_description_json_bytes = len(json.dumps(remote_config["game"]["desc"], ensure_ascii=True).encode("utf-8"))
+    if remote_description_json_bytes > 6000:
+        raise AssertionError(
+            "remote game.desc leaves too little room under the public hub 10 KiB /info limit: "
+            f"JSON string uses {remote_description_json_bytes} bytes"
+        )
     remote_ai_director = remote_config["luam"]["ai_director"]
-    assert_equal(remote_ai_director["enabled"], False, "remote luam.ai_director.enabled")
+    assert_equal(remote_ai_director["enabled"], True, "remote luam.ai_director.enabled")
     assert_equal(remote_ai_director["gateway_url"], "http://127.0.0.1:8787/propose_event", "remote luam.ai_director.gateway_url")
     assert_equal(remote_ai_director["fallback_enabled"], True, "remote luam.ai_director.fallback_enabled")
-    assert_equal(remote_ai_director["admin_mode"], True, "remote luam.ai_director.admin_mode")
+    assert_equal(remote_ai_director["admin_mode"], False, "remote luam.ai_director.admin_mode")
     assert_equal(remote_ai_director["greet_on_join"], False, "remote luam.ai_director.greet_on_join")
-    assert_equal(remote_ai_director["world_pulse_enabled"], False, "remote luam.ai_director.world_pulse_enabled")
+    assert_equal(remote_ai_director["world_pulse_enabled"], True, "remote luam.ai_director.world_pulse_enabled")
     assert_equal(remote_ai_director["max_danger"], False, "remote luam.ai_director.max_danger")
     assert_equal(remote_ai_director["initial_delay"], 120, "remote luam.ai_director.initial_delay")
     assert_equal(remote_ai_director["interval"], 900, "remote luam.ai_director.interval")
     assert_equal(remote_ai_director["world_pulse_interval"], 300, "remote luam.ai_director.world_pulse_interval")
-    assert_equal(remote_ai_director["request_timeout"], 25, "remote luam.ai_director.request_timeout")
+    assert_equal(remote_ai_director["request_timeout"], 15, "remote luam.ai_director.request_timeout")
     assert_equal(remote_config["events"]["enabled"], True, "remote events.enabled")
-    assert_equal(remote_config["gateway"]["generator_enabled"], True, "remote gateway.generator_enabled")
+    assert_equal(remote_config["gateway"]["generator_enabled"], False, "remote gateway.generator_enabled")
     assert_equal(remote_config["luam"]["sector"]["all_hazards_enabled"], True, "remote luam.sector.all_hazards_enabled")
 
     rescue_agent_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs").read_text(encoding="utf-8")

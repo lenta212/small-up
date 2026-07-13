@@ -199,6 +199,7 @@ ClientBin/
 node_modules/
 orleans.codegen.cs
 .local-server-data-dev/
+.packaging-run/
 DeploymentPackages/
 server_config_local.toml
 server_config.remote.toml

@@ -2,6 +2,7 @@ param(
     [string]$OutputDir = "DeploymentPackages\LuaM",
     [switch]$RunTests,
     [switch]$RunLocalSmoke,
+    [switch]$AllowUntracked,
     [switch]$SkipReadiness,
     [switch]$Json
 )
@@ -40,6 +41,10 @@ $releaseFiles = @(
     "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml",
     "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml.cs",
     "Content.Client/Clothing/ClientClothingSystem.cs",
+    "Content.Client/Lobby/LobbyState.cs",
+    "Content.Client/Players/PlayTimeTracking/JobRequirementsManager.cs",
+    "Content.Client/RoundEnd/RoundEndSummaryWindow.cs",
+    "Content.Client/_LuaM/Sector/LuaMAiTtsAudioSystem.cs",
     "Content.Client/Research/UI/ResearchConsoleMenu.xaml",
     "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleItem.xaml",
     "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleItem.xaml.cs",
@@ -55,27 +60,63 @@ $releaseFiles = @(
     "Content.Client/_NF/LateJoin/Windows/PickerWindow.xaml.cs",
     "Content.Server/Cargo/Systems/CargoSystem.Bounty.cs",
     "Content.Server/CartridgeLoader/CartridgeLoaderSystem.cs",
+    "Content.Server/Chat/Systems/ChatSystem.cs",
+    "Content.Server/Gateway/Components/GatewayGeneratorDestinationComponent.cs",
+    "Content.Server/Gateway/Systems/GatewayGeneratorSystem.cs",
+    "Content.Server/Nutrition/EntitySystems/AnimalHusbandrySystem.cs",
     "Content.Server/PDA/PdaSystem.cs",
     "Content.Server/Pinpointer/NavMapSystem.cs",
     "Content.Server/Players/PlayTimeTracking/PlayTimeTrackingSystem.cs",
+    "Content.Server/Radio/EntitySystems/HeadsetSystem.cs",
     "Content.Server/Shuttles/Systems/ShuttleSystem.FasterThanLight.cs",
     "Content.Server/Station/Systems/StationJobsSystem.cs",
+    "Content.Server/Database/ServerDbBase.cs",
+    "Content.Server/Database/ServerDbManager.cs",
+    "Content.Server.Database/Model.cs",
+    "Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.cs",
+    "Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs",
+    "Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs",
+    "Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs",
+    "Content.Server/_LuaM/Expeditions/LuaMExpeditionPlan.cs",
+    "Content.Server/_LuaM/Expeditions/LuaMExpeditionPlanCommand.cs",
+    "Content.Server/_LuaM/Expeditions/LuaMExpeditionPlanValidator.cs",
+    "Content.Server/_LuaM/Expeditions/LuaMExpeditionPlanner.cs",
+    "Content.Server/_LuaM/Progression/LuaMCampaignShiftClock.cs",
+    "Content.Server/_LuaM/Progression/LuaMCareerProgressionRules.cs",
+    "Content.Server/_LuaM/Sector/LuaMCharacterTtsSystem.cs",
     "Content.Server/_CorvaxNext/Silicons/Borgs/AiRemoteControlSystem.cs",
     "Content.Server/_NF/Bank/BankSystem.cs",
     "Content.Server/_NF/BountyContracts/BountyContractSystem.Ui.cs",
     "Content.Server/_NF/BountyContracts/BountyContractSystem.cs",
     "Content.IntegrationTests/Pair/TestPair.cs",
+    "Content.IntegrationTests/PoolManager.Cvars.cs",
+    "Content.IntegrationTests/Tests/Gateway/GatewayGeneratorGrowthLimitTest.cs",
+    "Content.IntegrationTests/Tests/_LuaM/LuaMAnimalHusbandryIntervalTest.cs",
+    "Content.IntegrationTests/Tests/_LuaM/LuaMCharacterPersistenceTest.cs",
+    "Content.IntegrationTests/Tests/_LuaM/LuaMCharacterTtsValidationTest.cs",
+    "Content.IntegrationTests/Tests/_LuaM/LuaMDynamicEventGrowthLimitTest.cs",
+    "Content.IntegrationTests/Tests/_LuaM/LuaMExpeditionPlannerTest.cs",
+    "Content.IntegrationTests/Tests/_LuaM/LuaMProgressionRulesTest.cs",
     "Content.IntegrationTests/Tests/Lobby/CharacterCreationTest.cs",
     "Content.IntegrationTests/Utility/GameDataScrounger.Files.cs",
     "Content.Tests/Server/_LuaM/LuaMSectorPlayerBriefingTest.cs",
     "Content.Shared/CCVar/CCVars.LuaM.cs",
+    "Content.Shared/CCVar/CCVars.Misc.cs",
     "Content.Shared/Inventory/SlotFlags.cs",
+    "Content.Shared/Nutrition/AnimalHusbandry/ReproductiveComponent.cs",
     "Content.Shared/PDA/PdaComponent.cs",
     "Content.Shared/PDA/PdaMessagesUi.cs",
     "Content.Shared/PDA/PdaUpdateState.cs",
     "Content.Shared/Preferences/HumanoidCharacterProfile.cs",
+    "Content.Shared/Roles/JobRequirements.cs",
+    "Content.Shared/Roles/SharedRoleSystem.cs",
+    "Content.Shared/_LuaM/Sector/LuaMAiTtsAudioEvent.cs",
     "Content.Shared/_CorvaxNext/Silicons/Borgs/Components/SharedAiRemoteControllerComponent.cs",
     "Content.Shared/_NF/BountyContracts/SharedBountyContractSystem.cs",
+    "Resources/Changelog/Parts/luam-expedition-persistence-foundations.yml",
+    "Resources/ConfigPresets/_Mono/monolithCore.toml",
     "Resources/Locale/en-US/_Goobstation/research/ui.ftl",
     "Resources/Locale/en-US/_Mono/gamerules/gamemodes.ftl",
     "Resources/Locale/en-US/_NF/bank/bank-ATM-component.ftl",
@@ -99,14 +140,18 @@ $releaseFiles = @(
     "Resources/Prototypes/InventoryTemplates/arachnid_inventory_template.yml",
     "Resources/Prototypes/InventoryTemplates/corpse_inventory_template.yml",
     "Resources/Prototypes/InventoryTemplates/human_inventory_template.yml",
+    "Resources/Prototypes/_LuaM/Sector/rescue_after_action.yml",
     "Resources/Prototypes/_NF/Entities/Mobs/NPCs/mob_hostile_rogue_ai.yml",
     "Resources/Prototypes/_NF/Loadouts/Jobs/Contractor/cartridge.yml",
     "Resources/Prototypes/_NF/Loadouts/contractor_loadout_groups.yml",
     "Resources/Prototypes/_NF/bounty_contract_collections.yml",
     "Resources/Prototypes/_Mono/Entities/Markers/Spawners/shuttles.yml",
+    "Resources/Prototypes/_Mono/GameRules/timings.yml",
     "Resources/Prototypes/_Mono/Shipyard/triage.yml",
+    "Resources/Prototypes/_Mono/game_presets.yml",
     "Resources/Prototypes/_Mono/lobbyscreens.yml",
     "Resources/Maps/_Mono/Shuttles/triage.yml",
+    "Resources/Maps/_NF/Shuttles/Scrap/bison.yml",
     "Resources/Prototypes/holidays.yml",
     "Resources/manifest.yml",
     "Resources/ServerInfo/Intro.txt",
@@ -122,9 +167,12 @@ $releaseFiles = @(
     "Tools/build_luam_server_release.ps1",
     "Tools/verify_luam_release_package.ps1",
     "Tools/audit_release_surface.ps1",
+    "Tools/archive_monolith_admin_logs.ps1",
+    "Tools/deploy_luam_ai_gateway.ps1",
     "Tools/deploy_luam_server_release.ps1",
     "Tools/monolith-restart-when-empty.ps1",
     "Tools/monolith_release_runbook.md",
+    "Tools/provision_monolith_client_static.ps1",
     "Tools/local_stack.md",
     "Tools/monolith_improvement_audit.md",
     "Tools/luam_admin_ranks.yml",
@@ -135,8 +183,12 @@ $releaseFiles = @(
     "Tools/summarize_luam_ai_audit.py",
     "Tools/luam_release_manifest.md",
     "Tools/luam_release_policy.json",
+    "Tools/luam_character_progression_design.md",
+    "Tools/luam_expedition_implementation_proposal.md",
+    "Tools/luam_expedition_worldgen_design.md",
     "Tools/start_local_stack.ps1",
     "Tools/stop_local_stack.ps1",
+    "Tools/setup_luam_piper_tts.ps1",
     "Tools/test_local_frontier.ps1",
     "Tools/test_local_stack.ps1",
     "Tools/test_luam_ai_gateway.py",
@@ -153,6 +205,8 @@ $releaseScopes = @(
     "Content.IntegrationTests/Tests/_LuaM",
     "Content.IntegrationTests/Tests/_NF/BountyContracts",
     "Content.IntegrationTests/Pair/TestPair.cs",
+    "Content.IntegrationTests/PoolManager.Cvars.cs",
+    "Content.IntegrationTests/Tests/Gateway/GatewayGeneratorGrowthLimitTest.cs",
     "Content.IntegrationTests/Tests/Lobby/CharacterCreationTest.cs",
     "Content.IntegrationTests/Utility/GameDataScrounger.Files.cs",
     "Content.Tests/Client/_LuaM",
@@ -161,6 +215,9 @@ $releaseScopes = @(
     "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml",
     "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml.cs",
     "Content.Client/Clothing/ClientClothingSystem.cs",
+    "Content.Client/Lobby/LobbyState.cs",
+    "Content.Client/Players/PlayTimeTracking/JobRequirementsManager.cs",
+    "Content.Client/RoundEnd/RoundEndSummaryWindow.cs",
     "Content.Client/PDA",
     "Content.Client/Research/UI/ResearchConsoleMenu.xaml",
     "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleItem.xaml",
@@ -171,21 +228,40 @@ $releaseScopes = @(
     "Content.Client/_NF/LateJoin",
     "Content.Server/Cargo/Systems/CargoSystem.Bounty.cs",
     "Content.Server/CartridgeLoader/CartridgeLoaderSystem.cs",
+    "Content.Server/Chat/Systems/ChatSystem.cs",
+    "Content.Server/Gateway/Components/GatewayGeneratorDestinationComponent.cs",
+    "Content.Server/Gateway/Systems/GatewayGeneratorSystem.cs",
+    "Content.Server/Nutrition/EntitySystems/AnimalHusbandrySystem.cs",
     "Content.Server/PDA",
     "Content.Server/Pinpointer/NavMapSystem.cs",
     "Content.Server/Players/PlayTimeTracking/PlayTimeTrackingSystem.cs",
+    "Content.Server/Radio/EntitySystems/HeadsetSystem.cs",
     "Content.Server/Shuttles/Systems/ShuttleSystem.FasterThanLight.cs",
     "Content.Server/Station/Systems/StationJobsSystem.cs",
+    "Content.Server/Database/ServerDbBase.cs",
+    "Content.Server/Database/ServerDbManager.cs",
+    "Content.Server.Database/Model.cs",
+    "Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.cs",
+    "Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs",
+    "Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs",
+    "Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs",
     "Content.Server/_CorvaxNext/Silicons/Borgs/AiRemoteControlSystem.cs",
     "Content.Shared/PDA",
     "Content.Shared/CCVar/CCVars.LuaM.cs",
+    "Content.Shared/CCVar/CCVars.Misc.cs",
     "Content.Shared/Inventory/SlotFlags.cs",
+    "Content.Shared/Nutrition/AnimalHusbandry/ReproductiveComponent.cs",
     "Content.Shared/Preferences/HumanoidCharacterProfile.cs",
+    "Content.Shared/Roles/JobRequirements.cs",
+    "Content.Shared/Roles/SharedRoleSystem.cs",
     "Content.Shared/_CorvaxNext/Silicons/Borgs/Components/SharedAiRemoteControllerComponent.cs",
     "Content.Server/_NF/Bank",
     "Content.Server/_NF/BountyContracts",
     "Content.Shared/_NF/Bank",
     "Content.Shared/_NF/BountyContracts",
+    "Resources/ConfigPresets/_Mono/monolithCore.toml",
     "Resources/ConfigPresets/_LuaM",
     "Resources/Locale/en-US/_Goobstation/research/ui.ftl",
     "Resources/Locale/en-US/_LuaM",
@@ -219,10 +295,14 @@ $releaseScopes = @(
     "Resources/Prototypes/_NF/Roles/Jobs",
     "Resources/Prototypes/_NF/bounty_contract_collections.yml",
     "Resources/Prototypes/_Mono/Entities/Markers/Spawners/shuttles.yml",
+    "Resources/Prototypes/_Mono/GameRules/timings.yml",
     "Resources/Prototypes/_Mono/Shipyard/triage.yml",
     "Resources/Prototypes/_Mono/Roles/Jobs",
+    "Resources/Prototypes/_Mono/game_presets.yml",
     "Resources/Prototypes/_Mono/lobbyscreens.yml",
     "Resources/Maps/_Mono/Shuttles/triage.yml",
+    "Resources/Maps/_NF/Shuttles/Scrap/bison.yml",
+    "Resources/Changelog/Parts",
     "Resources/Prototypes/holidays.yml",
     "Resources/ServerInfo/Intro.txt",
     "Resources/ServerInfo/_LuaM",
@@ -240,9 +320,12 @@ $releaseScopes = @(
     "Tools/build_luam_server_release.ps1",
     "Tools/verify_luam_release_package.ps1",
     "Tools/audit_release_surface.ps1",
+    "Tools/archive_monolith_admin_logs.ps1",
+    "Tools/deploy_luam_ai_gateway.ps1",
     "Tools/deploy_luam_server_release.ps1",
     "Tools/monolith-restart-when-empty.ps1",
     "Tools/monolith_release_runbook.md",
+    "Tools/provision_monolith_client_static.ps1",
     "Tools/local_stack.md",
     "Tools/monolith_improvement_audit.md",
     "Tools/luam_admin_ranks.yml",
@@ -253,8 +336,12 @@ $releaseScopes = @(
     "Tools/summarize_luam_ai_audit.py",
     "Tools/luam_release_manifest.md",
     "Tools/luam_release_policy.json",
+    "Tools/luam_character_progression_design.md",
+    "Tools/luam_expedition_implementation_proposal.md",
+    "Tools/luam_expedition_worldgen_design.md",
     "Tools/start_local_stack.ps1",
     "Tools/stop_local_stack.ps1",
+    "Tools/setup_luam_piper_tts.ps1",
     "Tools/test_local_frontier.ps1",
     "Tools/test_local_stack.ps1",
     "Tools/test_luam_ai_gateway.py",
@@ -273,7 +360,22 @@ $allowedOutOfScopeChangedFiles = @(
     "Resources/Prototypes/_Mono/Outpost/colossus.yml",
     "Resources/migration.yml",
     "RobustToolbox",
-    "Tools/monolith-restart-when-empty.ps1"
+    "Tools/monolith-restart-when-empty.ps1",
+
+    # Pre-existing paired NF ship content is intentionally outside the LuaM source package.
+    # It remains part of the full server Resources build and is recorded in the release policy/manifest.
+    "Resources/Maps/_NF/Shuttles/barge.yml",
+    "Resources/Maps/_NF/Shuttles/caladrius.yml",
+    "Resources/Maps/_NF/Shuttles/Expedition/pathfinder.yml",
+    "Resources/Maps/_NF/Shuttles/hammer.yml",
+    "Resources/Maps/_NF/Shuttles/Nfsd/hospitaller.yml",
+    "Resources/Maps/_NF/Shuttles/stasis.yml",
+    "Resources/Prototypes/_NF/Shipyard/barge.yml",
+    "Resources/Prototypes/_NF/Shipyard/caladrius.yml",
+    "Resources/Prototypes/_NF/Shipyard/Expedition/pathfinder.yml",
+    "Resources/Prototypes/_NF/Shipyard/hammer.yml",
+    "Resources/Prototypes/_NF/Shipyard/Nfsd/hospitaller.yml",
+    "Resources/Prototypes/_NF/Shipyard/stasis.yml"
 )
 
 function Convert-ToRepoPath {
@@ -317,7 +419,6 @@ function Invoke-Readiness {
         "Bypass",
         "-File",
         "Tools\check_luam_release_ready.ps1",
-        "-AllowUntracked",
         "-Json"
     )
 
@@ -327,6 +428,10 @@ function Invoke-Readiness {
 
     if ($RunLocalSmoke) {
         $args += "-RunLocalSmoke"
+    }
+
+    if ($AllowUntracked) {
+        $args += "-AllowUntracked"
     }
 
     $output = & powershell @args
@@ -350,7 +455,7 @@ function Invoke-AdminRankSqlGeneration {
 
 function Get-ChangedFiles {
     $changed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($file in @(& git diff --name-only) + @(& git ls-files --others --exclude-standard)) {
+    foreach ($file in @(& git diff --name-only) + @(& git diff --cached --name-only) + @(& git ls-files --others --exclude-standard)) {
         if ([string]::IsNullOrWhiteSpace($file)) {
             continue
         }
@@ -432,6 +537,10 @@ try {
         $changedFilesOutsidePackage |
             Where-Object { -not $allowedOutOfScope.Contains($_) }
     )
+    if ($unexpectedChangedFilesOutsidePackage.Count -gt 0) {
+        throw "Changed files outside package are not allowlisted: $($unexpectedChangedFilesOutsidePackage -join ', ')"
+    }
+
     $allowedChangedFilesOutsidePackage = @(
         $changedFilesOutsidePackage |
             Where-Object { $allowedOutOfScope.Contains($_) }

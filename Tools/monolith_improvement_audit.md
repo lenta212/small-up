@@ -1,6 +1,6 @@
 # Monolith Server Improvement Audit
 
-Date: 2026-07-05
+Date: 2026-07-13
 
 Scope: LuaM/Monolith server release preparation, live preflight, package safety, and dependency/security gates. Remote deploys, remote restarts, and remote config writes remain frozen while `Tools\luam_release_policy.json` has `remoteDeployFrozen=true`.
 
@@ -32,17 +32,23 @@ Scope: LuaM/Monolith server release preparation, live preflight, package safety,
 
 ## Recommended next improvements
 
-Priority 0, before unfreezing deploys:
+Completed since the original audit:
 
-- Apply the live `connectaddress = "udp://188.127.225.57:1212"` config only during an approved maintenance window, then restart/reload the server and require `/info.connect_address` to be non-empty in strict preflight.
-- Run full release readiness with `-RunTests -RunLocalSmoke` immediately before packaging the final deploy artifacts.
-- Confirm the actual live data directory and config path, then use `-RequireDataBackup -RemoteDataDir <live-data-dir>` and `-RemoteConfigPath <live-server_config.toml>` for the first real deploy.
+- The live connect address was applied and post-deploy verification now checks it.
+- The confirmed production paths are `/opt/monolith-ds/server/server_config.toml` and `/opt/monolith-ds/data`.
+- The 2026-07-12 deployment used config and data backups and passed post-deploy verification; remote deployment is frozen again.
+- The local character-persistence slice now frees archived slots, assigns a new `Profile.Id` to normal replacements, and restores old identities only through an explicit server procedure.
+
+Priority 0, before packaging the current development slice:
+
+- Keep expedition sources/tests, profile database code and migrations, design documents, and changelog fragments inside the release/readiness/package verification scope.
+- Run the character persistence, progression rules, expedition planner, and character TTS validation tests together before accepting the slice.
+- Track every release-scope file, then run full release readiness with `-RunTests -RunLocalSmoke` immediately before packaging final deploy artifacts.
 
 Priority 1, after the frozen release is safe:
 
 - Resolve the `Pow3r` vulnerable transitive packages or remove `Pow3r` from the main solution if it is dead tooling.
 - Add a restore drill for deploy backups: verify that the generated data tarball can be listed and extracted into a temporary directory.
-- Turn the current `/info.connect_address` warning into a failure after the live config has been applied once.
 - Add a scheduled read-only preflight job outside deploy flow to watch `/status`, `/info`, hub presence, tags, ACZ, manifest hash, and round age.
 
 Priority 2, operational quality:
