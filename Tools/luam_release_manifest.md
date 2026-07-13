@@ -1,6 +1,6 @@
 # LuaM Local Release Manifest
 
-Current policy: the 2026-07-12 seven-day round release is deployed and passed post-deploy verification. The 2026-07-13 expedition and character-persistence foundation remains local and is not deployed. Remote deployment is frozen again pending a new explicit operator request.
+Current policy: the 2026-07-12 seven-day round release is deployed and passed post-deploy verification. The operator explicitly requested the 2026-07-13 update rollout; remote deployment remains technically frozen while the final tests, package audit, backup plan, and wait-for-empty gate run.
 
 The machine-readable policy lives in `Tools\luam_release_policy.json`. The deploy helper reads that JSON file first and falls back to this manifest only if the JSON file is missing.
 
@@ -22,6 +22,7 @@ The local pack currently covers:
 - AI Director admin UI keeps the latest AI review separately, can copy it to clipboard, can save it to the server log, and shows a short review history.
 - PDA sector status display without a free-form AI message input.
 - PDA bank transfers by short copy-friendly bank ID.
+- Durable, fail-closed settlement for PDA transfers, ATM cash exchange, cargo order payments, and shipyard purchases and sales before irreversible world changes.
 - Donation shop state, PDA listings, and manual account access.
 - Sector story memory, dynamic tasks, route text, site notes, evidence, terminal/report flows.
 - Dynamic quest debris and periodic hostile contacts on every fifth debris site.
@@ -50,9 +51,15 @@ Tracked modified files:
 - `Content.Client/RoundEnd/RoundEndSummaryWindow.cs`
 - `Content.Server/PDA/PdaSystem.cs`
 - `Content.Server/_NF/Bank/BankSystem.cs`
+- `Content.Server/_NF/Bank/ATMSystem.cs`
+- `Content.Server/Cargo/Systems/CargoSystem.Orders.cs`
+- `Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs`
+- `Content.Server/_NF/Shipyard/Systems/ShipyardSystem.cs`
 - `Content.Shared/PDA/PdaComponent.cs`
 - `Content.Shared/PDA/PdaMessagesUi.cs`
 - `Content.Shared/PDA/PdaUpdateState.cs`
+- `Resources/Locale/en-US/_NF/shipyard/shipyard-console-component.ftl`
+- `Resources/Locale/ru-RU/_NF/shipyard/shipyard-console-component.ftl`
 
 LuaM file groups that must be in the release/package snapshot:
 
@@ -68,6 +75,8 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.Server/_LuaM/Progression/LuaMCareerProgressionRules.cs`
 - `Content.Server/Database/ServerDbBase.cs`
 - `Content.Server/Database/ServerDbManager.cs`
+- `Content.Server/Preferences/Managers/IServerPreferencesManager.cs`
+- `Content.Server/Preferences/Managers/ServerPreferencesManager.cs`
 - `Content.Server.Database/Model.cs`
 - `Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.cs`
 - `Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs`
@@ -84,6 +93,10 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.IntegrationTests/PoolManager.Cvars.cs`
 - `Content.IntegrationTests/Tests/Gateway/GatewayGeneratorGrowthLimitTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMAnimalHusbandryIntervalTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMBankAndPdaContractsTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMBankDurableMutationContractTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMBankPersistenceTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMShipyardPurchaseDurabilityContractTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMCharacterPersistenceTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMCharacterTtsValidationTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMDynamicEventGrowthLimitTest.cs`
@@ -91,6 +104,7 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.IntegrationTests/Tests/_LuaM/LuaMProgressionRulesTest.cs`
 - `Resources/Prototypes/_LuaM/Sector/rescue_after_action.yml`
 - `Resources/Maps/_NF/Shuttles/Scrap/bison.yml`
+- `Resources/Changelog/Parts/luam-pda-bank-transfer-fix.yml`
 - `Content.Client/_LuaM/**`
 - `Content.Server/_LuaM/**`
 - `Content.Shared/_LuaM/**`
@@ -241,6 +255,9 @@ The 2026-07-13 expedition/persistence work is deliberately covered by the source
 - `python Tools\validate_luam_feature_pack.py` and `python Tools\test_luam_ai_gateway.py` passed.
 - A temporary source package built with explicit `-AllowUntracked` and verified successfully: 496 files, payload hashes/UTF-8/required artifacts/readiness evidence all valid, and zero unexpected changed files outside the package. The verifier only warned that `RunTests` and `RunLocalSmoke` were not embedded in that package run; tests were run separately as recorded above.
 - Both unstaged and staged release-scope whitespace checks passed. No package was deployed and `remoteDeployFrozen` remains unchanged.
+- The PDA/bank/shipyard durability filter passed 36/36 after a fresh integration-test build. Coverage includes collision-safe PDA IDs, offline routing, duplicate submission guards, both database row-order branches, conservation/overflow/insufficient-funds behavior, stale profile-save protection, unknown-COMMIT fail-closed mapping, fresh-balance classification after initial save exceptions, durable callback rollback before world side effects, and shipyard purchase reservation/revalidation/cleanup contracts.
+- The existing `CargoTest` fixture passed 4 tests and kept its 1 intentional skip. Server, client, and integration-test builds completed with zero errors; only the documented baseline warnings remain.
+- Read-only production preflight found `monolith-ds.service` active with `NRestarts=0`, matching local/remote config SHA256 `0f17c2794b5e6aca9e61ac31ce5e7fdb07a87916d0ec4788bce8a4c3bf62ff77`, 12 GiB free, a healthy immutable client archive, and no warning-or-higher journal entries in the preceding 30 minutes. One player was online, so any approved rollout must use wait-for-empty rather than force.
 
 ### 2026-07-12 — deployed release baseline
 
