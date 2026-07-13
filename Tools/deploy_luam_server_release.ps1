@@ -13,7 +13,10 @@ param(
     [switch]$DryRun,
     [switch]$SkipPostVerify,
     [switch]$AllowClientZipRestore,
+    [string]$ConfigSourcePath = "",
     [string]$RemoteConfigPath = "",
+    [string]$RemoteStatusUrl = "http://127.0.0.1:1212/status",
+    [string]$RemoteInfoUrl = "http://127.0.0.1:1212/info",
     [string]$RemoteDataDir = "",
     [switch]$RequireDataBackup
 )
@@ -88,7 +91,8 @@ function Invoke-RemoteBash {
     param([string]$Script)
 
     $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-    $encoded = [Convert]::ToBase64String($utf8NoBom.GetBytes($Script))
+    $normalizedScript = $Script -replace "`r`n", "`n" -replace "`r", "`n"
+    $encoded = [Convert]::ToBase64String($utf8NoBom.GetBytes($normalizedScript))
     Invoke-CheckedNative ssh $SshTarget "printf %s $encoded | base64 -d | bash"
 }
 
@@ -111,7 +115,44 @@ function Normalize-RemoteAbsolutePath {
         throw "$Name cannot be the filesystem root."
     }
 
-    return $normalized
+    if ($normalized -notmatch "^/[A-Za-z0-9._/-]+$") {
+        throw "$Name contains unsupported characters. Use a simple absolute Linux path: $Path"
+    }
+
+    $parts = $normalized.Substring(1).Split([char]'/', [System.StringSplitOptions]::None)
+    if (@($parts | Where-Object { $_ -eq "" -or $_ -eq "." -or $_ -eq ".." }).Count -gt 0) {
+        throw "$Name contains an empty, current-directory, or parent-directory segment: $Path"
+    }
+
+    return "/" + ($parts -join "/")
+}
+
+function Test-AbsoluteHttpUrl {
+    param([string]$Value)
+
+    $uri = $null
+    return [Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri) -and
+        $uri.Scheme -in @("http", "https") -and
+        -not [string]::IsNullOrWhiteSpace($uri.Host) -and
+        [string]::IsNullOrWhiteSpace($uri.UserInfo)
+}
+
+function Test-LoopbackHttpUrl {
+    param([string]$Value)
+
+    $uri = $null
+    return (Test-AbsoluteHttpUrl -Value $Value) -and
+        [Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri) -and
+        $uri.IsLoopback
+}
+
+function Test-RemotePathWithin {
+    param(
+        [string]$Path,
+        [string]$Directory
+    )
+
+    return $Path -eq $Directory -or $Path.StartsWith("$Directory/", [StringComparison]::Ordinal)
 }
 
 function Get-RemoteFreezePolicy {
@@ -200,6 +241,47 @@ function Test-ZipEntry {
     }
 }
 
+function Get-ZipEntryText {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ArchivePath,
+        [Parameter(Mandatory = $true)]
+        [string]$EntryName
+    )
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $entry = $archive.Entries | Where-Object { $_.FullName -eq $EntryName } | Select-Object -First 1
+        if ($null -eq $entry) {
+            return $null
+        }
+
+        if ($entry.Length -gt 1MB) {
+            throw "ZIP entry '$EntryName' is unexpectedly large: $($entry.Length) bytes"
+        }
+
+        $stream = $entry.Open()
+        try {
+            $reader = [System.IO.StreamReader]::new($stream, [System.Text.UTF8Encoding]::new($false, $true), $true)
+            try {
+                return $reader.ReadToEnd()
+            }
+            finally {
+                $reader.Dispose()
+            }
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 function Assert-SafeZipEntries {
     param(
         [Parameter(Mandatory = $true)]
@@ -215,6 +297,7 @@ function Assert-SafeZipEntries {
     try {
         $entryCount = 0
         $totalBytes = [int64]0
+        $seenPaths = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
         foreach ($entry in $archive.Entries) {
             if ([string]::IsNullOrWhiteSpace($entry.FullName) -or $entry.FullName.EndsWith("/")) {
                 continue
@@ -235,10 +318,16 @@ function Assert-SafeZipEntries {
                 throw "Package contains an absolute path entry: $($entry.FullName)"
             }
 
-            foreach ($part in $normalized.Split([char[]]@('/'), [System.StringSplitOptions]::RemoveEmptyEntries)) {
-                if ($part -eq "." -or $part -eq ".." -or $part.Contains(":")) {
+            $parts = $normalized.Split([char]'/', [System.StringSplitOptions]::None)
+            foreach ($part in $parts) {
+                if ($part -eq "" -or $part -eq "." -or $part -eq ".." -or $part.Contains(":")) {
                     throw "Package contains an unsafe path entry: $($entry.FullName)"
                 }
+            }
+
+            $canonicalPath = $parts -join "/"
+            if (-not $seenPaths.Add($canonicalPath)) {
+                throw "Package contains a duplicate path entry: $($entry.FullName)"
             }
         }
     }
@@ -251,6 +340,28 @@ if (-not (Test-Path -LiteralPath $PackagePath -PathType Leaf)) {
     throw "Package not found: $PackagePath"
 }
 
+if ($SshTarget -notmatch "^[A-Za-z0-9][A-Za-z0-9_.@:-]*$") {
+    throw "SshTarget contains unsupported characters: '$SshTarget'"
+}
+
+if ($ServiceName -notmatch "^[A-Za-z0-9][A-Za-z0-9_.@:-]*\.service$") {
+    throw "ServiceName must be a simple systemd .service unit name: '$ServiceName'"
+}
+
+if ($PollSeconds -lt 1) {
+    throw "PollSeconds must be at least 1."
+}
+
+if (-not (Test-AbsoluteHttpUrl -Value $StatusUrl) -or
+    -not (Test-LoopbackHttpUrl -Value $RemoteStatusUrl) -or
+    -not (Test-LoopbackHttpUrl -Value $RemoteInfoUrl)) {
+    throw "StatusUrl must be HTTP(S); RemoteStatusUrl and RemoteInfoUrl must be loopback HTTP(S) URLs without credentials."
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256) -and $ExpectedSha256.Trim() -notmatch "^[0-9A-Fa-f]{64}$") {
+    throw "ExpectedSha256 must contain exactly 64 hexadecimal characters."
+}
+
 $resolvedPackage = (Resolve-Path -LiteralPath $PackagePath).Path
 $packageName = [System.IO.Path]::GetFileName($resolvedPackage)
 if (-not $packageName.EndsWith(".zip", [StringComparison]::OrdinalIgnoreCase)) {
@@ -261,13 +372,46 @@ Assert-SafeZipEntries -ArchivePath $resolvedPackage
 
 $hasRobustServer = Test-ZipEntry -ArchivePath $resolvedPackage -EntryName "Robust.Server"
 $hasClientZip = Test-ZipEntry -ArchivePath $resolvedPackage -EntryName "Content.Client.zip"
+$hasBuildJson = Test-ZipEntry -ArchivePath $resolvedPackage -EntryName "build.json"
+$hasCdnBuildMetadata = $false
+$hasZipDelivery = $false
+$hasManifestDelivery = $false
+$buildMetadata = $null
 if (-not $hasRobustServer) {
     throw "Package is missing required Robust.Server entry: $resolvedPackage"
 }
 
-if (-not $hasClientZip -and -not $AllowClientZipRestore) {
-    throw "Package is missing Content.Client.zip. Rebuild with Tools\build_luam_server_release.ps1 or pass -AllowClientZipRestore for emergency rollback-style deploys."
+if ($hasClientZip -and $hasBuildJson) {
+    throw "Package contains both Content.Client.zip and build.json. Refusing ambiguous client delivery metadata."
 }
+
+if (-not $hasClientZip -and $hasBuildJson) {
+    try {
+        $buildMetadata = (Get-ZipEntryText -ArchivePath $resolvedPackage -EntryName "build.json") | ConvertFrom-Json -ErrorAction Stop
+        $hasIdentity = [string]$buildMetadata.engine_version -match "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$" -and
+            [string]$buildMetadata.fork_id -match "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$" -and
+            [string]$buildMetadata.version -match "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        $hasManifestDelivery = [string]$buildMetadata.manifest_hash -match "^[0-9A-Fa-f]{64}$" -and
+            (Test-AbsoluteHttpUrl -Value ([string]$buildMetadata.manifest_url)) -and
+            (Test-AbsoluteHttpUrl -Value ([string]$buildMetadata.manifest_download_url))
+        $hasZipDelivery = [string]$buildMetadata.hash -match "^[0-9A-Fa-f]{64}$" -and
+            (Test-AbsoluteHttpUrl -Value ([string]$buildMetadata.download))
+        $hasCdnBuildMetadata = $hasIdentity -and ($hasManifestDelivery -or $hasZipDelivery)
+    }
+    catch {
+        throw "Package build.json is invalid: $($_.Exception.Message)"
+    }
+}
+
+if (-not $hasClientZip -and -not $hasCdnBuildMetadata -and -not $AllowClientZipRestore) {
+    throw "Package has neither Content.Client.zip nor complete CDN build.json metadata. Deploy the server artifact returned by Robust.Cdn, or use -AllowClientZipRestore only for an emergency rollback."
+}
+
+if (-not $hasClientZip -and $hasBuildJson -and -not $hasCdnBuildMetadata) {
+    throw "Package contains incomplete build.json metadata. Remove the stale entry before using -AllowClientZipRestore."
+}
+
+$deliveryMode = if ($hasClientZip) { "hybrid-acz" } elseif ($hasCdnBuildMetadata -and $hasZipDelivery) { "external-zip" } elseif ($hasCdnBuildMetadata) { "external-manifest" } else { "restore-existing-client" }
 
 $localHash = (Get-FileHash -LiteralPath $resolvedPackage -Algorithm SHA256).Hash.ToLowerInvariant()
 if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256) -and
@@ -284,6 +428,17 @@ if ([string]::IsNullOrWhiteSpace($Tag)) {
     throw "Deployment tag is empty after sanitizing."
 }
 
+$resolvedConfigSource = ""
+$configSourceSha256 = ""
+if (-not [string]::IsNullOrWhiteSpace($ConfigSourcePath)) {
+    if (-not (Test-Path -LiteralPath $ConfigSourcePath -PathType Leaf)) {
+        throw "Config source not found: $ConfigSourcePath"
+    }
+
+    $resolvedConfigSource = (Resolve-Path -LiteralPath $ConfigSourcePath).Path
+    $configSourceSha256 = (Get-FileHash -LiteralPath $resolvedConfigSource -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
 $normalizedBaseDir = Normalize-RemoteAbsolutePath -Path $BaseDir -Name "BaseDir"
 if ([string]::IsNullOrWhiteSpace($normalizedBaseDir)) {
     throw "BaseDir cannot be empty."
@@ -297,8 +452,15 @@ $normalizedRemoteConfigPath = if ([string]::IsNullOrWhiteSpace($RemoteConfigPath
     Normalize-RemoteAbsolutePath -Path $RemoteConfigPath -Name "RemoteConfigPath"
 }
 
-if ($normalizedRemoteConfigPath -in @($normalizedBaseDir, "$normalizedBaseDir/server", "$normalizedBaseDir/deploy-staging", "$normalizedBaseDir/backups")) {
+$configInControlDir = @("$normalizedBaseDir/server", "$normalizedBaseDir/deploy-staging", "$normalizedBaseDir/backups") |
+    Where-Object { Test-RemotePathWithin -Path $normalizedRemoteConfigPath -Directory $_ }
+if ($normalizedRemoteConfigPath -eq $normalizedBaseDir -or
+    ($normalizedRemoteConfigPath -ne $serverConfigDefaultPath -and @($configInControlDir).Count -gt 0)) {
     throw "RemoteConfigPath points at a deploy/control directory instead of server_config.toml: $normalizedRemoteConfigPath"
+}
+
+if (-not [string]::IsNullOrWhiteSpace($resolvedConfigSource) -and $normalizedRemoteConfigPath -ne $serverConfigDefaultPath) {
+    throw "ConfigSourcePath currently requires the live config at $serverConfigDefaultPath. External config replacement needs an explicit service migration first."
 }
 
 $normalizedRemoteDataDir = Normalize-RemoteAbsolutePath -Path $RemoteDataDir -Name "RemoteDataDir"
@@ -308,17 +470,18 @@ if ($RequireDataBackup -and [string]::IsNullOrWhiteSpace($normalizedRemoteDataDi
 
 if (-not [string]::IsNullOrWhiteSpace($normalizedRemoteDataDir)) {
     $forbiddenDataDirs = @(
-        $normalizedBaseDir,
         "$normalizedBaseDir/server",
         "$normalizedBaseDir/deploy-staging",
         "$normalizedBaseDir/backups"
     )
-    if ($forbiddenDataDirs -contains $normalizedRemoteDataDir) {
+    if ($normalizedRemoteDataDir -eq $normalizedBaseDir -or
+        @($forbiddenDataDirs | Where-Object { Test-RemotePathWithin -Path $normalizedRemoteDataDir -Directory $_ }).Count -gt 0) {
         throw "RemoteDataDir points at a deploy/control directory instead of a server data directory: $normalizedRemoteDataDir"
     }
 }
 
-$remoteZip = "$BaseDir/deploy-staging/$packageName"
+$remoteZip = "$BaseDir/deploy-staging/server-$Tag.zip"
+$remoteConfigUpload = if ([string]::IsNullOrWhiteSpace($resolvedConfigSource)) { "" } else { "$BaseDir/deploy-staging/server_config-$Tag.toml" }
 $freezePolicy = Get-RemoteFreezePolicy
 $plan = [ordered]@{
     package = $resolvedPackage
@@ -326,6 +489,9 @@ $plan = [ordered]@{
     expected_sha256 = $ExpectedSha256
     package_has_robust_server = $hasRobustServer
     package_has_client_zip = $hasClientZip
+    package_has_build_json = $hasBuildJson
+    package_has_cdn_metadata = $hasCdnBuildMetadata
+    delivery_mode = $deliveryMode
     freeze_policy = $freezePolicy
     ssh_target = $SshTarget
     remote_zip = $remoteZip
@@ -333,6 +499,11 @@ $plan = [ordered]@{
     service = $ServiceName
     base_dir = $BaseDir
     remote_config_path = $normalizedRemoteConfigPath
+    config_source_path = $resolvedConfigSource
+    config_source_sha256 = $configSourceSha256
+    remote_config_upload = $remoteConfigUpload
+    remote_status_url = $RemoteStatusUrl
+    remote_info_url = $RemoteInfoUrl
     remote_data_dir = $normalizedRemoteDataDir
     require_data_backup = [bool]$RequireDataBackup
 }
@@ -350,19 +521,39 @@ if ([string]::IsNullOrWhiteSpace($ExpectedSha256)) {
     throw "ExpectedSha256 is required for remote deployment. Re-run with the verified server package SHA256."
 }
 
+if ($hasZipDelivery) {
+    $externalDownloadUrl = [string]$buildMetadata.download
+    try {
+        $downloadHead = Invoke-WebRequest -Uri $externalDownloadUrl -Method Head -TimeoutSec 20 -UseBasicParsing
+        if ([int]$downloadHead.StatusCode -lt 200 -or [int]$downloadHead.StatusCode -ge 400) {
+            throw "HTTP $([int]$downloadHead.StatusCode)"
+        }
+    }
+    catch {
+        throw "External client package is not reachable at '$externalDownloadUrl': $($_.Exception.Message)"
+    }
+}
+
 $preStatus = Wait-ForEmptyServer
 
 Invoke-RemoteBash @"
 set -euo pipefail
 mkdir -p $(ConvertTo-ShellSingleQuoted "$BaseDir/deploy-staging")
+chmod 700 $(ConvertTo-ShellSingleQuoted "$BaseDir/deploy-staging")
 "@
 
 Invoke-CheckedNative scp $resolvedPackage "${SshTarget}:$remoteZip"
+if (-not [string]::IsNullOrWhiteSpace($resolvedConfigSource)) {
+    Invoke-CheckedNative scp $resolvedConfigSource "${SshTarget}:$remoteConfigUpload"
+}
 
 $forceValue = if ($Force) { "1" } else { "0" }
 $skipPostVerifyValue = if ($SkipPostVerify) { "1" } else { "0" }
 $allowClientZipRestoreValue = if ($AllowClientZipRestore) { "1" } else { "0" }
 $requireDataBackupValue = if ($RequireDataBackup) { "1" } else { "0" }
+$hasCdnBuildMetadataValue = if ($hasCdnBuildMetadata) { "1" } else { "0" }
+$expectedClientHash = if ($hasZipDelivery) { [string]$buildMetadata.hash } else { "" }
+$expectedClientDownload = if ($hasZipDelivery) { [string]$buildMetadata.download } else { "" }
 $remoteScript = @"
 set -euo pipefail
 
@@ -372,11 +563,19 @@ zip_path=$(ConvertTo-ShellSingleQuoted $remoteZip)
 expected_sha=$(ConvertTo-ShellSingleQuoted $localHash)
 tag=$(ConvertTo-ShellSingleQuoted $Tag)
 remote_config_path=$(ConvertTo-ShellSingleQuoted $normalizedRemoteConfigPath)
+uploaded_config_path=$(ConvertTo-ShellSingleQuoted $remoteConfigUpload)
+uploaded_config_sha=$(ConvertTo-ShellSingleQuoted $configSourceSha256)
+remote_status_url=$(ConvertTo-ShellSingleQuoted $RemoteStatusUrl)
+remote_info_url=$(ConvertTo-ShellSingleQuoted $RemoteInfoUrl)
 remote_data_dir=$(ConvertTo-ShellSingleQuoted $normalizedRemoteDataDir)
 force_deploy=$forceValue
 skip_post_verify=$skipPostVerifyValue
 allow_client_zip_restore=$allowClientZipRestoreValue
 require_data_backup=$requireDataBackupValue
+package_has_cdn_metadata=$hasCdnBuildMetadataValue
+delivery_mode=$(ConvertTo-ShellSingleQuoted $deliveryMode)
+expected_client_hash=$(ConvertTo-ShellSingleQuoted $expectedClientHash)
+expected_client_download=$(ConvertTo-ShellSingleQuoted $expectedClientDownload)
 
 server_dir="`$base_dir/server"
 stage_dir="`$base_dir/deploy-staging/server-`$tag"
@@ -384,7 +583,15 @@ backup_dir="`$base_dir/backups/server-`$tag"
 failed_dir="`$base_dir/backups/server-`$tag-failed"
 config_backup="`$base_dir/backups/server_config-before-`$tag.toml"
 config_sha256=""
+new_config_sha256=""
 data_backup=""
+
+cleanup_upload() {
+  if [ -n "`$uploaded_config_path" ]; then
+    rm -f -- "`$uploaded_config_path"
+  fi
+}
+trap cleanup_upload EXIT
 
 if [ -z "`$remote_config_path" ]; then
   echo "Remote config path is empty." >&2
@@ -410,6 +617,20 @@ if [ ! -f "`$remote_config_path" ]; then
 fi
 
 config_sha256=`$(sudo sha256sum "`$remote_config_path" | awk '{print `$1}')
+
+if [ -n "`$uploaded_config_path" ]; then
+  if [ ! -f "`$uploaded_config_path" ]; then
+    echo "Uploaded server config not found: `$uploaded_config_path" >&2
+    exit 24
+  fi
+
+  actual_uploaded_config_sha=`$(sha256sum "`$uploaded_config_path" | awk '{print `$1}')
+  if [ "`$actual_uploaded_config_sha" != "`$uploaded_config_sha" ]; then
+    echo "Uploaded config SHA256 mismatch. Expected `$uploaded_config_sha, got `$actual_uploaded_config_sha" >&2
+    exit 25
+  fi
+  chmod 600 "`$uploaded_config_path"
+fi
 
 if [ "`$require_data_backup" = "1" ] && [ -z "`$remote_data_dir" ]; then
   echo "Data backup is required, but remote_data_dir is empty." >&2
@@ -443,11 +664,12 @@ if [ "`$actual_sha" != "`$expected_sha" ]; then
 fi
 
 if [ "`$force_deploy" != "1" ]; then
-  players=`$(python3 - <<'PY'
+  players=`$(python3 - "`$remote_status_url" <<'PY'
 import json
+import sys
 import urllib.request
 
-with urllib.request.urlopen("http://127.0.0.1:1212/status", timeout=10) as response:
+with urllib.request.urlopen(sys.argv[1], timeout=10) as response:
     print(json.load(response).get("players", -1))
 PY
 )
@@ -463,6 +685,7 @@ echo "deploy-step=extract"
 python3 - "`$zip_path" "`$stage_dir" <<'PY'
 import os
 import pathlib
+import shutil
 import sys
 import zipfile
 
@@ -510,21 +733,27 @@ with zipfile.ZipFile(zip_path) as archive:
 
         target.parent.mkdir(parents=True, exist_ok=True)
         with archive.open(info) as source, target.open('wb') as dest:
-            dest.write(source.read())
+            shutil.copyfileobj(source, dest, length=1024 * 1024)
 PY
 
 echo "deploy-step=verify-extract"
 test -f "`$stage_dir/Robust.Server"
 if [ ! -f "`$stage_dir/Content.Client.zip" ]; then
-  echo "deploy-step=restore-client-zip"
-  if [ "`$allow_client_zip_restore" = "1" ]; then
+  if [ "`$package_has_cdn_metadata" = "1" ]; then
+    echo "deploy-step=verify-cdn-build-metadata"
+    test -f "`$stage_dir/build.json"
+  elif [ "`$allow_client_zip_restore" = "1" ]; then
+    echo "deploy-step=restore-client-zip"
+    if [ ! -f "`$server_dir/Content.Client.zip" ]; then
+      echo "Emergency client restore requested, but the live server has no Content.Client.zip." >&2
+      exit 30
+    fi
     cp "`$server_dir/Content.Client.zip" "`$stage_dir/Content.Client.zip"
   else
-    echo "Package is missing Content.Client.zip. Rebuild with Tools\\build_luam_server_release.ps1 or pass -AllowClientZipRestore for emergency rollback-style deploys." >&2
+    echo "Package has neither Content.Client.zip nor verified CDN build metadata." >&2
     exit 14
   fi
 fi
-test -f "`$stage_dir/Content.Client.zip"
 
 echo "deploy-step=chmod-stage"
 chmod 755 "`$stage_dir/Robust.Server"
@@ -533,8 +762,24 @@ if [ -f "`$stage_dir/Robust.Packaging" ]; then
 fi
 
 echo "deploy-step=copy-config"
-sudo cp "`$remote_config_path" "`$config_backup"
-sudo cp "`$remote_config_path" "`$stage_dir/server_config.toml"
+if [ -e "`$config_backup" ]; then
+  config_backup="`$base_dir/backups/server_config-before-`$tag-`$(date +%H%M%S).toml"
+fi
+sudo install -m 0600 -o root -g root "`$remote_config_path" "`$config_backup"
+if [ -n "`$uploaded_config_path" ]; then
+  sudo install -m 0600 -o monolith -g monolith "`$uploaded_config_path" "`$stage_dir/server_config.toml"
+else
+  sudo install -m 0600 -o monolith -g monolith "`$remote_config_path" "`$stage_dir/server_config.toml"
+fi
+new_config_sha256=`$(sudo sha256sum "`$stage_dir/server_config.toml" | awk '{print `$1}')
+expected_new_config_sha="`$config_sha256"
+if [ -n "`$uploaded_config_path" ]; then
+  expected_new_config_sha="`$uploaded_config_sha"
+fi
+if [ "`$new_config_sha256" != "`$expected_new_config_sha" ]; then
+  echo "Staged config SHA256 mismatch. Expected `$expected_new_config_sha, got `$new_config_sha256" >&2
+  exit 26
+fi
 sudo chown -R monolith:monolith "`$stage_dir"
 
 if [ -e "`$backup_dir" ]; then
@@ -554,21 +799,34 @@ fi
 
 rollback() {
   echo "Start verification failed; rolling back to `$backup_dir" >&2
-  sudo systemctl stop "`$service_name" || true
+  set +e
+  sudo systemctl stop "`$service_name"
   if [ -d "`$server_dir" ]; then
     sudo mv "`$server_dir" "`$failed_dir"
   fi
-  sudo mv "`$backup_dir" "`$server_dir"
-  sudo chmod 755 "`$server_dir/Robust.Server" || true
-  if [ -f "`$server_dir/Robust.Packaging" ]; then
-    sudo chmod 755 "`$server_dir/Robust.Packaging" || true
+  if [ -d "`$backup_dir" ]; then
+    sudo mv "`$backup_dir" "`$server_dir"
+    sudo chmod 755 "`$server_dir/Robust.Server"
+    if [ -f "`$server_dir/Robust.Packaging" ]; then
+      sudo chmod 755 "`$server_dir/Robust.Packaging"
+    fi
+    sudo chown -R monolith:monolith "`$server_dir"
+    sudo systemctl start "`$service_name"
+    rollback_state=`$(systemctl is-active "`$service_name" 2>/dev/null || true)
+    if [ "`$rollback_state" != "active" ]; then
+      echo "Rollback restored files, but service state is '`$rollback_state'." >&2
+    fi
+  else
+    echo "Rollback backup is missing: `$backup_dir" >&2
   fi
-  sudo chown -R monolith:monolith "`$server_dir"
-  sudo systemctl start "`$service_name" || true
+  set -e
 }
 
 echo "deploy-step=stop-service"
-sudo systemctl stop "`$service_name"
+if ! sudo systemctl stop "`$service_name"; then
+  echo "Failed to stop `$service_name; server files were not changed." >&2
+  exit 27
+fi
 if [ -n "`$remote_data_dir" ]; then
   if [ ! -d "`$remote_data_dir" ]; then
     if [ "`$require_data_backup" = "1" ]; then
@@ -586,21 +844,119 @@ if [ -n "`$remote_data_dir" ]; then
   fi
 fi
 echo "deploy-step=swap-server"
-sudo mv "`$server_dir" "`$backup_dir"
-sudo mv "`$stage_dir" "`$server_dir"
-echo "deploy-step=chmod-server"
-sudo chmod 755 "`$server_dir/Robust.Server"
-if [ -f "`$server_dir/Robust.Packaging" ]; then
-  sudo chmod 755 "`$server_dir/Robust.Packaging"
+if ! sudo mv "`$server_dir" "`$backup_dir"; then
+  echo "Failed to create server backup; restarting unchanged server." >&2
+  sudo systemctl start "`$service_name" || true
+  exit 28
 fi
-sudo chown -R monolith:monolith "`$server_dir"
+if ! sudo mv "`$stage_dir" "`$server_dir"; then
+  echo "Failed to install staged server; restoring backup." >&2
+  sudo mv "`$backup_dir" "`$server_dir" || true
+  sudo systemctl start "`$service_name" || true
+  exit 29
+fi
 echo "deploy-step=start-service"
-sudo systemctl start "`$service_name"
+if ! sudo systemctl start "`$service_name"; then
+  rollback
+  exit 13
+fi
 
 if [ "`$skip_post_verify" != "1" ]; then
-  sleep 20
-  state=`$(systemctl is-active "`$service_name")
+  state=`$(systemctl is-active "`$service_name" 2>/dev/null || true)
   if [ "`$state" != "active" ]; then
+    sudo systemctl status "`$service_name" --no-pager -l || true
+    rollback
+    exit 13
+  fi
+
+  echo "deploy-step=wait-status-and-info"
+  status_ready=0
+  for attempt in `$(seq 1 45); do
+    if python3 - "`$remote_status_url" >/dev/null 2>&1 <<'PY'
+import json
+import sys
+import urllib.request
+
+with urllib.request.urlopen(sys.argv[1], timeout=3) as response:
+    payload = json.load(response)
+    if not isinstance(payload, dict) or "players" not in payload:
+        raise SystemExit(1)
+PY
+    then
+      status_ready=1
+      break
+    fi
+
+    state=`$(systemctl is-active "`$service_name" 2>/dev/null || true)
+    if [ "`$state" != "active" ]; then
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "`$status_ready" != "1" ]; then
+    sudo systemctl status "`$service_name" --no-pager -l || true
+    rollback
+    exit 13
+  fi
+
+  info_ready=0
+  for attempt in `$(seq 1 5); do
+    if python3 - "`$remote_info_url" "`$delivery_mode" "`$expected_client_hash" "`$expected_client_download" >/dev/null 2>&1 <<'PY'
+import json
+import re
+import sys
+import urllib.parse
+import urllib.request
+
+info_url, delivery_mode, expected_hash, expected_download = sys.argv[1:]
+sha256_pattern = re.compile(r"^[0-9A-Fa-f]{64}$")
+
+def is_http_url(value):
+    parsed = urllib.parse.urlparse(value or "")
+    return parsed.scheme in ("http", "https") and bool(parsed.hostname) and not parsed.username and not parsed.password
+
+with urllib.request.urlopen(info_url, timeout=20) as response:
+    payload = json.load(response)
+
+build = payload.get("build") if isinstance(payload, dict) else None
+if not isinstance(build, dict):
+    raise SystemExit(1)
+
+if delivery_mode == "external-zip":
+    if build.get("acz") is not False:
+        raise SystemExit(1)
+    if str(build.get("hash", "")).lower() != expected_hash.lower():
+        raise SystemExit(1)
+    if str(build.get("download_url", "")) != expected_download or not is_http_url(build.get("download_url")):
+        raise SystemExit(1)
+elif delivery_mode == "external-manifest":
+    if build.get("acz") is not False:
+        raise SystemExit(1)
+    if not sha256_pattern.fullmatch(str(build.get("manifest_hash", ""))):
+        raise SystemExit(1)
+    if not is_http_url(build.get("manifest_url")) or not is_http_url(build.get("manifest_download_url")):
+        raise SystemExit(1)
+elif delivery_mode in ("hybrid-acz", "restore-existing-client"):
+    if build.get("acz") is not True or not sha256_pattern.fullmatch(str(build.get("manifest_hash", ""))):
+        raise SystemExit(1)
+else:
+    raise SystemExit(1)
+PY
+    then
+      info_ready=1
+      break
+    fi
+
+    state=`$(systemctl is-active "`$service_name" 2>/dev/null || true)
+    if [ "`$state" != "active" ]; then
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "`$info_ready" != "1" ]; then
+    echo "Status became ready, but /info client-delivery metadata did not match the deployed artifact." >&2
     sudo systemctl status "`$service_name" --no-pager -l || true
     rollback
     exit 13
@@ -611,13 +967,33 @@ echo "deployed_tag=`$tag"
 echo "backup_dir=`$backup_dir"
 echo "config_backup=`$config_backup"
 echo "config_sha256=`$config_sha256"
+echo "new_config_sha256=`$new_config_sha256"
 if [ -n "`$data_backup" ]; then
   echo "data_backup=`$data_backup"
 fi
-sha256sum "`$server_dir/Content.Client.zip"
+if [ -f "`$server_dir/Content.Client.zip" ]; then
+  sha256sum "`$server_dir/Content.Client.zip"
+else
+  sha256sum "`$server_dir/build.json"
+fi
+rm -f -- "`$zip_path"
 "@
 
-Invoke-RemoteBash $remoteScript
+try {
+    Invoke-RemoteBash $remoteScript
+}
+finally {
+    # The remote EXIT trap normally removes the uploaded TOML. This second,
+    # best-effort cleanup also covers a dropped SSH session before bash starts.
+    if (-not [string]::IsNullOrWhiteSpace($remoteConfigUpload)) {
+        try {
+            Invoke-RemoteBash "rm -f -- $(ConvertTo-ShellSingleQuoted $remoteConfigUpload)"
+        }
+        catch {
+            Write-Warning "Unable to confirm cleanup of uploaded config '$remoteConfigUpload': $($_.Exception.Message)"
+        }
+    }
+}
 
 if (-not $SkipPostVerify) {
     Start-Sleep -Seconds 10
@@ -637,7 +1013,12 @@ if (-not $SkipPostVerify) {
     package_sha256 = $localHash
     remote_zip = $remoteZip
     tag = $Tag
+    delivery_mode = $deliveryMode
     remote_config_path = $normalizedRemoteConfigPath
+    remote_status_url = $RemoteStatusUrl
+    remote_info_url = $RemoteInfoUrl
+    config_source_path = $resolvedConfigSource
+    config_source_sha256 = $configSourceSha256
     remote_data_dir = $normalizedRemoteDataDir
     require_data_backup = [bool]$RequireDataBackup
 } | ConvertTo-Json -Depth 6

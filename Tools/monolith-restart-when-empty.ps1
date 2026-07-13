@@ -19,6 +19,38 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Test-AbsoluteHttpUrl {
+    param([string]$Value)
+
+    $uri = $null
+    return [Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri) -and
+        $uri.Scheme -in @("http", "https") -and
+        -not [string]::IsNullOrWhiteSpace($uri.Host) -and
+        [string]::IsNullOrWhiteSpace($uri.UserInfo)
+}
+
+if ($SshTarget -notmatch "^[A-Za-z0-9][A-Za-z0-9_.@:-]*$") {
+    throw "SshTarget contains unsupported characters: '$SshTarget'"
+}
+
+if ($ServiceName -notmatch "^[A-Za-z0-9][A-Za-z0-9_.@:-]*\.service$") {
+    throw "ServiceName must be a simple systemd .service unit name: '$ServiceName'"
+}
+
+if ($PollSeconds -lt 1 -or $MaxRoundAgeDays -lt 1 -or $ExpectedSoftMaxPlayers -lt 1) {
+    throw "PollSeconds, MaxRoundAgeDays, and ExpectedSoftMaxPlayers must all be positive."
+}
+
+if (-not (Test-AbsoluteHttpUrl -Value $StatusUrl) -or
+    -not (Test-AbsoluteHttpUrl -Value $InfoUrl) -or
+    -not (Test-AbsoluteHttpUrl -Value $HubUrl)) {
+    throw "StatusUrl, InfoUrl, and HubUrl must be absolute HTTP(S) URLs without credentials."
+}
+
+if ($SkipSsh -and -not $VerifyOnly) {
+    throw "-SkipSsh is only valid together with -VerifyOnly; a restart always requires SSH verification."
+}
+
 function Get-MonolithStatus {
     Invoke-RestMethod -Uri $StatusUrl -TimeoutSec 10
 }
@@ -32,6 +64,28 @@ function Get-HubEntry {
     $servers | Where-Object { $_.address -eq $ServerAddress } | Select-Object -First 1
 }
 
+function Wait-MonolithHttpReady {
+    for ($attempt = 1; $attempt -le 45; $attempt += 1) {
+        try {
+            $status = Invoke-RestMethod -Uri $StatusUrl -TimeoutSec 3
+            $info = Invoke-RestMethod -Uri $InfoUrl -TimeoutSec 20
+            if ($null -ne $status -and $null -ne $info -and $null -ne $info.build) {
+                return
+            }
+        }
+        catch {
+            if ($attempt -eq 45) {
+                throw "Server /status and /info did not become ready after restart: $($_.Exception.Message)"
+            }
+        }
+
+        Start-Sleep -Seconds 2
+    }
+
+
+    throw "Server /status and /info did not become ready after restart."
+}
+
 function Get-RemoteJournalMetrics {
     $script = @"
 svc='$ServiceName'
@@ -39,10 +93,11 @@ since=`$(systemctl show -p ActiveEnterTimestamp --value "`$svc")
 echo since=`$since
 echo handshake_count=`$(sudo journalctl -u "`$svc" --since="`$since" --no-pager | grep -c 'disconnected while handshake was in-progress' || true)
 echo keepup_count=`$(sudo journalctl -u "`$svc" --since="`$since" --no-pager | grep -c 'MainLoop: Cannot keep up' || true)
-echo error_count=`$(sudo journalctl -u "`$svc" --since="`$since" --no-pager | grep -Ec 'FATL|EROR|Exception|exception:|OOM|killed process|YAML' || true)
+echo error_count=`$(sudo journalctl -u "`$svc" --since="`$since" --no-pager | grep -Ec 'FATL|ERRO|Exception|exception:|OOM|killed process|YAML' || true)
 echo cleanup_count=`$(sudo journalctl -u "`$svc" --since="`$since" --no-pager | grep -Ec 'system\.space_cleanup|system\.grid_cleanup|system\.map: Removing grid' || true)
 "@
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))
+    $normalizedScript = $script -replace "`r`n", "`n" -replace "`r", "`n"
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($normalizedScript))
     $command = "printf %s $encoded | base64 -d | bash"
 
     $raw = ssh $SshTarget $command
@@ -100,6 +155,26 @@ function Invoke-MonolithVerification {
     $hubStatus = if ($hubEntry) { $hubEntry.statusData } else { $null }
     $hubTags = if ($hubStatus) { @($hubStatus.tags) } else { @() }
     $manifestHash = [string]$info.build.manifest_hash
+    $isAcz = [bool]$info.build.acz
+    $hasExternalZip = (Test-AbsoluteHttpUrl -Value ([string]$info.build.download_url)) -and
+        [string]$info.build.hash -match "^[0-9A-Fa-f]{64}$"
+    $hasExternalManifest = (Test-AbsoluteHttpUrl -Value ([string]$info.build.manifest_url)) -and
+        (Test-AbsoluteHttpUrl -Value ([string]$info.build.manifest_download_url)) -and
+        $manifestHash -match "^[0-9A-Fa-f]{64}$"
+    $hasValidAcz = $isAcz -and $manifestHash -match "^[0-9A-Fa-f]{64}$"
+    $hasClientDelivery = $hasValidAcz -or $hasExternalZip -or $hasExternalManifest
+    $externalDownloadReachable = $false
+    $externalDownloadDetail = "not applicable"
+    if ($hasExternalZip) {
+        try {
+            $downloadHead = Invoke-WebRequest -Uri ([string]$info.build.download_url) -Method Head -TimeoutSec 20 -UseBasicParsing
+            $externalDownloadReachable = [int]$downloadHead.StatusCode -ge 200 -and [int]$downloadHead.StatusCode -lt 400
+            $externalDownloadDetail = "HTTP $([int]$downloadHead.StatusCode) from $([string]$info.build.download_url)"
+        }
+        catch {
+            $externalDownloadDetail = "External client URL failed: $($_.Exception.Message)"
+        }
+    }
     $roundStart = $null
     $roundAgeDays = $null
 
@@ -116,8 +191,11 @@ function Invoke-MonolithVerification {
     Add-PreflightCheck $checks "status-http" ($null -ne $status) "Status endpoint returned round $($status.round_id), players $($status.players)."
     Add-PreflightCheck $checks "info-http" ($null -ne $info) "Info endpoint returned engine $($info.build.engine_version), manifest $manifestHash."
     Add-PreflightCheck $checks "hub-entry" ([bool]$hubEntry) "Hub entry for $ServerAddress."
-    Add-PreflightCheck $checks "acz" ([bool]$info.build.acz) "ACZ must be enabled for packaged client delivery."
-    Add-PreflightCheck $checks "manifest-hash" (-not [string]::IsNullOrWhiteSpace($manifestHash)) "Info manifest_hash should be present."
+    Add-PreflightCheck $checks "client-delivery" $hasClientDelivery "Client delivery must use valid ACZ or complete external HTTP(S) metadata. acz=$hasValidAcz external_zip=$hasExternalZip external_manifest=$hasExternalManifest."
+    Add-PreflightCheck $checks "build-integrity" ($hasExternalZip -or $manifestHash -match "^[0-9A-Fa-f]{64}$") "Client delivery must expose either download_url plus a SHA256 hash, or a valid manifest SHA256."
+    if ($hasExternalZip) {
+        Add-PreflightCheck $checks "external-client-http" $externalDownloadReachable $externalDownloadDetail
+    }
     Add-PreflightCheck $checks "auth-required" ([string]$info.auth.mode -eq "Required") "Auth mode is $($info.auth.mode)." "warning"
     Add-PreflightCheck $checks "soft-max" ([int]$status.soft_max_players -eq $ExpectedSoftMaxPlayers) "soft_max_players=$($status.soft_max_players), expected $ExpectedSoftMaxPlayers." "warning"
     Add-PreflightCheck $checks "panic-bunker" (-not [bool]$status.panic_bunker) "panic_bunker=$($status.panic_bunker)." "warning"
@@ -157,6 +235,7 @@ function Invoke-MonolithVerification {
             engine_version = $info.build.engine_version
             manifest_hash = $info.build.manifest_hash
             acz = $info.build.acz
+            delivery_mode = if ($hasValidAcz) { "hybrid-acz" } elseif ($hasExternalZip) { "external-zip" } elseif ($hasExternalManifest) { "external-manifest" } else { "invalid" }
         }
         hub = [ordered]@{
             found = [bool]$hubEntry
@@ -217,8 +296,11 @@ do {
             exit $LASTEXITCODE
         }
 
-        Start-Sleep -Seconds 12
-        [void](Invoke-MonolithVerification)
+        Wait-MonolithHttpReady
+        $report = Invoke-MonolithVerification
+        if (-not $report.ok -or ($Strict -and -not $report.strict_ok)) {
+            exit 1
+        }
         exit 0
     }
 
