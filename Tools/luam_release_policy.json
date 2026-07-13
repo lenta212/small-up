@@ -1,6 +1,6 @@
 {
-  "remoteDeployFrozen": false,
-  "reason": "The operator explicitly requested the 2026-07-13 rollout. Readiness, package verification, release audit, live-path confirmation, backup planning, and both dry-runs passed; deployment is authorized only through the guarded wait-for-empty path without Force.",
+  "remoteDeployFrozen": true,
+  "reason": "The 2026-07-13 rollout is fully built and verified, and the immutable client package is provisioned. Server deployment is paused and re-frozen because one player remained online throughout the guarded wait; resume only through the same wait-for-empty path without Force.",
   "lastReviewed": "2026-07-13",
   "approvedReleaseAdditions": [
     "Content.Client/_LuaM/Sector/LuaMAiTtsAudioSystem.cs",
