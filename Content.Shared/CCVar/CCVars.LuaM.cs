@@ -81,6 +81,20 @@ public sealed partial class CCVars
         CVarDef.Create("luam.animal_husbandry.max_population_per_map", 32, CVar.SERVERONLY);
 
     /// <summary>
+    /// Enables lightweight moving transit signatures on sector radar.
+    /// These contacts have no shuttle grid, colliding fixture, crew, or NPC logic.
+    /// </summary>
+    public static readonly CVarDef<bool> LuaMSectorTrafficEnabled =
+        CVarDef.Create("luam.sector_traffic.enabled", true, CVar.SERVERONLY);
+
+    /// <summary>
+    /// Desired radar-only transit contacts on the active primary sector map.
+    /// Runtime code always clamps this to a global hard maximum of four.
+    /// </summary>
+    public static readonly CVarDef<int> LuaMSectorTrafficContacts =
+        CVarDef.Create("luam.sector_traffic.contacts", 2, CVar.SERVERONLY);
+
+    /// <summary>
     /// Sends a local sector AI greeting to players when they enter the round.
     /// </summary>
     public static readonly CVarDef<bool> LuaMAiDirectorGreetOnJoin =

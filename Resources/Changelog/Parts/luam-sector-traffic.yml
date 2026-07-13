@@ -1,0 +1,7 @@
+author: LuaM
+category: Add
+changes:
+  - type: Add
+    message: Ship radars now show two lightweight civilian transit contacts moving through the active sector while players are present.
+  - type: Tweak
+    message: Ambient sector traffic is globally capped, staggered, collision-free, and cleaned up automatically without spawning NPC ships or crews.

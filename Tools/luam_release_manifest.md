@@ -26,6 +26,7 @@ The local pack currently covers:
 - Donation shop state, PDA listings, and manual account access.
 - Sector story memory, dynamic tasks, route text, site notes, evidence, terminal/report flows.
 - Dynamic quest debris and periodic hostile contacts on every fifth debris site.
+- Two staggered, radar-only civilian transit contacts on the active primary sector map, with a global hard cap of four, player-presence gating, collision-free routes, expiry, and round cleanup.
 - Subspace/stargate-style temporary portal actions.
 - Synthetic/robot control hooks and tests.
 - Payroll mapping, pioneer starting grant, payroll status, and real hourly payout.
@@ -67,6 +68,8 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.Server/Chat/Systems/ChatSystem.cs`
 - `Content.Server/Radio/EntitySystems/HeadsetSystem.cs`
 - `Content.Server/_LuaM/Sector/LuaMCharacterTtsSystem.cs`
+- `Content.Server/_LuaM/Sector/LuaMSectorTrafficContactComponent.cs`
+- `Content.Server/_LuaM/Sector/LuaMSectorTrafficSystem.cs`
 - `Content.Server/_LuaM/Expeditions/LuaMExpeditionPlan.cs`
 - `Content.Server/_LuaM/Expeditions/LuaMExpeditionPlanCommand.cs`
 - `Content.Server/_LuaM/Expeditions/LuaMExpeditionPlanValidator.cs`
@@ -91,10 +94,12 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.Shared/Nutrition/AnimalHusbandry/ReproductiveComponent.cs`
 - `Content.Server/Gateway/Components/GatewayGeneratorDestinationComponent.cs`
 - `Content.Server/Gateway/Systems/GatewayGeneratorSystem.cs`
+- `Content.Shared/CCVar/CCVars.LuaM.cs`
 - `Content.Shared/CCVar/CCVars.Misc.cs`
 - `Content.IntegrationTests/PoolManager.Cvars.cs`
 - `Content.IntegrationTests/Tests/Gateway/GatewayGeneratorGrowthLimitTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMAnimalHusbandryIntervalTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMTimedSpawnerLimitTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMBankAndPdaContractsTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMBankDurableMutationContractTest.cs`
@@ -106,10 +111,13 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.IntegrationTests/Tests/_LuaM/LuaMExpeditionPlannerTest.cs`
 - `Content.IntegrationTests/Tests/_LuaM/LuaMProgressionRulesTest.cs`
 - `Resources/Prototypes/_LuaM/Sector/rescue_after_action.yml`
+- `Resources/Prototypes/_LuaM/Entities/World/sector_traffic.yml`
+- `Resources/ConfigPresets/_LuaM/deadSpaceLowPop.toml`
 - `Resources/Prototypes/Entities/Markers/Spawners/Conditional/timed.yml`
 - `Resources/Prototypes/GameRules/pests.yml`
 - `Resources/Maps/_NF/Shuttles/Scrap/bison.yml`
 - `Resources/Changelog/Parts/luam-animal-population-cap.yml`
+- `Resources/Changelog/Parts/luam-sector-traffic.yml`
 - `Resources/Changelog/Parts/luam-pda-bank-transfer-fix.yml`
 - `Content.Client/_LuaM/**`
 - `Content.Server/_LuaM/**`

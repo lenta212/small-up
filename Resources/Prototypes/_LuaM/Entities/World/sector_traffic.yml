@@ -1,0 +1,32 @@
+- type: entity
+  id: LuaMSectorTrafficContact
+  name: транзитная сигнатура
+  description: Удалённый гражданский контакт, отслеживаемый секторным радаром.
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Transform
+    gridTraversal: false
+  - type: Physics
+    bodyType: KinematicController
+    bodyStatus: InAir
+    linearDamping: 0
+    angularDamping: 0
+    fixedRotation: true
+    sleepingAllowed: false
+  - type: Fixtures
+    fixtures:
+      traffic-contact:
+        shape: !type:PhysShapeCircle
+          radius: 0.01
+        hard: false
+  - type: RadarBlip
+    requireNoGrid: true
+    visibleFromOtherGrids: true
+    maxDistance: 3072
+    config:
+      color: "#67D8E8"
+      shape: Arrow
+      bounds: "-4,-2,4,2"
+      respectZoom: false
+      rotate: true
+  - type: LuaMSectorTrafficContact

@@ -65,6 +65,10 @@ max_active_sites = 2
 [luam.animal_husbandry]
 max_population_per_map = 32
 
+[luam.sector_traffic]
+enabled = true
+contacts = 2
+
 [status]
 connectaddress = "udp://188.127.225.57:1212"
 

@@ -3104,6 +3104,14 @@ def main() -> int:
     ]:
         assert_contains(luam_cvars, required_husbandry_cvar_marker, "CCVars.LuaM animal husbandry cap")
 
+    for required_traffic_cvar_marker in [
+        "LuaMSectorTrafficEnabled",
+        'CVarDef.Create("luam.sector_traffic.enabled", true, CVar.SERVERONLY)',
+        "LuaMSectorTrafficContacts",
+        'CVarDef.Create("luam.sector_traffic.contacts", 2, CVar.SERVERONLY)',
+    ]:
+        assert_contains(luam_cvars, required_traffic_cvar_marker, "CCVars.LuaM sector traffic")
+
     animal_husbandry_system = (
         ROOT / "Content.Server/Nutrition/EntitySystems/AnimalHusbandrySystem.cs"
     ).read_text(encoding="utf-8")
@@ -3134,8 +3142,83 @@ def main() -> int:
         "ExpectedBreedInterval = TimeSpan.FromHours(1)",
         "timing.CurTime - TimeSpan.FromHours(24)",
         "instead of replaying every missed interval",
+        "timedSpawner.MinimumEntitiesSpawned = 3",
+        "await pair.RunSeconds(20.5f)",
+        "Each successful hatch must transfer its reserved population slot",
+        "timedSpawner.MaximumTotalSpawns, Is.EqualTo(1)",
+        "Hatching must not transiently exceed the hard cap",
     ]:
         assert_contains(animal_husbandry_test, required_husbandry_test_marker, "LuaMAnimalHusbandryIntervalTest")
+
+    traffic_component = (
+        ROOT / "Content.Server/_LuaM/Sector/LuaMSectorTrafficContactComponent.cs"
+    ).read_text(encoding="utf-8")
+    for required_traffic_component_marker in [
+        "LuaMSectorTrafficContactComponent",
+        "public TimeSpan ExpiresAt",
+        "public Vector2 RouteVelocity",
+    ]:
+        assert_contains(traffic_component, required_traffic_component_marker, "LuaMSectorTrafficContactComponent")
+
+    traffic_system = (
+        ROOT / "Content.Server/_LuaM/Sector/LuaMSectorTrafficSystem.cs"
+    ).read_text(encoding="utf-8")
+    for required_traffic_system_marker in [
+        "public const int HardMaxContacts = 4",
+        "var sectorMap = _ticker.DefaultMap",
+        "CollectActivePlayerAnchors",
+        "CollectActiveRadarAnchors",
+        "public const float RadarActivationRadius = 128f",
+        "HasComp<GhostComponent>(player)",
+        "EntityQueryEnumerator<RadarConsoleComponent, TransformComponent>()",
+        "Math.Clamp(_cfg.GetCVar(CCVars.LuaMSectorTrafficContacts), 0, HardMaxContacts)",
+        "EnsureTrafficForMap(sectorMap, _radarAnchors, desired, spawnBudget: 1)",
+        "contact.ExpiresAt <= now",
+        "MaximumRetentionDistance",
+        "RemoveContactsOutsideActiveMaps",
+        "SubscribeLocalEvent<RoundRestartCleanupEvent>",
+        "QueueDel(uid)",
+    ]:
+        assert_contains(traffic_system, required_traffic_system_marker, "LuaMSectorTrafficSystem")
+
+    traffic_prototype = (
+        ROOT / "Resources/Prototypes/_LuaM/Entities/World/sector_traffic.yml"
+    ).read_text(encoding="utf-8")
+    for required_traffic_prototype_marker in [
+        "id: LuaMSectorTrafficContact",
+        "gridTraversal: false",
+        "bodyType: KinematicController",
+        "sleepingAllowed: false",
+        "hard: false",
+        "type: RadarBlip",
+        "requireNoGrid: true",
+        "maxDistance: 3072",
+        "shape: Arrow",
+        "type: LuaMSectorTrafficContact",
+    ]:
+        assert_contains(traffic_prototype, required_traffic_prototype_marker, "sector_traffic.yml")
+    for forbidden_traffic_prototype_marker in [
+        "type: Shuttle",
+        "type: HTN",
+        "type: MobState",
+    ]:
+        assert_not_contains(traffic_prototype, forbidden_traffic_prototype_marker, "sector_traffic.yml")
+
+    traffic_test = (
+        ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficTest.cs"
+    ).read_text(encoding="utf-8")
+    for required_traffic_test_marker in [
+        "TrafficContactsMoveAndRemainHardCapped",
+        "spawnBudget: 1",
+        "SharedRadarConsoleSystem.DefaultMaxRange",
+        "GridTraversal",
+        "CollisionLayer",
+        "CollisionMask",
+        "RoundRestartCleanupEvent",
+        "Disabling traffic must remove every lightweight contact",
+        "Ambient traffic must pass the station",
+    ]:
+        assert_contains(traffic_test, required_traffic_test_marker, "LuaMSectorTrafficTest")
 
     timed_spawner_component = (
         ROOT / "Content.Server/Spawners/Components/TimedSpawnerComponent.cs"
@@ -3158,6 +3241,11 @@ def main() -> int:
     for required_spawner_system_marker in [
         "component.TotalSpawned >= maximumTotal",
         "Math.Min(number, maximum - component.TotalSpawned)",
+        "transferOffspringReservation",
+        "number = Math.Min(number, 1)",
+        "RemComp<AnimalHusbandryOffspringComponent>(uid)",
+        "EnsureComp<AnimalHusbandryOffspringComponent>(spawned)",
+        "component.MaximumTotalSpawns = component.TotalSpawned + 1",
         "component.TotalSpawned++",
     ]:
         assert_contains(spawner_system, required_spawner_system_marker, "SpawnerSystem finite lifetime budget")
@@ -3658,6 +3746,8 @@ def main() -> int:
         assert_equal(config["mono"]["cleanup"]["grid"]["distance"], 628, f"{config_name}.cleanup.grid.distance")
         assert_equal(config["mono"]["cleanup"]["space"]["distance"], 628, f"{config_name}.cleanup.space.distance")
         assert_equal(config["shuttle"]["auto_call_time"], 10080, f"{config_name}.shuttle.auto_call_time")
+        assert_equal(config["luam"]["sector_traffic"]["enabled"], True, f"{config_name}.sector_traffic.enabled")
+        assert_equal(config["luam"]["sector_traffic"]["contacts"], 2, f"{config_name}.sector_traffic.contacts")
     local_config_path = ROOT / "server_config_local.toml"
     if local_config_path.exists():
         local_config = tomllib.loads(local_config_path.read_text(encoding="utf-8-sig"))
@@ -3695,6 +3785,8 @@ def main() -> int:
         32,
         "low-pop luam.animal_husbandry.max_population_per_map",
     )
+    assert_equal(low_pop_config["luam"]["sector_traffic"]["enabled"], True, "low-pop luam.sector_traffic.enabled")
+    assert_equal(low_pop_config["luam"]["sector_traffic"]["contacts"], 2, "low-pop luam.sector_traffic.contacts")
     assert_equal(low_pop_config["nf14"]["worldgen"]["market_stations"], 1, "market_stations")
     assert_equal(low_pop_config["nf14"]["worldgen"]["cargo_depots"], 4, "cargo_depots")
     assert_equal(low_pop_config["nf14"]["worldgen"]["optional_stations"], 6, "optional_stations")
@@ -3733,6 +3825,8 @@ def main() -> int:
         32,
         "remote luam.animal_husbandry.max_population_per_map",
     )
+    assert_equal(remote_config["luam"]["sector_traffic"]["enabled"], True, "remote luam.sector_traffic.enabled")
+    assert_equal(remote_config["luam"]["sector_traffic"]["contacts"], 2, "remote luam.sector_traffic.contacts")
 
     rescue_agent_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs").read_text(encoding="utf-8")
     assert_contains(rescue_agent_system, 'Command => "luam_rescue_agent"', "LuaMRescueAgentCommand")
