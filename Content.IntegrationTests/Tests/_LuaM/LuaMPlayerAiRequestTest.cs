@@ -1,8 +1,10 @@
 #nullable enable
 
+using System.Collections;
 using System.Collections.Generic;
 using Content.Server._LuaM.Sector;
 using Content.Server._NF.SectorServices;
+using Content.Shared.CCVar;
 using System.Reflection;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
@@ -27,6 +29,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -65,6 +68,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -104,6 +108,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -139,6 +144,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -174,6 +180,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -213,6 +220,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -245,6 +253,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -307,6 +316,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -344,6 +354,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -380,6 +391,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -416,6 +428,7 @@ public sealed class LuaMPlayerAiRequestTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var session = pair.Client.Session;
             Assert.That(session, Is.Not.Null);
 
@@ -432,6 +445,101 @@ public sealed class LuaMPlayerAiRequestTest
 
             Assert.That(reply, Does.Contain("Опасность повышена"));
             Assert.That(reply, Does.Contain("conditions"));
+        }
+        finally
+        {
+            await pair.CleanReturnAsync();
+        }
+    }
+
+    [Test]
+    public async Task DisabledDirectorRejectsWorldMutationsWithoutEnablingIt()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false
+        });
+
+        try
+        {
+            var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, false);
+            var session = pair.Client.Session;
+            Assert.That(session, Is.Not.Null);
+
+            var playerMan = server.ResolveDependency<IPlayerManager>();
+            var serverSession = playerMan.GetSessionById(session!.UserId);
+            var entMan = server.ResolveDependency<IEntityManager>();
+            var director = entMan.System<LuaMSectorAiDirectorSystem>();
+            var pendingPressures = GetPrivateField<IList>(director, "_pendingPersonalPressures");
+            var cooldowns = GetPrivateField<IDictionary>(director, "_nextPlayerWorldActionByUser");
+            var missionReply = string.Empty;
+            var subspaceReply = string.Empty;
+
+            await server.WaitPost(() =>
+            {
+                pendingPressures.Clear();
+                cooldowns.Clear();
+                missionReply = director.HandlePlayerAiRequest(serverSession, "mission", "integration disabled");
+                subspaceReply = director.HandlePlayerAiRequest(serverSession, "stargate", "integration disabled");
+            });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(missionReply, Does.Contain("отключен администратором"));
+                Assert.That(subspaceReply, Does.Contain("отключен администратором"));
+                Assert.That(server.CfgMan.GetCVar(CCVars.LuaMAiDirectorEnabled), Is.False);
+                Assert.That(pendingPressures, Is.Empty);
+                Assert.That(cooldowns, Is.Empty);
+            });
+        }
+        finally
+        {
+            await pair.CleanReturnAsync();
+        }
+    }
+
+    [Test]
+    public async Task EnabledDirectorRejectsWorldMutationsBeforeRoundStart()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            InLobby = true
+        });
+
+        try
+        {
+            var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
+            var session = pair.Client.Session;
+            Assert.That(session, Is.Not.Null);
+
+            var playerMan = server.ResolveDependency<IPlayerManager>();
+            var serverSession = playerMan.GetSessionById(session!.UserId);
+            var entMan = server.ResolveDependency<IEntityManager>();
+            var director = entMan.System<LuaMSectorAiDirectorSystem>();
+            var pendingPressures = GetPrivateField<IList>(director, "_pendingPersonalPressures");
+            var cooldowns = GetPrivateField<IDictionary>(director, "_nextPlayerWorldActionByUser");
+            var reply = string.Empty;
+
+            await server.WaitPost(() =>
+            {
+                pendingPressures.Clear();
+                cooldowns.Clear();
+                reply = director.HandlePlayerAiRequest(serverSession, "mission", "integration lobby");
+            });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(reply, Does.Contain("только во время активного раунда"));
+                Assert.That(server.CfgMan.GetCVar(CCVars.LuaMAiDirectorEnabled), Is.True);
+                Assert.That(pendingPressures, Is.Empty);
+                Assert.That(cooldowns, Is.Empty);
+            });
         }
         finally
         {

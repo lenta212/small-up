@@ -206,7 +206,8 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             message,
             chat.TargetUserId,
             chat.TemplateId,
-            allowServerActions || IsGameMasterModeEnabled());
+            allowServerActions ||
+            (IsGameMasterModeEnabled() && _admin.HasAdminFlag(Player, AdminFlags.Server)));
 
         RemovePendingChatLine(pending);
         AppendChat($"AI Director: {reply}");
@@ -502,6 +503,16 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
         }
 
         var pending = _pendingConfirmation;
+        if (!TryRequireServerAction(pending.Title))
+        {
+            AppendAiActionHistory(
+                pending,
+                "denied",
+                "confirmation rejected; Server authorization was not present at execution time");
+            StateDirty();
+            return;
+        }
+
         _pendingConfirmation = null;
         _lastResult = $"Confirmed: {pending.Title}.";
         LogAiAction(pending.Impact, "confirmed", $"{pending.ActionKey}; {pending.Detail}");
@@ -551,7 +562,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
 
     private bool TryRequireServerAction(string actionLabel)
     {
-        if (_admin.HasAdminFlag(Player, AdminFlags.Server) || IsGameMasterModeEnabled())
+        if (_admin.HasAdminFlag(Player, AdminFlags.Server))
             return true;
 
         _pendingConfirmation = null;

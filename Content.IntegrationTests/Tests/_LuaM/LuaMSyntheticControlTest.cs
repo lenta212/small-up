@@ -11,7 +11,7 @@ namespace Content.IntegrationTests.Tests._LuaM;
 public sealed class LuaMSyntheticControlTest
 {
     [Test]
-    public async Task ApplySyntheticControlEnablesDirectorAndReturnsSnapshot()
+    public async Task ApplySyntheticControlLeavesAutoDirectorDisabledAndReturnsSnapshot()
     {
         var pair = await PoolManager.GetServerClient(new PoolSettings
         {
@@ -26,7 +26,11 @@ public sealed class LuaMSyntheticControlTest
             var entMan = server.ResolveDependency<IEntityManager>();
             var director = entMan.System<LuaMSectorAiDirectorSystem>();
 
-            await server.WaitPost(() => director.ResetGatewayDiagnosticsForTests());
+            await server.WaitPost(() =>
+            {
+                server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, false);
+                director.ResetGatewayDiagnosticsForTests();
+            });
 
             var result = string.Empty;
             await server.WaitPost(() =>
@@ -42,7 +46,7 @@ public sealed class LuaMSyntheticControlTest
                 Assert.That(result, Does.Contain("condition="));
 
                 var state = director.BuildAdminState(string.Empty, string.Empty);
-                Assert.That(state.Enabled, Is.True);
+                Assert.That(state.Enabled, Is.False);
                 Assert.That(state.GatewaySharedContext, Has.Some.Contains("Counts only"));
                 Assert.That(state.GatewaySharedContext, Has.Some.Contains("Selected target is anonymized"));
                 Assert.That(state.GatewayWithheldContext, Has.Some.Contains("Real admin/player names"));

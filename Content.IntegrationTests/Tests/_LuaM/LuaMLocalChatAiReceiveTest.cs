@@ -5,6 +5,7 @@ using System.Reflection;
 using Content.Server._LuaM.Sector;
 using Content.Server.Chat.V2;
 using Content.Server.Mind;
+using Content.Shared.CCVar;
 using Content.Shared.Chat.V2.Repository;
 using Robust.Server.Player;
 using Robust.Shared.GameObjects;
@@ -28,6 +29,7 @@ public sealed class LuaMLocalChatAiReceiveTest
         try
         {
             var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
             var clientSession = pair.Client.Session;
             Assert.That(clientSession, Is.Not.Null);
 

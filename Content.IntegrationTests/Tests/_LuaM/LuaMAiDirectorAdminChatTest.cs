@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Linq;
@@ -25,6 +26,7 @@ using Robust.Shared.Utility;
 namespace Content.IntegrationTests.Tests._LuaM;
 
 [TestFixture]
+[NonParallelizable]
 public sealed class LuaMAiDirectorAdminChatTest
 {
     [Test]
@@ -140,7 +142,7 @@ public sealed class LuaMAiDirectorAdminChatTest
     }
 
     [Test]
-    public async Task AdminChatGameMasterModeBypassesEuiServerActionBlockForGameplay()
+    public async Task AdminChatGameMasterModeDoesNotGrantServerActionPermission()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings
         {
@@ -176,10 +178,9 @@ public sealed class LuaMAiDirectorAdminChatTest
                 allowServerActions: false);
 
             Assert.That(state.GameMasterModeEnabled, Is.True);
-            Assert.That(state.CanRunServerActions, Is.True);
-            Assert.That(reply, Does.Not.Contain("Action not executed"));
-            Assert.That(reply, Does.Contain("LuaM"));
-            Assert.That(reply, Does.Contain("API"));
+            Assert.That(state.CanRunServerActions, Is.False);
+            Assert.That(reply, Does.Contain("Action not executed"));
+            Assert.That(reply, Does.Contain("Server-flag confirmed action"));
         }
         finally
         {
@@ -1201,6 +1202,139 @@ public sealed class LuaMAiDirectorAdminChatTest
         Assert.That(boundedHistory, Does.Contain("decision=confirmed"));
     }
 
+    [Test]
+    public async Task GatewayChatOversizedChunkedJsonIsRejectedAndRequestGateIsReleased()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false
+        });
+
+        LuaMSectorAiDirectorSystem? director = null;
+        try
+        {
+            var server = pair.Server;
+            var clientSession = pair.Client.Session;
+            Assert.That(clientSession, Is.Not.Null);
+
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorGatewayUrl, "http://luam.invalid/propose_event");
+
+            var playerMan = server.ResolveDependency<IPlayerManager>();
+            var admin = playerMan.GetSessionById(clientSession!.UserId);
+            var entMan = server.ResolveDependency<IEntityManager>();
+            director = entMan.System<LuaMSectorAiDirectorSystem>();
+            director.ResetGatewayDiagnosticsForTests();
+
+            const string sentinel = "secret-oversized-provider-tail";
+            var handler = new ChunkedGatewayHandler(new string('x', 300_000) + sentinel);
+            director.SetGatewayHttpClientForTests(new HttpClient(handler));
+            var before = director.BuildAdminState(string.Empty, string.Empty);
+
+            var failure = await director.AdminChatAsync(
+                admin,
+                "Please answer with safe sector advice.",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId);
+
+            var rejected = director.BuildAdminState(string.Empty, string.Empty);
+            Assert.That(handler.RequestCount, Is.EqualTo(1));
+            Assert.That(handler.LastRequest, Is.Not.Null);
+            Assert.That(handler.LastRequest!.RequestUri!.AbsolutePath, Is.EqualTo("/chat"));
+            Assert.That(rejected.GatewayAuditProviderOutputBlocks - before.GatewayAuditProviderOutputBlocks, Is.EqualTo(1));
+            Assert.That(rejected.GatewayBlockInvalidSchemas - before.GatewayBlockInvalidSchemas, Is.EqualTo(1));
+            Assert.That(rejected.GatewayAuditTransportFailures, Is.EqualTo(before.GatewayAuditTransportFailures));
+            Assert.That(failure, Does.Contain("provider output rejected"));
+            Assert.That(failure, Does.Contain("JSON/schema"));
+            Assert.That(failure, Does.Not.Contain(sentinel));
+            Assert.That(rejected.AiOutcomeSummary, Does.Not.Contain(sentinel));
+            Assert.That(string.Join("\n", rejected.GatewayBlockReasonSummary), Does.Not.Contain(sentinel));
+
+            handler.ResponseBody = "{\"reply\":\"second request accepted\",\"action\":\"none\"}";
+            var second = await director.AdminChatAsync(
+                admin,
+                "Please answer with another safe sector note.",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId);
+
+            Assert.That(handler.RequestCount, Is.EqualTo(2));
+            Assert.That(second, Does.Contain("second request accepted"));
+        }
+        finally
+        {
+            director?.ResetGatewayHttpClientForTests();
+            await pair.CleanReturnAsync();
+        }
+    }
+
+    [Test]
+    public async Task GatewayRequestsAreSerializedWhileLocalStatusRemainsAvailable()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false
+        });
+
+        LuaMSectorAiDirectorSystem? director = null;
+        BlockingGatewayHandler? handler = null;
+        try
+        {
+            var server = pair.Server;
+            var clientSession = pair.Client.Session;
+            Assert.That(clientSession, Is.Not.Null);
+
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorGatewayUrl, "http://luam.invalid/propose_event");
+
+            var playerMan = server.ResolveDependency<IPlayerManager>();
+            var admin = playerMan.GetSessionById(clientSession!.UserId);
+            var entMan = server.ResolveDependency<IEntityManager>();
+            director = entMan.System<LuaMSectorAiDirectorSystem>();
+            handler = new BlockingGatewayHandler();
+            director.SetGatewayHttpClientForTests(new HttpClient(handler));
+
+            var firstRequest = director.AdminChatAsync(
+                admin,
+                "Give me a concise fictional overview of this sector.",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId);
+
+            await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.That(director.BuildAdminState(string.Empty, string.Empty).RequestInFlight, Is.True);
+
+            var localStatus = await director.AdminChatAsync(
+                admin,
+                "sector status",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId);
+            var competingRequest = await director.AdminChatAsync(
+                admin,
+                "Describe a different fictional sector.",
+                string.Empty,
+                LuaMAiDirectorEuiMsg.AutoTemplateId);
+
+            Assert.That(localStatus, Does.Contain("LuaM"));
+            Assert.That(localStatus, Does.Contain("API"));
+            Assert.That(localStatus, Does.Not.Contain("уже выполняет запрос"));
+            Assert.That(competingRequest, Does.Contain("уже выполняет запрос"));
+            Assert.That(handler.RequestCount, Is.EqualTo(1));
+
+            handler.Release();
+            var firstReply = await firstRequest.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.That(firstReply, Does.Contain("provider reply"));
+            Assert.That(director.BuildAdminState(string.Empty, string.Empty).RequestInFlight, Is.False);
+        }
+        finally
+        {
+            handler?.Release();
+            director?.ResetGatewayHttpClientForTests();
+            await pair.CleanReturnAsync();
+        }
+    }
+
     private static object InvokePrivateInstance(object target, string methodName, params object[] args)
     {
         var method = target.GetType().GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Instance);
@@ -1233,6 +1367,71 @@ public sealed class LuaMAiDirectorAdminChatTest
             {
                 Content = new StringContent(responseBody, Encoding.UTF8, "application/json"),
             });
+        }
+    }
+
+    private sealed class ChunkedGatewayHandler(string responseBody) : HttpMessageHandler
+    {
+        public HttpRequestMessage? LastRequest { get; private set; }
+        public int RequestCount { get; private set; }
+        public string ResponseBody { get; set; } = responseBody;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            LastRequest = request;
+            RequestCount++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new UnknownLengthStringContent(ResponseBody),
+            });
+        }
+    }
+
+    private sealed class UnknownLengthStringContent(string body) : HttpContent
+    {
+        private readonly byte[] _payload = Encoding.UTF8.GetBytes(body);
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            return stream.WriteAsync(_payload, 0, _payload.Length);
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    private sealed class BlockingGatewayHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _requestCount;
+
+        public TaskCompletionSource Entered => _entered;
+        public int RequestCount => Volatile.Read(ref _requestCount);
+
+        public void Release()
+        {
+            _release.TrySetResult();
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _requestCount);
+            _entered.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"reply\":\"provider reply\",\"action\":\"none\"}",
+                    Encoding.UTF8,
+                    "application/json"),
+            };
         }
     }
 

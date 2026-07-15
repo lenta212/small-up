@@ -53,7 +53,7 @@ public sealed class LuaMAiDirectorCommand : IConsoleCommand
 {
     public string Command => "luamai";
     public string Description => "Opens the LuaM AI director admin window or sends a direct AI director message.";
-    public string Help => $"Usage: {Command} [message...]";
+    public string Help => $"Usage: {Command} [{LuaMAiConsoleConfirmation.ConfirmFlag}] [message...]";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
     {
@@ -65,7 +65,20 @@ public sealed class LuaMAiDirectorCommand : IConsoleCommand
 
         if (!string.IsNullOrWhiteSpace(argStr))
         {
-            _ = ExecuteChatAsync(shell, player, argStr);
+            var confirmed = args.Any(arg =>
+                arg.Equals(LuaMAiConsoleConfirmation.ConfirmFlag, StringComparison.OrdinalIgnoreCase));
+            var message = confirmed
+                ? string.Join(' ', args.Where(arg =>
+                    !arg.Equals(LuaMAiConsoleConfirmation.ConfirmFlag, StringComparison.OrdinalIgnoreCase)))
+                : argStr;
+
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                shell.WriteError($"Usage: {Command} [{LuaMAiConsoleConfirmation.ConfirmFlag}] [message...]");
+                return;
+            }
+
+            _ = ExecuteChatAsync(shell, player, message, confirmed);
             return;
         }
 
@@ -73,13 +86,17 @@ public sealed class LuaMAiDirectorCommand : IConsoleCommand
         eui.OpenEui(new LuaMAiDirectorEui(), player);
     }
 
-    private static async Task ExecuteChatAsync(IConsoleShell shell, ICommonSession player, string message)
+    private static async Task ExecuteChatAsync(
+        IConsoleShell shell,
+        ICommonSession player,
+        string message,
+        bool confirmed)
     {
         try
         {
             var director = IoCManager.Resolve<IEntityManager>().System<LuaMSectorAiDirectorSystem>();
             var admin = IoCManager.Resolve<IAdminManager>();
-            var canRunServerActions = admin.HasAdminFlag(player, AdminFlags.Server);
+            var canRunServerActions = confirmed && admin.HasAdminFlag(player, AdminFlags.Server);
             var reply = await director.AdminChatAsync(
                 player,
                 message,

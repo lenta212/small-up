@@ -85,8 +85,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private const int BountyHunterRewardThreshold = 85000;
     private const int BountyHunterCooldownSeconds = 900;
     private const int RadioAiReactionDedupSeconds = 3;
-    private const int RadioAiWorldActionCooldownSeconds = 20;
+    private const int PlayerAiWorldActionCooldownSeconds = 20;
     private const int RadioAiReplyTokenLifetimeSeconds = 5;
+    private const int MaxGatewayJsonResponseBytes = 262_144;
+    private const int GatewayJsonReadBufferBytes = 16_384;
+    private const int GatewayTtsJsonOverheadBytes = 16_384;
     private const int AiMemoryBriefMaxEntries = 16;
     private const int AiMemoryBriefMaxText = 220;
     private const int GatewayContextMaxText = 180;
@@ -585,8 +588,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private ISawmill _sawmill = default!;
     private TimeSpan _nextAttempt;
     private TimeSpan _nextWorldPulse;
-    private bool _requestInFlight;
-    private bool _aibolitRadioGatewayInFlight;
+    private readonly LuaMAiDirectorRequestGate _requestGate = new();
+    private readonly LuaMAiDirectorRequestGate _aiBaseOperationGate = new();
     private bool _ttsInFlight;
     private int _worldPulseCount;
     private int _aiBaseAutonomousShipCursor;
@@ -597,7 +600,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private readonly List<PendingPersonalPressureRequest> _pendingPersonalPressures = new();
     private readonly Dictionary<NetUserId, TimeSpan> _nextBountyHunterByUser = new();
     private readonly Dictionary<string, TimeSpan> _recentRadioAiRequests = new();
-    private readonly Dictionary<NetUserId, TimeSpan> _nextRadioWorldActionByUser = new();
+    private readonly Dictionary<NetUserId, TimeSpan> _nextPlayerWorldActionByUser = new();
     private readonly Dictionary<string, TimeSpan> _pendingAiRadioReplyTokens = new();
     private readonly Dictionary<string, string> _pendingAiRadioReplyActors = new();
     private readonly Dictionary<string, TimeSpan> _recentAiRadioPayloads = new();
@@ -636,6 +639,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private TimeSpan _gatewayRagSourceShapeAt;
     private int _gatewayRagAllowedSources;
     private int _gatewayRagDeniedSources;
+    private Action<EntityUid>? _shipSpawnPostLoadHookForTests;
 
     private enum RadioAiAddressKind
     {
@@ -652,6 +656,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         SubscribeLocalEvent<PlayerAttachedEvent>(OnPlayerAttached);
         SubscribeLocalEvent<ActiveRadioComponent, RadioReceiveEvent>(OnRadioReceive);
         SubscribeLocalEvent<RadioTransformMessageEvent>(OnRadioTransformMessage);
+        SubscribeLocalEvent<GameRunLevelChangedEvent>(OnGameRunLevelChanged);
+        SubscribeLocalEvent<RoundRestartCleanupEvent>(OnRoundRestartCleanup);
     }
 
     public override void Shutdown()
@@ -676,11 +682,46 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         old.Dispose();
     }
 
+    internal void SetShipSpawnPostLoadHookForTests(Action<EntityUid>? hook)
+    {
+        _shipSpawnPostLoadHookForTests = hook;
+    }
+
+    private void OnGameRunLevelChanged(GameRunLevelChangedEvent ev)
+    {
+        if (ev.Old == ev.New)
+            return;
+
+        if (ev.New == GameRunLevel.InRound)
+            ResetRoundScopedState(roundActive: true);
+        else if (ev.Old == GameRunLevel.InRound)
+            ResetRoundScopedState(roundActive: false);
+    }
+
+    private void OnRoundRestartCleanup(RoundRestartCleanupEvent ev)
+    {
+        ResetRoundScopedState(roundActive: false);
+    }
+
+    private void ResetRoundScopedState(bool roundActive)
+    {
+        _gatewayBudgetRoundUsed = 0;
+        _gatewayBudgetRoundActive = roundActive;
+        _nextPlayerWorldActionByUser.Clear();
+        _pendingPersonalPressures.Clear();
+        ResetGatewayRoundDiagnostics();
+    }
+
     internal void ResetGatewayDiagnosticsForTests()
     {
         _gatewayBudgetWindow.Clear();
         _gatewayBudgetRoundUsed = 0;
         _gatewayBudgetRoundActive = false;
+        ResetGatewayRoundDiagnostics();
+    }
+
+    private void ResetGatewayRoundDiagnostics()
+    {
         _gatewayAuditRedactions = 0;
         _gatewayAuditIdRedactions = 0;
         _gatewayAuditSecretRedactions = 0;
@@ -720,7 +761,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private bool CanRunAiAdminConsoleCommands()
     {
-        return _cfg.GetCVar(CCVars.LuaMAiDirectorAdminMode) || IsGameMasterModeEnabled();
+        return _cfg.GetCVar(CCVars.LuaMAiDirectorAdminMode);
     }
 
     public LuaMAiDirectorEuiState BuildAdminState(
@@ -746,7 +787,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             nextWorldPulseSeconds = (int) Math.Ceiling((_nextWorldPulse - _timing.CurTime).TotalSeconds);
 
         var gameMasterModeEnabled = IsGameMasterModeEnabled();
-        var canRunGameplayActions = canRunServerActions || gameMasterModeEnabled;
+        var canRunGameplayActions = canRunServerActions;
         var status = _stories.GetStatusSnapshot();
         var aiBase = _stories.GetAiBaseState();
         var hasOpenLead = _stories.TryGetOpenRuntimeDistressStory(out var openStory) && openStory != null;
@@ -771,7 +812,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             AdminModeEnabled = adminModeEnabled,
             GameMasterModeEnabled = gameMasterModeEnabled,
             GatewayConfigured = gatewayConfigured,
-            RequestInFlight = _requestInFlight,
+            RequestInFlight = _requestGate.IsActive || _aiBaseOperationGate.IsActive,
             CanRunServerActions = canRunGameplayActions,
             HasPendingConfirmation = !string.IsNullOrWhiteSpace(pendingConfirmationId),
             HasOpenRuntimeLead = hasOpenLead,
@@ -1016,7 +1057,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         bool worldPulseEnabled,
         GatewayBudgetSnapshot gatewayBudget)
     {
-        if (_requestInFlight)
+        if (_requestGate.IsActive || _aiBaseOperationGate.IsActive)
         {
             return new AiOutcomeView(
                 "request in flight",
@@ -1146,7 +1187,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         int activePlayers,
         SyntheticControlSnapshot synthetic)
     {
-        if (_requestInFlight)
+        if (_requestGate.IsActive || _aiBaseOperationGate.IsActive)
             return "Wait for the current AI request to finish before sending another action.";
 
         if (!string.IsNullOrWhiteSpace(pendingConfirmationId))
@@ -2050,6 +2091,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     public string HandlePlayerAiRequest(ICommonSession player, string rawMessage, string source)
     {
+        if (!TryGetPlayerAiAvailability(player, out var availabilityRejection))
+            return availabilityRejection;
+
         var message = TrimForChat(rawMessage.ReplaceLineEndings(" "), MaxPlayerAiRequestLength);
         if (string.IsNullOrWhiteSpace(message))
             return "Канал ИИ не получил текста. Запросите дайджест, брифинг, совет, статус, маршрут или задание.";
@@ -2072,6 +2116,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         if (TryExtractPlayerAiSpeechCommand(message, out var speechMessage))
             return SendAiChatMessage(speechMessage, $"{DirectorActor} / {source} {player.Name}");
+
+        if (IsPlayerWorldActionRequest(message) &&
+            !TryAuthorizePlayerWorldAction(player, out var worldActionRejection))
+        {
+            return worldActionRejection;
+        }
 
         if (IsPlayerAiSubspaceRequest(normalized))
         {
@@ -2170,9 +2220,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         string templateId,
         bool allowServerActions = true)
     {
-        if (_requestInFlight)
-            return "ИИ-диспетчер уже выполняет запрос. Повторите после завершения.";
-
         message = message.Trim();
         if (string.IsNullOrWhiteSpace(message))
             return "Сообщение пустое.";
@@ -2180,7 +2227,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (message.Length > 1200)
             message = message[..1200];
 
-        var allowGameplayActions = allowServerActions || IsGameMasterModeEnabled();
+        var allowGameplayActions = allowServerActions;
         var normalizedMessage = message.ToLowerInvariant();
         if (IsAdminAiCapabilityRequest(normalizedMessage))
             return BuildAdminCapabilitiesResult();
@@ -2250,36 +2297,37 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         LuaMAiGatewayChatResponse command;
 
-        _requestInFlight = true;
+        if (!_requestGate.TryAcquire(out var requestLease))
+            return "ИИ-диспетчер уже выполняет запрос. Повторите после завершения.";
+
         var gatewayStartSequence = _gatewayOutcomeSequence;
-        try
+        using (requestLease)
         {
-            command = await RequestGatewayChatAsync(admin, message, targetUserId, templateId);
-        }
-        catch (GatewayBudgetRejectedException e)
-        {
-            _sawmill.Warning($"Admin AI chat blocked by gateway budget: {e.Message}");
-            return $"OpenAI-compatible API запрос не отправлен: {e.Message}";
-        }
-        catch (JsonException e)
-        {
-            _sawmill.Warning($"Admin AI chat rejected provider output: {e.GetType().Name}");
-            return BuildGatewayInvalidSchemaUiMessage("admin chat");
-        }
-        catch (NotSupportedException e)
-        {
-            _sawmill.Warning($"Admin AI chat rejected unsupported provider output: {e.GetType().Name}");
-            return BuildGatewayInvalidSchemaUiMessage("admin chat");
-        }
-        catch (Exception e)
-        {
-            RecordGatewayTransportFailureIfMissingSince(gatewayStartSequence, "admin chat", "transport error");
-            _sawmill.Warning($"Admin AI chat failed: {e.Message}");
-            return "OpenAI-compatible API не ответил: transport failure; детали скрыты в целях безопасности.";
-        }
-        finally
-        {
-            _requestInFlight = false;
+            try
+            {
+                command = await RequestGatewayChatAsync(admin, message, targetUserId, templateId);
+            }
+            catch (GatewayBudgetRejectedException e)
+            {
+                _sawmill.Warning($"Admin AI chat blocked by gateway budget: {e.Message}");
+                return $"OpenAI-compatible API запрос не отправлен: {e.Message}";
+            }
+            catch (JsonException e)
+            {
+                _sawmill.Warning($"Admin AI chat rejected provider output: {e.GetType().Name}");
+                return BuildGatewayInvalidSchemaUiMessage("admin chat");
+            }
+            catch (NotSupportedException e)
+            {
+                _sawmill.Warning($"Admin AI chat rejected unsupported provider output: {e.GetType().Name}");
+                return BuildGatewayInvalidSchemaUiMessage("admin chat");
+            }
+            catch (Exception e)
+            {
+                RecordGatewayTransportFailureIfMissingSince(gatewayStartSequence, "admin chat", "transport error");
+                _sawmill.Warning($"Admin AI chat failed: {e.Message}");
+                return "OpenAI-compatible API не ответил: transport failure; детали скрыты в целях безопасности.";
+            }
         }
 
         if (!allowGameplayActions && IsServerActionGatewayCommand(command))
@@ -2295,14 +2343,15 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     public async Task<string> AdminReviewAsync(ICommonSession admin)
     {
-        if (_requestInFlight)
+        if (!_requestGate.TryAcquire(out var requestLease))
             return "ИИ-диспетчер уже выполняет запрос. Повторите после завершения.";
+
+        using var requestLeaseScope = requestLease;
 
         var gatewayUrl = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl).Trim();
         if (string.IsNullOrWhiteSpace(gatewayUrl))
             return "OpenAI-compatible API не настроен.";
 
-        _requestInFlight = true;
         var gatewayStartSequence = _gatewayOutcomeSequence;
         try
         {
@@ -2329,10 +2378,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             RecordGatewayTransportFailureIfMissingSince(gatewayStartSequence, "admin review", "transport error");
             _sawmill.Warning($"Admin AI review failed: {e.Message}");
             return "OpenAI-compatible API не подготовил замечания: transport failure; детали скрыты в целях безопасности.";
-        }
-        finally
-        {
-            _requestInFlight = false;
         }
     }
 
@@ -2631,7 +2676,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             case "condition_trade":
                 return await ApplyChatConditionPresetAsync(admin, originalMessage, "ai-trade-surge");
             case "amplify_world_ai":
-                AdminSetEnabled(true);
                 return await ApplyChatConditionPresetAsync(admin, originalMessage, "ai-world-pressure");
             case "synthetic_control":
             case "robot_control":
@@ -2645,13 +2689,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             case "admin_will_max_danger":
                 return await ApplyAdminWillMaxDangerAsync(admin);
             case "pressure_pulse":
-                AdminSetEnabled(true);
                 return await RunOnMainThread(() => ApplyLocalWorldPulse(
                     $"{DirectorActor} / pressure pulse / chat admin {admin.Name}",
                     forceEvent: true,
                     maxDangerOverride: false));
             case "max_danger_pulse":
-                AdminSetEnabled(true);
                 return await RunOnMainThread(() => ApplyLocalWorldPulse(
                     $"{DirectorActor} / max danger pulse / chat admin {admin.Name}",
                     forceEvent: true,
@@ -3148,7 +3190,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return RunOnMainThread(() =>
         {
             if (!CanRunAiAdminConsoleCommands())
-                return "Команда не выполнена: admin-mode/game-master mode ИИ-директора выключены.";
+                return "Команда не выполнена: admin-mode ИИ-директора выключен.";
 
             var adminCommand = NormalizeAiAdminConsoleCommand(command.AdminCommand);
             if (!IsSafeAiAdminConsoleCommand(adminCommand, out var blockReason))
@@ -3183,8 +3225,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     {
         return RunOnMainThread(() =>
         {
-            AdminSetEnabled(true);
-
             var actor = $"{DirectorActor} / admin will {admin.Name}";
             var presets = new[]
             {
@@ -3264,8 +3304,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     public string ApplySyntheticControl(string actor, bool announce)
     {
-        AdminSetEnabled(true);
-
         var snapshot = BuildSyntheticControlSnapshot(arm: true);
         var conditionResult = "condition skipped";
         if (_stories.TrySeedSectorCondition(
@@ -3315,8 +3353,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         string instruction = "",
         bool announce = true)
     {
-        AdminSetEnabled(true);
-
         var target = PickTarget(targetUserId, closeEvent: true);
         if (target == null)
             return "Subspace rift skipped: no active player target.";
@@ -3480,8 +3516,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         string instruction = "",
         bool closeEvent = false)
     {
-        AdminSetEnabled(true);
-
         var target = PickTarget(targetUserId, closeEvent: closeEvent, routeEvent: !closeEvent);
         if (target == null)
             return QueuePersonalPressureRequest(targetUserId, maxDanger, actor, instruction, closeEvent);
@@ -3654,46 +3688,91 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 displayName);
         }
 
-        var spawnCoordinates = GetShipSpawnCoordinatesNear(anchorCoordinates, shipBuild.Category);
-        if (!_mapLoader.TryLoadGrid(anchorCoordinates.MapId, shipBuild.GridPath, out var grid, offset: spawnCoordinates.Position))
-            return new SpawnedAdminShip(false, $"Не удалось создать корабль {displayName}: grid {shipBuild.GridPath} не загрузился.", EntityUid.Invalid, shipBuild.Id, displayName);
-
-        var gridUid = grid.Value.Owner;
-        _metaData.SetEntityName(gridUid, shipBuild.GridName);
-
-        var vesselStore = EnsureComp<VesselComponent>(gridUid);
-        vesselStore.VesselId = shipBuild.Id;
-
-        if (shipBuild.Vessel is { } vessel)
+        var gridUid = EntityUid.Invalid;
+        var committed = false;
+        try
         {
-            EntityManager.AddComponents(gridUid, vessel.AddComponents);
+            var spawnCoordinates = GetShipSpawnCoordinatesNear(anchorCoordinates, shipBuild.Category);
+            if (!_mapLoader.TryLoadGrid(anchorCoordinates.MapId, shipBuild.GridPath, out var grid, offset: spawnCoordinates.Position))
+                return new SpawnedAdminShip(false, $"Не удалось создать корабль {displayName}: grid {shipBuild.GridPath} не загрузился.", EntityUid.Invalid, shipBuild.Id, displayName);
 
-            if (vessel.Tags.Count > 0)
+            gridUid = grid.Value.Owner;
+            _shipSpawnPostLoadHookForTests?.Invoke(gridUid);
+            _metaData.SetEntityName(gridUid, shipBuild.GridName);
+
+            var vesselStore = EnsureComp<VesselComponent>(gridUid);
+            vesselStore.VesselId = shipBuild.Id;
+
+            if (shipBuild.Vessel is { } vessel)
             {
-                EnsureComp<TagComponent>(gridUid);
-                _tag.TryAddTags(gridUid, vessel.Tags);
+                EntityManager.AddComponents(gridUid, vessel.AddComponents);
+
+                if (vessel.Tags.Count > 0)
+                {
+                    EnsureComp<TagComponent>(gridUid);
+                    _tag.TryAddTags(gridUid, vessel.Tags);
+                }
+
+                if (vessel.RequireCrew ||
+                    vessel.Classes.Contains(VesselClass.Capital) ||
+                    _tag.HasTag(gridUid, CrewedShuttleTag))
+                {
+                    EnsureComp<CrewedShuttleComponent>(gridUid);
+                }
             }
 
-            if (vessel.RequireCrew ||
-                vessel.Classes.Contains(VesselClass.Capital) ||
-                _tag.HasTag(gridUid, CrewedShuttleTag))
-            {
-                EnsureComp<CrewedShuttleComponent>(gridUid);
-            }
+            var source = shipBuild.Vessel != null ? "VesselPrototype" : "GameMapPrototype";
+            _sawmill.Warning($"AI admin-bypass ship spawn by {TrimForChat(actor, 96)}: {displayName} [{source}] from {shipBuild.GridPath} near {anchorLabel}; grid={ToPrettyString(gridUid)}; instruction={TrimForChat(instruction, 160)}");
+
+            committed = true;
+            return new SpawnedAdminShip(
+                true,
+                $"Выполнено: корабль {displayName} создан рядом с {anchorLabel}. Команду можно повторять для новых экземпляров.",
+                gridUid,
+                shipBuild.Id,
+                displayName);
         }
+        catch (Exception e)
+        {
+            _sawmill.Error($"AI admin-bypass ship rollback: {e.GetType().Name}: {TrimForChat(e.Message, 160)}; vessel={shipBuild.Id}; grid={gridUid}");
+            return new SpawnedAdminShip(
+                false,
+                $"Не удалось создать корабль {displayName}: ошибка после загрузки; созданная сетка удалена.",
+                EntityUid.Invalid,
+                shipBuild.Id,
+                displayName);
+        }
+        finally
+        {
+            if (!committed && gridUid.Valid && !TerminatingOrDeleted(gridUid))
+                Del(gridUid);
+        }
+    }
 
-        var source = shipBuild.Vessel != null ? "VesselPrototype" : "GameMapPrototype";
-        _sawmill.Warning($"AI admin-bypass ship spawn by {TrimForChat(actor, 96)}: {displayName} [{source}] from {shipBuild.GridPath} near {anchorLabel}; grid={ToPrettyString(gridUid)}; instruction={TrimForChat(instruction, 160)}");
+    private async Task<string> RunSerializedAiBaseOperationAsync(Func<Task<string>> operation)
+    {
+        if (!_aiBaseOperationGate.TryAcquire(out var operationLease))
+            return "ИИ-диспетчер уже выполняет изменение ИИ-базы. Повторите после завершения.";
 
-        return new SpawnedAdminShip(
-            true,
-            $"Выполнено: корабль {displayName} создан рядом с {anchorLabel}. Команду можно повторять для новых экземпляров.",
-            gridUid,
-            shipBuild.Id,
-            displayName);
+        using (operationLease)
+        {
+            return await operation();
+        }
     }
 
     public async Task<string> ExecuteAiBaseAdminActionAsync(
+        ICommonSession admin,
+        AiBaseAdminAction action,
+        string originalMessage)
+    {
+        if (!action.RequiresConfirmation)
+            return await ExecuteAiBaseAdminActionCoreAsync(admin, action, originalMessage);
+
+        return await RunSerializedAiBaseOperationAsync(
+            () => ExecuteAiBaseAdminActionCoreAsync(admin, action, originalMessage));
+    }
+
+    private async Task<string> ExecuteAiBaseAdminActionCoreAsync(
         ICommonSession admin,
         AiBaseAdminAction action,
         string originalMessage)
@@ -3707,9 +3786,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             case "plan":
                 return BuildAiBaseDevelopmentPlanReport(_stories.GetAiBaseState(), BuildAiBasePhysicalSnapshot());
             case "autofix":
-                return await DispatchAiBaseAutofixAsync(admin, originalMessage, action.VesselId);
+                return await DispatchAiBaseAutofixCoreAsync(admin, originalMessage, action.VesselId);
             case "autopilot":
-                return await DispatchAiBaseAutopilotAsync(admin, originalMessage, action.VesselId);
+                return await DispatchAiBaseAutopilotCoreAsync(admin, originalMessage, action.VesselId);
             case "create":
                 return await RunOnMainThread(() =>
                 {
@@ -3718,7 +3797,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                     return $"{memory}\n{anchor}";
                 });
             case "develop":
-                return await DispatchAiBaseDevelopmentAsync(admin, originalMessage, action.VesselId);
+                return await DispatchAiBaseDevelopmentCoreAsync(admin, originalMessage, action.VesselId);
             case "ship":
             {
                 var vesselId = string.IsNullOrWhiteSpace(action.VesselId)
@@ -3771,7 +3850,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         }
     }
 
-    private async Task<string> DispatchAiBaseDevelopmentAsync(
+    private Task<string> DispatchAiBaseDevelopmentAsync(
+        ICommonSession admin,
+        string originalMessage,
+        string instruction)
+    {
+        return RunSerializedAiBaseOperationAsync(
+            () => DispatchAiBaseDevelopmentCoreAsync(admin, originalMessage, instruction));
+    }
+
+    private async Task<string> DispatchAiBaseDevelopmentCoreAsync(
         ICommonSession admin,
         string originalMessage,
         string instruction)
@@ -3779,18 +3867,27 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var baseText = string.IsNullOrWhiteSpace(instruction)
             ? originalMessage
             : $"{originalMessage} {instruction}";
-        var create = await ExecuteAiBaseAdminActionAsync(
+        var create = await ExecuteAiBaseAdminActionCoreAsync(
             admin,
             new AiBaseAdminAction("create", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true),
             baseText);
-        var miner = await DispatchAiBaseRoleShipAsync(admin, "miner", originalMessage, instruction);
-        var builder = await DispatchAiBaseRoleShipAsync(admin, "builder", originalMessage, instruction);
+        var miner = await DispatchAiBaseRoleShipCoreAsync(admin, "miner", originalMessage, instruction);
+        var builder = await DispatchAiBaseRoleShipCoreAsync(admin, "builder", originalMessage, instruction);
         var diagnostics = await RunOnMainThread(() => BuildAiBaseDiagnosticsReport(_stories.GetAiBaseState()));
 
         return $"AI base development command accepted: OpenAI contour is assigning mining and builder drones.\n{create}\n{miner}\n{builder}\n{diagnostics}";
     }
 
-    private async Task<string> DispatchAiBaseAutofixAsync(
+    private Task<string> DispatchAiBaseAutofixAsync(
+        ICommonSession admin,
+        string originalMessage,
+        string instruction)
+    {
+        return RunSerializedAiBaseOperationAsync(
+            () => DispatchAiBaseAutofixCoreAsync(admin, originalMessage, instruction));
+    }
+
+    private async Task<string> DispatchAiBaseAutofixCoreAsync(
         ICommonSession admin,
         string originalMessage,
         string instruction)
@@ -3819,7 +3916,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var top = before.Diagnostics[0];
         var commandId = ResolveAiBaseDiagnosticCommandId(top);
         var actor = $"{DirectorActor} / autofix / admin {admin.Name}";
-        var result = await DispatchAiBaseCommandByIdAsync(admin, commandId, originalMessage, instruction);
+        var result = await DispatchAiBaseCommandByIdCoreAsync(admin, commandId, originalMessage, instruction);
 
         var success = IsAiBaseAutofixCommand(commandId) && AiBaseAutofixResultLooksSuccessful(result);
         var after = await RunOnMainThread(() =>
@@ -3851,7 +3948,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return output.ToString().TrimEnd();
     }
 
-    private async Task<string> DispatchAiBaseAutopilotAsync(
+    private Task<string> DispatchAiBaseAutopilotAsync(
+        ICommonSession admin,
+        string originalMessage,
+        string instruction)
+    {
+        return RunSerializedAiBaseOperationAsync(
+            () => DispatchAiBaseAutopilotCoreAsync(admin, originalMessage, instruction));
+    }
+
+    private async Task<string> DispatchAiBaseAutopilotCoreAsync(
         ICommonSession admin,
         string originalMessage,
         string instruction)
@@ -3879,7 +3985,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         for (var index = 0; index < before.Commands.Length; index++)
         {
             var commandId = before.Commands[index];
-            var result = await DispatchAiBaseCommandByIdAsync(admin, commandId, originalMessage, instruction);
+            var result = await DispatchAiBaseCommandByIdCoreAsync(admin, commandId, originalMessage, instruction);
             var success = IsAiBaseAutofixCommand(commandId) && AiBaseAutofixResultLooksSuccessful(result);
             var stepNumber = index + 1;
             var afterStep = await RunOnMainThread(() =>
@@ -3919,7 +4025,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return output.ToString().TrimEnd();
     }
 
-    private async Task<string> DispatchAiBaseCommandByIdAsync(
+    private async Task<string> DispatchAiBaseCommandByIdCoreAsync(
         ICommonSession admin,
         string commandId,
         string originalMessage,
@@ -3928,24 +4034,34 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         switch (commandId)
         {
             case "ai_base_create":
-                return await ExecuteAiBaseAdminActionAsync(
+                return await ExecuteAiBaseAdminActionCoreAsync(
                     admin,
                     new AiBaseAdminAction("create", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true),
                     string.IsNullOrWhiteSpace(instruction) ? originalMessage : instruction);
             case "ai_base_mine":
-                return await DispatchAiBaseRoleShipAsync(admin, "miner", originalMessage, instruction);
+                return await DispatchAiBaseRoleShipCoreAsync(admin, "miner", originalMessage, instruction);
             case "ai_base_build":
-                return await DispatchAiBaseRoleShipAsync(admin, "builder", originalMessage, instruction);
+                return await DispatchAiBaseRoleShipCoreAsync(admin, "builder", originalMessage, instruction);
             case "ai_base_develop":
-                return await DispatchAiBaseDevelopmentAsync(admin, originalMessage, instruction);
+                return await DispatchAiBaseDevelopmentCoreAsync(admin, originalMessage, instruction);
             case "ai_base_logistics":
-                return await DispatchAiBaseRoleShipAsync(admin, "hauler", originalMessage, instruction);
+                return await DispatchAiBaseRoleShipCoreAsync(admin, "hauler", originalMessage, instruction);
             default:
                 return $"AI base command dispatcher did not execute a mutating action for command '{commandId}'.";
         }
     }
 
-    private async Task<string> DispatchAiBaseRoleShipAsync(
+    private Task<string> DispatchAiBaseRoleShipAsync(
+        ICommonSession admin,
+        string role,
+        string originalMessage,
+        string instruction)
+    {
+        return RunSerializedAiBaseOperationAsync(
+            () => DispatchAiBaseRoleShipCoreAsync(admin, role, originalMessage, instruction));
+    }
+
+    private async Task<string> DispatchAiBaseRoleShipCoreAsync(
         ICommonSession admin,
         string role,
         string originalMessage,
@@ -3964,7 +4080,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 return $"Не удалось выбрать корабль ИИ по умолчанию: build {DefaultAiShipSpawnVessel} не найден или не имеет shuttle grid.";
         }
 
-        return await ExecuteAiBaseAdminActionAsync(
+        return await ExecuteAiBaseAdminActionCoreAsync(
             admin,
             new AiBaseAdminAction("ship", role, shipBuild.Id, shipBuild.DisplayName, RequiresConfirmation: true),
             text);
@@ -7048,79 +7164,75 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var gatewaySkippedReason = string.Empty;
         if (useGateway && !string.IsNullOrWhiteSpace(_cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl)))
         {
-            if (_requestInFlight)
+            if (!_requestGate.TryAcquire(out var requestLease))
                 return "ИИ-диспетчер уже выполняет запрос. Повторите после завершения.";
 
-            _requestInFlight = true;
-            try
+            using (requestLease)
             {
-                var proposal = await RequestGatewayProposalAsync(target, adminInstruction, requestedTemplate);
-                if (proposal != null)
+                try
                 {
-                    var aiResult = await RunOnMainThread(() =>
+                    var proposal = await RequestGatewayProposalAsync(target, adminInstruction, requestedTemplate);
+                    if (proposal != null)
                     {
-                        if (_dynamicEvents.TryGenerateDynamicEventFromAiProposal(
-                                proposal,
-                                actor,
-                                out var record,
-                                out var error,
-                                ignoreOpenRuntimeLead: ignoreOpenLead,
-                                markerCoordinates: target.EventCoordinates))
+                        var aiResult = await RunOnMainThread(() =>
                         {
-                            var pinpointerResult = NotifyTargetWithRouteAndPinpointer(target, record!);
-                            return $"{BuildEventRouteResult(record!, target.OperatorTag, "OpenAI-compatible API создал процесс")}; {pinpointerResult}";
+                            if (_dynamicEvents.TryGenerateDynamicEventFromAiProposal(
+                                    proposal,
+                                    actor,
+                                    out var record,
+                                    out var error,
+                                    ignoreOpenRuntimeLead: ignoreOpenLead,
+                                    markerCoordinates: target.EventCoordinates))
+                            {
+                                var pinpointerResult = NotifyTargetWithRouteAndPinpointer(target, record!);
+                                NotifyTarget(target, $"ИИ-диспетчер LuaM подготовил процесс: {record!.Title}. Проверьте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
+                                return $"{BuildEventRouteResult(record!, target.OperatorTag, "OpenAI-compatible API создал процесс")}; {pinpointerResult}";
+                            }
 
-                            NotifyTarget(target, $"ИИ-диспетчер LuaM подготовил процесс: {record!.Title}. Проверьте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
-                            return $"OpenAI-compatible API создал процесс \"{record.Title}\" рядом с {target.OperatorTag}.";
-                        }
+                            return $"OpenAI-compatible API вернул предложение, но сервер его отклонил: {error}";
+                        });
 
-                        return $"OpenAI-compatible API вернул предложение, но сервер его отклонил: {error}";
-                    });
+                        if (!aiResult.Contains("отклонил", StringComparison.OrdinalIgnoreCase))
+                            return aiResult;
 
-                    if (!aiResult.Contains("отклонил", StringComparison.OrdinalIgnoreCase))
-                        return aiResult;
-
-                    RecordGatewayProviderOutputBlock(
-                        GatewayBlockCategoryLocalValidation,
-                        aiResult);
-                    if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
-                        return aiResult;
+                        RecordGatewayProviderOutputBlock(
+                            GatewayBlockCategoryLocalValidation,
+                            aiResult);
+                        if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
+                            return aiResult;
+                    }
+                    else if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
+                    {
+                        return "OpenAI-compatible API не вернул предложение, fallback выключен.";
+                    }
                 }
-                else if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
+                catch (GatewayBudgetRejectedException e)
                 {
-                    return "OpenAI-compatible API не вернул предложение, fallback выключен.";
+                    gatewaySkippedReason = $"OpenAI-compatible API запрос не отправлен: {e.Message}";
+                    _sawmill.Warning($"Admin AI generation blocked by gateway budget: {e.Message}");
+                    if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
+                        return gatewaySkippedReason;
                 }
-            }
-            catch (GatewayBudgetRejectedException e)
-            {
-                gatewaySkippedReason = $"OpenAI-compatible API запрос не отправлен: {e.Message}";
-                _sawmill.Warning($"Admin AI generation blocked by gateway budget: {e.Message}");
-                if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
-                    return gatewaySkippedReason;
-            }
-            catch (JsonException e)
-            {
-                gatewaySkippedReason = BuildGatewayInvalidSchemaUiMessage("event proposal");
-                _sawmill.Warning($"Admin AI generation rejected provider output: {e.GetType().Name}");
-                if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
-                    return gatewaySkippedReason;
-            }
-            catch (NotSupportedException e)
-            {
-                gatewaySkippedReason = BuildGatewayInvalidSchemaUiMessage("event proposal");
-                _sawmill.Warning($"Admin AI generation rejected unsupported provider output: {e.GetType().Name}");
-                if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
-                    return gatewaySkippedReason;
-            }
-            catch (Exception e)
-            {
-                _sawmill.Warning($"Admin AI generation failed: {e.Message}");
-                if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
-                    return "OpenAI-compatible API не ответил: transport failure; детали скрыты в целях безопасности.";
-            }
-            finally
-            {
-                _requestInFlight = false;
+                catch (JsonException e)
+                {
+                    gatewaySkippedReason = BuildGatewayInvalidSchemaUiMessage("event proposal");
+                    _sawmill.Warning($"Admin AI generation rejected provider output: {e.GetType().Name}");
+                    if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
+                        return gatewaySkippedReason;
+                }
+                catch (NotSupportedException e)
+                {
+                    gatewaySkippedReason = BuildGatewayInvalidSchemaUiMessage("event proposal");
+                    _sawmill.Warning($"Admin AI generation rejected unsupported provider output: {e.GetType().Name}");
+                    if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
+                        return gatewaySkippedReason;
+                }
+                catch (Exception e)
+                {
+                    _sawmill.Warning($"Admin AI generation failed: {e.Message}");
+                    if (!_cfg.GetCVar(CCVars.LuaMAiDirectorFallbackEnabled))
+                        return "OpenAI-compatible API не ответил: transport failure; детали скрыты в целях безопасности.";
+                }
             }
         }
 
@@ -7169,7 +7281,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         ProcessPendingPersonalPressures();
         UpdateLocalWorldPulse();
 
-        if (_requestInFlight)
+        if (_requestGate.IsActive)
             return;
 
         if (_nextAttempt == TimeSpan.Zero)
@@ -7190,8 +7302,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (target == null)
             return;
 
-        _requestInFlight = true;
-        _ = RequestAndApplyAsync(target);
+        if (!_requestGate.TryAcquire(out var requestLease))
+            return;
+
+        _ = RequestAndApplyAsync(target, requestLease!);
     }
 
     private void UpdateLocalBridge()
@@ -7271,8 +7385,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var actor = $"{DirectorActor} / local bridge";
 
         if (IsUnsafeLocalBridgeCommand(command) &&
-            !_cfg.GetCVar(CCVars.LuaMAiDirectorLocalBridgeUnsafeActionsEnabled) &&
-            !IsGameMasterModeEnabled())
+            !_cfg.GetCVar(CCVars.LuaMAiDirectorLocalBridgeUnsafeActionsEnabled))
         {
             const string reason = "unsafe local bridge actions are disabled";
             AppendAiAdminCommandAudit("bridge", "local-bridge", line, "blocked", reason);
@@ -7455,7 +7568,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             case "console":
             {
                 if (!CanRunAiAdminConsoleCommands())
-                    return "bridge console skipped: admin-mode/game-master mode is disabled";
+                    return "bridge console skipped: admin-mode is disabled";
 
                 var consoleCommand = NormalizeAiAdminConsoleCommand(first);
                 if (!IsSafeAiAdminConsoleCommand(consoleCommand, out var blockReason))
@@ -7902,7 +8015,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             ("conditions", _stories.GetStatusSnapshot().ActiveConditions)));
 
         var eventSummary = TryApplyPulseEvent(actor, forceEvent, maxDangerOverride, maxDanger, severity);
-        var logisticsSummary = ApplyAiBaseAutonomousLogistics(actor, severity);
+        var logisticsSummary = _aiBaseOperationGate.IsActive
+            ? "ai base autonomous logistics deferred: admin AI-base operation in progress"
+            : ApplyAiBaseAutonomousLogistics(actor, severity);
         var result = $"AI world pulse applied: SC-{severity}; conditions [{string.Join(", ", applied)}]";
         if (!string.IsNullOrWhiteSpace(eventSummary))
             result += $"; {eventSummary}";
@@ -8294,6 +8409,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return;
 
         var replyName = GetRadioAiReplyName(addressKind);
+        if (!TryGetPlayerAiAvailability(session, out var availabilityRejection))
+        {
+            SendAiRadioReply(
+                args,
+                $"{RadioAiReplyTextPrefix} {availabilityRejection}",
+                $"{DirectorActor} / radio unavailable {args.Channel.ID} / {session.Name}",
+                replyName);
+            return;
+        }
+
         if (TryExtractPlayerAiSpeechCommand(request, out var radioSpeech))
         {
             SendAiRadioReply(
@@ -8322,17 +8447,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 $"{RescueRadioReplyPrefix} {rescueResult}",
                 $"{RescueRadioActor} / radio {args.Channel.ID} / {session.Name}",
                 RescueRadioActor);
-            return;
-        }
-
-        if (IsRadioWorldActionRequest(request) &&
-            !TryClaimRadioWorldAction(session, out var waitSeconds))
-        {
-            SendAiRadioReply(
-                args,
-                $"{RadioAiReplyTextPrefix} Физическое воздействие отклонено: канал оператора охлаждается еще {waitSeconds:0} сек. Статус, маршрут и голосовые сообщения доступны без ожидания.",
-                $"{DirectorActor} / radio cooldown {args.Channel.ID} / {session.Name}",
-                DirectorActor);
             return;
         }
 
@@ -8628,16 +8742,15 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (string.IsNullOrWhiteSpace(_cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl)))
             return false;
 
-        if (_requestInFlight || _aibolitRadioGatewayInFlight)
-            return false;
-
         if (TryRejectUnsafeAdminChatRequest(radioRequest, out var unsafeReason))
         {
             RecordGatewayUnsafeInputBlock($"aibolit radio: {unsafeReason}");
             return false;
         }
 
-        _aibolitRadioGatewayInFlight = true;
+        if (!_requestGate.TryAcquire(out var requestLease))
+            return false;
+
         _ = SendAibolitRadioGatewayReplyAsync(
             request.RadioSource,
             request.Channel,
@@ -8645,7 +8758,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             session,
             radioRequest,
             source,
-            localFallback);
+            localFallback,
+            requestLease!);
         return true;
     }
 
@@ -8656,7 +8770,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         ICommonSession session,
         string radioRequest,
         string source,
-        string localFallback)
+        string localFallback,
+        LuaMAiDirectorRequestGate.Lease requestLease)
     {
         var actor = $"{RescueRadioActor} / gateway radio {channel.ID} / {session.Name}";
         var gatewayStartSequence = _gatewayOutcomeSequence;
@@ -8699,7 +8814,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         }
         finally
         {
-            _aibolitRadioGatewayInFlight = false;
+            requestLease.Dispose();
         }
     }
 
@@ -8858,33 +8973,72 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return true;
     }
 
-    private bool TryClaimRadioWorldAction(ICommonSession session, out double waitSeconds)
+    private bool TryAuthorizePlayerWorldAction(ICommonSession session, out string rejection)
+    {
+        if (!TryGetPlayerAiAvailability(session, out rejection))
+            return false;
+
+        if (!TryClaimPlayerWorldAction(session, out var waitSeconds))
+        {
+            rejection = $"Физическое воздействие ИИ отклонено: канал оператора охлаждается еще {waitSeconds:0} сек. Статус, маршрут и голосовые сообщения доступны без ожидания.";
+            return false;
+        }
+
+        rejection = string.Empty;
+        return true;
+    }
+
+    private bool TryGetPlayerAiAvailability(ICommonSession session, out string rejection)
+    {
+        if (!_cfg.GetCVar(CCVars.LuaMAiDirectorEnabled))
+        {
+            rejection = "ИИ-диспетчер отключен администратором.";
+            return false;
+        }
+
+        if (_ticker.RunLevel != GameRunLevel.InRound)
+        {
+            rejection = "ИИ-диспетчер доступен только во время активного раунда.";
+            return false;
+        }
+
+        if (session.Status != SessionStatus.InGame)
+        {
+            rejection = "ИИ-диспетчер недоступен: оператор не находится в игре.";
+            return false;
+        }
+
+        rejection = string.Empty;
+        return true;
+    }
+
+    private bool TryClaimPlayerWorldAction(ICommonSession session, out double waitSeconds)
     {
         var now = _timing.CurTime;
-        if (_nextRadioWorldActionByUser.TryGetValue(session.UserId, out var nextAllowed) && nextAllowed > now)
+        if (_nextPlayerWorldActionByUser.TryGetValue(session.UserId, out var nextAllowed) && nextAllowed > now)
         {
             waitSeconds = Math.Ceiling((nextAllowed - now).TotalSeconds);
             return false;
         }
 
-        _nextRadioWorldActionByUser[session.UserId] = now + TimeSpan.FromSeconds(RadioAiWorldActionCooldownSeconds);
+        _nextPlayerWorldActionByUser[session.UserId] = now + TimeSpan.FromSeconds(PlayerAiWorldActionCooldownSeconds);
         waitSeconds = 0;
 
-        if (_nextRadioWorldActionByUser.Count > 64)
+        if (_nextPlayerWorldActionByUser.Count > 64)
         {
-            foreach (var expired in _nextRadioWorldActionByUser
+            foreach (var expired in _nextPlayerWorldActionByUser
                          .Where(entry => entry.Value <= now)
                          .Select(entry => entry.Key)
                          .ToArray())
             {
-                _nextRadioWorldActionByUser.Remove(expired);
+                _nextPlayerWorldActionByUser.Remove(expired);
             }
         }
 
         return true;
     }
 
-    private static bool IsRadioWorldActionRequest(string request)
+    private static bool IsPlayerWorldActionRequest(string request)
     {
         if (string.IsNullOrWhiteSpace(request))
             return false;
@@ -9007,7 +9161,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return TryExtractRadioAiRequest(message, out request);
     }
 
-    private async Task RequestAndApplyAsync(AiTarget target)
+    private async Task RequestAndApplyAsync(
+        AiTarget target,
+        LuaMAiDirectorRequestGate.Lease requestLease)
     {
         try
         {
@@ -9123,7 +9279,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         }
         finally
         {
-            _requestInFlight = false;
+            requestLease.Dispose();
         }
     }
 
@@ -9238,7 +9394,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     {
         try
         {
-            return await _http.SendAsync(request, cts.Token);
+            return await _http.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cts.Token);
         }
         catch (OperationCanceledException e) when (cts.IsCancellationRequested)
         {
@@ -9265,7 +9424,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     {
         try
         {
-            var result = await content.ReadFromJsonAsync<T>(JsonOptions, cancellationToken);
+            var maxBytes = GetGatewayJsonResponseLimit(purpose);
+            var payload = await ReadGatewayContentBoundedAsync(content, maxBytes, cancellationToken);
+            var result = JsonSerializer.Deserialize<T>(payload, JsonOptions);
             if (result == null)
             {
                 RecordGatewayProviderOutputBlock(
@@ -9289,6 +9450,47 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 $"{purpose}: provider returned unsupported JSON content ({e.GetType().Name})");
             throw;
         }
+    }
+
+    private int GetGatewayJsonResponseLimit(string purpose)
+    {
+        if (!purpose.Equals("tts", StringComparison.OrdinalIgnoreCase))
+            return MaxGatewayJsonResponseBytes;
+
+        var maxAudioBytes = GetTtsMaxBytes();
+        var maxBase64Bytes = ((maxAudioBytes + 2) / 3) * 4;
+        return maxBase64Bytes + GatewayTtsJsonOverheadBytes;
+    }
+
+    private static async Task<byte[]> ReadGatewayContentBoundedAsync(
+        HttpContent content,
+        int maxBytes,
+        CancellationToken cancellationToken)
+    {
+        if (content.Headers.ContentLength is { } contentLength && contentLength > maxBytes)
+            throw new JsonException($"gateway response exceeded the {maxBytes}-byte limit");
+
+        await using var stream = await content.ReadAsStreamAsync(cancellationToken);
+        using var payload = new MemoryStream(Math.Min(maxBytes, GatewayJsonReadBufferBytes));
+        var buffer = new byte[GatewayJsonReadBufferBytes];
+        var total = 0;
+
+        while (true)
+        {
+            var remaining = maxBytes - total;
+            var readLength = Math.Min(buffer.Length, remaining + 1);
+            var read = await stream.ReadAsync(buffer.AsMemory(0, readLength), cancellationToken);
+            if (read == 0)
+                break;
+
+            total += read;
+            if (total > maxBytes)
+                throw new JsonException($"gateway response exceeded the {maxBytes}-byte limit");
+
+            await payload.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+        }
+
+        return payload.ToArray();
     }
 
     private static string BuildGatewayInvalidSchemaUiMessage(string purpose)
@@ -9525,7 +9727,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         var adminModeEnabled = _cfg.GetCVar(CCVars.LuaMAiDirectorAdminMode);
         var gameMasterModeEnabled = IsGameMasterModeEnabled();
-        var consoleCommandModeEnabled = adminModeEnabled || gameMasterModeEnabled;
+        var consoleCommandModeEnabled = adminModeEnabled;
         var allowedActions = new List<string>
         {
             "none",
