@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import types
+import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1295,6 +1296,168 @@ def run_piper_lru_cache_test() -> dict[str, object]:
             os.environ["LUAM_TTS_PIPER_CACHE_SIZE"] = previous_cache_size
 
 
+def run_bounded_outbound_response_test() -> dict[str, object]:
+    spec = importlib.util.spec_from_file_location("luam_ai_gateway_bounded_response_test", GW_PATH)
+    assert spec is not None and spec.loader is not None
+    gateway = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gateway)
+
+    limit = 32
+    original_urlopen = gateway.urllib.request.urlopen
+    original_limit_getter = gateway.get_ai_provider_max_response_bytes
+    original_tts_limit_getter = gateway.get_tts_max_bytes
+    env_names = (
+        "LUAM_AI_PROVIDER",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "LUAM_TTS_PROVIDER",
+        "LUAM_TTS_PIPER_HTTP_URL",
+    )
+    previous_env = {name: os.environ.get(name) for name in env_names}
+
+    class FakeResponse:
+        def __init__(self, payload: bytes, status: int = 200, max_chunk_size: int | None = None) -> None:
+            self.payload = payload
+            self.status = status
+            self.max_chunk_size = max_chunk_size
+            self.offset = 0
+            self.read_sizes: list[int] = []
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, size: int = -1) -> bytes:
+            self.read_sizes.append(size)
+            available = len(self.payload) - self.offset
+            read_size = available if size < 0 else min(available, size)
+            if self.max_chunk_size is not None:
+                read_size = min(read_size, self.max_chunk_size)
+            chunk = self.payload[self.offset:self.offset + read_size]
+            self.offset += len(chunk)
+            return chunk
+
+    try:
+        gateway.get_ai_provider_max_response_bytes = lambda: limit
+        gateway.get_tts_max_bytes = lambda: limit
+        os.environ["LUAM_AI_PROVIDER"] = "openai"
+        os.environ["OPENAI_API_KEY"] = "bounded-response-test"
+        os.environ["ANTHROPIC_API_KEY"] = "bounded-response-test"
+        os.environ["LUAM_TTS_PROVIDER"] = "piper-http"
+        os.environ["LUAM_TTS_PIPER_HTTP_URL"] = "http://piper.invalid"
+
+        openai_response = FakeResponse(b'{"ok":true}')
+        gateway.urllib.request.urlopen = lambda *_args, **_kwargs: openai_response
+        assert gateway.post_json("https://provider.invalid/v1/responses", {}) == {"ok": True}
+        assert openai_response.read_sizes[0] == limit + 1
+        assert all(0 < size <= limit + 1 for size in openai_response.read_sizes)
+
+        anthropic_response = FakeResponse(b'{"ok":true}')
+        gateway.urllib.request.urlopen = lambda *_args, **_kwargs: anthropic_response
+        assert gateway.post_anthropic_json("https://provider.invalid/v1/messages", {}) == {"ok": True}
+        assert anthropic_response.read_sizes[0] == limit + 1
+        assert all(0 < size <= limit + 1 for size in anthropic_response.read_sizes)
+
+        partial_response = FakeResponse(b'{"partial":true}', max_chunk_size=3)
+        gateway.urllib.request.urlopen = lambda *_args, **_kwargs: partial_response
+        assert gateway.post_json("https://provider.invalid/v1/responses", {}) == {"partial": True}
+        assert len(partial_response.read_sizes) > 2
+        assert all(0 < size <= limit + 1 for size in partial_response.read_sizes)
+
+        oversized_response = FakeResponse(b"x" * (limit + 2), max_chunk_size=5)
+        gateway.urllib.request.urlopen = lambda *_args, **_kwargs: oversized_response
+        try:
+            gateway.post_json("https://provider.invalid/v1/responses", {})
+        except RuntimeError as exc:
+            assert "LUAM_AI_PROVIDER_MAX_RESPONSE_BYTES" in str(exc)
+        else:
+            raise AssertionError("oversized provider response was accepted")
+        assert len(oversized_response.read_sizes) > 1
+        assert all(0 < size <= limit + 1 for size in oversized_response.read_sizes)
+
+        oversized_anthropic_response = FakeResponse(b"x" * (limit + 2))
+        gateway.urllib.request.urlopen = lambda *_args, **_kwargs: oversized_anthropic_response
+        try:
+            gateway.post_anthropic_json("https://provider.invalid/v1/messages", {})
+        except RuntimeError as exc:
+            assert "LUAM_AI_PROVIDER_MAX_RESPONSE_BYTES" in str(exc)
+        else:
+            raise AssertionError("oversized Anthropic response was accepted")
+        assert oversized_anthropic_response.read_sizes == [limit + 1]
+
+        error_stream = FakeResponse(b"e" * (limit + 2))
+
+        def raise_http_error(*_args: object, **_kwargs: object) -> object:
+            raise urllib.error.HTTPError(
+                "https://provider.invalid/v1/responses",
+                422,
+                "unprocessable",
+                {},
+                error_stream,
+            )
+
+        gateway.urllib.request.urlopen = raise_http_error
+        try:
+            gateway.post_json("https://provider.invalid/v1/responses", {})
+        except gateway.AiProviderHttpError as exc:
+            assert exc.status == 422
+            assert exc.body == "e" * limit
+        else:
+            raise AssertionError("provider HTTP error type was not preserved")
+        assert error_stream.read_sizes == [limit + 1]
+
+        anthropic_error_stream = FakeResponse(b"a" * (limit + 2))
+
+        def raise_anthropic_http_error(*_args: object, **_kwargs: object) -> object:
+            raise urllib.error.HTTPError(
+                "https://provider.invalid/v1/messages",
+                429,
+                "rate limited",
+                {},
+                anthropic_error_stream,
+            )
+
+        gateway.urllib.request.urlopen = raise_anthropic_http_error
+        try:
+            gateway.post_anthropic_json("https://provider.invalid/v1/messages", {})
+        except gateway.AiProviderHttpError as exc:
+            assert exc.status == 429
+            assert exc.body == "a" * limit
+        else:
+            raise AssertionError("Anthropic HTTP error type was not preserved")
+        assert anthropic_error_stream.read_sizes == [limit + 1]
+
+        tts_response = FakeResponse(b"w" * (limit + 2))
+        gateway.urllib.request.urlopen = lambda *_args, **_kwargs: tts_response
+        try:
+            gateway.build_tts_response({"text": "test"}, "bounded-test")
+        except RuntimeError as exc:
+            assert str(exc) == f"tts audio exceeds LUAM_TTS_MAX_BYTES ({limit + 1} > {limit})"
+        else:
+            raise AssertionError("oversized Piper HTTP response was accepted")
+        assert tts_response.read_sizes == [limit + 1]
+
+        return {
+            "limit": limit,
+            "openaiReadSize": openai_response.read_sizes[0],
+            "anthropicReadSize": anthropic_response.read_sizes[0],
+            "errorBodyBytes": len(error_stream.payload[:limit]),
+            "anthropicErrorBodyBytes": len(anthropic_error_stream.payload[:limit]),
+            "ttsReadSize": tts_response.read_sizes[0],
+        }
+    finally:
+        gateway.urllib.request.urlopen = original_urlopen
+        gateway.get_ai_provider_max_response_bytes = original_limit_getter
+        gateway.get_tts_max_bytes = original_tts_limit_getter
+        for name, value in previous_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def main() -> int:
     result = {
         "fallback": run_no_key_fallback_test(),
@@ -1302,6 +1465,7 @@ def main() -> int:
         "anthropicMock": run_anthropic_mock_test(),
         "ttsMock": run_tts_mock_test(),
         "piperLruCache": run_piper_lru_cache_test(),
+        "boundedOutboundResponses": run_bounded_outbound_response_test(),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

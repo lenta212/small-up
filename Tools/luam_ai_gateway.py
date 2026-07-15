@@ -27,6 +27,7 @@ Useful environment variables:
   ANTHROPIC_BASE_URL        Anthropic base URL, defaults to https://api.anthropic.com/v1
   ANTHROPIC_MODEL           Claude model, defaults to Claude Haiku 4.5 pinned snapshot
   ANTHROPIC_VERSION         Anthropic API version, defaults to 2023-06-01
+  LUAM_AI_PROVIDER_MAX_RESPONSE_BYTES maximum direct-provider HTTP response size
   LUAM_AI_GATEWAY_TOKEN     optional bearer token required from the game server
   LUAM_AI_GATEWAY_HOST      bind host, defaults to 127.0.0.1
   LUAM_AI_GATEWAY_PORT      bind port, defaults to 8787
@@ -95,6 +96,7 @@ DEFAULT_TTS_PIPER_VOICES = "ru_RU-irina-medium,ru_RU-denis-medium,ru_RU-dmitri-m
 DEFAULT_TTS_PIPER_CACHE_SIZE = 2
 DEFAULT_TTS_MAX_CHARS = 300
 DEFAULT_TTS_MAX_BYTES = 524_288
+DEFAULT_AI_PROVIDER_MAX_RESPONSE_BYTES = 1_048_576
 AUDIT_LOCK = threading.Lock()
 PIPER_LOCK = threading.RLock()
 PIPER_VOICE_CACHE: OrderedDict[str, Any] = OrderedDict()
@@ -1320,6 +1322,28 @@ def get_tts_max_bytes() -> int:
     return env_int("LUAM_TTS_MAX_BYTES", DEFAULT_TTS_MAX_BYTES, 16_384, 2_097_152)
 
 
+def get_ai_provider_max_response_bytes() -> int:
+    return env_int(
+        "LUAM_AI_PROVIDER_MAX_RESPONSE_BYTES",
+        DEFAULT_AI_PROVIDER_MAX_RESPONSE_BYTES,
+        16_384,
+        16_777_216,
+    )
+
+
+def read_bounded_http_response(response: Any, max_bytes: int) -> bytes:
+    body = bytearray()
+    read_limit = max_bytes + 1
+    while len(body) < read_limit:
+        remaining = read_limit - len(body)
+        chunk = response.read(remaining)
+        if not chunk:
+            break
+        body.extend(chunk[:remaining])
+
+    return bytes(body)
+
+
 def get_tts_piper_cache_size() -> int:
     return env_int("LUAM_TTS_PIPER_CACHE_SIZE", DEFAULT_TTS_PIPER_CACHE_SIZE, 1, 16)
 
@@ -1515,7 +1539,7 @@ def synthesize_piper_http_wav(text: str) -> bytes:
         headers={"Content-Type": "application/json; charset=utf-8"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read(get_tts_max_bytes() + 1)
+        return read_bounded_http_response(response, get_tts_max_bytes())
 
 
 def synthesize_mock_wav(text: str) -> bytes:
@@ -2105,13 +2129,21 @@ def post_json(url: str, body: dict[str, Any]) -> dict[str, Any]:
     )
 
     timeout = float(os.environ.get("OPENAI_TIMEOUT", "20"))
+    max_response_bytes = get_ai_provider_max_response_bytes()
     status_code: int | None = None
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
+            response_body = read_bounded_http_response(response, max_response_bytes)
+            if len(response_body) > max_response_bytes:
+                raise RuntimeError(
+                    "AI provider response exceeds LUAM_AI_PROVIDER_MAX_RESPONSE_BYTES "
+                    f"({len(response_body)} > {max_response_bytes})"
+                )
+            raw = response_body.decode("utf-8")
             status_code = response.status
     except urllib.error.HTTPError as exc:
-        body_text = exc.read().decode("utf-8", errors="replace")
+        error_body = read_bounded_http_response(exc, max_response_bytes)
+        body_text = error_body[:max_response_bytes].decode("utf-8", errors="replace")
         audit_provider_request(provider_name, url, exc.code, started, exc.reason)
         raise AiProviderHttpError(exc.code, body_text, url) from exc
     except Exception as exc:
@@ -2156,13 +2188,21 @@ def post_anthropic_json(url: str, body: dict[str, Any]) -> dict[str, Any]:
     )
 
     timeout = float(os.environ.get("ANTHROPIC_TIMEOUT", os.environ.get("OPENAI_TIMEOUT", "20")))
+    max_response_bytes = get_ai_provider_max_response_bytes()
     status_code: int | None = None
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
+            response_body = read_bounded_http_response(response, max_response_bytes)
+            if len(response_body) > max_response_bytes:
+                raise RuntimeError(
+                    "AI provider response exceeds LUAM_AI_PROVIDER_MAX_RESPONSE_BYTES "
+                    f"({len(response_body)} > {max_response_bytes})"
+                )
+            raw = response_body.decode("utf-8")
             status_code = response.status
     except urllib.error.HTTPError as exc:
-        body_text = exc.read().decode("utf-8", errors="replace")
+        error_body = read_bounded_http_response(exc, max_response_bytes)
+        body_text = error_body[:max_response_bytes].decode("utf-8", errors="replace")
         audit_provider_request("anthropic", url, exc.code, started, exc.reason)
         raise AiProviderHttpError(exc.code, body_text, url) from exc
     except Exception as exc:
