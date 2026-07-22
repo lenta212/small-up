@@ -1,6 +1,45 @@
 ﻿# Monolith-DS iteration journal
 
-Updated: 2026-07-22 07:29 MSK
+Updated: 2026-07-22 09:07 MSK
+
+## 2026-07-22 -- accumulated production rollout completed and access reopened
+
+- Objective: complete the explicitly authorized accumulated client/server/AI-gateway release after the user stored the shuttle, preserve a complete recovery snapshot, reopen the server, verify the live result, freeze deployment authorization again, and leave the repository in reviewable commits.
+- The user's conditional `-Force` approval was satisfied by a privacy-bounded full snapshot proof: the stored ship advanced from revision 5/payload revision 1 to `Stored` revision 6/payload revision 2 in source round 149. The 1,190,592-byte outer envelope and 892,546-byte inner YAML both passed size, SHA256, revision, format, UTF-8, and entity-count checks; Active/Restoring and lease counts were zero. The actual deployment did not use `-Force` because a temporary guarded zero-player window was established.
+- Before replacement, the old service was stopped only after revalidating the snapshot. A separate root-only recovery archive was created at `/opt/monolith-ds/backups/data-luam-20260722-predeploy-ship-snapshot-20260722T053046Z.tar.gz`, 88,829,059 bytes, SHA256 `dae362018b86a0622b8d420b8bb80843c1c202151882cc2d40708678d32e13dd`. A scoped nft table temporarily dropped only non-loopback UDP/1212 while leaving SSH and HTTP status reachable; the old server restarted behind that guard with zero players and unchanged ship state.
+- Client `9643610e6c726c773be4b31c7420866af55b3f8733250a49dc2a8bd9b209e3e0` (333,944,765 bytes), server package `9f5c03f2a33ab64af53b3d8ce1e6237246253a681add68eee97982ad7a7eb586`, release receipt `7bea9669ddc27b4b1388ffa093eb6e7bc3e96340331d40c736ef3ffe25beab17`, gateway `1871684c3078a6070049625651fd611d3733d62fba9946852b0c3d53183d3a31`, and generator `19db63f0d7a15c7ee43ba17558b013eb3d1215b138f2caa6964e7cae5642b756` were published successfully.
+- The guarded first-rollout bootstrap proved the old endpoint absent with HTTP 404, zero players, and empty active/lease state before stopping. It preserved the exact live config, created server/config/data backups, swapped the server, and brought round 151 ready with the exact external client metadata. The new unauthenticated maintenance endpoint now returns 401, the protected token is loaded without exposure, and future deployments must use the authenticated barrier rather than `-LegacyShipSaveBootstrap`.
+- Postchecks proved exact installed server DLL/build hashes, public client HTTP 200 and exact length, both services active/running with `NRestarts=0` and `ExecMainStatus=0`, zero warning-or-higher entries, gateway health, four Piper voices, SQLite `quick_check=ok`, and the unchanged stored snapshot before reopening. A protected synthetic `/chat` smoke returned HTTP 200, a non-empty `action=none` reply, provider HTTP 200, and `fallback=false` in 12,986 ms.
+- The exact temporary nft table was inspected and deleted. A corrected socket check proved it absent and two UDP/1212 listeners. The public/hub verifier passed with the expected name, tags, 100-player soft cap, exact external-client delivery, round 151, and two connected players. Production remained open while the repository work continued.
+- Recovery material passed integrity checks: both data archives pass `gzip -t`; the rollout archive is 88,829,455 bytes with SHA256 `6a6a75aa46fa833b3079c1705dcdf5520a16c73d27a855ba6dcb407843ffa7b3`; server and gateway backup directories are 304,087,359 and 238,053 bytes. The rollout archive initially inherited mode `0644` and was immediately restricted to `root:root`/`0600` without restarting the game.
+- Hardened future backups so the target is `root:root`/`0600` before the first archive byte, partial or invalid archives are removed on failure, gzip integrity and final owner/mode are mandatory, and the old service is restarted on failure. Static ordering/failure-cleanup assertions were added. Commit `6de00bbbe5` records this bounded fix.
+- The completed batch returned to `remoteDeployFrozen=true`, frozen authorization with no reusable approval metadata, and `local-package-only`; the manifest matches. The release contract passed. Commit `83c6d03ced` records the freeze. `.agents/current_release.json` now records phase `deployed` and tag `luam-20260722-accumulated` as local machine handoff state.
+- The final server-journal mirror was installed byte-identically at `/opt/monolith-ds/AI_SERVER_JOURNAL.md`, SHA256 `a3bb3cec381bfa839802772a68f3c51ea6403367644646b268c5c4a88d60c8c5`, owner/mode `root:root`/`0644`; both services remained active and the operation caused no restart.
+- No new ServerNews entry was added because this iteration published behavior already documented by the release candidate and introduced no additional player-facing behavior. After a forced dependency restore, the ServerNews/language/localized-dataset selection passed 3/3.
+- Interrupted/partial commands are explicit: a local UI automation attempt opened the console but did not execute `endround`; one malformed read-only SSH quoting command made no mutation; the first server wrapper was killed by an erroneous one-second local limit and left no process; one postcheck incorrectly expected the normally removed staging ZIP; one expected stale gateway file sizes; the first guard-removal follow-up checked the peer rather than local `ss` column after deletion had already succeeded; and two gateway-audit readers made file/stdin assumptions before the corrected journald parser passed. The first `--no-build` localization test found no assembly, and the first build retry failed on missing restored dependencies; `dotnet restore --force --no-cache` repaired the local graph and the identical test then passed 3/3. None of these partial checks changed or degraded production.
+
+Commands and outcomes:
+
+```powershell
+& .\Tools\provision_monolith_client_static.ps1 <receipt-bound client arguments>
+& .\Tools\deploy_luam_server_release.ps1 <receipt-bound server arguments> -Tag luam-20260722-accumulated -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -RequireDataBackup -LegacyShipSaveBootstrap
+& .\Tools\deploy_luam_ai_gateway.ps1 -ExpectedSha256 1871684c3078a6070049625651fd611d3733d62fba9946852b0c3d53183d3a31 -Tag luam-20260722-accumulated-gateway
+ssh monolith-new '<bounded snapshot, recovery-backup, temporary UDP guard, deploy verification, exact guard removal, and AI smoke operations>'
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\monolith-restart-when-empty.ps1 -VerifyOnly -SkipSsh
+dotnet restore Content.IntegrationTests/Content.IntegrationTests.csproj --force --no-cache -p:RestoreIgnoreFailedSources=true
+dotnet test Content.IntegrationTests/Content.IntegrationTests.csproj --no-restore -m:1 --filter "FullyQualifiedName~LuaMServerNewsChangelogTest|FullyQualifiedName~LanguageLocalizationTest|FullyQualifiedName~LocalizedDatasetPrototypeTest" -- NUnit.NumberOfTestWorkers=1
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\test_luam_release_contract.ps1 -Json
+git commit -m "fix(release): secure required data backups"
+git commit -m "chore(release): freeze completed production rollout"
+```
+
+Result: the accumulated release is live, recoverable, open to players, visible in the public hub, and healthy. Snapshot/config integrity held across replacement, both AI and game paths passed end-to-end checks, backup permissions are hardened, and further remote deployment is frozen pending new authorization.
+
+Next action: after the user completes the first normal restored-ship docking check, rerun the public/hub verifier and only investigate persistence further if the player reports a concrete fault:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\monolith-restart-when-empty.ps1 -VerifyOnly -SkipSsh
+```
 
 ## 2026-07-22 -- accumulated release split and docking scope corrected
 
