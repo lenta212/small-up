@@ -1,122 +1,186 @@
 <controls:BoxContainer Visible="False"
-       HorizontalExpand="True"
-       xmlns:controls="https://spacestation14.io"
-       xmlns:controls1="clr-namespace:Content.Client.UserInterface.Controls"
-       xmlns:ui="clr-namespace:Content.Client.Shuttles.UI"
-       xmlns:graphics="clr-namespace:Robust.Client.Graphics;assembly=Robust.Client">
-            <ui:ShuttleMapControl Name="MapRadar"
-                             MouseFilter="Stop"
-                             Margin="5 4 10 5"
-                             HorizontalExpand="True"
-                             VerticalExpand="True"
-                             VerticalAlignment="Stretch"/>
-            <controls:PanelContainer VerticalExpand="True" HorizontalExpand="True" Margin="4 4 4 4">
-                <controls:PanelContainer.PanelOverride>
-                    <graphics:StyleBoxFlat BorderThickness="2" BorderColor="#525252" BackgroundColor="#3d474d"/>
-                </controls:PanelContainer.PanelOverride>
-                <controls:PanelContainer VerticalExpand="True" HorizontalExpand="True" Margin="2 2 2 2">
-                    <controls:PanelContainer.PanelOverride>
-                        <graphics:StyleBoxFlat BorderThickness="2" BorderColor="#333333" BackgroundColor="#181818"/>
-                    </controls:PanelContainer.PanelOverride>
+                       HorizontalExpand="True"
+                       VerticalExpand="True"
+                       xmlns:controls="https://spacestation14.io"
+                       xmlns:ui="clr-namespace:Content.Client.Shuttles.UI"
+                       xmlns:graphics="clr-namespace:Robust.Client.Graphics;assembly=Robust.Client">
+    <controls:PanelContainer HorizontalExpand="True" VerticalExpand="True" Margin="0 0 8 0">
+        <controls:PanelContainer.PanelOverride>
+            <graphics:StyleBoxFlat BorderThickness="1"
+                                   BorderColor="#294249"
+                                   BackgroundColor="#070B0D"/>
+        </controls:PanelContainer.PanelOverride>
+        <ui:ShuttleMapControl Name="MapRadar"
+                              MouseFilter="Stop"
+                              Margin="2"
+                              HorizontalExpand="True"
+                              VerticalExpand="True"
+                              VerticalAlignment="Stretch"/>
+    </controls:PanelContainer>
+    <controls:PanelContainer VerticalExpand="True"
+                             HorizontalExpand="False"
+                             MinWidth="286"
+                             MaxWidth="286">
+        <controls:PanelContainer.PanelOverride>
+            <graphics:StyleBoxFlat BorderThickness="1"
+                                   BorderColor="#304B50"
+                                   BackgroundColor="#0D1417"/>
+        </controls:PanelContainer.PanelOverride>
+        <controls:ScrollContainer VerticalExpand="True"
+                                  HorizontalExpand="True"
+                                  HScrollEnabled="False"
+                                  VScrollEnabled="True"
+                                  ReserveScrollbarSpace="True">
             <controls:BoxContainer Name="RightDisplayMap"
-                          VerticalAlignment="Top"
-                          HorizontalAlignment="Center"
-                          MinWidth="256"
-                          MaxWidth="256"
-                          Margin="5 5 5 5"
-                          Orientation="Vertical"
-                          VerticalExpand="True">
-                <controls1:StripeBack
-                    MinSize="48 48">
-                    <controls:Label Name="MapDisplayLabel" Text="{controls:Loc 'shuttle-console-ftl-label'}"
-                                    VerticalExpand="True"
-                                    HorizontalAlignment="Center"/>
-                </controls1:StripeBack>
-                <controls:PanelContainer VerticalExpand="True" HorizontalExpand="True" Margin="4 4 4 4">
-                    <controls:PanelContainer.PanelOverride>
-                        <graphics:StyleBoxFlat BorderThickness="2" BorderColor="#333333" BackgroundColor="#181818"/>
-                    </controls:PanelContainer.PanelOverride>
-                    <controls:BoxContainer Orientation="Vertical"
-                                           Margin="2 2 2 2">
-                <controls:Label Name="MapFTLState"
-                                Text="{controls:Loc 'shuttle-console-ftl-state-Available'}"
-                                VerticalAlignment="Stretch"
-                                HorizontalAlignment="Center"/>
-                <controls1:StripeBack
-                    Margin="5 5 5 5"
-                    HorizontalExpand="False"
-                    VerticalExpand="False">
-                <controls:PanelContainer VerticalExpand="True" HorizontalExpand="True" Margin="2 2 2 2">
-                    <controls:PanelContainer.PanelOverride>
-                        <graphics:StyleBoxFlat BorderThickness="2" BorderColor="#151515" BackgroundColor="#050505"/>
-                    </controls:PanelContainer.PanelOverride>
-                <controls:ProgressBar Name="FTLBar" HorizontalExpand="True"
-                                      Margin="5"
-                                      MinValue="0.0"
-                                      MaxValue="1.0"
-                                      Value="1.0"/>
-                </controls:PanelContainer>
-                </controls1:StripeBack>
+                                   VerticalAlignment="Top"
+                                   HorizontalAlignment="Stretch"
+                                   MinWidth="260"
+                                   MaxWidth="260"
+                                   Margin="8 2 8 10"
+                                   Orientation="Vertical"
+                                   VerticalExpand="True">
+                <ui:ShuttleConsoleSectionHeader Name="MapDisplayLabel"
+                                                Text="{controls:Loc 'shuttle-console-ftl-label'}"/>
+                <controls:BoxContainer Orientation="Vertical" Margin="8 4 8 8">
+                    <controls:BoxContainer Orientation="Horizontal"
+                                           HorizontalAlignment="Center"
+                                           SeparationOverride="8"
+                                           Margin="0 2 0 6">
+                        <ui:ShuttleConsoleIcon Kind="Ftl" MinSize="22 22"/>
+                        <controls:Label Name="MapFTLState"
+                                        Text="{controls:Loc 'shuttle-console-ftl-state-Available'}"
+                                        VerticalAlignment="Center"
+                                        FontColorOverride="#A9E3C7"/>
                     </controls:BoxContainer>
-                </controls:PanelContainer>
-                <controls:BoxContainer Orientation="Vertical">
-                <!-- Normal buttons -->
-                <controls1:StripeBack MinSize="48 48">
-                    <controls:Label Name="SettingsLabel" Text="{controls:Loc 'shuttle-console-map-settings'}"
-                           HorizontalAlignment="Center"/>
-                </controls1:StripeBack>
-                <controls:PanelContainer VerticalExpand="True" HorizontalExpand="True" Margin="4 4 4 4">
-                    <controls:PanelContainer.PanelOverride>
-                        <graphics:StyleBoxFlat BorderThickness="2" BorderColor="#333333" BackgroundColor="#181818"/>
-                    </controls:PanelContainer.PanelOverride>
-                    <controls:BoxContainer Orientation="Vertical"
-                                           Margin="2 2 2 2">
-                <controls:Button Name="MapBeaconsButton"
-                                 Text="{controls:Loc 'shuttle-console-map-beacons'}"
-                                 TextAlign="Center"
-                                 StyleClasses="ButtonSquare"
-                                 ToggleMode="True"
-                                 Pressed="True"/>
-                <controls:Button Name="MapFTLButton"
-                                 ToggleMode="True"
-                                 Text="{controls:Loc 'shuttle-console-ftl-button'}"
-                                 TextAlign="Center"
-                                 StyleClasses="ButtonSquare"/>
-                <!-- Mono - Autopilot -->
-                <controls:Button Name="MapAutopilotButton"
-                                 ToggleMode="True"
-                                 Text="{controls:Loc 'shuttle-console-autopilot-button'}"
-                                 TextAlign="Center"
-                                 StyleClasses="ButtonSquare"/>
-                <controls:Button Name="MapRebuildButton"
-                        Text="{controls:Loc 'shuttle-console-map-rebuild'}"
-                        TextAlign="Center"
-                        StyleClasses="ButtonSquare"/>
+                    <controls:ProgressBar Name="FTLBar"
+                                          HorizontalExpand="True"
+                                          MinHeight="14"
+                                          MinValue="0.0"
+                                          MaxValue="1.0"
+                                          Value="1.0"/>
+                </controls:BoxContainer>
+
+                <ui:ShuttleConsoleSectionHeader Name="SettingsLabel"
+                                                Text="{controls:Loc 'shuttle-console-map-settings'}"/>
+                <controls:BoxContainer Orientation="Vertical"
+                                       Margin="8 4 8 8"
+                                       SeparationOverride="5">
+                    <ui:ShuttleConsoleButton Name="MapBeaconsButton"
+                                             ToggleMode="True"
+                                             Pressed="True"
+                                             HorizontalExpand="True"
+                                             MinHeight="36">
+                        <controls:BoxContainer Orientation="Horizontal"
+                                               HorizontalAlignment="Center"
+                                               SeparationOverride="8">
+                            <ui:ShuttleConsoleIcon Kind="Beacon" MinSize="20 20"/>
+                            <controls:Label Text="{controls:Loc 'shuttle-console-map-beacons'}"
+                                            FontColorOverride="#D7E5E3"/>
+                        </controls:BoxContainer>
+                    </ui:ShuttleConsoleButton>
+                    <ui:ShuttleConsoleButton Name="MapFTLButton"
+                                             ToggleMode="True"
+                                             HorizontalExpand="True"
+                                             MinHeight="36">
+                        <controls:BoxContainer Orientation="Horizontal"
+                                               HorizontalAlignment="Center"
+                                               SeparationOverride="8">
+                            <ui:ShuttleConsoleIcon Kind="Ftl" MinSize="20 20"/>
+                            <controls:Label Text="{controls:Loc 'shuttle-console-ftl-button'}"
+                                            FontColorOverride="#D7E5E3"/>
+                        </controls:BoxContainer>
+                    </ui:ShuttleConsoleButton>
+                    <ui:ShuttleConsoleButton Name="MapAutopilotButton"
+                                             ToggleMode="True"
+                                             HorizontalExpand="True"
+                                             MinHeight="36">
+                        <controls:BoxContainer Orientation="Horizontal"
+                                               HorizontalAlignment="Center"
+                                               SeparationOverride="8">
+                            <ui:ShuttleConsoleIcon Kind="Autopilot" MinSize="20 20"/>
+                            <controls:Label Text="{controls:Loc 'shuttle-console-autopilot-button'}"
+                                            FontColorOverride="#D7E5E3"/>
+                        </controls:BoxContainer>
+                    </ui:ShuttleConsoleButton>
+
+                    <controls:Label Name="TargetingStatus"
+                                    Text="{controls:Loc 'shuttle-console-targeting-idle'}"
+                                    HorizontalExpand="True"
+                                    Margin="2 5 2 0"
+                                    FontColorOverride="#A9E3C7"/>
+                    <ui:ShuttleConsoleButton Name="CancelTargetingButton"
+                                             Visible="False"
+                                             HorizontalExpand="True"
+                                             MinHeight="34">
+                        <controls:Label Text="{controls:Loc 'shuttle-console-targeting-cancel'}"
+                                        HorizontalAlignment="Center"
+                                        FontColorOverride="#D7E5E3"/>
+                    </ui:ShuttleConsoleButton>
+
+                    <controls:Label Text="{controls:Loc 'shuttle-console-coordinate-target'}"
+                                    FontColorOverride="#8FA7A8"
+                                    Margin="2 6 0 0"/>
+                    <controls:BoxContainer Orientation="Horizontal" SeparationOverride="4">
+                        <controls:LineEdit Name="CoordinateX"
+                                           MinWidth="68"
+                                           HorizontalExpand="True"
+                                           PlaceHolder="X"/>
+                        <controls:LineEdit Name="CoordinateY"
+                                           MinWidth="68"
+                                           HorizontalExpand="True"
+                                           PlaceHolder="Y"/>
+                        <ui:ShuttleConsoleButton Name="CoordinateGoButton"
+                                                 MinWidth="84"
+                                                 ToolTip="{controls:Loc 'shuttle-console-coordinate-go-tooltip'}">
+                            <controls:BoxContainer Orientation="Horizontal"
+                                                   HorizontalAlignment="Center"
+                                                   SeparationOverride="5">
+                                <ui:ShuttleConsoleIcon Kind="Target" MinSize="18 18"/>
+                                <controls:Label Text="{controls:Loc 'shuttle-console-coordinate-go'}"
+                                                FontColorOverride="#D7E5E3"/>
+                            </controls:BoxContainer>
+                        </ui:ShuttleConsoleButton>
                     </controls:BoxContainer>
-                </controls:PanelContainer>
-                <!-- Map objects -->
-                <controls1:StripeBack MinSize="48 48">
-                    <controls:Label Name="HyperspaceLabel" Text="{controls:Loc 'shuttle-console-map-objects'}"
-                           HorizontalAlignment="Center"/>
-                </controls1:StripeBack>
-                <controls:PanelContainer VerticalExpand="True" HorizontalExpand="True" Margin="4 4 4 4">
+                    <controls:Label Name="CoordinateFeedback"
+                                    Text="{controls:Loc 'shuttle-console-coordinate-feedback-hint'}"
+                                    HorizontalExpand="True"
+                                    Margin="2 0 2 2"
+                                    FontColorOverride="#829597"/>
+                    <ui:ShuttleConsoleButton Name="MapRebuildButton"
+                                             HorizontalExpand="True"
+                                             MinHeight="36">
+                        <controls:BoxContainer Orientation="Horizontal"
+                                               HorizontalAlignment="Center"
+                                               SeparationOverride="8">
+                            <ui:ShuttleConsoleIcon Kind="Refresh" MinSize="20 20"/>
+                            <controls:Label Text="{controls:Loc 'shuttle-console-map-rebuild'}"
+                                            FontColorOverride="#D7E5E3"/>
+                        </controls:BoxContainer>
+                    </ui:ShuttleConsoleButton>
+                </controls:BoxContainer>
+
+                <ui:ShuttleConsoleSectionHeader Name="HyperspaceLabel"
+                                                Text="{controls:Loc 'shuttle-console-map-objects'}"/>
+                <controls:PanelContainer HorizontalExpand="True"
+                                         MinHeight="100"
+                                         MaxHeight="260"
+                                         Margin="8 4 8 8">
                     <controls:PanelContainer.PanelOverride>
-                        <graphics:StyleBoxFlat BorderThickness="2" BorderColor="#333333" BackgroundColor="#181818"/>
+                        <graphics:StyleBoxFlat BorderThickness="1"
+                                               BorderColor="#24383D"
+                                               BackgroundColor="#080D0F"/>
                     </controls:PanelContainer.PanelOverride>
-                    <controls:PanelContainer VerticalExpand="True" HorizontalExpand="True" Margin="2 2 2 2">
-                        <controls:PanelContainer.PanelOverride>
-                            <graphics:StyleBoxFlat BorderThickness="2" BorderColor="#151515" BackgroundColor="#050505"/>
-                        </controls:PanelContainer.PanelOverride>
-                <controls:ScrollContainer VerticalExpand="True" HScrollEnabled="False"
-                                 ReturnMeasure="True">
-                    <controls:BoxContainer Name="HyperspaceDestinations"
-                                  Orientation="Vertical"
-                                  VerticalExpand="True"/>
-                </controls:ScrollContainer>
-                </controls:PanelContainer>
+                    <controls:ScrollContainer VerticalExpand="True"
+                                              HScrollEnabled="False"
+                                              VScrollEnabled="True"
+                                              ReturnMeasure="True"
+                                              Margin="4">
+                        <controls:BoxContainer Name="HyperspaceDestinations"
+                                               Orientation="Vertical"
+                                               VerticalExpand="True"/>
+                    </controls:ScrollContainer>
                 </controls:PanelContainer>
             </controls:BoxContainer>
-        </controls:BoxContainer>
-            </controls:PanelContainer>
-            </controls:PanelContainer>
+        </controls:ScrollContainer>
+    </controls:PanelContainer>
 </controls:BoxContainer>

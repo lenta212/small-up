@@ -429,8 +429,17 @@ namespace Content.Server.Shuttles.Systems
 
         private void OnRequestUndock(EntityUid uid, ShuttleConsoleComponent component, UndockRequestMessage args)
         {
-            if (!TryGetEntity(args.DockEntity, out var dockEnt) ||
-                !TryComp(dockEnt, out DockingComponent? dockComp))
+            var console = _console.GetDroneConsole(uid);
+
+            if (console == null || Transform(console.Value).GridUid is not { } shuttleUid ||
+                !TryGetEntity(args.DockEntity, out var dockEnt) ||
+                !TryGetEntity(args.TargetDockEntity, out var targetDockEnt) ||
+                !TryComp(dockEnt, out DockingComponent? dockComp) ||
+                !TryComp(targetDockEnt, out DockingComponent? targetDockComp) ||
+                !TryComp(dockEnt, out TransformComponent? dockXform) ||
+                dockXform.GridUid != shuttleUid ||
+                dockComp.DockedWith != targetDockEnt ||
+                targetDockComp.DockedWith != dockEnt)
             {
                 _popup.PopupCursor(Loc.GetString("shuttle-console-undock-fail"));
                 return;
@@ -545,25 +554,19 @@ namespace Content.Server.Shuttles.Systems
 
         private void OnRequestUndockAll(EntityUid uid, ShuttleConsoleComponent component, UndockAllRequestMessage args)
         {
-            if (args.DockEntities.Count == 0)
+            var console = _console.GetDroneConsole(uid);
+            if (console == null || Transform(console.Value).GridUid is not { } shuttleUid)
+            {
+                _popup.PopupCursor(Loc.GetString("shuttle-console-undock-fail"));
                 return;
+            }
 
             var undockedAny = false;
 
-            foreach (var dockEntity in args.DockEntities)
+            foreach (var dock in GetDocks(shuttleUid))
             {
-                if (!TryGetEntity(dockEntity, out var dockEnt) ||
-                    !TryComp(dockEnt, out DockingComponent? dockComp))
-                {
+                if (!dock.Comp.Docked)
                     continue;
-                }
-
-                var dock = (dockEnt.Value, dockComp);
-
-                if (!CanUndock(dock))
-                {
-                    continue;
-                }
 
                 Undock(dock);
                 undockedAny = true;

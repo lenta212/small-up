@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Numerics;
+using System.Globalization;
 using Content.Client.Shuttles.Systems;
 using Content.Shared._Mono.Detection;
 using Content.Shared._NF.Shuttles.Components;
@@ -93,6 +94,12 @@ public sealed partial class MapScreen : BoxContainer
 
         MapFTLButton.OnToggled += FtlPreviewToggled;
         MapAutopilotButton.OnToggled += AutopilotPreviewToggled; // Mono
+        CancelTargetingButton.OnPressed += _ => SetTargeting(false, _autopilotTargeting);
+        CoordinateGoButton.OnPressed += _ => SetCoordinateAutopilotTarget();
+        CoordinateX.OnTextEntered += _ => SetCoordinateAutopilotTarget();
+        CoordinateY.OnTextEntered += _ => SetCoordinateAutopilotTarget();
+        CoordinateX.OnTextChanged += _ => ResetCoordinateFeedback();
+        CoordinateY.OnTextChanged += _ => ResetCoordinateFeedback();
 
         _ftlStyle = new StyleBoxFlat(Color.LimeGreen);
         FTLBar.ForegroundStyleBoxOverride = _ftlStyle;
@@ -108,18 +115,74 @@ public sealed partial class MapScreen : BoxContainer
             else
             {
                 RequestFTL?.Invoke(coords, angle);
+                SetTargeting(false, false);
             }
         };
 
         MapRadar.RequestBeaconFTL += (ent, angle) =>
         {
             RequestBeaconFTL?.Invoke(ent, angle);
+            SetTargeting(false, false);
         };
 
         MapBeaconsButton.OnToggled += args =>
         {
             MapRadar.ShowBeacons = args.Pressed;
         };
+    }
+
+    private void SetCoordinateAutopilotTarget()
+    {
+        if (MapRadar.ViewingMap == MapId.Nullspace)
+        {
+            CoordinateX.ModulateSelfOverride = null;
+            CoordinateY.ModulateSelfOverride = null;
+            CoordinateFeedback.Text = Loc.GetString("shuttle-console-coordinate-feedback-no-map");
+            CoordinateFeedback.FontColorOverride = Color.FromHex("#E6B86A");
+            return;
+        }
+
+        var validX = TryParseCoordinate(CoordinateX.Text, out var x);
+        var validY = TryParseCoordinate(CoordinateY.Text, out var y);
+
+        CoordinateX.ModulateSelfOverride = validX ? null : Color.LightCoral;
+        CoordinateY.ModulateSelfOverride = validY ? null : Color.LightCoral;
+
+        if (!validX || !validY)
+        {
+            CoordinateFeedback.Text = Loc.GetString("shuttle-console-coordinate-feedback-invalid");
+            CoordinateFeedback.FontColorOverride = Color.FromHex("#E6B86A");
+            return;
+        }
+
+        CoordinateX.ModulateSelfOverride = null;
+        CoordinateY.ModulateSelfOverride = null;
+
+        var target = new MapCoordinates(new Vector2(x, y), MapRadar.ViewingMap);
+        MapRadar.SetNavigationTarget(target);
+        RequestAutopilot?.Invoke(target, Angle.Zero);
+        SetTargeting(false, true);
+        CoordinateFeedback.Text = Loc.GetString("shuttle-console-coordinate-feedback-set",
+            ("X", x.ToString("0.##", CultureInfo.InvariantCulture)),
+            ("Y", y.ToString("0.##", CultureInfo.InvariantCulture)));
+        CoordinateFeedback.FontColorOverride = Color.FromHex("#A9E3C7");
+    }
+
+    private void ResetCoordinateFeedback()
+    {
+        CoordinateX.ModulateSelfOverride = null;
+        CoordinateY.ModulateSelfOverride = null;
+        CoordinateFeedback.Text = Loc.GetString("shuttle-console-coordinate-feedback-hint");
+        CoordinateFeedback.FontColorOverride = Color.FromHex("#829597");
+    }
+
+    private static bool TryParseCoordinate(string text, out float value)
+    {
+        return float.TryParse(
+            text.Replace(',', '.'),
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out value) && float.IsFinite(value);
     }
 
     public void UpdateState(ShuttleMapInterfaceState state)
@@ -130,6 +193,7 @@ public sealed partial class MapScreen : BoxContainer
         _exclusions = state.Exclusions;
         _state = state.FTLState;
         _ftlTime = state.FTLTime;
+        MapRadar.SetNavigationTarget(state.NavigationTarget);
         MapRadar.InFtl = true;
         MapFTLState.Text = Loc.GetString($"shuttle-console-ftl-state-{_state.ToString()}");
 
@@ -197,10 +261,7 @@ public sealed partial class MapScreen : BoxContainer
         }
         else
         {
-            // Unselect FTL
-            MapFTLButton.Pressed = false;
-            MapRadar.FtlMode = false;
-            MapRadar.ShowFTLRangeOnly = false;
+            SetTargeting(false, false);
             MapFTLButton.Disabled = true;
         }
     }
@@ -228,10 +289,24 @@ public sealed partial class MapScreen : BoxContainer
             MapFTLButton.Pressed = !isAutopilot;
             MapAutopilotButton.Pressed = isAutopilot;
             _autopilotTargeting = isAutopilot;
+            TargetingStatus.Text = Loc.GetString(isAutopilot
+                ? "shuttle-console-targeting-autopilot"
+                : "shuttle-console-targeting-ftl");
+            TargetingStatus.FontColorOverride = Color.FromHex("#A9E3C7");
+            CancelTargetingButton.Visible = true;
         }
         else
         {
             MapRadar.FtlMode = false;
+            MapRadar.ShowFTLRangeOnly = false;
+            MapRadar.ShowFTLRange = true;
+            MapRadar.NoFTLRange = false;
+            MapFTLButton.Pressed = false;
+            MapAutopilotButton.Pressed = false;
+            _autopilotTargeting = false;
+            TargetingStatus.Text = Loc.GetString("shuttle-console-targeting-idle");
+            TargetingStatus.FontColorOverride = Color.FromHex("#829597");
+            CancelTargetingButton.Visible = false;
         }
     }
 
@@ -250,7 +325,10 @@ public sealed partial class MapScreen : BoxContainer
     private void OnVisChange(Control obj)
     {
         if (!obj.Visible)
+        {
+            SetTargeting(false, _autopilotTargeting);
             return;
+        }
 
         // Centre map screen to the shuttle.
         if (_shuttleEntity != null)
@@ -514,20 +592,41 @@ public sealed partial class MapScreen : BoxContainer
 
         var gridContents = _mapHeadings[mapId];
 
-        var gridButton = new Button()
+        var gridButton = new ShuttleConsoleButton()
+        {
+            HorizontalExpand = true,
+            ToolTip = mapObj.Name,
+        };
+
+        var gridButtonContents = new BoxContainer
+        {
+            Orientation = LayoutOrientation.Horizontal,
+            HorizontalExpand = true,
+            SeparationOverride = 7,
+        };
+        gridButtonContents.AddChild(new ShuttleConsoleIcon
+        {
+            Kind = mapObj switch
+            {
+                ShuttleBeaconObject => ShuttleConsoleIconKind.Beacon,
+                ShuttleExclusionObject => ShuttleConsoleIconKind.Target,
+                _ => ShuttleConsoleIconKind.Navigation,
+            },
+            MinSize = new Vector2(18f, 18f),
+        });
+        gridButtonContents.AddChild(new Label
         {
             Text = mapObj.Name,
             HorizontalExpand = true,
-        };
+            ClipText = true,
+            FontColorOverride = Color.FromHex("#D7E5E3"),
+        });
+        gridButton.AddChild(gridButtonContents);
 
         var gridContainer = new BoxContainer()
         {
             Children =
             {
-                new Control()
-                {
-                    MinWidth = 32f,
-                },
                 gridButton
             }
         };

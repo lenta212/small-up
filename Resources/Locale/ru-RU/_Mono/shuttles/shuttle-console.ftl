@@ -1,6 +1,10 @@
 shuttle-console-crewed = Вы не сможете использовать консоль управления и консоль орудий вместе на этом шаттле.. Найдите ещё одного!
 shuttle-console-autopilot-button = Автопилот
+shuttle-console-coordinate-target = Полёт по координатам
+shuttle-console-coordinate-go = Лететь
+shuttle-console-coordinate-go-tooltip = Установить введённые координаты как цель автопилота
 shuttle-console-autopilot-popup-done = Автопилот прибыл
+shuttle-console-autopilot-popup-invalid-target = Цель автопилота неверна или вне допустимого диапазона.
 shuttle-console-bioscan-button =
     Сканировать на
     наличии биоугрозы

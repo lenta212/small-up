@@ -54,7 +54,7 @@ public sealed partial class ShuttleDockControl : BaseShuttleControl
 
     public event Action<NetEntity>? OnViewDock;
     public event Action<NetEntity, NetEntity>? DockRequest;
-    public event Action<NetEntity>? UndockRequest;
+    public event Action<NetEntity, NetEntity>? UndockRequest;
 
     public ShuttleDockControl() : base(2f, 32f, 8f)
     {
@@ -62,7 +62,6 @@ public sealed partial class ShuttleDockControl : BaseShuttleControl
         _dockSystem = EntManager.System<DockingSystem>();
         _shuttles = EntManager.System<SharedShuttleSystem>();
         _xformSystem = EntManager.System<SharedTransformSystem>();
-        MinSize = new Vector2(SizeFull, SizeFull);
     }
 
     public void SetViewedDock(DockingPortState? dockState)
@@ -80,6 +79,12 @@ public sealed partial class ShuttleDockControl : BaseShuttleControl
             _coordinates = null;
             _angle = null;
         }
+    }
+
+    private bool IsViewedDockPair(DockingPortState target)
+    {
+        return _viewedState?.DockedWith == target.Entity &&
+               target.DockedWith == _viewedState.Entity;
     }
 
     protected override void FrameUpdate(FrameEventArgs args)
@@ -135,6 +140,7 @@ public sealed partial class ShuttleDockControl : BaseShuttleControl
 
         var viewedDockType = _viewedState?.DockType ?? DockType.None; // Frontier: cache dock type
         var viewedReceiveOnly = _viewedState?.ReceiveOnly ?? true; // Frontier: cache receive only
+        var viewedDockConnected = _viewedState?.DockedWith != null;
 
         foreach (var grid in _grids)
         {
@@ -241,12 +247,13 @@ public sealed partial class ShuttleDockControl : BaseShuttleControl
 
                 var canDraw = grid.Owner == GridEntity;
                 _dockButtons.TryGetValue(dock, out var dockButton);
+                var exactConnectedPair = IsViewedDockPair(dock);
 
                 // Rate limit
                 if (dockButton != null && dock.GridDockedWith != null)
                 {
-                    dockButton.Disabled = !canDockChange;
-                    dockButton.Visible = true; // Frontier: undock should always be visible.
+                    dockButton.Disabled = !exactConnectedPair || !canDockChange;
+                    dockButton.Visible = exactConnectedPair;
                 }
 
                 // If the dock is in range then also do highlighting
@@ -277,8 +284,10 @@ public sealed partial class ShuttleDockControl : BaseShuttleControl
 
                             if (dockButton != null)
                             {
-                                dockButton.Disabled = !canDock && dock.GridDockedWith == null || !canDockChange; // Frontier: add "&& dock.GridDockedWith == null"
-                                dockButton.Visible = dock.GridDockedWith != null || (dock.DockType & viewedDockType) != DockType.None && !viewedReceiveOnly; // Frontier: do not enable docking for receive-only docks
+                                dockButton.Disabled = !canDock || viewedDockConnected || !canDockChange;
+                                dockButton.Visible = !viewedDockConnected &&
+                                                     (dock.DockType & viewedDockType) != DockType.None &&
+                                                     !viewedReceiveOnly;
                             }
 
                             var lineColor = inAlignment ? Color.Lime : Color.Red;
@@ -286,7 +295,8 @@ public sealed partial class ShuttleDockControl : BaseShuttleControl
                         }
                         else if (dockButton != null)
                         {
-                            dockButton.Visible = dock.GridDockedWith != null; // Frontier: do not enable docking for receive-only docks
+                            dockButton.Disabled = !exactConnectedPair || !canDockChange;
+                            dockButton.Visible = exactConnectedPair;
                         }
 
                         canDraw = true;
@@ -294,8 +304,15 @@ public sealed partial class ShuttleDockControl : BaseShuttleControl
                     else if (dockButton != null)
                     {
                         dockButton.Disabled = true;
-                        dockButton.Visible = dock.GridDockedWith != null || (dock.DockType & viewedDockType) != DockType.None && !viewedReceiveOnly; // Frontier
+                        dockButton.Visible = exactConnectedPair ||
+                                             !viewedDockConnected &&
+                                             dock.GridDockedWith == null &&
+                                             (dock.DockType & viewedDockType) != DockType.None &&
+                                             !viewedReceiveOnly;
                     }
+
+                    if (dock.Connected && !exactConnectedPair)
+                        canDraw = false;
                 }
 
                 handle.DrawPrimitives(DrawPrimitiveTopology.TriangleFan, verts, otherDockColor.WithAlpha(0.2f));
@@ -428,8 +445,11 @@ public sealed partial class ShuttleDockControl : BaseShuttleControl
 
                         button.OnPressed += args =>
                         {
+                            if (_viewedState == null || !IsViewedDockPair(dock))
+                                return;
+
                             _nextDockChange = _timing.CurTime + DockChangeCooldown;
-                            UndockRequest?.Invoke(dock.Entity);
+                            UndockRequest?.Invoke(_viewedState.Entity, dock.Entity);
                         };
                     }
                     else

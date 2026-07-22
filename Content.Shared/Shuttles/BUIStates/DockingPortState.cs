@@ -19,6 +19,11 @@ public sealed class DockingPortState
 
     public NetEntity? GridDockedWith;
 
+    /// <summary>
+    /// The exact reciprocal docking port, when connected.
+    /// </summary>
+    public NetEntity? DockedWith;
+
     // Frontier: label, colors, type, receive only
     public string? LabelName;
     public Color RadarColor;

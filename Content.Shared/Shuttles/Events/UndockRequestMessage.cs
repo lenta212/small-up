@@ -8,5 +8,13 @@ namespace Content.Shared.Shuttles.Events;
 [Serializable, NetSerializable]
 public sealed class UndockRequestMessage : BoundUserInterfaceMessage
 {
+    /// <summary>
+    /// Docking port on the shuttle controlled by the console.
+    /// </summary>
     public NetEntity DockEntity;
+
+    /// <summary>
+    /// Exact reciprocal port currently connected to <see cref="DockEntity"/>.
+    /// </summary>
+    public NetEntity TargetDockEntity;
 }

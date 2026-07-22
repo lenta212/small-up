@@ -90,7 +90,7 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
 
     #region Mono
     // These 2 handle timing updates
-    protected const float RadarUpdateInterval = 0f;
+    protected const float RadarUpdateInterval = 0.5f;
     protected float _updateAccumulator = 0f;
 
     // doesn't support absolute panning and angle follow, but why would you need that?
@@ -894,10 +894,13 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
 
         Angle angle = updateRatio * Math.Tau;
         var origin = ScalePosition(-new Vector2(Offset.X, -Offset.Y));
-        handle.DrawLine(origin, origin + angle.ToVec() * ScaledMinimapRadius * 1.42f, Color.Red.WithAlpha(0.1f));
+        var radarBounds = new Box2(0f, 0f, PixelSize.X, PixelSize.Y);
+        var sweepEnd = origin + angle.ToVec() * ScaledMinimapRadius * 1.42f;
+        if (TryClipSegmentToBox(radarBounds, origin, sweepEnd, out var sweepStart, out var clippedSweepEnd))
+            handle.DrawLine(sweepStart, clippedSweepEnd, Color.Red.WithAlpha(0.1f));
 
         // Get blips
-        var rawBlips = _blips.GetCurrentBlips();
+        var rawBlips = _blips.GetCurrentBlips(_consoleEntity);
 
         // Prepare view bounds for culling
         var monoViewBounds = new Box2(-3f, -3f, PixelSize.X + 3f, PixelSize.Y + 3f);
@@ -927,37 +930,121 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
             }
         }
 
+        // Draw missile lines from the radar blips system
+        var missileLines = _blips.GetMissileLines(_consoleEntity);
+        foreach (var line in missileLines)
+        {
+            if (line.GridUid is { } grid && !_visibleGridsSet.Contains(grid) && grid != ourGridId)
+                continue;
+
+            var startPosInView = Vector2.Transform(line.PositionStart, worldToView);
+            var endPosInView = Vector2.Transform(line.PositionEnd, worldToView);
+
+            if (TryClipSegmentToBox(
+                    radarBounds,
+                    startPosInView,
+                    endPosInView,
+                    out var clippedStart,
+                    out var clippedEnd))
+            {
+                // Draw the line with the specified thickness and color
+                handle.DrawLine(clippedStart, clippedEnd, line.Color);
+            }
+        }
+
         // Draw hitscan lines from the radar blips system
-        var hitscanLines = _blips.GetHitscanLines();
+        var hitscanLines = _blips.GetHitscanLines(_consoleEntity);
         foreach (var line in hitscanLines)
         {
+            if (line.OriginGrid is { } netGrid)
+            {
+                if (!EntManager.TryGetEntity(netGrid, out var originGrid) || originGrid == null)
+                    continue;
+
+                if (!_visibleGridsSet.Contains(originGrid.Value) && originGrid.Value != ourGridId)
+                    continue;
+            }
+
             var startPosInView = Vector2.Transform(line.Start, worldToView);
             var endPosInView = Vector2.Transform(line.End, worldToView);
 
-            // Only draw lines if at least one endpoint is within view
-            if (monoViewBounds.Contains(startPosInView) || monoViewBounds.Contains(endPosInView))
+            if (TryClipSegmentToBox(
+                    radarBounds,
+                    startPosInView,
+                    endPosInView,
+                    out var clippedStart,
+                    out var clippedEnd))
             {
                 // Draw the line with the specified thickness and color
-                handle.DrawLine(startPosInView, endPosInView, line.Color);
+                handle.DrawLine(clippedStart, clippedEnd, line.Color);
 
                 // For thicker lines, draw multiple lines side by side
-                if (line.Thickness > 1.0f)
+                var clippedDirection = clippedEnd - clippedStart;
+                if (line.Thickness > 1.0f && clippedDirection.LengthSquared() > float.Epsilon)
                 {
                     // Calculate perpendicular vector for thickness
-                    var dir = (endPosInView - startPosInView).Normalized();
+                    var dir = clippedDirection.Normalized();
                     var perpendicular = new Vector2(-dir.Y, dir.X) * 0.5f;
 
                     // Draw additional lines for thickness
                     for (float i = 1; i <= line.Thickness; i += 1.0f)
                     {
                         var offset = perpendicular * i;
-                        handle.DrawLine(startPosInView + offset, endPosInView + offset, line.Color);
-                        handle.DrawLine(startPosInView - offset, endPosInView - offset, line.Color);
+                        handle.DrawLine(clippedStart + offset, clippedEnd + offset, line.Color);
+                        handle.DrawLine(clippedStart - offset, clippedEnd - offset, line.Color);
                     }
                 }
             }
         }
         #endregion
+    }
+
+    internal static bool SegmentIntersectsBox(Box2 box, Vector2 start, Vector2 end)
+        => TryClipSegmentToBox(box, start, end, out _, out _);
+
+    internal static bool TryClipSegmentToBox(
+        Box2 box,
+        Vector2 start,
+        Vector2 end,
+        out Vector2 clippedStart,
+        out Vector2 clippedEnd)
+    {
+        var delta = end - start;
+        var minimum = 0f;
+        var maximum = 1f;
+
+        if (!ClipAxis(start.X, delta.X, box.Left, box.Right, ref minimum, ref maximum) ||
+            !ClipAxis(start.Y, delta.Y, box.Bottom, box.Top, ref minimum, ref maximum))
+        {
+            clippedStart = default;
+            clippedEnd = default;
+            return false;
+        }
+
+        clippedStart = start + delta * minimum;
+        clippedEnd = start + delta * maximum;
+        return true;
+
+        static bool ClipAxis(
+            float origin,
+            float direction,
+            float lower,
+            float upper,
+            ref float minimum,
+            ref float maximum)
+        {
+            if (MathF.Abs(direction) <= float.Epsilon)
+                return origin >= lower && origin <= upper;
+
+            var entry = (lower - origin) / direction;
+            var exit = (upper - origin) / direction;
+            if (entry > exit)
+                (entry, exit) = (exit, entry);
+
+            minimum = MathF.Max(minimum, entry);
+            maximum = MathF.Min(maximum, exit);
+            return minimum <= maximum;
+        }
     }
 
     protected DetectionLevel GetGridDetected(EntityUid grid)

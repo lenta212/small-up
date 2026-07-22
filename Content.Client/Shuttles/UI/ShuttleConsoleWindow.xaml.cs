@@ -24,14 +24,17 @@ public sealed partial class ShuttleConsoleWindow : FancyWindow,
     public event Action<MapCoordinates, Angle>? RequestAutopilot;
 
     public event Action<NetEntity, NetEntity>? DockRequest;
-    public event Action<NetEntity>? UndockRequest;
-    public event Action<List<NetEntity>>? UndockAllRequest;
-    public event Action<List<NetEntity>, bool>? ToggleFTLLockRequest;
+    public event Action<NetEntity, NetEntity>? UndockRequest;
+    public event Action? UndockAllRequest;
+    public event Action<bool>? ToggleFTLLockRequest;
 
     public ShuttleConsoleWindow()
     {
         RobustXamlLoader.Load(this);
         IoCManager.InjectDependencies(this);
+
+        LayoutContainer.SetAnchorPreset(ConsoleSurface, LayoutContainer.LayoutPreset.Wide);
+        LayoutContainer.SetAnchorPreset(CrtOverlay, LayoutContainer.LayoutPreset.Wide);
 
         // Mode switching
         NavModeButton.OnPressed += NavPressed;
@@ -69,22 +72,28 @@ public sealed partial class ShuttleConsoleWindow : FancyWindow,
             DockRequest?.Invoke(entity, netEntity);
         };
 
-        DockContainer.UndockRequest += entity =>
+        DockContainer.UndockRequest += (entity, target) =>
         {
-            UndockRequest?.Invoke(entity);
+            UndockRequest?.Invoke(entity, target);
         };
 
-        DockContainer.UndockAllRequest += dockEntities =>
+        DockContainer.UndockAllRequest += () =>
         {
-            UndockAllRequest?.Invoke(dockEntities);
+            UndockAllRequest?.Invoke();
         };
 
-        DockContainer.ToggleFTLLockRequest += (dockEntities, enabled) =>
+        DockContainer.ToggleFTLLockRequest += enabled =>
         {
-            ToggleFTLLockRequest?.Invoke(dockEntities, enabled);
+            ToggleFTLLockRequest?.Invoke(enabled);
         };
 
         NfInitialize(); // Frontier Initialization for the ShuttleConsoleWindow
+    }
+
+    protected override void Opened()
+    {
+        base.Opened();
+        CrtOverlay.StartBoot();
     }
 
     private void ClearModes(ShuttleConsoleMode mode)
@@ -127,13 +136,17 @@ public sealed partial class ShuttleConsoleWindow : FancyWindow,
         {
             case ShuttleConsoleMode.Nav:
                 NavContainer.Visible = true;
+                ActiveModeStatus.Text = Loc.GetString("shuttle-console-active-mode-navigation");
                 break;
             case ShuttleConsoleMode.Map:
                 MapContainer.Visible = true;
                 MapContainer.Startup();
+                MapContainer.PingMap();
+                ActiveModeStatus.Text = Loc.GetString("shuttle-console-active-mode-map");
                 break;
             case ShuttleConsoleMode.Dock:
                 DockContainer.Visible = true;
+                ActiveModeStatus.Text = Loc.GetString("shuttle-console-active-mode-docking");
                 break;
             default:
                 throw new NotImplementedException();

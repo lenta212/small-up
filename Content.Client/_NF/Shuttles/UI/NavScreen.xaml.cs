@@ -3,8 +3,8 @@
 // See AGPLv3.txt for details.
 using Content.Shared._NF.Shuttles.Events;
 using Robust.Client.UserInterface.Controls;
-using System.Text.RegularExpressions;
 using System;
+using System.Globalization;
 
 namespace Content.Client.Shuttles.UI
 {
@@ -67,13 +67,16 @@ namespace Content.Client.Shuttles.UI
             if (NavRadar.DampeningMode == InertiaDampeningMode.Station)
             {
                 DampenerModeButtons.Visible = false;
+                DampenerModeStatus.Visible = false;
             }
             else
             {
                 DampenerModeButtons.Visible = true;
+                DampenerModeStatus.Visible = true;
                 DampenerOff.Pressed = NavRadar.DampeningMode == InertiaDampeningMode.Off;
                 DampenerOn.Pressed = NavRadar.DampeningMode == InertiaDampeningMode.Dampen;
                 AnchorOn.Pressed = NavRadar.DampeningMode == InertiaDampeningMode.Anchor;
+                DampenerModeStatus.Text = Loc.GetString(NfGetDampenerStatusLocId(NavRadar.DampeningMode));
 
                 // Disable the Park button (AnchorOn) while in FTL, but keep other dampener buttons enabled
                 if (NavRadar.InFtl)
@@ -93,6 +96,18 @@ namespace Content.Client.Shuttles.UI
             }
         }
 
+
+        private static string NfGetDampenerStatusLocId(InertiaDampeningMode mode)
+        {
+            return mode switch
+            {
+                InertiaDampeningMode.Off => "shuttle-console-inertia-dampener-status-off",
+                InertiaDampeningMode.Dampen => "shuttle-console-inertia-dampener-status-dampen",
+                InertiaDampeningMode.Anchor => "shuttle-console-inertia-dampener-status-anchor",
+                _ => "shuttle-console-inertia-dampener-status-unknown",
+            };
+        }
+
         // Frontier - Maximum IFF Distance
         private void OnRangeFilterChanged(int value)
         {
@@ -102,9 +117,40 @@ namespace Content.Client.Shuttles.UI
         // Frontier - Maximum Shuttle Speed
         private void OnMaxSpeedChanged(LineEdit.LineEditEventArgs value)
         {
-            MaximumShuttleSpeedValue.Text = Regex.Replace(MaximumShuttleSpeedValue.Text, "[^0-9]", "");
-            float.TryParse(MaximumShuttleSpeedValue.Text, out var speed);
-            OnMaxShuttleSpeedChanged?.Invoke(MaximumShuttleSpeedValue.Text == "" ? null : speed);
+            var text = value.Text.Trim();
+            if (text.Length == 0)
+            {
+                MaximumShuttleSpeedValue.ModulateSelfOverride = null;
+                MaximumShuttleSpeedFeedback.Text = Loc.GetString("shuttle-console-maximum-speed-unlimited");
+                MaximumShuttleSpeedFeedback.FontColorOverride = Color.FromHex("#829597");
+                OnMaxShuttleSpeedChanged?.Invoke(null);
+                return;
+            }
+
+            if (!TryParseMaximumSpeed(text, out var speed))
+            {
+                MaximumShuttleSpeedValue.ModulateSelfOverride = Color.LightCoral;
+                MaximumShuttleSpeedFeedback.Text = Loc.GetString("shuttle-console-maximum-speed-invalid");
+                MaximumShuttleSpeedFeedback.FontColorOverride = Color.FromHex("#E6B86A");
+                return;
+            }
+
+            MaximumShuttleSpeedValue.ModulateSelfOverride = null;
+            MaximumShuttleSpeedFeedback.Text = Loc.GetString("shuttle-console-maximum-speed-valid",
+                ("speed", speed.ToString("0.##", CultureInfo.InvariantCulture)));
+            MaximumShuttleSpeedFeedback.FontColorOverride = Color.FromHex("#A9E3C7");
+            OnMaxShuttleSpeedChanged?.Invoke(speed);
+        }
+
+        private static bool TryParseMaximumSpeed(string text, out float speed)
+        {
+            return float.TryParse(
+                       text.Replace(',', '.'),
+                       NumberStyles.Float,
+                       CultureInfo.InvariantCulture,
+                       out speed) &&
+                   float.IsFinite(speed) &&
+                   speed >= 0f;
         }
 
         private void NfAddShuttleDesignation(EntityUid? shuttle)

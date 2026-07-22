@@ -1118,6 +1118,44 @@ public sealed partial class ShuttleSystem
     }
 
     /// <summary>
+    /// Attempts an immediate dock using one exact target port. The complete
+    /// geometry and collision calculation is repeated at execution time.
+    /// </summary>
+    public bool TryFTLDockAtDock(
+        EntityUid shuttleUid,
+        ShuttleComponent component,
+        EntityUid targetGrid,
+        EntityUid targetDock)
+    {
+        if (!_xformQuery.TryGetComponent(shuttleUid, out var shuttleXform) ||
+            !TryComp<DockingComponent>(targetDock, out var gridDock) ||
+            Transform(targetDock).GridUid != targetGrid ||
+            gridDock.Docked)
+        {
+            return false;
+        }
+
+        foreach (var shuttleDock in _dockSystem.GetDocks(shuttleUid))
+        {
+            var config = _dockSystem.GetDockingConfig(
+                shuttleUid,
+                targetGrid,
+                shuttleDock.Owner,
+                shuttleDock.Comp,
+                targetDock,
+                gridDock);
+            if (config == null)
+                continue;
+
+            config.TargetGrid = targetGrid;
+            FTLDock((shuttleUid, shuttleXform), config);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Forces an FTL dock.
     /// </summary>
     public void FTLDock(Entity<TransformComponent> shuttle, DockingConfig config)

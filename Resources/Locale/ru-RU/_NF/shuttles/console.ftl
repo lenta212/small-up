@@ -1,6 +1,11 @@
 shuttle-console-designation = Назначение:
 shuttle-console-designation-unknown = Неизвестно
-shuttle-console-maximum-iff-distance = Максимальная дистанция
+shuttle-console-maximum-iff-distance = Максимальная дальность опознавания (м)
+shuttle-console-maximum-speed = Максимальная скорость шаттла (м/с)
+shuttle-console-maximum-speed-placeholder = Без ограничения
+shuttle-console-maximum-speed-unlimited = ○ Ограничение скорости отключено.
+shuttle-console-maximum-speed-invalid = ⚠ Введите конечную неотрицательную скорость в м/с.
+shuttle-console-maximum-speed-valid = ✓ Ограничение скорости: {$speed} м/с.
 shuttle-console-iff-search = Поиск на карте
 shuttle-console-map-search-placeholder = Фильтр по имени или сектору; Enter — к ближайшему
 shuttle-console-shield-label = Состояние щита
@@ -37,11 +42,22 @@ shuttle-console-signature-unknown =
        *[other] Неизвестный Объект
     }
 
-shuttle-console-device-button-1 = Кн. 1
-shuttle-console-device-button-2 = Кн. 2
-shuttle-console-device-button-3 = Кн. 3
-shuttle-console-device-button-4 = Кн. 4
-shuttle-console-device-button-5 = Кн. 5
-shuttle-console-device-button-6 = Кн. 6
-shuttle-console-device-button-7 = Кн. 7
-shuttle-console-device-button-8 = Кн. 8
+shuttle-console-network-ports = Сетевые порты
+shuttle-console-network-connect-tooltip = Кнопка отправляет сигнал в соответствующий сетевой порт консоли. Соединение с устройством настраивается мультитулом.
+
+shuttle-console-device-button-1 = Порт 1
+shuttle-console-device-button-2 = Порт 2
+shuttle-console-device-button-3 = Порт 3
+shuttle-console-device-button-4 = Порт 4
+shuttle-console-device-button-5 = Порт 5
+shuttle-console-device-button-6 = Порт 6
+shuttle-console-device-button-7 = Порт 7
+shuttle-console-device-button-8 = Порт 8
+
+shuttle-console-inertia-dampener-status-unknown = ○ Выбранный режим неизвестен
+shuttle-console-inertia-dampener-status-off =
+    ◇ «Дрейф» — двигатели не гасят инерцию.
+shuttle-console-inertia-dampener-status-dampen =
+    → «Ход» — двигатели гасят скольжение.
+shuttle-console-inertia-dampener-status-anchor =
+    ■ «Стоп» — шаттл удерживает позицию.

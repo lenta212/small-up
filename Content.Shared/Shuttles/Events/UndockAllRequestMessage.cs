@@ -8,10 +8,4 @@ namespace Content.Shared.Shuttles.Events;
 [Serializable, NetSerializable]
 public sealed class UndockAllRequestMessage : BoundUserInterfaceMessage
 {
-    public List<NetEntity> DockEntities;
-    
-    public UndockAllRequestMessage(List<NetEntity> dockEntities)
-    {
-        DockEntities = dockEntities;
-    }
-} 
+}

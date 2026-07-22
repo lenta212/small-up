@@ -1,5 +1,6 @@
 using Content.Server._Mono.Ships.Systems;
 using Content.Server._Mono.Shuttles.Components;
+using Content.Server.NPC.HTN;
 using Content.Server.Power.EntitySystems;
 using Content.Server.Shuttles.Components;
 using Content.Server.Shuttles.Events;
@@ -45,6 +46,7 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
     [Dependency] private SharedPopupSystem _popup = default!;
     [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private ShuttleSystem _shuttle = default!;
+    [Dependency] private DockingSystem _docking = default!;
     [Dependency] private StationSystem _station = default!;
     [Dependency] private TagSystem _tags = default!;
     [Dependency] private UserInterfaceSystem _ui = default!;
@@ -272,41 +274,39 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
     /// </summary>
     private void OnToggleFTLLock(EntityUid uid, ShuttleConsoleComponent component, ToggleFTLLockRequestMessage args)
     {
-        // Get the console's grid (shuttle)
-        var consoleXform = Transform(uid);
-        var shuttleGrid = consoleXform.GridUid;
-
-        Logger.DebugS("shuttle", $"Server received FTL lock request with {args.DockedEntities.Count} entities, enabled={args.Enabled}");
-
-        // If the shuttleGrid is null, we can't do anything
-        if (shuttleGrid == null)
-        {
-            Logger.DebugS("shuttle", $"Cannot toggle FTL lock: console {ToPrettyString(uid)} is not on a grid");
+        var console = GetDroneConsole(uid);
+        if (console == null || Transform(console.Value).GridUid is not { } shuttleGrid)
             return;
-        }
 
-        bool processedMainGrid = false;
+        SetDockedGroupFTLLock(shuttleGrid, args.Enabled);
+    }
 
-        // Process each entity in the request
-        foreach (var dockedEntityNet in args.DockedEntities)
+
+    private void SetDockedGroupFTLLock(EntityUid shuttleGrid, bool enabled)
+    {
+        var pending = new Queue<EntityUid>();
+        var processedGrids = new HashSet<EntityUid>();
+        pending.Enqueue(shuttleGrid);
+
+        while (pending.TryDequeue(out var grid))
         {
-            var dockedEntity = GetEntity(dockedEntityNet);
+            if (!processedGrids.Add(grid))
+                continue;
 
-            // Check if this is the main shuttle grid
-            if (dockedEntity == shuttleGrid)
+            SetFTLLock(grid, enabled);
+
+            foreach (var dock in _docking.GetDocks(grid))
             {
-                processedMainGrid = true;
+                if (dock.Comp.DockedWith is not { } connectedDock ||
+                    !TryComp(connectedDock, out TransformComponent? connectedXform) ||
+                    connectedXform.GridUid is not { } connectedGrid ||
+                    processedGrids.Contains(connectedGrid))
+                {
+                    continue;
+                }
+
+                pending.Enqueue(connectedGrid);
             }
-
-            SetFTLLock(dockedEntity, args.Enabled);
-            Logger.DebugS("shuttle", $"Setting FTL lock for {ToPrettyString(dockedEntity)} to {args.Enabled}");
-        }
-
-        // If we didn't process the main grid yet, do it now
-        if (!processedMainGrid && shuttleGrid != null)
-        {
-            SetFTLLock(shuttleGrid.Value, args.Enabled);
-            Logger.DebugS("shuttle", $"Setting FTL lock for main grid {ToPrettyString(shuttleGrid.Value)} to {args.Enabled}");
         }
     }
 
@@ -375,6 +375,7 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
                     _xformQuery.TryGetComponent(comp.DockedWith, out var otherDockXform) ?
                     GetNetEntity(otherDockXform.GridUid) :
                     null,
+                DockedWith = comp.DockedWith is { } dockedWith ? GetNetEntity(dockedWith) : null,
                 LabelName = comp.Name != null ? Loc.GetString(comp.Name) : null, // Frontier: docking labels
                 RadarColor = comp.RadarColor, // Frontier
                 HighlightedRadarColor = comp.HighlightedRadarColor, // Frontier
@@ -410,7 +411,7 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
         if (shuttleGridUid != null && entity != null)
         {
             navState = GetNavState(entity.Value, dockState.Docks);
-            mapState = GetMapState(shuttleGridUid.Value);
+            mapState = GetMapState(shuttleGridUid.Value, consoleUid);
         }
         else
         {
@@ -616,7 +617,7 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
     /// <summary>
     /// Specific to a particular shuttle.
     /// </summary>
-    public ShuttleMapInterfaceState GetMapState(Entity<FTLComponent?> shuttle)
+    public ShuttleMapInterfaceState GetMapState(Entity<FTLComponent?> shuttle, EntityUid? consoleUid = null)
     {
         FTLState ftlState = FTLState.Available;
         StartEndTime stateDuration = default;
@@ -636,7 +637,24 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
             ftlState,
             stateDuration,
             beacons ?? new List<ShuttleBeaconObject>(),
-            exclusions ?? new List<ShuttleExclusionObject>());
+            exclusions ?? new List<ShuttleExclusionObject>(),
+            TryGetAutopilotTarget(consoleUid, out var target) ? target : null);
+    }
+
+    private bool TryGetAutopilotTarget(EntityUid? consoleUid, out MapCoordinates target)
+    {
+        target = default;
+
+        if (consoleUid is not { Valid: true } console ||
+            !TryComp<ShuttleConsoleComponent>(console, out var consoleComp) ||
+            !TryComp<HTNComponent>(console, out var htn) ||
+            !htn.Blackboard.TryGetValue<EntityCoordinates>(consoleComp.AutopilotTargetKey, out var coordinates, EntityManager))
+        {
+            return false;
+        }
+
+        target = _transform.ToMapCoordinates(coordinates);
+        return target.MapId != MapId.Nullspace;
     }
 
     /// <summary>

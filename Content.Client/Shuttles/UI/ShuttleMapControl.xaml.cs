@@ -68,6 +68,7 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
     public bool NoFTLRange = false;
 
     private Angle _ftlAngle;
+    private MapCoordinates? _navigationTarget;
 
     /// <summary>
     /// Are we currently in FTL.
@@ -92,6 +93,8 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
     private readonly Dictionary<Color, List<Vector2>> _edges = new();
     private readonly Dictionary<Color, List<(Vector2, string, bool)>> _strings = new();
     private readonly List<ShuttleExclusionObject> _viewportExclusions = new();
+    private const float CoordinateGridMinPixelSpacing = 44f;
+    private const float CoordinateGridLabelScale = 0.65f;
 
     public ShuttleMapControl() : base(256f, 4096f, 512f)
     {
@@ -124,6 +127,11 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
         _shuttleEntity = entity;
     }
 
+    public void SetNavigationTarget(MapCoordinates? target)
+    {
+        _navigationTarget = target;
+    }
+
     protected override void MouseMove(GUIMouseMoveEventArgs args)
     {
         base.MouseMove(args);
@@ -142,7 +150,8 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
 
                 var mapTransform = Matrix3Helpers.CreateInverseTransform(Offset, Angle.Zero);
 
-                if (beaconsOnly && TryGetBeacon(_beacons, mapTransform, args.RelativePixelPosition, PixelRect, out var foundBeacon, out _))
+                if (beaconsOnly && !NoFTLRange &&
+                    TryGetBeacon(_beacons, mapTransform, args.RelativePixelPosition, PixelRect, out var foundBeacon, out _))
                 {
                     RequestBeaconFTL?.Invoke(foundBeacon.Entity, _ftlAngle);
                 }
@@ -338,6 +347,8 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
         // Add beacons if relevant.
         var beaconsOnly = _shuttles.IsBeaconMap(viewedMapUid);
         var controlLocalBounds = PixelRect;
+        DrawCoordinateGrid(handle, matty);
+        DrawNavigationTarget(handle, matty, controlLocalBounds, realTime);
         _beacons.Clear();
 
         if (ShowBeacons)
@@ -582,6 +593,132 @@ public sealed partial class ShuttleMapControl : BaseShuttleControl
         }
 
         DrawData(handle, coordsText, coordColor);
+    }
+
+    private void DrawNavigationTarget(
+        DrawingHandleScreen handle,
+        Matrix3x2 mapTransform,
+        UIBox2i viewport,
+        TimeSpan realTime)
+    {
+        if (_navigationTarget is not { } target ||
+            target.MapId != ViewingMap ||
+            _shuttleEntity == null ||
+            !EntManager.TryGetComponent(_shuttleEntity.Value, out TransformComponent? shuttleXform))
+            return;
+
+        var (shuttlePosition, shuttleRotation) = _xformSystem.GetWorldPositionRotation(shuttleXform);
+        if (_physicsQuery.TryGetComponent(_shuttleEntity.Value, out var shuttlePhysics))
+        {
+            shuttlePosition = Maps.GetGridPosition(
+                (_shuttleEntity.Value, shuttlePhysics),
+                shuttlePosition,
+                shuttleRotation);
+        }
+
+        var shuttleRelative = Vector2.Transform(shuttlePosition, mapTransform);
+        shuttleRelative = shuttleRelative with { Y = -shuttleRelative.Y };
+        var shuttleUi = ScalePosition(shuttleRelative);
+
+        var targetRelative = Vector2.Transform(target.Position, mapTransform);
+        targetRelative = targetRelative with { Y = -targetRelative.Y };
+        var targetUi = ScalePosition(targetRelative);
+        var delta = targetUi - shuttleUi;
+        if (delta.LengthSquared() < 0.01f)
+            return;
+
+        var direction = Vector2.Normalize(delta);
+        const float edgeMargin = 14f;
+        var arrowTip = new Vector2(
+            Math.Clamp(targetUi.X, viewport.Left + edgeMargin, viewport.Right - edgeMargin),
+            Math.Clamp(targetUi.Y, viewport.Top + edgeMargin, viewport.Bottom - edgeMargin));
+
+        var color = Color.LimeGreen;
+        handle.DrawDottedLine(shuttleUi, arrowTip, color, (float) realTime.TotalSeconds * 24f);
+
+        var arrowBase = arrowTip - direction * 15f;
+        var perpendicular = new Vector2(-direction.Y, direction.X) * 6f;
+        // Keep this as a managed array. The content sandbox's IL verifier rejects
+        // the stackalloc/Span form in this method during standalone client startup.
+        var arrow = new[]
+        {
+            arrowTip,
+            arrowBase + perpendicular,
+            arrowBase - perpendicular,
+        };
+        handle.DrawPrimitives(DrawPrimitiveTopology.TriangleFan, arrow, color);
+
+        if (viewport.Contains(targetUi.Floored()))
+            handle.DrawCircle(targetUi, 7f, color, filled: false);
+    }
+
+    private void DrawCoordinateGrid(DrawingHandleScreen handle, Matrix3x2 mapTransform)
+    {
+        if (ViewingMap == MapId.Nullspace)
+            return;
+
+        var worldStep = GetCoordinateGridStep();
+        var viewRadius = WorldRange;
+        var center = Offset;
+        var minX = MathF.Floor((center.X - viewRadius) / worldStep) * worldStep;
+        var maxX = MathF.Ceiling((center.X + viewRadius) / worldStep) * worldStep;
+        var minY = MathF.Floor((center.Y - viewRadius) / worldStep) * worldStep;
+        var maxY = MathF.Ceiling((center.Y + viewRadius) / worldStep) * worldStep;
+
+        var lineColor = Color.Cyan.WithAlpha(0.16f);
+        var axisColor = Color.Cyan.WithAlpha(0.28f);
+        var labelColor = Color.Cyan.WithAlpha(0.55f);
+        var labelShadow = Color.Black.WithAlpha(0.55f);
+        var viewport = PixelSize;
+        var labelScale = CoordinateGridLabelScale * UIScale;
+
+        for (var x = minX; x <= maxX; x += worldStep)
+        {
+            var start = MapToUi(new Vector2(x, center.Y - viewRadius), mapTransform);
+            var end = MapToUi(new Vector2(x, center.Y + viewRadius), mapTransform);
+            handle.DrawLine(start, end, MathF.Abs(x) < 0.01f ? axisColor : lineColor);
+
+            var label = $"{x:0}";
+            var labelSize = handle.GetDimensions(_font, label, labelScale);
+            var labelPos = Vector2.Clamp(
+                new Vector2(start.X + 2f, viewport.Y - labelSize.Y - 4f),
+                new Vector2(2f, 2f),
+                viewport - labelSize - new Vector2(2f, 2f));
+            handle.DrawString(_font, labelPos + Vector2.One * UIScale, label, labelScale, labelShadow);
+            handle.DrawString(_font, labelPos, label, labelScale, labelColor);
+        }
+
+        for (var y = minY; y <= maxY; y += worldStep)
+        {
+            var start = MapToUi(new Vector2(center.X - viewRadius, y), mapTransform);
+            var end = MapToUi(new Vector2(center.X + viewRadius, y), mapTransform);
+            handle.DrawLine(start, end, MathF.Abs(y) < 0.01f ? axisColor : lineColor);
+
+            var label = $"{y:0}";
+            var labelSize = handle.GetDimensions(_font, label, labelScale);
+            var labelPos = Vector2.Clamp(
+                new Vector2(4f, start.Y - labelSize.Y - 2f),
+                new Vector2(2f, 2f),
+                viewport - labelSize - new Vector2(2f, 2f));
+            handle.DrawString(_font, labelPos + Vector2.One * UIScale, label, labelScale, labelShadow);
+            handle.DrawString(_font, labelPos, label, labelScale, labelColor);
+        }
+    }
+
+    private Vector2 MapToUi(Vector2 mapPosition, Matrix3x2 mapTransform)
+    {
+        var relative = Vector2.Transform(mapPosition, mapTransform);
+        relative = relative with { Y = -relative.Y };
+        return ScalePosition(relative);
+    }
+
+    private float GetCoordinateGridStep()
+    {
+        var step = 10f;
+        while (step * MinimapScale < CoordinateGridMinPixelSpacing)
+            step *= 2f;
+
+        return step;
     }
 
     private void AddMapObject(List<Vector2> edges, List<Vector2> verts, ValueList<Vector2> mapObject)

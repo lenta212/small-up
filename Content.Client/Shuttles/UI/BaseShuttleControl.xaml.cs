@@ -57,6 +57,13 @@ public partial class BaseShuttleControl : MapGridControl
     public BaseShuttleControl(float minRange, float maxRange, float range) : base(minRange, maxRange, range)
     {
         RobustXamlLoader.Load(this);
+        RectClipContent = true;
+        SetWidth = float.NaN;
+        SetHeight = float.NaN;
+        MinSize = new Vector2(256f, 256f);
+        Robust.Client.UserInterface.Controls.LayoutContainer.SetAnchorPreset(
+            this,
+            Robust.Client.UserInterface.Controls.LayoutContainer.LayoutPreset.Wide);
         Maps = EntManager.System<SharedMapSystem>();
         _lookup = EntManager.System<EntityLookupSystem>(); // Mono
         _xformQuery = EntManager.GetEntityQuery<TransformComponent>(); // Mono
@@ -233,7 +240,7 @@ public partial class BaseShuttleControl : MapGridControl
         const float cardinalLabelScale = 0.72f;
 
         var origin = MidPointVector;
-        var radius = MathF.Max(8f, SizeFull * 0.5f - ringInset);
+        var radius = MathF.Max(8f, ScaledMinimapRadius - ringInset);
 
         var subtleGray = Color.FromHex("#676767");
         var northAccent = Color.FromHex("#7F7442");
@@ -429,7 +436,7 @@ public partial class BaseShuttleControl : MapGridControl
     {
         var rator = Maps.GetAllTilesEnumerator(grid.Owner, grid.Comp);
         var minimapScale = MinimapScale;
-        var midpoint = new Vector2(MidPoint, MidPoint);
+        var midpoint = MidPointVector;
         var tileSize = grid.Comp.TileSize;
 
         // Check if we even have data

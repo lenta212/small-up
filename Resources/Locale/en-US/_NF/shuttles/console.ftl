@@ -1,7 +1,11 @@
 shuttle-console-designation = Designation:
 shuttle-console-designation-unknown = Unknown
-shuttle-console-maximum-iff-distance = Maximum IFF Distance
-shuttle-console-maximum-speed = Maximum Shuttle Speed
+shuttle-console-maximum-iff-distance = Maximum IFF Distance (m)
+shuttle-console-maximum-speed = Maximum Shuttle Speed (m/s)
+shuttle-console-maximum-speed-placeholder = No limit
+shuttle-console-maximum-speed-unlimited = ○ Speed limit disabled.
+shuttle-console-maximum-speed-invalid = ⚠ Enter a finite non-negative speed in m/s.
+shuttle-console-maximum-speed-valid = ✓ Speed limit: {$speed} m/s.
 
 shuttle-console-iff-search = Search IFF
 shuttle-console-shield-label = Shields
@@ -37,3 +41,11 @@ shuttle-console-device-button-5 = Port 5
 shuttle-console-device-button-6 = Port 6
 shuttle-console-device-button-7 = Port 7
 shuttle-console-device-button-8 = Port 8
+
+shuttle-console-inertia-dampener-status-unknown = ○ Selected mode: unknown
+shuttle-console-inertia-dampener-status-off =
+    ◇ Cruise — thrusters do not brake drift.
+shuttle-console-inertia-dampener-status-dampen =
+    → Drive — thrusters dampen drift.
+shuttle-console-inertia-dampener-status-anchor =
+    ■ Park — hold position when possible.
