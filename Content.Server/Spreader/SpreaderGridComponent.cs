@@ -13,6 +13,10 @@ public sealed partial class SpreaderGridComponent : Component
     [DataField]
     public float UpdateSpacing = 1f;
 
-    [DataField]
-    public Dictionary<ProtoId<EdgeSpreaderPrototype>, Queue<Entity<EdgeSpreaderComponent>>> SpreadQueues = new();
+    // Existing maps contain this field. Runtime queue entries are derived from
+    // ActiveEdgeSpreader components and must not become snapshot references.
+    [DataField("spreadQueues")]
+    private Dictionary<ProtoId<EdgeSpreaderPrototype>, Queue<EntityUid>> _serializedSpreadQueues = new();
+
+    public readonly Dictionary<ProtoId<EdgeSpreaderPrototype>, Queue<Entity<EdgeSpreaderComponent>>> SpreadQueues = new();
 }

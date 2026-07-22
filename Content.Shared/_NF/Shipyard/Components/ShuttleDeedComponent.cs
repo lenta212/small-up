@@ -40,4 +40,11 @@ public sealed partial class ShuttleDeedComponent : Component
     /// </summary>
     [DataField]
     public EntityUid? DeedHolder;
+
+    /// <summary>
+    /// Stable LuaM persistence identity. Kept on the deed while the physical
+    /// grid is parked and unloaded.
+    /// </summary>
+    [DataField]
+    public string? PersistentShipId;
 }

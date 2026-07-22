@@ -17,7 +17,8 @@ public sealed partial class ShipGridLockComponent : Component
     public bool Locked = true;
 
     /// <summary>
-    /// The ID of the shuttle this grid is locked to.
+    /// Stable persistent ship GUID when one is available. Legacy, nonpersistent
+    /// ships may still use their runtime entity UID string.
     /// </summary>
     [DataField, AutoNetworkedField]
     public string? ShuttleId;

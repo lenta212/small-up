@@ -1,0 +1,859 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
+using System.Security.Cryptography;
+using System.Text;
+using Content.Server._LuaM.ShipPersistence;
+using Content.Server.Atmos.EntitySystems;
+using Content.Server.Mind;
+using Content.Server.Lathe;
+using Content.Server.Power.Components;
+using Content.Server.Power.EntitySystems;
+using Content.Server.Shuttles.Components;
+using Content.Server.Shuttles.Systems;
+using Content.Server.Spreader;
+using Content.Server.Station.Systems;
+using Content.Shared.Access.Components;
+using Content.Shared.Atmos;
+using Content.Shared.Containers;
+using Content.Shared.Power.Components;
+using Content.Shared.Maps;
+using Content.Shared.Mind;
+using Content.Shared.Mind.Components;
+using Content.Shared.Lathe;
+using Content.Shared.Research.Prototypes;
+using Content.Shared.Shuttles.Components;
+using Content.Shared.Shuttles.Systems;
+using Content.Shared._Mono.Shipyard;
+using Content.Shared._NF.Shipyard.Components;
+using Robust.Shared.Containers;
+using Robust.Shared.EntitySerialization.Systems;
+using Robust.Shared.GameObjects;
+using Robust.Shared.Map;
+using Robust.Shared.Map.Components;
+using Robust.Shared.Maths;
+using Robust.Shared.Prototypes;
+using Robust.Shared.Utility;
+
+namespace Content.IntegrationTests.Tests._LuaM;
+
+[TestFixture]
+[NonParallelizable]
+public sealed class LuaMFullShipPersistenceRuntimeTest
+{
+    private static readonly ResPath SeedPath = new("/Maps/_LuaM/ShipGen/shipgen_seed.yml");
+    private static readonly ResPath McChickenPath = new("/Maps/_Mono/Shuttles/mcchicken.yml");
+    private const string ContainerOwnerName = "LuaM snapshot container owner";
+    private const string ContainedItemName = "LuaM snapshot contained crowbar";
+    private const string LooseItemName = "LuaM snapshot loose wrench";
+    private const string MouseName = "LuaM snapshot mouse";
+    private const string MindName = "LuaM snapshot mind";
+    private const string ApcName = "LuaM snapshot APC";
+    private const string BatteryName = "LuaM snapshot battery";
+    private const string ContainerId = "LuaMFullShipPersistenceRuntimeContainer";
+
+    [Test]
+    public async Task RealMcChickenGridCapturesTwoRevisionsAndRestores()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var prototypes = server.ResolveDependency<IPrototypeManager>();
+        var loader = entities.System<MapLoaderSystem>();
+        var maps = entities.System<SharedMapSystem>();
+        var mapManager = server.ResolveDependency<IMapManager>();
+        var stations = entities.System<StationSystem>();
+        var docking = entities.System<DockingSystem>();
+        var shuttles = entities.System<ShuttleSystem>();
+        var transform = entities.System<SharedTransformSystem>();
+        var metadata = entities.System<MetaDataSystem>();
+        var persistence = entities.System<LuaMFullShipPersistenceSystem>();
+
+        MapId sourceMap = default;
+        MapId targetMap = default;
+        EntityUid sourceGrid = EntityUid.Invalid;
+        EntityUid vesselStation = EntityUid.Invalid;
+
+        try
+        {
+            LuaMFullShipSnapshot secondSnapshot = default!;
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out sourceMap);
+                Assert.That(loader.TryLoadGrid(sourceMap, McChickenPath, out var loaded), Is.True);
+                Assert.That(loaded, Is.Not.Null);
+                sourceGrid = loaded!.Value.Owner;
+
+                var gameMap = prototypes.Index<GameMapPrototype>("McChicken");
+                vesselStation = stations.InitializeNewStation(gameMap.Stations["McChicken"], [sourceGrid]);
+
+                var externalGrid = mapManager.CreateGridEntity(sourceMap);
+                transform.SetLocalPosition(externalGrid.Owner, new Vector2(100f, 0f));
+                maps.SetTile(externalGrid.Owner, externalGrid.Comp, Vector2i.Zero, new Tile(1));
+                var externalDock = entities.SpawnEntity(
+                    "AirlockShuttle",
+                    new EntityCoordinates(externalGrid.Owner, new Vector2(0.5f, 0.5f)));
+                const string externalDockName = "LuaM snapshot external station dock";
+                metadata.SetEntityName(externalDock, externalDockName);
+
+                var shuttle = entities.GetComponent<ShuttleComponent>(sourceGrid);
+                Assert.That(
+                    shuttles.TryFTLDockAtDock(sourceGrid, shuttle, externalGrid.Owner, externalDock),
+                    Is.True,
+                    "The fixture must use the same geometry-checked docking path as a shipyard purchase.");
+                var shipDock = docking.GetDocks(sourceGrid)
+                    .Single(candidate => candidate.Comp.DockedWith == externalDock);
+                Assert.That(shipDock.Comp.DockedWith, Is.EqualTo(externalDock));
+
+                Assert.That(
+                    persistence.TryCaptureSnapshot(sourceGrid, 1, out var firstSnapshot, out var firstReason),
+                    Is.True,
+                    firstReason);
+                Assert.That(shipDock.Comp.DockedWith, Is.EqualTo(externalDock),
+                    "Snapshot capture must restore the live station docking connection.");
+                Assert.That(
+                    Encoding.UTF8.GetString(firstSnapshot.Payload),
+                    Does.Not.Contain(externalDockName),
+                    "A portable ship snapshot must not include the station grid or its gate.");
+                Assert.That(firstSnapshot.EntityCount, Is.GreaterThan(700));
+                Assert.That(
+                    persistence.TryGetSavedShipManifest(firstSnapshot, out var savedManifest, out var manifestReason),
+                    Is.True,
+                    manifestReason);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(savedManifest.EntityCount, Is.EqualTo(firstSnapshot.EntityCount));
+                    Assert.That(savedManifest.PayloadSizeBytes, Is.EqualTo(firstSnapshot.PayloadSizeBytes));
+                    Assert.That(savedManifest.PrototypeManifestHash, Is.EqualTo(firstSnapshot.PrototypeManifestHash));
+                    Assert.That(savedManifest.Prototypes, Is.Not.Empty);
+                    Assert.That(savedManifest.Prototypes.Sum(entry => entry.Count), Is.EqualTo(firstSnapshot.EntityCount));
+                    Assert.That(savedManifest.Prototypes.Any(entry => entry.Id == "ComputerTabletopShuttle"), Is.True);
+                });
+                Assert.That(persistence.TryCommitSnapshotRevision(sourceGrid, firstSnapshot), Is.True);
+
+                Assert.That(
+                    persistence.TryCaptureSnapshot(sourceGrid, 2, out secondSnapshot, out var secondReason),
+                    Is.True,
+                    secondReason);
+                Assert.That(shipDock.Comp.DockedWith, Is.EqualTo(externalDock),
+                    "Every snapshot revision must restore the live station docking connection.");
+                Assert.That(secondSnapshot.Revision, Is.EqualTo(2));
+
+                stations.DeleteStation(vesselStation);
+                entities.DeleteEntity(sourceGrid);
+                maps.CreateMap(out targetMap);
+
+                Assert.That(
+                    persistence.TryRestoreSnapshot(secondSnapshot, targetMap, out var restored, out var restoreReason),
+                    Is.True,
+                    restoreReason);
+                Assert.That(entities.GetComponent<LuaMShipIdentityComponent>(restored).SnapshotRevision, Is.EqualTo(2));
+                Assert.That(
+                    docking.GetDocks(restored).All(candidate => !candidate.Comp.Docked),
+                    Is.True,
+                    "A restored ship must be free for placement at the gate selected by the player.");
+                var restoredDockInfo = string.Join("; ", docking.GetDocks(restored).Select(candidate =>
+                {
+                    var xform = entities.GetComponent<TransformComponent>(candidate.Owner);
+                    return $"{candidate.Owner}:{candidate.Comp.DockType}:anchored={xform.Anchored}:receiveOnly={candidate.Comp.ReceiveOnly}:docked={candidate.Comp.Docked}:grid={xform.GridUid}";
+                }));
+                var targetDockXform = entities.GetComponent<TransformComponent>(externalDock);
+                Assert.That(
+                    shuttles.TryFTLDockAtDock(
+                        restored,
+                        entities.GetComponent<ShuttleComponent>(restored),
+                        externalGrid.Owner,
+                        externalDock),
+                    Is.True,
+                    $"A restored parked ship must be callable to the exact player-selected gate. Restored docks: {restoredDockInfo}; target anchored={targetDockXform.Anchored}, docked={entities.GetComponent<DockingComponent>(externalDock).Docked}, type={entities.GetComponent<DockingComponent>(externalDock).DockType}");
+            });
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (maps.MapExists(sourceMap))
+                    maps.DeleteMap(sourceMap);
+                if (maps.MapExists(targetMap))
+                    maps.DeleteMap(targetMap);
+            });
+
+            pair.Kill();
+        }
+    }
+
+    [Test]
+    public async Task McChickenPersistentLockAndOffGridGuestRoundTrip()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapManager = server.ResolveDependency<IMapManager>();
+        var loader = entities.System<MapLoaderSystem>();
+        var maps = entities.System<SharedMapSystem>();
+        var metadata = entities.System<MetaDataSystem>();
+        var persistence = entities.System<LuaMFullShipPersistenceSystem>();
+        var consoleLocks = entities.System<ShuttleConsoleLockSystem>();
+
+        MapId sourceMap = default;
+        MapId targetMap = default;
+
+        try
+        {
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out sourceMap);
+                Assert.That(loader.TryLoadGrid(sourceMap, McChickenPath, out var loaded), Is.True);
+                Assert.That(loaded, Is.Not.Null);
+                var sourceGrid = loaded!.Value.Owner;
+
+                var shipId = persistence.GetOrAssignShipId(sourceGrid);
+                var canonicalShipId = shipId.ToString("D");
+                var gridDeed = entities.EnsureComponent<ShuttleDeedComponent>(sourceGrid);
+                consoleLocks.SetDeedShipIdentity(sourceGrid, sourceGrid, null, gridDeed);
+
+                var console = RequireShuttleConsole(entities, sourceGrid);
+                var gridLock = entities.EnsureComponent<ShipGridLockComponent>(sourceGrid);
+                var consoleLock = entities.EnsureComponent<ShuttleConsoleLockComponent>(console);
+                consoleLocks.SetShuttleId(console, sourceGrid.ToString(), consoleLock);
+
+                var cardGrid = mapManager.CreateGridEntity(sourceMap);
+                maps.SetTile(cardGrid, Vector2i.Zero, new Tile(1));
+                var cardCoordinates = new EntityCoordinates(cardGrid.Owner, new Vector2(0.5f, 0.5f));
+                var ownerCard = entities.SpawnEntity("PassengerIDCard", cardCoordinates);
+                var wrongCard = entities.SpawnEntity("PassengerIDCard", cardCoordinates);
+                var guestCard = entities.SpawnEntity("PassengerIDCard", cardCoordinates);
+                var onGridCard = entities.SpawnEntity(
+                    "PassengerIDCard",
+                    new EntityCoordinates(sourceGrid, Vector2.Zero));
+                const string onGridCardName = "LuaM snapshot on-grid legacy deed";
+                metadata.SetEntityName(onGridCard, onGridCardName);
+
+                var ownerDeed = entities.EnsureComponent<ShuttleDeedComponent>(ownerCard);
+                consoleLocks.SetDeedShipIdentity(ownerCard, sourceGrid, shipId, ownerDeed);
+                var wrongShipId = Guid.NewGuid();
+                var wrongDeed = entities.EnsureComponent<ShuttleDeedComponent>(wrongCard);
+                consoleLocks.SetDeedShipIdentity(wrongCard, sourceGrid, wrongShipId, wrongDeed);
+                var onGridDeed = entities.EnsureComponent<ShuttleDeedComponent>(onGridCard);
+                consoleLocks.SetDeedShipIdentity(onGridCard, sourceGrid, null, onGridDeed);
+
+                var guestAccess = entities.EnsureComponent<ShipGuestAccessComponent>(sourceGrid);
+                guestAccess.GuestIdCards.Add(guestCard);
+
+                Assert.That(
+                    persistence.TryCaptureSnapshot(sourceGrid, 1, out var snapshot, out var captureReason),
+                    Is.True,
+                    captureReason);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(gridDeed.PersistentShipId, Is.EqualTo(canonicalShipId));
+                    Assert.That(ownerDeed.PersistentShipId, Is.EqualTo(canonicalShipId));
+                    Assert.That(ownerDeed.ShuttleUid, Is.EqualTo(sourceGrid));
+                    Assert.That(onGridDeed.PersistentShipId, Is.EqualTo(canonicalShipId));
+                    Assert.That(gridLock.ShuttleId, Is.EqualTo(canonicalShipId));
+                    Assert.That(consoleLock.ShuttleId, Is.EqualTo(canonicalShipId));
+                    Assert.That(guestAccess.GuestIdCards, Does.Contain(guestCard));
+                });
+
+                var canonicalPayload = Encoding.UTF8.GetString(snapshot.Payload);
+                Assert.That(canonicalPayload, Does.Not.Contain("guestIdCards"));
+                Assert.That(canonicalPayload, Does.Not.Contain("guestCyborgs"));
+
+                // Model a payload written before stable lock binding existed.
+                // The identity component stays authoritative while lock keys and
+                // the grid deed deliberately contain legacy/non-GUID values.
+                var legacyLines = canonicalPayload.Split('\n');
+                var rewrittenLockKeys = 0;
+                var rewrittenDeedKeys = 0;
+                for (var i = 0; i < legacyLines.Length; i++)
+                {
+                    if (legacyLines[i].Contains("shuttleId:", StringComparison.Ordinal) &&
+                        legacyLines[i].Contains(canonicalShipId, StringComparison.Ordinal))
+                    {
+                        legacyLines[i] = legacyLines[i].Replace(
+                            canonicalShipId,
+                            sourceGrid.ToString(),
+                            StringComparison.Ordinal);
+                        rewrittenLockKeys++;
+                    }
+                    else if (legacyLines[i].Contains("persistentShipId:", StringComparison.Ordinal) &&
+                             legacyLines[i].Contains(canonicalShipId, StringComparison.Ordinal))
+                    {
+                        legacyLines[i] = legacyLines[i].Replace(
+                            canonicalShipId,
+                            $"legacy-{sourceGrid}",
+                            StringComparison.Ordinal);
+                        rewrittenDeedKeys++;
+                    }
+                }
+
+                Assert.That(rewrittenLockKeys, Is.GreaterThan(0));
+                Assert.That(rewrittenDeedKeys, Is.GreaterThan(0));
+                var legacyPayload = Encoding.UTF8.GetBytes(string.Join('\n', legacyLines));
+                snapshot = snapshot with
+                {
+                    Payload = legacyPayload,
+                    PayloadSizeBytes = legacyPayload.Length,
+                    PayloadHash = Convert.ToHexString(SHA256.HashData(legacyPayload)).ToLowerInvariant(),
+                };
+
+                entities.DeleteEntity(sourceGrid);
+                Assert.That(entities.EntityExists(guestCard), Is.True,
+                    "The off-grid guest card must not be pulled into or deleted with the ship graph.");
+                maps.CreateMap(out targetMap);
+                Assert.That(
+                    persistence.TryRestoreSnapshot(snapshot, targetMap, out var restoredGrid, out var restoreReason),
+                    Is.True,
+                    restoreReason);
+
+                var restoredConsole = RequireShuttleConsole(entities, restoredGrid);
+                var restoredGridDeed = entities.GetComponent<ShuttleDeedComponent>(restoredGrid);
+                var restoredGridLock = entities.GetComponent<ShipGridLockComponent>(restoredGrid);
+                var restoredConsoleLock = entities.GetComponent<ShuttleConsoleLockComponent>(restoredConsole);
+                var restoredGuestAccess = entities.GetComponent<ShipGuestAccessComponent>(restoredGrid);
+                var restoredOnGridCard = RequireNamedDescendant(entities, restoredGrid, onGridCardName);
+                var restoredOnGridDeed = entities.GetComponent<ShuttleDeedComponent>(restoredOnGridCard);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(restoredGridDeed.ShuttleUid, Is.EqualTo(restoredGrid));
+                    Assert.That(restoredGridDeed.PersistentShipId, Is.EqualTo(canonicalShipId));
+                    Assert.That(restoredOnGridDeed.ShuttleUid, Is.EqualTo(restoredGrid));
+                    Assert.That(restoredOnGridDeed.PersistentShipId, Is.EqualTo(canonicalShipId));
+                    Assert.That(ownerDeed.ShuttleUid, Is.EqualTo(sourceGrid),
+                        "Restore binding must not mutate an off-grid owner deed before placement succeeds.");
+                    Assert.That(ownerDeed.PersistentShipId, Is.EqualTo(canonicalShipId));
+                    Assert.That(restoredGridLock.ShuttleId, Is.EqualTo(canonicalShipId));
+                    Assert.That(restoredConsoleLock.ShuttleId, Is.EqualTo(canonicalShipId));
+                    Assert.That(restoredGuestAccess.GuestIdCards, Is.Empty);
+                    Assert.That(restoredGuestAccess.GuestCyborgs, Is.Empty);
+                });
+
+                // A mismatched stable deed must not fall back to a deliberately
+                // matching runtime UID. The real deed remains valid even though
+                // its runtime UID still points at the deleted source grid.
+                consoleLocks.SetDeedShipIdentity(wrongCard, restoredGrid, wrongShipId, wrongDeed);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(
+                        SharedShuttleConsoleLockSystem.DeedsReferToSameShip(ownerDeed, restoredGridDeed),
+                        Is.True);
+                    Assert.That(
+                        SharedShuttleConsoleLockSystem.DeedsReferToSameShip(wrongDeed, restoredGridDeed),
+                        Is.False);
+                });
+                Assert.That(
+                    consoleLocks.TryUnlock(
+                        restoredConsole,
+                        wrongCard,
+                        restoredConsoleLock,
+                        entities.GetComponent<IdCardComponent>(wrongCard)),
+                    Is.False);
+                Assert.That(consoleLocks.GetEffectiveLockState(restoredConsole, restoredConsoleLock), Is.True);
+                Assert.That(
+                    consoleLocks.TryUnlock(
+                        restoredConsole,
+                        ownerCard,
+                        restoredConsoleLock,
+                        entities.GetComponent<IdCardComponent>(ownerCard)),
+                    Is.True);
+                Assert.That(consoleLocks.GetEffectiveLockState(restoredConsole, restoredConsoleLock), Is.False);
+            });
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (maps.MapExists(sourceMap))
+                    maps.DeleteMap(sourceMap);
+                if (maps.MapExists(targetMap))
+                    maps.DeleteMap(targetMap);
+            });
+
+            pair.Kill();
+        }
+    }
+
+    [Test]
+    public async Task LiveSpreaderQueueCapturesAndRestores()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapManager = server.ResolveDependency<IMapManager>();
+        var maps = entities.System<SharedMapSystem>();
+        var persistence = entities.System<LuaMFullShipPersistenceSystem>();
+
+        MapId sourceMap = default;
+        MapId targetMap = default;
+        EntityUid sourceGrid = EntityUid.Invalid;
+        EntityUid restoredGrid = EntityUid.Invalid;
+        LuaMFullShipSnapshot snapshot = default!;
+
+        try
+        {
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out sourceMap);
+                var grid = mapManager.CreateGridEntity(sourceMap);
+                sourceGrid = grid.Owner;
+                maps.SetTile(grid, Vector2i.Zero, new Tile(1));
+                entities.EnsureComponent<SpreaderGridComponent>(sourceGrid);
+                entities.RunMapInit(sourceGrid, entities.GetComponent<MetaDataComponent>(sourceGrid));
+            });
+
+            await pair.RunTicksSync(1);
+
+            await server.WaitPost(() =>
+            {
+                var spreaderEntity = entities.SpawnEntity(
+                    "Kudzu",
+                    new EntityCoordinates(sourceGrid, new Vector2(0.5f, 0.5f)));
+                var edgeSpreader = entities.GetComponent<EdgeSpreaderComponent>(spreaderEntity);
+                var spreader = entities.GetComponent<SpreaderGridComponent>(sourceGrid);
+                spreader.SpreadQueues[edgeSpreader.Id].Clear();
+                spreader.SpreadQueues[edgeSpreader.Id].Enqueue((spreaderEntity, edgeSpreader));
+                Assert.That(
+                    spreader.SpreadQueues.Values.Sum(queue => queue.Count),
+                    Is.GreaterThan(0),
+                    "The regression fixture must exercise a populated runtime spreader queue.");
+                Assert.That(
+                    persistence.TryCaptureSnapshot(sourceGrid, 1, out snapshot, out var captureReason),
+                    Is.True,
+                    captureReason);
+
+                entities.DeleteEntity(sourceGrid);
+                sourceGrid = EntityUid.Invalid;
+                maps.CreateMap(out targetMap);
+                Assert.That(
+                    persistence.TryRestoreSnapshot(snapshot, targetMap, out restoredGrid, out var restoreReason),
+                    Is.True,
+                    restoreReason);
+            });
+
+            await pair.RunTicksSync(2);
+
+            await server.WaitPost(() =>
+            {
+                var restoredSpreader = entities.GetComponent<SpreaderGridComponent>(restoredGrid);
+                var activeSpreaderCount = 0;
+                var query = entities.EntityQueryEnumerator<ActiveEdgeSpreaderComponent, TransformComponent>();
+                while (query.MoveNext(out _, out _, out var xform))
+                {
+                    if (xform.GridUid == restoredGrid)
+                        activeSpreaderCount++;
+                }
+
+                var payload = Encoding.UTF8.GetString(snapshot.Payload);
+                var queueIndex = payload.IndexOf("spreadQueues", StringComparison.Ordinal);
+                var queueExcerpt = queueIndex >= 0
+                    ? payload.Substring(queueIndex, Math.Min(500, payload.Length - queueIndex))
+                    : "spreadQueues field missing";
+                Assert.That(
+                    restoredSpreader.SpreadQueues.Values.Sum(queue => queue.Count),
+                    Is.GreaterThan(0),
+                    $"Restored spreader queues must be usable after map initialization. " +
+                    $"Active spreaders on restored grid: {activeSpreaderCount}. Snapshot excerpt: {queueExcerpt}");
+            });
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (maps.MapExists(sourceMap))
+                    maps.DeleteMap(sourceMap);
+                if (maps.MapExists(targetMap))
+                    maps.DeleteMap(targetMap);
+            });
+
+            pair.Kill();
+        }
+    }
+
+    [Test]
+    public async Task LiveLatheQueueCapturesAndRestores()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var prototypes = server.ResolveDependency<IPrototypeManager>();
+        var mapManager = server.ResolveDependency<IMapManager>();
+        var maps = entities.System<SharedMapSystem>();
+        var lathes = entities.System<LatheSystem>();
+        var persistence = entities.System<LuaMFullShipPersistenceSystem>();
+
+        MapId sourceMap = default;
+        MapId targetMap = default;
+        EntityUid sourceGrid = EntityUid.Invalid;
+        EntityUid restoredGrid = EntityUid.Invalid;
+        LuaMFullShipSnapshot snapshot = default!;
+
+        try
+        {
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out sourceMap);
+                var grid = mapManager.CreateGridEntity(sourceMap);
+                sourceGrid = grid.Owner;
+                maps.SetTile(grid, Vector2i.Zero, new Tile(1));
+
+                var coordinates = new EntityCoordinates(sourceGrid, new Vector2(0.5f, 0.5f));
+                var processor = entities.SpawnEntity("OreProcessor", coordinates);
+                var actor = entities.SpawnEntity("MobMouse", coordinates);
+                var lathe = entities.GetComponent<LatheComponent>(processor);
+                var recipeId = lathes.GetAvailableRecipes(processor, lathe).First();
+                var recipe = prototypes.Index<LatheRecipePrototype>(recipeId);
+                lathe.Queue.Add(new LatheRecipeBatch(recipe, 1, 3, entities.GetNetEntity(actor)));
+
+                Assert.That(
+                    persistence.TryCaptureSnapshot(sourceGrid, 1, out snapshot, out var captureReason),
+                    Is.True,
+                    captureReason);
+
+                entities.DeleteEntity(sourceGrid);
+                sourceGrid = EntityUid.Invalid;
+                maps.CreateMap(out targetMap);
+                Assert.That(
+                    persistence.TryRestoreSnapshot(snapshot, targetMap, out restoredGrid, out var restoreReason),
+                    Is.True,
+                    restoreReason);
+
+                var restoredProcessor = RequirePrototypeDescendant(entities, restoredGrid, "OreProcessor");
+                var restoredLathe = entities.GetComponent<LatheComponent>(restoredProcessor);
+                Assert.That(restoredLathe.Queue, Has.Count.EqualTo(1));
+                Assert.Multiple(() =>
+                {
+                    Assert.That(restoredLathe.Queue[0].Recipe.ID, Is.EqualTo(recipeId.Id));
+                    Assert.That(restoredLathe.Queue[0].ItemsPrinted, Is.EqualTo(1));
+                    Assert.That(restoredLathe.Queue[0].ItemsRequested, Is.EqualTo(3));
+                    Assert.That(restoredLathe.Queue[0].Actor, Is.Null,
+                        "A restored queue must not retain a stale session entity reference.");
+                });
+            });
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (maps.MapExists(sourceMap))
+                    maps.DeleteMap(sourceMap);
+                if (maps.MapExists(targetMap))
+                    maps.DeleteMap(targetMap);
+            });
+
+            pair.Kill();
+        }
+    }
+
+    [Test]
+    public async Task FullGridRoundTripPreservesStructureAtmosEntitiesContainersMobMindAndMachineState()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var loader = entities.System<MapLoaderSystem>();
+        var maps = entities.System<SharedMapSystem>();
+        var atmosphere = entities.System<AtmosphereSystem>();
+        var metadata = entities.System<MetaDataSystem>();
+        var containers = entities.System<SharedContainerSystem>();
+        var minds = entities.System<MindSystem>();
+        var apcs = entities.System<ApcSystem>();
+        var batteries = entities.System<BatterySystem>();
+        var persistence = entities.System<LuaMFullShipPersistenceSystem>();
+        var tiles = server.ResolveDependency<ITileDefinitionManager>();
+
+        MapId sourceMap = default;
+        MapId targetMap = default;
+        EntityUid originalMind = EntityUid.Invalid;
+        EntityUid restoredGrid = EntityUid.Invalid;
+        EntityUid sourceGrid = EntityUid.Invalid;
+        Tile hullTile = default;
+
+        try
+        {
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out sourceMap);
+                Assert.That(loader.TryLoadGrid(sourceMap, SeedPath, out var loaded), Is.True);
+                Assert.That(loaded, Is.Not.Null);
+                sourceGrid = loaded!.Value.Owner;
+                var gridComponent = loaded.Value.Comp;
+
+                hullTile = new Tile(tiles["FloorHullReinforced"].TileId);
+                maps.SetTile(sourceGrid, gridComponent, new Vector2i(1, 0), hullTile);
+                atmosphere.InvalidateTile(sourceGrid, Vector2i.Zero);
+            });
+
+            // Grid atmosphere is built from invalidated map tiles during normal
+            // simulation. Mutating it before that would only mutate SpaceGas,
+            // not state owned by the ship.
+            await pair.RunTicksSync(5);
+
+            await server.WaitPost(() =>
+            {
+                var grid = sourceGrid;
+                var gridComponent = entities.GetComponent<MapGridComponent>(grid);
+                var coordinates = new EntityCoordinates(grid, new Vector2(0.5f, 0.5f));
+
+                var mixture = atmosphere.GetTileMixture(grid, null, Vector2i.Zero);
+                Assert.That(mixture, Is.Not.Null);
+                Assert.That(mixture!.Immutable, Is.False, "The fixture must mutate ship-owned tile atmosphere.");
+                mixture.Clear();
+                mixture.SetMoles(Gas.Oxygen, 17.25f);
+                mixture.SetMoles(Gas.Nitrogen, 31.5f);
+                mixture.Temperature = 301.25f;
+
+                var containerOwner = entities.SpawnEntity(null, coordinates);
+                metadata.SetEntityName(containerOwner, ContainerOwnerName);
+                var container = containers.EnsureContainer<Container>(containerOwner, ContainerId);
+                var containedItem = entities.SpawnEntity("Crowbar", coordinates);
+                metadata.SetEntityName(containedItem, ContainedItemName);
+                Assert.That(containers.Insert(containedItem, container), Is.True);
+
+                var looseItem = entities.SpawnEntity("Wrench", new EntityCoordinates(grid, new Vector2(1.25f, 0.75f)));
+                metadata.SetEntityName(looseItem, LooseItemName);
+
+                var mouse = entities.SpawnEntity("MobMouse", coordinates);
+                metadata.SetEntityName(mouse, MouseName);
+                Assert.That(
+                    entities.GetComponent<MetaDataComponent>(mouse).EntityPrototype?.MapSavable,
+                    Is.False,
+                    "The fixture must exercise a mob prototype that normal map saving excludes.");
+                var mind = minds.CreateMind(null, MindName);
+                originalMind = mind.Owner;
+                minds.TransferTo(mind, mouse, createGhost: false, mind: mind.Comp);
+
+                var apc = entities.SpawnEntity("APCBasic", coordinates);
+                metadata.SetEntityName(apc, ApcName);
+                Assert.That(entities.HasComponent<ApcComponent>(apc), Is.True);
+                apcs.ApcToggleBreaker(apc);
+                Assert.That(entities.GetComponent<ApcComponent>(apc).MainBreakerEnabled, Is.False);
+
+                var battery = entities.SpawnEntity(
+                    "SubstationBasic",
+                    new EntityCoordinates(grid, new Vector2(1.5f, 0.5f)));
+                metadata.SetEntityName(battery, BatteryName);
+                var batteryComponent = entities.GetComponent<BatteryComponent>(battery);
+                batteries.SetCharge(battery, 432_123f, batteryComponent);
+                Assert.That(batteryComponent.CurrentCharge, Is.EqualTo(432_123f).Within(0.01f));
+
+                var shipId = persistence.GetOrAssignShipId(grid);
+                Assert.That(shipId, Is.Not.EqualTo(Guid.Empty));
+                Assert.That(
+                    persistence.TryCaptureSnapshot(grid, 1, out var snapshot, out var captureReason),
+                    Is.True,
+                    captureReason);
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(snapshot.ShipId, Is.EqualTo(shipId));
+                    Assert.That(snapshot.Revision, Is.EqualTo(1));
+                    Assert.That(snapshot.PayloadSizeBytes, Is.EqualTo(snapshot.Payload.Length));
+                    Assert.That(snapshot.PayloadHash, Has.Length.EqualTo(64));
+                    Assert.That(snapshot.PrototypeManifestHash, Has.Length.EqualTo(64));
+                    Assert.That(snapshot.EntityCount, Is.GreaterThan(6));
+                    Assert.That(snapshot.CreatedAtUtc.Kind, Is.EqualTo(DateTimeKind.Utc));
+                    Assert.That(
+                        entities.GetComponent<LuaMShipIdentityComponent>(grid).SnapshotRevision,
+                        Is.EqualTo(0),
+                        "Capture must not advance the live revision before a DB commit.");
+                    Assert.That(
+                        entities.GetComponent<MetaDataComponent>(mouse).EntityPrototype?.MapSavable,
+                        Is.False,
+                        "Temporary MapSavable overrides must always be restored.");
+                });
+
+                // Detach only the live source mind after capture so deleting the
+                // source fixture cannot create an unrelated ghost. The payload
+                // itself still contains the attached mouse/mind relationship.
+                minds.TransferTo(mind, null, createGhost: false, mind: mind.Comp);
+                entities.DeleteEntity(grid);
+                if (entities.EntityExists(originalMind))
+                    entities.DeleteEntity(originalMind);
+
+                maps.CreateMap(out targetMap);
+
+                var entityCountBeforeTamper = entities.GetEntities().Count();
+                var corruptedPayload = (byte[])snapshot.Payload.Clone();
+                corruptedPayload[^1] ^= 0x01;
+                Assert.That(
+                    persistence.TryRestoreSnapshot(
+                        snapshot with { Payload = corruptedPayload },
+                        targetMap,
+                        out _,
+                        out var corruptReason),
+                    Is.False);
+                Assert.That(corruptReason, Is.EqualTo("snapshot-payload-hash-mismatch"));
+                Assert.That(entities.GetEntities().Count(), Is.EqualTo(entityCountBeforeTamper));
+
+                var incompatibleFormat = snapshot with
+                {
+                    FormatVersion = LuaMFullShipPersistenceSystem.SnapshotFormatVersion + 1,
+                };
+                Assert.That(
+                    persistence.TryRestoreSnapshot(incompatibleFormat, targetMap, out _, out var formatReason),
+                    Is.False);
+                Assert.That(
+                    formatReason,
+                    Is.EqualTo(
+                        $"unsupported-snapshot-format-{LuaMFullShipPersistenceSystem.SnapshotFormatVersion + 1}"));
+
+                var invalidManifest = snapshot with { PrototypeManifestHash = new string('0', 64) };
+                Assert.That(
+                    persistence.TryRestoreSnapshot(invalidManifest, targetMap, out _, out var manifestReason),
+                    Is.False);
+                Assert.That(manifestReason, Is.EqualTo("snapshot-payload-metadata-mismatch"));
+
+                var wrongIdentity = snapshot with { ShipId = Guid.NewGuid() };
+                Assert.That(
+                    persistence.TryRestoreSnapshot(
+                        wrongIdentity,
+                        targetMap,
+                        out _,
+                        out var identityReason),
+                    Is.False);
+                Assert.That(identityReason, Is.EqualTo("restored-ship-identity-or-revision-mismatch"));
+                Assert.That(
+                    entities.GetEntities().Count(),
+                    Is.EqualTo(entityCountBeforeTamper),
+                    "A failed post-load validation must clean the grid and every auto-included entity.");
+
+                Assert.That(
+                    persistence.TryRestoreSnapshot(
+                        snapshot,
+                        targetMap,
+                        out restoredGrid,
+                        out var restoreReason),
+                    Is.True,
+                    restoreReason);
+
+                var restoredIdentity = entities.GetComponent<LuaMShipIdentityComponent>(restoredGrid);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(restoredIdentity.ShipId, Is.EqualTo(shipId));
+                    Assert.That(restoredIdentity.SnapshotRevision, Is.EqualTo(1));
+                    Assert.That(
+                        maps.GetTileRef(
+                            restoredGrid,
+                            entities.GetComponent<MapGridComponent>(restoredGrid),
+                            new Vector2i(1, 0)).Tile.TypeId,
+                        Is.EqualTo(hullTile.TypeId));
+                });
+
+                var restoredMixture = atmosphere.GetTileMixture(
+                    restoredGrid,
+                    null,
+                    Vector2i.Zero);
+                Assert.That(restoredMixture, Is.Not.Null);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(restoredMixture!.GetMoles(Gas.Oxygen), Is.EqualTo(17.25f).Within(0.001f));
+                    Assert.That(restoredMixture.GetMoles(Gas.Nitrogen), Is.EqualTo(31.5f).Within(0.001f));
+                    Assert.That(restoredMixture.Temperature, Is.EqualTo(301.25f).Within(0.001f));
+                });
+
+                var restoredContainerOwner = RequireNamedDescendant(entities, restoredGrid, ContainerOwnerName);
+                Assert.That(containers.TryGetContainer(restoredContainerOwner, ContainerId, out var restoredContainer), Is.True);
+                Assert.That(restoredContainer, Is.Not.Null);
+                Assert.That(restoredContainer!.ContainedEntities, Has.Count.EqualTo(1));
+                Assert.That(
+                    entities.GetComponent<MetaDataComponent>(restoredContainer.ContainedEntities[0]).EntityName,
+                    Is.EqualTo(ContainedItemName));
+
+                var restoredLooseItem = RequireNamedDescendant(entities, restoredGrid, LooseItemName);
+                Assert.That(
+                    entities.GetComponent<TransformComponent>(restoredLooseItem).LocalPosition,
+                    Is.EqualTo(new Vector2(1.25f, 0.75f)));
+
+                var restoredMouse = RequireNamedDescendant(entities, restoredGrid, MouseName);
+                var restoredMindContainer = entities.GetComponent<MindContainerComponent>(restoredMouse);
+                Assert.That(restoredMindContainer.Mind, Is.Not.Null);
+                var restoredMind = entities.GetComponent<MindComponent>(restoredMindContainer.Mind!.Value);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(restoredMind.CharacterName, Is.EqualTo(MindName));
+                    Assert.That(restoredMind.OwnedEntity, Is.EqualTo(restoredMouse));
+                    Assert.That(
+                        entities.GetComponent<MetaDataComponent>(restoredMouse).EntityPrototype?.MapSavable,
+                        Is.False);
+                });
+
+                var restoredApc = RequireNamedDescendant(entities, restoredGrid, ApcName);
+                Assert.That(entities.GetComponent<ApcComponent>(restoredApc).MainBreakerEnabled, Is.False);
+
+                var restoredBattery = RequireNamedDescendant(entities, restoredGrid, BatteryName);
+                Assert.That(
+                    entities.GetComponent<BatteryComponent>(restoredBattery).CurrentCharge,
+                    Is.EqualTo(432_123f).Within(0.01f));
+            });
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (maps.MapExists(sourceMap))
+                    maps.DeleteMap(sourceMap);
+                if (maps.MapExists(targetMap))
+                    maps.DeleteMap(targetMap);
+            });
+
+            pair.Kill();
+        }
+    }
+
+    private static EntityUid RequireNamedDescendant(IEntityManager entities, EntityUid root, string name)
+    {
+        var pending = new Stack<EntityUid>();
+        var visited = new HashSet<EntityUid>();
+        pending.Push(root);
+        while (pending.TryPop(out var uid))
+        {
+            if (!visited.Add(uid) || !entities.EntityExists(uid))
+                continue;
+
+            if (entities.GetComponent<MetaDataComponent>(uid).EntityName == name)
+                return uid;
+
+            var children = entities.GetComponent<TransformComponent>(uid).ChildEnumerator;
+            while (children.MoveNext(out var child))
+                pending.Push(child);
+        }
+
+        Assert.Fail($"Could not find restored descendant named '{name}'.");
+        return EntityUid.Invalid;
+    }
+
+    private static EntityUid RequireShuttleConsole(IEntityManager entities, EntityUid grid)
+    {
+        var query = entities.EntityQueryEnumerator<ShuttleConsoleComponent, TransformComponent>();
+        while (query.MoveNext(out var uid, out _, out var xform))
+        {
+            if (xform.GridUid == grid)
+                return uid;
+        }
+
+        Assert.Fail($"Could not find a shuttle console on grid {grid}.");
+        return EntityUid.Invalid;
+    }
+
+    private static EntityUid RequirePrototypeDescendant(IEntityManager entities, EntityUid root, string prototypeId)
+    {
+        var pending = new Stack<EntityUid>();
+        var visited = new HashSet<EntityUid>();
+        pending.Push(root);
+        while (pending.TryPop(out var uid))
+        {
+            if (!visited.Add(uid) || !entities.EntityExists(uid))
+                continue;
+
+            if (entities.GetComponent<MetaDataComponent>(uid).EntityPrototype?.ID == prototypeId)
+                return uid;
+
+            var children = entities.GetComponent<TransformComponent>(uid).ChildEnumerator;
+            while (children.MoveNext(out var child))
+                pending.Push(child);
+        }
+
+        Assert.Fail($"Could not find restored descendant with prototype '{prototypeId}'.");
+        return EntityUid.Invalid;
+    }
+}

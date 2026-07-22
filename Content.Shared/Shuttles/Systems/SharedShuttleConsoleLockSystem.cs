@@ -112,14 +112,100 @@ public abstract partial class SharedShuttleConsoleLockSystem : EntitySystem
         if (!TryComp<ShuttleDeedComponent>(gridUid, out var deed))
             return;
 
+        shuttleId ??= GetDeedShipKey(deed);
+
         // Add the component if it doesn't exist
         if (!TryComp<ShipGridLockComponent>(gridUid, out var gridLock))
         {
             gridLock = AddComp<ShipGridLockComponent>(gridUid);
             gridLock.Locked = true; // Ships start locked by default
-            gridLock.ShuttleId = shuttleId ?? deed.ShuttleUid?.ToString();
+            gridLock.ShuttleId = shuttleId;
             Dirty(gridUid, gridLock);
+            return;
         }
+
+        if (shuttleId == null || string.Equals(gridLock.ShuttleId, shuttleId, StringComparison.Ordinal))
+            return;
+
+        gridLock.ShuttleId = shuttleId;
+        Dirty(gridUid, gridLock);
+    }
+
+    /// <summary>
+    /// Returns the stable persistent key declared by a deed, or its runtime UID
+    /// for an old deed that predates persistent ship identities.
+    /// </summary>
+    public static string? GetDeedShipKey(ShuttleDeedComponent deed)
+    {
+        if (!string.IsNullOrWhiteSpace(deed.PersistentShipId))
+        {
+            return Guid.TryParse(deed.PersistentShipId, out var shipId)
+                ? shipId.ToString("D")
+                : null;
+        }
+
+        return deed.ShuttleUid?.ToString();
+    }
+
+    /// <summary>
+    /// Matches a deed against a lock key. Runtime UID matching is deliberately
+    /// limited to legacy deeds and locks that do not declare a persistent ID.
+    /// </summary>
+    public static bool DeedMatchesShipKey(ShuttleDeedComponent deed, string? shipKey)
+    {
+        if (string.IsNullOrWhiteSpace(shipKey))
+            return false;
+
+        var lockHasPersistentId = Guid.TryParse(shipKey, out var lockShipId);
+        var deedDeclaresPersistentId = !string.IsNullOrWhiteSpace(deed.PersistentShipId);
+        if (lockHasPersistentId || deedDeclaresPersistentId)
+        {
+            return lockHasPersistentId &&
+                   Guid.TryParse(deed.PersistentShipId, out var deedShipId) &&
+                   deedShipId == lockShipId;
+        }
+
+        return deed.ShuttleUid is { } shuttleUid &&
+               string.Equals(shuttleUid.ToString(), shipKey, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Determines whether two deeds refer to the same ship. If either deed
+    /// declares a persistent identity, both must contain the same valid GUID.
+    /// </summary>
+    public static bool DeedsReferToSameShip(ShuttleDeedComponent first, ShuttleDeedComponent second)
+    {
+        var firstDeclaresPersistentId = !string.IsNullOrWhiteSpace(first.PersistentShipId);
+        var secondDeclaresPersistentId = !string.IsNullOrWhiteSpace(second.PersistentShipId);
+        if (firstDeclaresPersistentId || secondDeclaresPersistentId)
+        {
+            return Guid.TryParse(first.PersistentShipId, out var firstShipId) &&
+                   Guid.TryParse(second.PersistentShipId, out var secondShipId) &&
+                   firstShipId == secondShipId;
+        }
+
+        return first.ShuttleUid is { } firstUid &&
+               second.ShuttleUid is { } secondUid &&
+               firstUid == secondUid;
+    }
+
+    /// <summary>
+    /// Updates the runtime and persistent identities carried by a deed.
+    /// </summary>
+    public void SetDeedShipIdentity(
+        EntityUid deedUid,
+        EntityUid? shuttleUid,
+        Guid? persistentShipId,
+        ShuttleDeedComponent? deed = null)
+    {
+        if (!Resolve(deedUid, ref deed))
+            return;
+
+        deed.ShuttleUid = shuttleUid;
+        deed.PersistentShipId = persistentShipId is { } shipId && shipId != Guid.Empty
+            ? shipId.ToString("D")
+            : null;
+        Dirty(deedUid, deed);
     }
 
     /// <summary>

@@ -11,6 +11,7 @@ using Content.Shared._NF.Whitelist.Components;
 using Content.Shared.Silicons.Borgs.Components;
 using Content.Shared._Mono.Company;
 using Content.Shared.Ghost;
+using Content.Shared.Shuttles.Systems;
 using Content.Shared.Silicons.StationAi;
 using Robust.Shared.Map;
 
@@ -149,7 +150,7 @@ public sealed partial class ShipAccessReaderSystem : EntitySystem
             {
                 // Log.Debug("ShipAccess: ID card {0} has deed for shuttle {1}, target ship is {2}", cardUid, cardDeed.ShuttleUid, shipDeed.ShuttleUid);
                 // Check if this deed is for the same ship
-                if (cardDeed.ShuttleUid == shipDeed.ShuttleUid)
+                if (SharedShuttleConsoleLockSystem.DeedsReferToSameShip(cardDeed, shipDeed))
                 {
                     // Log.Debug("ShipAccess: User {0} has correct deed access via card {1}", user, cardUid);
                     return true; // User has the correct deed
@@ -168,7 +169,7 @@ public sealed partial class ShipAccessReaderSystem : EntitySystem
             {
                 // Log.Debug("ShipAccess: Voucher {0} has deed for shuttle {1}, target ship is {2}", voucherUid, voucherDeed.ShuttleUid, shipDeed.ShuttleUid);
                 // Check if this deed is for the same ship
-                if (voucherDeed.ShuttleUid == shipDeed.ShuttleUid)
+                if (SharedShuttleConsoleLockSystem.DeedsReferToSameShip(voucherDeed, shipDeed))
                 {
                     // Log.Debug("ShipAccess: User {0} has correct deed access via voucher {1}", user, voucherUid);
                     return true; // User has the correct deed

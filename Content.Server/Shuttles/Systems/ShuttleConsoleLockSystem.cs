@@ -68,16 +68,19 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
             Log.Debug("Created grid lock component for grid {0} with shuttle ID {1}", gridUid, component.ShuttleId);
         }
 
-        // If the grid has a deed, ensure the shuttle ID is set correctly
+        // If the grid has a deed, ensure the stable ship key is set correctly.
         if (TryComp<ShuttleDeedComponent>(gridUid, out var deed))
         {
-            // Console is on a ship grid - ensure it has the correct shuttle ID
-            if (string.IsNullOrEmpty(component.ShuttleId) && deed.ShuttleUid != null)
+            var deedShipKey = GetDeedShipKey(deed);
+            if (deedShipKey != null &&
+                (!string.Equals(component.ShuttleId, deedShipKey, StringComparison.Ordinal) ||
+                 !string.Equals(gridLock.ShuttleId, deedShipKey, StringComparison.Ordinal)))
             {
-                component.ShuttleId = deed.ShuttleUid.Value.ToString();
-                gridLock.ShuttleId = component.ShuttleId;
+                component.ShuttleId = deedShipKey;
+                gridLock.ShuttleId = deedShipKey;
+                Dirty(uid, component);
                 Dirty(gridUid, gridLock);
-                Log.Debug("Assigned shuttle ID {0} to console {1} on ship grid {2}", component.ShuttleId, uid, gridUid);
+                Log.Debug("Assigned ship key {0} to console {1} on ship grid {2}", deedShipKey, uid, gridUid);
             }
         }
         else
@@ -100,7 +103,102 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
         if (!HasComp<MapGridComponent>(uid))
             return;
 
-        EnsureGridLockComponent(uid, component.ShuttleUid?.ToString());
+        EnsureGridLockComponent(uid, GetDeedShipKey(component));
+    }
+
+    /// <summary>
+    /// Rebinds every deed and lock on a persistent grid to its canonical stable
+    /// identity. Existing lock state is preserved; newly secured ships fail
+    /// closed. Grids without any deed or lock remain unaffected.
+    /// </summary>
+    public bool TryBindPersistentShipSecurity(EntityUid gridUid, Guid shipId, out string reason)
+    {
+        reason = string.Empty;
+
+        if (!Exists(gridUid) ||
+            !HasComp<MapGridComponent>(gridUid) ||
+            HasComp<MapComponent>(gridUid))
+        {
+            reason = "persistent-ship-security-grid-invalid";
+            return false;
+        }
+
+        if (shipId == Guid.Empty)
+        {
+            reason = "persistent-ship-security-id-empty";
+            return false;
+        }
+
+        var canonicalShipId = shipId.ToString("D");
+        var hasGridLock = TryComp<ShipGridLockComponent>(gridUid, out var gridLock);
+        var relatedDeeds = new List<(EntityUid Uid, ShuttleDeedComponent Component)>();
+        var consoleUids = new HashSet<EntityUid>();
+        var hasExistingConsoleLock = false;
+        var anyExistingConsoleLocked = false;
+
+        var deedQuery = EntityQueryEnumerator<ShuttleDeedComponent>();
+        while (deedQuery.MoveNext(out var deedUid, out var deed))
+        {
+            var belongsToShipGraph = deedUid == gridUid ||
+                                     TryComp<TransformComponent>(deedUid, out var deedXform) &&
+                                     deedXform.GridUid == gridUid;
+            if (!belongsToShipGraph)
+                continue;
+
+            var stableIdMatches = Guid.TryParse(deed.PersistentShipId, out var deedShipId) &&
+                                  deedShipId == shipId;
+            var runtimeIdMatches = deed.ShuttleUid == gridUid;
+            if (deedUid == gridUid || stableIdMatches || runtimeIdMatches)
+                relatedDeeds.Add((deedUid, deed));
+        }
+
+        var lockQuery = EntityQueryEnumerator<ShuttleConsoleLockComponent, TransformComponent>();
+        while (lockQuery.MoveNext(out var consoleUid, out var consoleLock, out var xform))
+        {
+            if (xform.GridUid != gridUid)
+                continue;
+
+            consoleUids.Add(consoleUid);
+            hasExistingConsoleLock = true;
+            anyExistingConsoleLocked |= consoleLock.Locked;
+        }
+
+        var consoleQuery = EntityQueryEnumerator<ShuttleConsoleComponent, TransformComponent>();
+        while (consoleQuery.MoveNext(out var consoleUid, out _, out var xform))
+        {
+            if (xform.GridUid == gridUid)
+                consoleUids.Add(consoleUid);
+        }
+
+        if (relatedDeeds.Count == 0 && !hasGridLock && !hasExistingConsoleLock)
+            return true;
+
+        foreach (var (deedUid, deed) in relatedDeeds)
+        {
+            deed.ShuttleUid = gridUid;
+            deed.PersistentShipId = canonicalShipId;
+            Dirty(deedUid, deed);
+        }
+
+        if (gridLock == null)
+        {
+            gridLock = AddComp<ShipGridLockComponent>(gridUid);
+            gridLock.Locked = hasExistingConsoleLock
+                ? anyExistingConsoleLocked
+                : true;
+        }
+
+        gridLock.ShuttleId = canonicalShipId;
+        Dirty(gridUid, gridLock);
+
+        foreach (var consoleUid in consoleUids)
+        {
+            var consoleLock = EnsureComp<ShuttleConsoleLockComponent>(consoleUid);
+            consoleLock.ShuttleId = canonicalShipId;
+            Dirty(consoleUid, consoleLock);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -264,7 +362,12 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
         else
         {
             // Don't allow locking if there's no shuttle ID
-            if (string.IsNullOrEmpty(component.ShuttleId))
+            var transform = Transform(uid);
+            var shuttleId = transform.GridUid is { } gridUid &&
+                            TryComp<ShipGridLockComponent>(gridUid, out var gridLock)
+                ? gridLock.ShuttleId
+                : component.ShuttleId;
+            if (string.IsNullOrEmpty(shuttleId))
             {
                 Popup.PopupEntity(Loc.GetString("shuttle-console-no-ship-id"), uid, user);
                 return;
@@ -325,8 +428,7 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
         {
             // Check if this is for the same shuttle
             if ((entity != idCard && deed.DeedHolder != idCard)
-                || deed.ShuttleUid == null
-                || deed.ShuttleUid.Value.ToString() != shuttleId)
+                || !DeedMatchesShipKey(deed, shuttleId))
                 continue;
 
             hasMatchingDeed = true;
@@ -409,14 +511,14 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
 
         while (query.MoveNext(out var entity, out var deed))
         {
-            var deedShuttleId = deed.ShuttleUid?.ToString();
+            var voucherHoldsDeed = entity == voucher || deed.DeedHolder == voucher;
+            var legacyVoucherReference = string.IsNullOrWhiteSpace(deed.PersistentShipId) &&
+                                         deed.PurchaseVoucherUid == voucherUid;
 
             // Check if this deed was purchased with this specific voucher and matches the shuttle ID
             if (!deed.PurchasedWithVoucher ||
-                deed.ShuttleUid == null ||
-                shuttleId == null ||
-                deedShuttleId != shuttleId ||
-                deed.PurchaseVoucherUid != voucherUid)
+                !DeedMatchesShipKey(deed, shuttleId) ||
+                (!voucherHoldsDeed && !legacyVoucherReference))
                 continue;
             deedFound = true;
             Log.Debug("Found matching voucher-purchased deed for shuttle console {0}", console);
@@ -483,14 +585,14 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
 
         while (query.MoveNext(out var entity, out var deed))
         {
-            var deedShuttleId = deed.ShuttleUid?.ToString();
+            var voucherHoldsDeed = entity == voucher || deed.DeedHolder == voucher;
+            var legacyVoucherReference = string.IsNullOrWhiteSpace(deed.PersistentShipId) &&
+                                         deed.PurchaseVoucherUid == voucherUid;
 
             // Check if this deed was purchased with this specific voucher and matches the shuttle ID
             if (!deed.PurchasedWithVoucher ||
-                deed.ShuttleUid == null ||
-                shuttleId == null ||
-                deedShuttleId != shuttleId ||
-                deed.PurchaseVoucherUid != voucherUid)
+                !DeedMatchesShipKey(deed, shuttleId) ||
+                (!voucherHoldsDeed && !legacyVoucherReference))
                 continue;
 
             deedFound = true;
@@ -660,13 +762,9 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
         // Check if any deed matches the shuttle ID
         foreach (var (_, deed) in deeds)
         {
-            var deedShuttleId = deed.ShuttleUid?.ToString();
+            Log.Debug("Checking deed ship key {0} against lock ship key {1}", GetDeedShipKey(deed), shuttleId);
 
-            Log.Debug("Checking deed shuttle ID {0} against lock shuttle ID {1}", deedShuttleId, shuttleId);
-
-            if (deed.ShuttleUid == null ||
-                shuttleId == null ||
-                deedShuttleId != shuttleId)
+            if (!DeedMatchesShipKey(deed, shuttleId))
                 continue;
 
             deedFound = true;
@@ -709,7 +807,11 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
         if (!Resolve(console, ref lockComp))
             return;
 
+        if (Guid.TryParse(shuttleId, out var persistentShipId))
+            shuttleId = persistentShipId.ToString("D");
+
         lockComp.ShuttleId = shuttleId;
+        Dirty(console, lockComp);
 
         // Get grid information for grid-based locking
         var transform = Transform(console);
@@ -790,7 +892,7 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
         foreach (var cardUid in idCards)
         {
             if (TryComp<ShuttleDeedComponent>(cardUid, out var cardDeed) &&
-                cardDeed.ShuttleUid == shipDeed.ShuttleUid)
+                DeedsReferToSameShip(cardDeed, shipDeed))
             {
                 // Log.Debug("TryGrantGuestAccess: User {0} already has deed access via card {1}", user, cardUid);
                 return; // User already has deed access
@@ -878,7 +980,7 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
         foreach (var cardUid in idCards)
         {
             if (TryComp<ShuttleDeedComponent>(cardUid, out var cardDeed) &&
-                cardDeed.ShuttleUid == shipDeed.ShuttleUid)
+                DeedsReferToSameShip(cardDeed, shipDeed))
             {
                 return true; // User has deed access
             }

@@ -1,3 +1,4 @@
+using System.Linq;
 using Content.Server.Atmos.Components;
 using Content.Server.Atmos.EntitySystems;
 using Content.Server.Shuttles.Components;
@@ -34,6 +35,7 @@ public sealed partial class SpreaderSystem : EntitySystem
     /// </summary>
     private Dictionary<ProtoId<EdgeSpreaderPrototype>, int> _prototypeUpdates = new();
     private Dictionary<ProtoId<EdgeSpreaderPrototype>, bool> _prototypeSpacedSpread = new();
+    private readonly HashSet<EntityUid> _pendingGridInitialization = new();
 
     private EntityQuery<ActiveEdgeSpreaderComponent> _activeQuery;
     private EntityQuery<AirtightComponent> _airtightQuery;
@@ -98,7 +100,9 @@ public sealed partial class SpreaderSystem : EntitySystem
 
     private void OnGridInit(GridInitializeEvent ev)
     {
-        InitSpreaderGrid(ev.EntityUid);
+        // Entity lookup is not guaranteed to contain the grid's children until
+        // after map initialization has completed.
+        _pendingGridInitialization.Add(ev.EntityUid);
     }
 
     private void OnTerminating(Entity<EdgeSpreaderComponent> entity, ref EntityTerminatingEvent args)
@@ -117,7 +121,7 @@ public sealed partial class SpreaderSystem : EntitySystem
         if (_spreaderGridQuery.TryComp(xform.GridUid, out var spreaderGrid)
             && _spreaderQuery.TryComp(spreader, out var comp))
         {
-            spreaderGrid.SpreadQueues[comp.Id].Enqueue((spreader, comp));
+            EnqueueSpreader(spreaderGrid, spreader, comp);
         }
     }
 
@@ -131,14 +135,26 @@ public sealed partial class SpreaderSystem : EntitySystem
         foreach (var key in _prototypeUpdates.Keys)
             spreaderGrid.SpreadQueues.Add(key, new());
 
-        var spreaders = new HashSet<Entity<ActiveEdgeSpreaderComponent>>();
-        _lookup.GetLocalEntitiesIntersecting(uid, mapGrid.LocalAABB, spreaders);
-        foreach (var ent in spreaders)
+        var localSpreaders = new HashSet<Entity<ActiveEdgeSpreaderComponent>>();
+        _lookup.GetLocalEntitiesIntersecting(uid, mapGrid.LocalAABB, localSpreaders);
+        foreach (var ent in localSpreaders)
         {
             if (!_spreaderQuery.TryComp(ent, out var spreader))
                 continue;
 
-            spreaderGrid.SpreadQueues[spreader.Id].Enqueue((ent, spreader));
+            EnqueueSpreader(spreaderGrid, ent, spreader);
+        }
+    }
+
+    private static void EnqueueSpreader(
+        SpreaderGridComponent spreaderGrid,
+        EntityUid spreader,
+        EdgeSpreaderComponent component)
+    {
+        if (spreaderGrid.SpreadQueues.TryGetValue(component.Id, out var queue) &&
+            !queue.Any(entry => entry.Owner == spreader))
+        {
+            queue.Enqueue((spreader, component));
         }
     }
 
@@ -146,6 +162,14 @@ public sealed partial class SpreaderSystem : EntitySystem
     public override void Update(float frameTime)
     {
         var startTime = _timing.RealTime;
+
+        if (_pendingGridInitialization.Count > 0)
+        {
+            var pending = new List<EntityUid>(_pendingGridInitialization);
+            _pendingGridInitialization.Clear();
+            foreach (var grid in pending)
+                InitSpreaderGrid(grid);
+        }
 
         // Check which grids are valid for spreading
         var spreadGrids = EntityQueryEnumerator<SpreaderGridComponent, MapGridComponent>();

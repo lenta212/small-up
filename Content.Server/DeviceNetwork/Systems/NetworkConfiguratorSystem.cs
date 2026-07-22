@@ -18,6 +18,7 @@ using JetBrains.Annotations;
 using Robust.Server.Audio;
 using Robust.Server.GameObjects;
 using Robust.Shared.Audio;
+using Robust.Shared.EntitySerialization;
 using Robust.Shared.Map.Events;
 using Robust.Shared.Timing;
 using Robust.Shared.Utility;
@@ -74,6 +75,9 @@ public sealed partial class NetworkConfiguratorSystem : SharedNetworkConfigurato
 
     private void OnMapSave(BeforeSerializationEvent ev)
     {
+        if (ev.Category == FileCategory.Entity)
+            return;
+
         var enumerator = AllEntityQuery<NetworkConfiguratorComponent>();
         while (enumerator.MoveNext(out var uid, out var conf))
         {

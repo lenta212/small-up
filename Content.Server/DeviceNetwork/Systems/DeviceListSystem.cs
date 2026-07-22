@@ -3,6 +3,7 @@ using Content.Shared.DeviceNetwork.Components;
 using Content.Shared.DeviceNetwork.Events;
 using Content.Shared.DeviceNetwork.Systems;
 using JetBrains.Annotations;
+using Robust.Shared.EntitySerialization;
 using Robust.Shared.Map.Events;
 
 namespace Content.Server.DeviceNetwork.Systems;
@@ -124,6 +125,9 @@ public sealed partial class DeviceListSystem : SharedDeviceListSystem
 
     private void OnMapSave(BeforeSerializationEvent ev)
     {
+        if (ev.Category == FileCategory.Entity)
+            return;
+
         List<EntityUid> toRemove = new();
         var query = GetEntityQuery<TransformComponent>();
         var enumerator = AllEntityQuery<DeviceListComponent, TransformComponent>();

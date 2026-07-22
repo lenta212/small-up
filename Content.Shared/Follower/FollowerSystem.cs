@@ -11,6 +11,7 @@ using Content.Shared.Polymorph;
 using Content.Shared.Tag;
 using Content.Shared.Verbs;
 using Robust.Shared.Containers;
+using Robust.Shared.EntitySerialization;
 using Robust.Shared.GameStates;
 using Robust.Shared.Map;
 using Robust.Shared.Map.Events;
@@ -68,6 +69,9 @@ public sealed partial class FollowerSystem : EntitySystem
 
     private void OnBeforeSave(BeforeSerializationEvent ev)
     {
+        if (ev.Category == FileCategory.Entity)
+            return;
+
         // Some followers will not be map savable. This ensures that maps don't get saved with some entities that have
         // empty/invalid followers, by just stopping any following happening on the map being saved.
         // I hate this so much.
