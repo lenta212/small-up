@@ -10,12 +10,13 @@ public sealed partial class MechEquipmentControl : Control
 {
     public event Action? OnRemoveButtonPressed;
 
-    public MechEquipmentControl(EntityUid entity, string itemName, Control? fragment)
+    public MechEquipmentControl(EntityUid entity, string itemName, Control? fragment, bool canRemove = true)
     {
         RobustXamlLoader.Load(this);
         EquipmentName.SetMessage(itemName);
         EquipmentView.SetEntity(entity);
         RemoveButton.TexturePath = "/Textures/Interface/Nano/cross.svg.png";
+        RemoveButton.Visible = canRemove;
 
         if (fragment != null)
         {
@@ -23,6 +24,7 @@ public sealed partial class MechEquipmentControl : Control
             CustomControlContainer.AddChild(fragment);
         }
 
-        RemoveButton.OnPressed += _ => OnRemoveButtonPressed?.Invoke();
+        if (canRemove)
+            RemoveButton.OnPressed += _ => OnRemoveButtonPressed?.Invoke();
     }
 }

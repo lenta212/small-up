@@ -70,6 +70,7 @@ public sealed partial class MechSystem : SharedMechSystem
         SubscribeLocalEvent<MechComponent, EmpAttemptEvent>(OnEmpAttempt);
         SubscribeLocalEvent<MechComponent, MechEquipmentRemoveMessage>(OnRemoveEquipmentMessage);
         SubscribeLocalEvent<MechComponent, RefreshMovementSpeedModifiersEvent>(OnMechRefreshMovementSpeed); // Mono
+        SubscribeLocalEvent<BoundUserInterfaceMessageAttempt>(OnUiMessageAttempt);
 
 
         SubscribeLocalEvent<MechPilotComponent, ToolUserAttemptUseEvent>(OnToolUseAttempt);
@@ -179,6 +180,9 @@ public sealed partial class MechSystem : SharedMechSystem
 
     private void OnRemoveEquipmentMessage(EntityUid uid, MechComponent component, MechEquipmentRemoveMessage args)
     {
+        if (!component.CanRemoveEquipment)
+            return;
+
         var equip = GetEntity(args.Equipment);
 
         if (!Exists(equip) || Deleted(equip))
@@ -188,6 +192,21 @@ public sealed partial class MechSystem : SharedMechSystem
             return;
 
         RemoveEquipment(uid, equip, component);
+    }
+
+    private void OnUiMessageAttempt(BoundUserInterfaceMessageAttempt args)
+    {
+        if (args.UiKey is not MechUiKey.Key ||
+            !TryComp<MechComponent>(args.Target, out var component))
+        {
+            return;
+        }
+
+        // A nearby user may have opened the maintenance UI while the mech was
+        // empty. Once occupied, only the authoritative current pilot may issue
+        // equipment BUI commands through that still-open subscription.
+        if (component.PilotSlot.ContainedEntity is { } pilot && args.Actor != pilot)
+            args.Cancel();
     }
 
     private void OnOpenUi(EntityUid uid, MechComponent component, MechOpenUiEvent args)
@@ -374,6 +393,9 @@ public sealed partial class MechSystem : SharedMechSystem
 
         base.UpdateUserInterface(uid, component);
 
+        if (!_ui.IsUiOpen(uid, MechUiKey.Key))
+            return;
+
         var ev = new MechEquipmentUiStateReadyEvent();
         foreach (var ent in component.EquipmentContainer.ContainedEntities)
         {
@@ -417,7 +439,6 @@ public sealed partial class MechSystem : SharedMechSystem
             Log.Debug($"Battery charge was not equal to mech charge. Battery {batteryComp.CurrentCharge}. Mech {component.Energy}");
             component.Energy = batteryComp.CurrentCharge;
             Dirty(uid, component);
-            UpdateUserInterface(uid, component);
         }
         return true;
     }

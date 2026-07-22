@@ -10,3 +10,11 @@ public abstract partial class SharedDrainSystem : EntitySystem
     {
     }
 }
+
+[Serializable, NetSerializable]
+public enum AdvDrainVisualState : byte
+{
+    IsRunning,
+    IsDraining,
+    IsVoiding
+}

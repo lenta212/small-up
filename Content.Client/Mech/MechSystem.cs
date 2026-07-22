@@ -1,6 +1,7 @@
 ﻿using Content.Shared.Mech;
 using Content.Shared.Mech.Components;
 using Content.Shared.Mech.EntitySystems;
+using Content.Client.Mech.Ui;
 using Robust.Client.GameObjects;
 using DrawDepth = Content.Shared.DrawDepth.DrawDepth;
 
@@ -10,6 +11,7 @@ namespace Content.Client.Mech;
 public sealed partial class MechSystem : SharedMechSystem
 {
     [Dependency] private SharedAppearanceSystem _appearance = default!;
+    [Dependency] private UserInterfaceSystem _ui = default!;
 
     /// <inheritdoc/>
     public override void Initialize()
@@ -17,6 +19,13 @@ public sealed partial class MechSystem : SharedMechSystem
         base.Initialize();
 
         SubscribeLocalEvent<MechComponent, AppearanceChangeEvent>(OnAppearanceChanged);
+        SubscribeLocalEvent<MechComponent, AfterAutoHandleStateEvent>(OnAfterHandleState);
+    }
+
+    private void OnAfterHandleState(Entity<MechComponent> ent, ref AfterAutoHandleStateEvent args)
+    {
+        if (_ui.TryGetOpenUi<MechBoundUserInterface>(ent.Owner, MechUiKey.Key, out var bui))
+            bui.UpdateMechStats();
     }
 
     private void OnAppearanceChanged(EntityUid uid, MechComponent component, ref AppearanceChangeEvent args)

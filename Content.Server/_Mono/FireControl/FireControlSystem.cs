@@ -12,7 +12,6 @@ using System.Linq;
 using Content.Shared.Physics;
 using System.Numerics;
 using Content.Server._Mono.SpaceArtillery;
-using Content.Server._Mono.SpaceArtillery.Components;
 using Content.Server.Power.EntitySystems;
 using Content.Shared.Shuttles.Components;
 using Robust.Shared.Timing;
@@ -36,7 +35,6 @@ public sealed partial class FireControlSystem : EntitySystem
     /// </summary>
     private readonly HashSet<EntityUid> _visualizedEntities = new();
 
-    private EntityQuery<SpaceArtilleryComponent> _artilleryQuery;
     private EntityQuery<FireControlRotateComponent> _fireRotateQuery;
     private EntityQuery<GunComponent> _gunQuery;
 
@@ -58,7 +56,6 @@ public sealed partial class FireControlSystem : EntitySystem
         InitializeConsole();
         InitializeTargetGuided();
 
-        _artilleryQuery = GetEntityQuery<SpaceArtilleryComponent>();
         _fireRotateQuery = GetEntityQuery<FireControlRotateComponent>();
         _gunQuery = GetEntityQuery<GunComponent>();
     }
@@ -395,17 +392,17 @@ public sealed partial class FireControlSystem : EntitySystem
         return true;
     }
 
-    public void FireWeapons(EntityUid server, List<NetEntity> weapons, NetCoordinates coordinates, FireControlServerComponent? component = null)
+    public bool FireWeapons(EntityUid server, List<NetEntity> weapons, NetCoordinates coordinates, FireControlServerComponent? component = null)
     {
         if (!Resolve(server, ref component))
-            return;
+            return false;
 
         var grid = component.ConnectedGrid;
         if (grid != null && !CanFireWeapons(grid.Value))
-            return;
+            return false;
 
         var targetCoords = GetCoordinates(coordinates);
-        var artilleryFired = false; // Track if any artillery weapons fired
+        var anyFired = false;
 
         foreach (var weapon in weapons)
         {
@@ -415,8 +412,10 @@ public sealed partial class FireControlSystem : EntitySystem
 
             var fired = AttemptFire(localWeapon, localWeapon, targetCoords);
 
-            artilleryFired |= _artilleryQuery.HasComp(localWeapon) && fired;
+            anyFired |= fired;
         }
+
+        return anyFired;
     }
 
     /// <summary>

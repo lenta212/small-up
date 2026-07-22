@@ -1,4 +1,3 @@
-using System.Linq;
 using Content.Server._Mono.Projectiles.TargetGuided;
 using Content.Shared._Mono.FireControl;
 using Content.Shared.Projectiles;
@@ -24,6 +23,13 @@ public sealed partial class FireControlSystem
     private readonly Dictionary<EntityUid, EntityCoordinates> _consoleMousePositions = new();
 
     /// <summary>
+    /// AmmoShotEvent is raised synchronously while a console fire message is handled.
+    /// Keep that console as context so a missile is never bound to an arbitrary console
+    /// connected to the same server.
+    /// </summary>
+    private EntityUid? _firingConsole;
+
+    /// <summary>
     /// Registers handlers for events related to target guided projectiles.
     /// </summary>
     private void InitializeTargetGuided()
@@ -39,8 +45,7 @@ public sealed partial class FireControlSystem
     /// </summary>
     private void OnConsoleFireEvent(EntityUid uid, FireControlConsoleComponent component, FireControlConsoleFireEvent args)
     {
-        // Store the current mouse position for this console
-        _consoleMousePositions[uid] = GetCoordinates(args.Coordinates);
+        OnGuidanceUpdate(uid, GetCoordinates(args.Coordinates));
     }
 
     /// <summary>
@@ -63,29 +68,19 @@ public sealed partial class FireControlSystem
         if (!targetCoords.HasValue || !targetCoords.Value.IsValid(EntityManager))
             return;
 
-        // Find the controlling console for position updates if this is a fire controllable
-        EntityUid? controllingConsole = null;
+        // Bind guidance to the exact console currently firing. Choosing the first
+        // console connected to a server mixes cursor streams on multi-console ships.
+        EntityUid? controllingConsole = _firingConsole;
         if (TryComp<FireControllableComponent>(uid, out var fireControllable) &&
-            fireControllable.ControllingServer != null)
+            fireControllable.ControllingServer != null &&
+            controllingConsole is { } consoleUid &&
+            TryComp<FireControlConsoleComponent>(consoleUid, out var console) &&
+            console.ConnectedServer == fireControllable.ControllingServer)
         {
-            // Find the active console that fired this
-            var query = EntityQueryEnumerator<FireControlConsoleComponent>();
-            while (query.MoveNext(out var consoleUid, out var console))
-            {
-                if (console.ConnectedServer == fireControllable.ControllingServer)
-                {
-                    controllingConsole = consoleUid;
-
-                    // Store initial cursor position if we're seeing it for the first time
-                    if (!_consoleMousePositions.ContainsKey(consoleUid))
-                    {
-                        _consoleMousePositions[consoleUid] = targetCoords.Value;
-                    }
-
-                    break;
-                }
-            }
+            _consoleMousePositions[consoleUid] = targetCoords.Value;
         }
+        else
+            controllingConsole = null;
 
         foreach (var projectileUid in args.FiredProjectiles)
         {
@@ -103,15 +98,13 @@ public sealed partial class FireControlSystem
             }
 
             // Set up initial target for guided missile
-            guidedComp.TargetPosition = targetCoords.Value;
-
-            // Add to our tracking list for cursor position updates
-            _activeMissiles.Add(projectileUid);
+            _targetGuided.SetTargetPosition(projectileUid, targetCoords.Value, guidedComp);
 
             // Record the console this was fired from for position updates
             if (controllingConsole.HasValue)
             {
                 guidedComp.ControllingConsole = controllingConsole;
+                _activeMissiles.Add(projectileUid);
             }
         }
     }
@@ -150,7 +143,7 @@ public sealed partial class FireControlSystem
                 continue;
             }
 
-            guidedComp.TargetPosition = targetCoordinates;
+            _targetGuided.SetTargetPosition(missile, targetCoordinates, guidedComp);
         }
     }
 
@@ -165,62 +158,8 @@ public sealed partial class FireControlSystem
         return null;
     }
 
-    public override void Update(float frameTime)
+    private void RemoveConsoleGuidance(EntityUid consoleUid)
     {
-        base.Update(frameTime);
-
-        // Update target positions for active missiles based on the current cursor position
-        foreach (var missileUid in _activeMissiles.ToArray())
-        {
-            if (!TryComp<TargetGuidedComponent>(missileUid, out var guidedComp) ||
-                !guidedComp.ControllingConsole.HasValue)
-                continue;
-
-            // Get the controlling console
-            var consoleUid = guidedComp.ControllingConsole.Value;
-            if (!_consoleMousePositions.TryGetValue(consoleUid, out var mousePosition))
-                continue;
-
-            // Don't update position if the missile's ship is in FTL
-            if (TryComp<ProjectileComponent>(missileUid, out var projectileComp) &&
-                projectileComp.Shooter.HasValue &&
-                Transform(projectileComp.Shooter.Value).GridUid is { } shipGrid &&
-                TryComp<FTLComponent>(shipGrid, out _))
-            {
-                continue;
-            }
-
-            // Update the missile's target to the console's current mouse position
-            _targetGuided.SetTargetPosition(missileUid, mousePosition);
-        }
-
-        // Clean up any console positions for consoles that no longer exist or have no active missiles
-        CleanupConsolePositions();
-    }
-
-    /// <summary>
-    /// Remove any console positions that no longer have active missiles
-    /// </summary>
-    private void CleanupConsolePositions()
-    {
-        // Get all consoles that are actually controlling missiles
-        var activeConsoles = new HashSet<EntityUid>();
-        foreach (var missileUid in _activeMissiles)
-        {
-            if (TryComp<TargetGuidedComponent>(missileUid, out var guidedComp) &&
-                guidedComp.ControllingConsole.HasValue)
-            {
-                activeConsoles.Add(guidedComp.ControllingConsole.Value);
-            }
-        }
-
-        // Remove positions for consoles without any missiles
-        foreach (var consoleUid in _consoleMousePositions.Keys.ToList())
-        {
-            if (!activeConsoles.Contains(consoleUid) || !EntityManager.EntityExists(consoleUid))
-            {
-                _consoleMousePositions.Remove(consoleUid);
-            }
-        }
+        _consoleMousePositions.Remove(consoleUid);
     }
 }

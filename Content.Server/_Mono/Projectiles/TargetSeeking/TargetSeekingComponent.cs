@@ -79,6 +79,15 @@ public sealed partial class TargetSeekingComponent : Component
     public float ScanArc = 90f;
 
     /// <summary>
+    /// Minimum delay between full target scans while no target is available.
+    /// Tracking an existing target still updates every server tick.
+    /// </summary>
+    [DataField]
+    public float TargetScanInterval = 0.2f;
+
+    public float TargetScanCooldown;
+
+    /// <summary>
     /// Whether seeking has been disabled (e.g., after entering an enemy grid).
     /// </summary>
     public bool SeekingDisabled;

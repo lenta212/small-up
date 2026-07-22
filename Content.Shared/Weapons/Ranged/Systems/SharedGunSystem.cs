@@ -27,6 +27,7 @@ using Content.Shared.Weapons.Ranged.Components;
 using Content.Shared.Weapons.Ranged.Events;
 using Content.Shared.Whitelist;
 using Content.Shared._RMC14.Weapons.Ranged.Prediction;
+using Content.Shared._LuaM.AntiCheat;
 using Robust.Shared.Audio;
 using Robust.Shared.Audio.Systems;
 using Robust.Shared.Containers;
@@ -147,28 +148,26 @@ public abstract partial class SharedGunSystem : EntitySystem
 
     private void OnShootRequest(RequestShootEvent msg, EntitySessionEventArgs args)
     {
-        var user = args.SenderSession.AttachedEntity;
-
-        if (user == null || !_combatMode.IsInCombatMode(user))
+        if (!TryPrepareClientShootRequest(
+                args.SenderSession,
+                msg.Gun,
+                msg.Coordinates,
+                msg.Target,
+                out var user,
+                out var ent,
+                out var gun,
+                out var coordinates,
+                out var target,
+                out var targetRejected))
+        {
             return;
+        }
 
-        if (TryComp<MechPilotComponent>(user.Value, out var mechPilot))
-            user = mechPilot.Mech;
+        gun.ShootCoordinates = coordinates;
+        if (targetRejected || gun.Target == null || !gun.BurstActivated || !gun.LockOnTargetBurst)
+            gun.Target = target;
 
-        if (!TryGetGun(user.Value, out var ent, out var gun) ||
-            HasComp<ItemComponent>(user))
-            return;
-
-        if (ent != GetEntity(msg.Gun))
-            return;
-
-        gun.ShootCoordinates = GetCoordinates(msg.Coordinates);
-        // Goob edit start
-        var potentialTarget = GetEntity(msg.Target);
-        if (gun.Target == null || !gun.BurstActivated || !gun.LockOnTargetBurst)
-            gun.Target = potentialTarget;
-        // Goob edit end
-        AttemptShoot(user.Value, ent, gun);
+        AttemptShoot(user, ent, gun);
     }
 
     public List<(EntityUid Entity, ProjectileComponent Component)>? ShootRequested(
@@ -178,23 +177,26 @@ public abstract partial class SharedGunSystem : EntitySystem
         List<int>? shot,
         ICommonSession session)
     {
-        var gunUid = GetEntity(gun);
-        var user = session.AttachedEntity;
-
-        if (user == null ||
-            !_combatMode.IsInCombatMode(user) ||
-            !TryGetGun(user.Value, out var ent, out var gunComp))
+        if (!TryPrepareClientShootRequest(
+                session,
+                gun,
+                coordinates,
+                target,
+                out var user,
+                out var gunUid,
+                out var gunComp,
+                out var shootCoordinates,
+                out var targetUid,
+                out var targetRejected))
         {
             return null;
         }
 
-        if (ent != gunUid)
-            return null;
+        gunComp.ShootCoordinates = shootCoordinates;
+        if (targetRejected || gunComp.Target == null || !gunComp.BurstActivated || !gunComp.LockOnTargetBurst)
+            gunComp.Target = targetUid;
 
-        gunComp.ShootCoordinates = GetCoordinates(coordinates);
-        gunComp.Target = GetEntity(target);
-
-        AttemptShoot(user.Value, ent, gunComp);
+        AttemptShoot(user, gunUid, gunComp);
 
         // Check if shooting was successful by checking if ammo was consumed
         // This is a workaround since AttemptShoot returns void
@@ -213,6 +215,90 @@ public abstract partial class SharedGunSystem : EntitySystem
         }
 
         return projectiles;
+    }
+
+    private bool TryPrepareClientShootRequest(
+        ICommonSession session,
+        NetEntity requestedGun,
+        NetCoordinates requestedCoordinates,
+        NetEntity? requestedTarget,
+        out EntityUid user,
+        out EntityUid gunUid,
+        [NotNullWhen(true)] out GunComponent? gun,
+        out EntityCoordinates coordinates,
+        out EntityUid? target,
+        out bool targetRejected)
+    {
+        user = session.AttachedEntity ?? EntityUid.Invalid;
+        gunUid = EntityUid.Invalid;
+        gun = null;
+        coordinates = EntityCoordinates.Invalid;
+        target = null;
+        targetRejected = false;
+
+        if (!user.IsValid() || !_combatMode.IsInCombatMode(user))
+            return false;
+
+        if (TryComp<MechPilotComponent>(user, out var mechPilot))
+            user = mechPilot.Mech;
+
+        if (!TryGetGun(user, out gunUid, out gun) ||
+            HasComp<ItemComponent>(user) ||
+            gunUid != GetEntity(requestedGun))
+        {
+            return false;
+        }
+
+        coordinates = GetCoordinates(requestedCoordinates);
+        if (!TransformSystem.IsValid(coordinates) ||
+            coordinates.EntityId != user ||
+            TransformSystem.GetMapCoordinates(user).MapId != TransformSystem.ToMapCoordinates(coordinates, false).MapId)
+        {
+            ReportAntiCheatSignal(session, LuaMAntiCheatSignalKind.InvalidShootCoordinates, gunUid);
+            return false;
+        }
+
+        if (requestedTarget == null)
+            return true;
+
+        target = GetEntity(requestedTarget);
+        if (target is { } targetUid &&
+            Exists(targetUid) &&
+            !Terminating(targetUid) &&
+            TransformSystem.GetMapCoordinates(user).MapId == Transform(targetUid).MapID &&
+            IsClientShootTargetValid(user, coordinates, targetUid))
+        {
+            return true;
+        }
+
+        target = null;
+        targetRejected = true;
+        ReportAntiCheatSignal(session, LuaMAntiCheatSignalKind.InvalidShootTarget, gunUid);
+        return true;
+    }
+
+    /// <summary>
+    /// Server implementations may apply authoritative target validation beyond existence and map checks.
+    /// The client keeps the target for prediction; the server remains authoritative.
+    /// </summary>
+    protected virtual bool IsClientShootTargetValid(
+        EntityUid user,
+        EntityCoordinates coordinates,
+        EntityUid target)
+    {
+        return true;
+    }
+
+    private void ReportAntiCheatSignal(
+        ICommonSession session,
+        LuaMAntiCheatSignalKind kind,
+        EntityUid? subject = null)
+    {
+        if (!_netManager.IsServer)
+            return;
+
+        var signal = new LuaMAntiCheatSignalEvent(session, kind, subject);
+        RaiseLocalEvent(signal);
     }
 
     private void OnStopShootRequest(RequestStopShootEvent ev, EntitySessionEventArgs args)

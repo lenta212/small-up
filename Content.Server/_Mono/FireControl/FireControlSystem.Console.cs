@@ -76,6 +76,7 @@ public sealed partial class FireControlSystem : EntitySystem
 
     private void OnComponentShutdown(EntityUid uid, FireControlConsoleComponent component, ComponentShutdown args)
     {
+        RemoveConsoleGuidance(uid);
         UnregisterConsole(uid, component);
     }
 
@@ -122,6 +123,11 @@ public sealed partial class FireControlSystem : EntitySystem
 
     private void OnRefreshServer(EntityUid uid, FireControlConsoleComponent component, FireControlConsoleRefreshServerMessage args)
     {
+        var now = _timing.CurTime;
+        if (now < component.NextRefreshUpdate)
+            return;
+
+        component.NextRefreshUpdate = now + component.RefreshUpdateInterval;
         DoRefreshServer(uid, component);
     }
 
@@ -137,9 +143,59 @@ public sealed partial class FireControlSystem : EntitySystem
         if (grid == null)
             return;
 
+        var targetCoordinates = GetCoordinates(args.Coordinates);
+        if (!targetCoordinates.IsValid(EntityManager) ||
+            _transform.ToMapCoordinates(targetCoordinates).MapId != xform.MapID)
+        {
+            return;
+        }
+
+        var now = _timing.CurTime;
+        if (args.Selected.Count == 0)
+        {
+            if (now < component.NextCursorUpdate)
+                return;
+
+            component.NextCursorUpdate = now + component.CursorUpdateInterval;
+            RaiseLocalEvent(uid, new FireControlConsoleFireEvent(args.Coordinates, args.Selected));
+            return;
+        }
+
+        // Reject oversized client lists before iterating them. Every selected entity
+        // must still be present in the server's authoritative Controlled set below.
+        if (args.Selected.Count > server.Controlled.Count || now < component.NextFireUpdate)
+            return;
+
+        component.NextFireUpdate = now + component.FireUpdateInterval;
+
+        // Reject the whole message unless it is a unique subset of the server's
+        // authoritative weapon set. Duplicate or foreign NetEntities must not turn
+        // one small BUI packet into repeated AttemptFire work.
+        var selectedWeapons = new HashSet<EntityUid>(args.Selected.Count);
+        foreach (var selected in args.Selected)
+        {
+            if (!TryGetEntity(selected, out var weapon) ||
+                weapon == null ||
+                !weapon.Value.Valid ||
+                !server.Controlled.Contains(weapon.Value) ||
+                !selectedWeapons.Add(weapon.Value))
+            {
+                return;
+            }
+        }
+
         // Fire the actual weapons
-        FireWeapons((EntityUid)component.ConnectedServer, args.Selected, args.Coordinates, server);
-        if ((component.NextLog == null || component.NextLog < _timing.CurTime) && args.Selected.Any())
+        bool fired;
+        _firingConsole = uid;
+        try
+        {
+            fired = FireWeapons((EntityUid) component.ConnectedServer, args.Selected, args.Coordinates, server);
+        }
+        finally
+        {
+            _firingConsole = null;
+        }
+        if (fired && (component.NextLog == null || component.NextLog < _timing.CurTime))
         {
             var firePos = _transform.ToMapCoordinates(GetCoordinates(args.Coordinates)).Position;
             var ourPos = _transform.GetWorldPosition(grid.Value);
@@ -161,7 +217,8 @@ public sealed partial class FireControlSystem : EntitySystem
             component.NextLog = _timing.CurTime + component.LogSpacing;
         }
 
-        UpdateUi(uid, component);
+        if (fired)
+            UpdateUi(uid, component);
 
         // Raise an event to track the cursor position even when not firing
         var fireEvent = new FireControlConsoleFireEvent(args.Coordinates, args.Selected);
@@ -194,6 +251,8 @@ public sealed partial class FireControlSystem : EntitySystem
     {
         if (!Resolve(console, ref component))
             return;
+
+        RemoveConsoleGuidance(console);
 
         if (component.ConnectedServer == null)
             return;

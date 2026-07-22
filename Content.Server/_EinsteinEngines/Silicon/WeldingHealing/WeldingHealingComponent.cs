@@ -27,6 +27,18 @@ namespace Content.Server._EinsteinEngines.Silicon.WeldingHealing
         [DataField]
         public int FuelCost = 5;
 
+        /// <summary>
+        ///     Whether repairing is interrupted when the user moves.
+        /// </summary>
+        [DataField]
+        public bool BreakOnMove = true;
+
+        /// <summary>
+        ///     Whether repairing is interrupted when the user takes damage.
+        /// </summary>
+        [DataField]
+        public bool BreakOnDamage = true;
+
         [DataField]
         public int DoAfterDelay = 3;
 

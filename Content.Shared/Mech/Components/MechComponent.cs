@@ -13,7 +13,7 @@ namespace Content.Shared.Mech.Components;
 /// A large, pilotable machine that has equipment that is
 /// powered via an internal battery.
 /// </summary>
-[RegisterComponent, NetworkedComponent, AutoGenerateComponentState]
+[RegisterComponent, NetworkedComponent, AutoGenerateComponentState(true)]
 public sealed partial class MechComponent : Component
 {
     /// <summary>
@@ -116,6 +116,12 @@ public sealed partial class MechComponent : Component
     /// </summary>
     [DataField("maxEquipmentAmount"), ViewVariables(VVAccess.ReadWrite)]
     public int MaxEquipmentAmount = 3;
+
+    /// <summary>
+    /// Whether or not the equipment in the mech can be removed.
+    /// </summary>
+    [DataField, AutoNetworkedField]
+    public bool CanRemoveEquipment = true;
 
     /// <summary>
     /// A whitelist for inserting equipment items.

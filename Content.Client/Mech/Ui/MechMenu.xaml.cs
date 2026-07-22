@@ -67,7 +67,7 @@ public sealed partial class MechMenu : FancyWindow
             var uicomp = _ent.GetComponentOrNull<UIFragmentComponent>(ent);
             var ui = uicomp?.Ui?.GetUIFragmentRoot();
 
-            var control = new MechEquipmentControl(ent, metaData.EntityName, ui);
+            var control = new MechEquipmentControl(ent, metaData.EntityName, ui, mechComp.CanRemoveEquipment);
 
             control.OnRemoveButtonPressed += () => OnRemoveButtonPressed?.Invoke(ent);
 

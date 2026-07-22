@@ -119,6 +119,8 @@ public abstract partial class SharedToolSystem : EntitySystem
     /// will be directed at the tool target.</param>
     /// <param name="fuel">Amount of fuel that should be taken from the tool.</param>
     /// <param name="toolComponent">The tool component.</param>
+    /// <param name="breakOnMove">Whether moving interrupts the tool use.</param>
+    /// <param name="breakOnDamage">Whether taking damage interrupts the tool use.</param>
     /// <returns>Returns true if any interaction takes place.</returns>
     public bool UseTool(
         EntityUid tool,
@@ -128,7 +130,9 @@ public abstract partial class SharedToolSystem : EntitySystem
         IEnumerable<string> toolQualitiesNeeded,
         DoAfterEvent doAfterEv,
         float fuel = 0,
-        ToolComponent? toolComponent = null)
+        ToolComponent? toolComponent = null,
+        bool breakOnMove = true,
+        bool breakOnDamage = true)
     {
         return UseTool(tool,
             user,
@@ -138,7 +142,9 @@ public abstract partial class SharedToolSystem : EntitySystem
             doAfterEv,
             out _,
             fuel,
-            toolComponent);
+            toolComponent,
+            breakOnMove,
+            breakOnDamage);
     }
 
     /// <summary>
@@ -157,6 +163,8 @@ public abstract partial class SharedToolSystem : EntitySystem
     /// the event that this tool-use cancelled an existing DoAfter</param>
     /// <param name="fuel">Amount of fuel that should be taken from the tool.</param>
     /// <param name="toolComponent">The tool component.</param>
+    /// <param name="breakOnMove">Whether moving interrupts the tool use.</param>
+    /// <param name="breakOnDamage">Whether taking damage interrupts the tool use.</param>
     /// <returns>Returns true if any interaction takes place.</returns>
     public bool UseTool(
         EntityUid tool,
@@ -167,7 +175,9 @@ public abstract partial class SharedToolSystem : EntitySystem
         DoAfterEvent doAfterEv,
         out DoAfterId? id,
         float fuel = 0,
-        ToolComponent? toolComponent = null)
+        ToolComponent? toolComponent = null,
+        bool breakOnMove = true,
+        bool breakOnDamage = true)
     {
         id = null;
         if (!Resolve(tool, ref toolComponent, false))
@@ -179,8 +189,8 @@ public abstract partial class SharedToolSystem : EntitySystem
         var toolEvent = new ToolDoAfterEvent(fuel, doAfterEv, GetNetEntity(target));
         var doAfterArgs = new DoAfterArgs(EntityManager, user, delay / toolComponent.SpeedModifier, toolEvent, tool, target: target, used: tool)
         {
-            BreakOnDamage = true,
-            BreakOnMove = true,
+            BreakOnDamage = breakOnDamage,
+            BreakOnMove = breakOnMove,
             BreakOnWeightlessMove = false,
             NeedHand = tool != user,
             AttemptFrequency = fuel > 0 ? AttemptFrequency.EveryTick : AttemptFrequency.Never
@@ -204,6 +214,8 @@ public abstract partial class SharedToolSystem : EntitySystem
     /// will be directed at the tool target.</param>
     /// <param name="fuel">Amount of fuel that should be taken from the tool.</param>
     /// <param name="toolComponent">The tool component.</param>
+    /// <param name="breakOnMove">Whether moving interrupts the tool use.</param>
+    /// <param name="breakOnDamage">Whether taking damage interrupts the tool use.</param>
     /// <returns>Returns true if any interaction takes place.</returns>
     public bool UseTool(
         EntityUid tool,
@@ -213,7 +225,9 @@ public abstract partial class SharedToolSystem : EntitySystem
         string toolQualityNeeded,
         DoAfterEvent doAfterEv,
         float fuel = 0,
-        ToolComponent? toolComponent = null)
+        ToolComponent? toolComponent = null,
+        bool breakOnMove = true,
+        bool breakOnDamage = true)
     {
         return UseTool(tool,
             user,
@@ -223,7 +237,9 @@ public abstract partial class SharedToolSystem : EntitySystem
             doAfterEv,
             out _,
             fuel,
-            toolComponent);
+            toolComponent,
+            breakOnMove,
+            breakOnDamage);
     }
 
     /// <summary>

@@ -21,11 +21,13 @@ using Robust.Server.GameObjects;
 using Robust.Server.Player;
 using Robust.Shared.Audio;
 using Robust.Shared.Map;
+using Robust.Shared.Physics;
 using Robust.Shared.Physics.Components;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
 using Robust.Shared.Containers;
+using Robust.Shared.Maths;
 using Content.Shared.Interaction; // Frontier
 using Content.Shared.Examine; // Frontier
 using Content.Shared.Hands.Components;
@@ -48,6 +50,7 @@ public sealed partial class GunSystem : SharedGunSystem
     private EntityQuery<DamageableComponent> _damageableQuery; // Mono
 
     private const float DamagePitchVariation = 0.05f;
+    private const float ClientTargetTolerance = 1.5f;
 
     public override void Initialize()
     {
@@ -267,6 +270,67 @@ public sealed partial class GunSystem : SharedGunSystem
         {
             EnsureComp<ProjectileGridPhaseComponent>(uid);
         }
+    }
+
+    protected override bool IsClientShootTargetValid(
+        EntityUid user,
+        EntityCoordinates coordinates,
+        EntityUid target)
+    {
+        if (!_damageableQuery.HasComp(target))
+            return false;
+
+        var targetPosition = _transform.GetMapCoordinates(target).Position;
+        var bounds = TryComp<FixturesComponent>(target, out var fixtures) &&
+                     TryComp<PhysicsComponent>(target, out var body)
+            ? Physics.GetWorldAABB(target, fixtures, body)
+            : new Box2(targetPosition, targetPosition);
+
+        return DoesAimSegmentIntersect(
+            bounds,
+            _transform.GetMapCoordinates(user).Position,
+            _transform.ToMapCoordinates(coordinates).Position,
+            ClientTargetTolerance);
+    }
+
+    internal static bool DoesAimSegmentIntersect(
+        Box2 targetBounds,
+        Vector2 start,
+        Vector2 end,
+        float tolerance)
+    {
+        var bounds = targetBounds.Enlarged(Math.Max(0f, tolerance));
+        var delta = end - start;
+        var length = delta.Length();
+
+        if (length <= 0.0001f)
+            return bounds.Contains(end);
+
+        var minimumTime = 0f;
+        var maximumTime = 1f;
+        return IntersectsSegmentAxis(start.X, delta.X, bounds.Left, bounds.Right, ref minimumTime, ref maximumTime) &&
+               IntersectsSegmentAxis(start.Y, delta.Y, bounds.Bottom, bounds.Top, ref minimumTime, ref maximumTime);
+    }
+
+    private static bool IntersectsSegmentAxis(
+        float start,
+        float delta,
+        float minimum,
+        float maximum,
+        ref float minimumTime,
+        ref float maximumTime)
+    {
+        if (MathF.Abs(delta) <= 0.0001f)
+            return start >= minimum && start <= maximum;
+
+        var first = (minimum - start) / delta;
+        var second = (maximum - start) / delta;
+        if (first > second)
+            (first, second) = (second, first);
+
+        minimumTime = MathF.Max(minimumTime, first);
+        maximumTime = MathF.Min(maximumTime, second);
+        return minimumTime <= maximumTime;
     }
 
     /// <summary>

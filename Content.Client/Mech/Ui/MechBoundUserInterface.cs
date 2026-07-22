@@ -59,6 +59,11 @@ public sealed class MechBoundUserInterface : BoundUserInterface
         }
     }
 
+    public void UpdateMechStats()
+    {
+        _menu?.UpdateMechStats();
+    }
+
     public UIFragment? GetEquipmentUi(EntityUid? uid)
     {
         var component = EntMan.GetComponentOrNull<UIFragmentComponent>(uid);

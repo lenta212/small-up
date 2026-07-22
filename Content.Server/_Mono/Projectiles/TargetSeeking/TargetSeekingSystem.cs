@@ -1,10 +1,8 @@
 using System.Numerics;
 using Content.Shared.Interaction;
-using Content.Server.Shuttles.Components;
 using Content.Shared.Projectiles;
 using Robust.Server.GameObjects;
 using Robust.Shared.Physics.Components;
-using Robust.Shared.Timing;
 using Robust.Shared.Utility;
 
 namespace Content.Server._Mono.Projectiles.TargetSeeking;
@@ -17,10 +15,10 @@ public sealed partial class TargetSeekingSystem : EntitySystem
     [Dependency] private SharedTransformSystem _transform = null!;
     [Dependency] private RotateToFaceSystem _rotateToFace = null!;
     [Dependency] private PhysicsSystem _physics = null!;
-    [Dependency] private IGameTiming _gameTiming = default!; // Mono
-
+    [Dependency] private EntityLookupSystem _lookup = null!;
     private EntityQuery<ProjectileComponent> _projectileQuery;
     private EntityQuery<PhysicsComponent> _physicsQuery;
+    private readonly HashSet<Entity<TargetSeekingTargetComponent>> _targetCandidates = new();
 
     public override void Initialize()
     {
@@ -31,8 +29,16 @@ public sealed partial class TargetSeekingSystem : EntitySystem
 
         SubscribeLocalEvent<TargetSeekingComponent, ProjectileHitEvent>(OnProjectileHit);
         SubscribeLocalEvent<TargetSeekingComponent, EntParentChangedMessage>(OnParentChanged);
+        SubscribeLocalEvent<TargetSeekingComponent, ComponentStartup>(OnTargetSeekingStartup);
 
         SubscribeLocalEvent<TargetSeekingComponent, ComponentShutdown>(OnTargetSeekingShutdown);
+    }
+
+    private void OnTargetSeekingStartup(Entity<TargetSeekingComponent> ent, ref ComponentStartup args)
+    {
+        // Spread the first acquisition of a newly spawned salvo across a few ticks;
+        // setting jitter only after the first scan still creates the initial spike.
+        ent.Comp.TargetScanCooldown = ent.Owner.Id % 7 * 0.01f;
     }
 
     private void OnTargetSeekingShutdown(Entity<TargetSeekingComponent> seekerEntity, ref ComponentShutdown args)
@@ -135,8 +141,6 @@ public sealed partial class TargetSeekingSystem : EntitySystem
     {
         base.Update(frameTime);
 
-        var ticktime = _gameTiming.TickPeriod;
-
         var query = EntityQueryEnumerator<TargetSeekingComponent, PhysicsComponent, TransformComponent>();
         while (query.MoveNext(out var uid, out var seekingComp, out var body, out var xform))
         {
@@ -166,25 +170,38 @@ public sealed partial class TargetSeekingSystem : EntitySystem
                 continue;
             }
 
-            // If we have a target, track it using the selected algorithm
-            if (seekingComp.CurrentTarget.HasValue && !TerminatingOrDeleted(seekingComp.CurrentTarget))
+            // If we have a target, track it using the selected algorithm.
+            if (seekingComp.CurrentTarget is { } currentTarget)
             {
-                var target = seekingComp.CurrentTarget.Value;
-                if (!_physicsQuery.TryGetComponent(target, out var targetBody))
+                if (TerminatingOrDeleted(currentTarget) ||
+                    !_physicsQuery.TryGetComponent(currentTarget, out var targetBody))
+                {
+                    SetSeekerTarget((uid, seekingComp), null, xform);
+                    TryAcquireTarget(uid, seekingComp, xform, frameTime, immediate: true);
                     continue;
+                }
 
-                var targetXform = Transform(target);
+                var targetXform = Transform(currentTarget);
+                if (targetXform.MapID != xform.MapID)
+                {
+                    SetSeekerTarget((uid, seekingComp), null, xform);
+                    TryAcquireTarget(uid, seekingComp, xform, frameTime, immediate: true);
+                    continue;
+                }
 
                 Angle wantAngle = new Angle(0);
                 switch (seekingComp.TrackingAlgorithm)
                 {
                     case TrackingMethod.Direct:
-                        wantAngle = ApplyDirectTracking((uid, xform), (target, targetXform), frameTime); break;
+                        wantAngle = ApplyDirectTracking((uid, xform), (currentTarget, targetXform), frameTime); break;
                     case TrackingMethod.Predictive:
-                        wantAngle = ApplyPredictiveTracking((uid, seekingComp, body, xform), (target, targetBody, targetXform), frameTime); break;
+                        wantAngle = ApplyPredictiveTracking((uid, seekingComp, body, xform), (currentTarget, targetBody, targetXform), frameTime); break;
                     case TrackingMethod.AdvancedPredictive:
-                        wantAngle = ApplyAdvancedTracking((uid, seekingComp, body, xform), (target, targetBody, targetXform), frameTime); break;
+                        wantAngle = ApplyAdvancedTracking((uid, seekingComp, body, xform), (currentTarget, targetBody, targetXform), frameTime); break;
                 }
+
+                if (!double.IsFinite(wantAngle.Theta))
+                    wantAngle = ApplyDirectTracking((uid, xform), (currentTarget, targetXform), frameTime);
 
                 _rotateToFace.TryRotateTo(
                     uid,
@@ -197,10 +214,32 @@ public sealed partial class TargetSeekingSystem : EntitySystem
             }
             else
             {
-                // Try to acquire a new target
-                AcquireTarget(uid, seekingComp, xform);
+                TryAcquireTarget(uid, seekingComp, xform, frameTime);
             }
         }
+    }
+
+    private void TryAcquireTarget(
+        EntityUid uid,
+        TargetSeekingComponent component,
+        TransformComponent transform,
+        float frameTime,
+        bool immediate = false)
+    {
+        if (!immediate && component.TargetScanCooldown > 0f)
+        {
+            component.TargetScanCooldown -= frameTime;
+            return;
+        }
+
+        AcquireTarget(uid, component, transform);
+
+        var interval = float.IsFinite(component.TargetScanInterval) && component.TargetScanInterval > 0f
+            ? component.TargetScanInterval
+            : 0.2f;
+        // A deterministic per-entity phase prevents a salvo of targetless missiles
+        // from all doing their global scan on the same server tick.
+        component.TargetScanCooldown = interval + uid.Id % 7 * 0.01f;
     }
 
     /// <summary>
@@ -208,15 +247,40 @@ public sealed partial class TargetSeekingSystem : EntitySystem
     /// </summary>
     public void AcquireTarget(EntityUid uid, TargetSeekingComponent component, TransformComponent transform)
     {
+        if (!float.IsFinite(component.DetectionRange) || component.DetectionRange <= 0f)
+            return;
+
         var closestDistance = float.MaxValue;
         EntityUid? bestTarget = null;
+        var sourcePos = _transform.ToMapCoordinates(transform.Coordinates).Position;
+        var currentRotation = _transform.GetWorldRotation(transform);
+        var halfScanArc = float.IsFinite(component.ScanArc)
+            ? Math.Clamp(component.ScanArc, 0f, 360f) / 2f
+            : 0f;
+        EntityUid? shooterGridUid = null;
 
-        // Look for shuttles to target
-        var shuttleQuery = EntityQueryEnumerator<TargetSeekingTargetComponent>();
+        if (_projectileQuery.TryGetComponent(uid, out var projectile) &&
+            TryComp(projectile.Shooter, out TransformComponent? shooterTransform))
+        {
+            shooterGridUid = shooterTransform.GridUid;
+        }
 
-        while (shuttleQuery.MoveNext(out var targetUid, out _))
+        // Restrict acquisition to the spatial broadphase around this seeker. The
+        // previous global component query made every targetless salvo O(missiles ×
+        // every target on every map), even though almost all candidates were later
+        // rejected by map and distance checks.
+        _targetCandidates.Clear();
+        _lookup.GetEntitiesInRange(
+            transform.MapID,
+            sourcePos,
+            component.DetectionRange,
+            _targetCandidates);
+
+        foreach (var (targetUid, _) in _targetCandidates)
         {
             var targetXform = Transform(targetUid);
+            if (targetXform.MapID != transform.MapID)
+                continue;
 
             // If this entity has a grid UID, use that as our actual target
             // This targets the ship grid rather than just the console
@@ -224,15 +288,12 @@ public sealed partial class TargetSeekingSystem : EntitySystem
 
             // Get angle to the target
             var targetPos = _transform.ToMapCoordinates(targetXform.Coordinates).Position;
-            var sourcePos = _transform.ToMapCoordinates(transform.Coordinates).Position;
             var angleToTarget = (targetPos - sourcePos).ToWorldAngle();
 
             // Get current direction of the projectile
-            var currentRotation = _transform.GetWorldRotation(transform);
-
             // Check if target is within field of view
             var angleDifference = Angle.ShortestDistance(currentRotation, angleToTarget).Degrees;
-            if (MathF.Abs((float)angleDifference) > component.ScanArc / 2)
+            if (MathF.Abs((float)angleDifference) > halfScanArc)
             {
                 continue; // Target is outside our field of view
             }
@@ -245,11 +306,8 @@ public sealed partial class TargetSeekingSystem : EntitySystem
                 continue;
 
             // Skip if the target is our own launcher (don't target our own ship)
-            if (_projectileQuery.TryGetComponent(uid, out var projectile) &&
-                TryComp(projectile.Shooter, out TransformComponent? shooterTransform))
+            if (shooterGridUid != null)
             {
-                var shooterGridUid = shooterTransform.GridUid;
-
                 // If the shooter is on the same grid as this potential target, skip it
                 if (targetXform.GridUid.HasValue && shooterGridUid == targetXform.GridUid)
                 {
@@ -283,12 +341,18 @@ public sealed partial class TargetSeekingSystem : EntitySystem
         var toTargetVec = currentTargetPosition - sourcePosition;
         var currentDistance = toTargetVec.Length();
 
+        if (currentDistance <= 0.001f)
+            return _transform.GetWorldRotation(ent.Comp3);
+
         var targetVelocity = _physics.GetMapLinearVelocity(target, target.Comp1, target.Comp2);
         var ourVelocity = _physics.GetMapLinearVelocity(ent, ent.Comp2, ent.Comp3);
         var relVel = ourVelocity - targetVelocity;
 
         // Calculate time to intercept (using closing rate)
-        var closingRate = Vector2.Dot(relVel, toTargetVec) / toTargetVec.Length();
+        var closingRate = Vector2.Dot(relVel, toTargetVec) / currentDistance;
+        if (!float.IsFinite(closingRate) || closingRate <= 0.001f)
+            return toTargetVec.ToWorldAngle();
+
         var timeToIntercept = currentDistance / closingRate;
 
         // Prevent negative or very small intercept times that could cause erratic behavior

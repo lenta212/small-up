@@ -590,7 +590,6 @@ namespace Content.Server.Ghost
 
             // Apply admin OOC color to the ghost if the player has one
             ApplyAdminOOCColor(ghost, mind.Owner);
-
             return ghost;
         }
 

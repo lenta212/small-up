@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using Content.Server._NF.Power.Components;
 using Content.Server.Kitchen.Components;
 using Content.Server.Power.Components;
 using Content.Server.Power.EntitySystems;
@@ -30,6 +31,7 @@ public sealed partial class PowerCellSystem : SharedPowerCellSystem
 {
     [Dependency] private ActivatableUISystem _activatable = default!;
     [Dependency] private BatterySystem _battery = default!;
+    [Dependency] private PowerReceiverSystem _powerSystem = default!;
     [Dependency] private SharedContainerSystem _containerSystem = default!;
     [Dependency] private ItemSlotsSystem _itemSlotsSystem = default!;
     [Dependency] private SharedAppearanceSystem _sharedAppearanceSystem = default!;
@@ -153,6 +155,13 @@ public sealed partial class PowerCellSystem : SharedPowerCellSystem
     /// <param name="user">Popup to this user with the relevant detail if specified.</param>
     public bool HasCharge(EntityUid uid, float charge, PowerCellSlotComponent? component = null, EntityUid? user = null)
     {
+        if (HasComp<MixedPowerReceiverComponent>(uid)
+            && TryComp<ApcPowerReceiverComponent>(uid, out var apcPowerComp)
+            && _powerSystem.IsPowered(uid, apcPowerComp))
+        {
+            return true;
+        }
+
         if (!TryGetBatteryFromSlot(uid, out var battery, component))
         {
             if (user != null)
@@ -177,6 +186,13 @@ public sealed partial class PowerCellSystem : SharedPowerCellSystem
     /// </summary>
     public bool TryUseCharge(EntityUid uid, float charge, PowerCellSlotComponent? component = null, EntityUid? user = null)
     {
+        if (HasComp<MixedPowerReceiverComponent>(uid)
+            && TryComp<ApcPowerReceiverComponent>(uid, out var apcPowerComp)
+            && _powerSystem.IsPowered(uid, apcPowerComp))
+        {
+            return true;
+        }
+
         if (!TryGetBatteryFromSlot(uid, out var batteryEnt, out var battery, component))
         {
             if (user != null)

@@ -1,3 +1,4 @@
+using System.Numerics;
 using Content.Client.Movement.Systems;
 using Content.Client.UserInterface.Systems.Ghost.Widgets;
 using Content.Shared.Actions;
@@ -6,11 +7,14 @@ using Content.Shared.Mind;
 using Content.Shared.Popups;
 using Robust.Client.Console;
 using Robust.Client.GameObjects;
+using Robust.Client.Graphics;
 using Robust.Client.Player;
 using Robust.Client.UserInterface;
+using Robust.Client.UserInterface.Controls;
 using Robust.Shared.GameStates;
 using Robust.Shared.Timing;
 using Robust.Shared.Player;
+using Robust.Shared.Utility;
 using Content.Client._Corvax.Respawn; // Frontier
 
 namespace Content.Client.Ghost
@@ -26,6 +30,10 @@ namespace Content.Client.Ghost
         [Dependency] private IUserInterfaceManager _uiManager = default!;
         [Dependency] private IGameTiming _gameTiming = default!;
         [Dependency] private RespawnSystem _respawn = default!;
+        [Dependency] private SpriteSystem _spriteSystem = default!;
+
+        private static readonly SpriteSpecifier.Rsi GuideCatSprite =
+            new(new ResPath("_NF/Mobs/Pets/cat.rsi"), "cultcat");
 
         public override void Update(float frameTime)
         {
@@ -40,6 +48,7 @@ namespace Content.Client.Ghost
         public int AvailableGhostRoleCount { get; private set; }
 
         private bool _ghostVisibility = true;
+        private BoxContainer? _guideNotificationStack;
 
         private bool GhostVisibility
         {
@@ -168,7 +177,83 @@ namespace Content.Client.Ghost
                 return;
             component.TimeOfDeath = _gameTiming.CurTime;
             GhostVisibility = true;
+            ShowGuideCatNotification();
             PlayerAttached?.Invoke(component);
+        }
+
+        private void ShowGuideCatNotification()
+        {
+            if (_guideNotificationStack == null)
+            {
+                _guideNotificationStack = new BoxContainer
+                {
+                    Orientation = BoxContainer.LayoutOrientation.Vertical,
+                    SeparationOverride = 8,
+                    MouseFilter = Control.MouseFilterMode.Ignore,
+                };
+
+                _uiManager.PopupRoot.AddChild(_guideNotificationStack);
+                LayoutContainer.SetAnchorAndMarginPreset(
+                    _guideNotificationStack,
+                    LayoutContainer.LayoutPreset.CenterRight,
+                    margin: 18);
+            }
+
+            var background = new StyleBoxFlat
+            {
+                BackgroundColor = Color.FromHex("#11191EEA"),
+                BorderColor = Color.FromHex("#497783"),
+                BorderThickness = new Thickness(1),
+            };
+            background.SetContentMarginOverride(StyleBox.Margin.All, 10);
+
+            var panel = new PanelContainer
+            {
+                MinSize = new Vector2(380, 88),
+                MaxSize = new Vector2(380, 120),
+                PanelOverride = background,
+                MouseFilter = Control.MouseFilterMode.Ignore,
+            };
+
+            var content = new BoxContainer
+            {
+                Orientation = BoxContainer.LayoutOrientation.Horizontal,
+                SeparationOverride = 10,
+            };
+
+            var catView = new TextureRect
+            {
+                SetSize = new Vector2(64, 64),
+                Texture = _spriteSystem.Frame0(GuideCatSprite),
+                Stretch = TextureRect.StretchMode.KeepAspectCentered,
+                ModulateSelfOverride = Color.FromHex("#A85BB5")
+            };
+            content.AddChild(catView);
+
+            var text = new BoxContainer
+            {
+                Orientation = BoxContainer.LayoutOrientation.Vertical,
+                SeparationOverride = 4,
+                HorizontalExpand = true,
+            };
+            text.AddChild(new Label
+            {
+                Text = Loc.GetString("ghost-guide-cat-title"),
+                FontColorOverride = Color.FromHex("#8FD7E5"),
+            });
+
+            var hint = new RichTextLabel
+            {
+                MinSize = new Vector2(280, 48),
+                HorizontalExpand = true,
+            };
+            hint.SetMessage(Loc.GetString("ghost-guide-cat-hint"));
+            text.AddChild(hint);
+            content.AddChild(text);
+            panel.AddChild(content);
+            _guideNotificationStack.AddChild(panel);
+
+            Timer.Spawn(TimeSpan.FromSeconds(10), () => panel.Dispose());
         }
 
         private void OnGhostState(EntityUid uid, GhostComponent component, ref AfterAutoHandleStateEvent args)

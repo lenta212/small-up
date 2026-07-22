@@ -2,6 +2,8 @@ using Content.Server.Movement.Components;
 using Content.Server.Weapons.Ranged.Systems;
 using Content.Shared._RMC14.CCVar;
 using Content.Shared._RMC14.Weapons.Ranged.Prediction;
+using Content.Shared._LuaM.AntiCheat;
+using Content.Shared.CCVar;
 using Content.Shared.GameTicking;
 using Content.Shared.Projectiles;
 using Content.Shared.Weapons.Ranged.Events;
@@ -29,11 +31,14 @@ public sealed partial class GunPredictionSystem : SharedGunPredictionSystem
 
     private readonly Dictionary<(Guid, int), EntityUid> _predicted = new();
     private readonly List<(PredictedProjectileHitEvent Event, ICommonSession Player)> _predictedHits = new();
+    private readonly Dictionary<ICommonSession, int> _predictedHitCounts = new();
     private bool _preventCollision;
     private bool _logHits;
     private float _coordinateDeviation;
     private float _lowestCoordinateDeviation;
     private float _aabbEnlargement;
+    private int _predictedHitCandidateLimit;
+    private int _predictedHitEventLimit;
 
     private EntityQuery<FixturesComponent> _fixturesQuery;
     private EntityQuery<LagCompensationComponent> _lagCompensationQuery;
@@ -67,11 +72,23 @@ public sealed partial class GunPredictionSystem : SharedGunPredictionSystem
         Subs.CVar(_config, RMCCVars.RMCGunPredictionCoordinateDeviation, v => _coordinateDeviation = v, true);
         Subs.CVar(_config, RMCCVars.RMCGunPredictionLowestCoordinateDeviation, v => _lowestCoordinateDeviation = v, true);
         Subs.CVar(_config, RMCCVars.RMCGunPredictionAabbEnlargement, v => _aabbEnlargement = v, true);
+        Subs.CVar(
+            _config,
+            CCVars.AntiCheatPredictedHitCandidateLimit,
+            value => _predictedHitCandidateLimit = Math.Max(0, value),
+            true);
+        Subs.CVar(
+            _config,
+            CCVars.AntiCheatPredictedHitEventLimit,
+            value => _predictedHitEventLimit = Math.Max(0, value),
+            true);
     }
 
     private void OnRoundRestartCleanup(RoundRestartCleanupEvent ev)
     {
         _predicted.Clear();
+        _predictedHits.Clear();
+        _predictedHitCounts.Clear();
     }
 
     private void OnShootRequest(RequestShootEvent ev, EntitySessionEventArgs args)
@@ -99,7 +116,36 @@ public sealed partial class GunPredictionSystem : SharedGunPredictionSystem
 
     private void OnPredictedProjectileHit(PredictedProjectileHitEvent ev, EntitySessionEventArgs args)
     {
+        var player = args.SenderSession;
+        var accepted = _predictedHitCounts.GetValueOrDefault(player);
+        if (!IsPredictedHitRequestAllowed(
+                ev.Hit.Count,
+                accepted,
+                _predictedHitCandidateLimit,
+                _predictedHitEventLimit))
+        {
+            var signal = new LuaMAntiCheatSignalEvent(
+                player,
+                LuaMAntiCheatSignalKind.PredictedHitFlood,
+                player.AttachedEntity);
+            RaiseLocalEvent(signal);
+            return;
+        }
+
+        _predictedHitCounts[player] = accepted + 1;
         _predictedHits.Add((ev, args.SenderSession));
+    }
+
+    internal static bool IsPredictedHitRequestAllowed(
+        int candidateCount,
+        int acceptedEventCount,
+        int candidateLimit,
+        int eventLimit)
+    {
+        return candidateCount >= 0 &&
+               candidateCount <= Math.Max(0, candidateLimit) &&
+               acceptedEventCount >= 0 &&
+               acceptedEventCount < Math.Max(0, eventLimit);
     }
 
     private void OnPredictedPreventCollide(Entity<PredictedProjectileServerComponent> ent, ref PreventCollideEvent args)
@@ -258,6 +304,7 @@ public sealed partial class GunPredictionSystem : SharedGunPredictionSystem
         finally
         {
             _predictedHits.Clear();
+            _predictedHitCounts.Clear();
         }
 
         var predicted = EntityQueryEnumerator<PredictedProjectileHitComponent, TransformComponent>();

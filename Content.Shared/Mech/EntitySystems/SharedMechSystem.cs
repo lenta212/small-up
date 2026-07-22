@@ -32,6 +32,7 @@ using Content.Shared.Hands.EntitySystems;
 using Content.Shared.Inventory.VirtualItem;
 using Robust.Shared.Configuration;
 using Content.Shared.Implants.Components;
+using Content.Shared._NF.Mech.Equipment.Events;
 
 namespace Content.Shared.Mech.EntitySystems;
 
@@ -182,6 +183,8 @@ public abstract partial class SharedMechSystem : EntitySystem
         _actions.AddAction(pilot, ref component.MechEjectActionEntity, component.MechEjectAction, mech);
         _actions.AddAction(pilot, ref component.ToggleActionEntity, component.ToggleAction, mech); //Goobstation Mech Lights toggle action
         _actions.AddAction(pilot, ref component.MechRadarUiActionEntity, component.MechRadarUiAction, mech);
+
+        RaiseEquipmentEquippedEvent((mech, component), pilot);
     }
 
     private void RemoveUser(EntityUid mech, EntityUid pilot)
@@ -192,6 +195,9 @@ public abstract partial class SharedMechSystem : EntitySystem
         RemComp<InteractionRelayComponent>(pilot);
 
         _actions.RemoveProvidedActions(pilot, mech);
+
+        if (TryComp<MechComponent>(mech, out var mechComp) && mechComp.CurrentSelectedEquipment != null)
+            _actions.RemoveProvidedActions(pilot, mechComp.CurrentSelectedEquipment.Value);
     }
 
     /// <summary>
@@ -205,10 +211,13 @@ public abstract partial class SharedMechSystem : EntitySystem
             return;
 
         TryEject(uid, component);
-        var equipment = new List<EntityUid>(component.EquipmentContainer.ContainedEntities);
-        foreach (var ent in equipment)
+        if (component.CanRemoveEquipment)
         {
-            RemoveEquipment(uid, ent, component, forced: true);
+            var equipment = new List<EntityUid>(component.EquipmentContainer.ContainedEntities);
+            foreach (var ent in equipment)
+            {
+                RemoveEquipment(uid, ent, component, forced: true);
+            }
         }
 
         component.Broken = true;
@@ -232,6 +241,9 @@ public abstract partial class SharedMechSystem : EntitySystem
         {
             bool StartIndex(EntityUid u) => u == component.CurrentSelectedEquipment;
             equipmentIndex = allEquipment.FindIndex(StartIndex);
+
+            if (component.PilotSlot.ContainedEntity is { } pilot)
+                _actions.RemoveProvidedActions(pilot, component.CurrentSelectedEquipment.Value);
         }
 
         equipmentIndex++;
@@ -245,6 +257,8 @@ public abstract partial class SharedMechSystem : EntitySystem
 
         if (_net.IsServer)
             _popup.PopupEntity(popupString, uid);
+
+        RaiseEquipmentEquippedEvent((uid, component));
 
         Dirty(uid, component);
     }
@@ -292,6 +306,9 @@ public abstract partial class SharedMechSystem : EntitySystem
         if (!Resolve(uid, ref component))
             return;
 
+        if (!component.CanRemoveEquipment)
+            return;
+
         if (!Resolve(toRemove, ref equipmentComponent))
             return;
 
@@ -331,7 +348,6 @@ public abstract partial class SharedMechSystem : EntitySystem
 
         component.Energy = FixedPoint2.Clamp(component.Energy + delta, 0, component.MaxEnergy);
         Dirty(uid, component);
-        UpdateUserInterface(uid, component);
         return true;
     }
 
@@ -359,7 +375,6 @@ public abstract partial class SharedMechSystem : EntitySystem
         }
 
         Dirty(uid, component);
-        UpdateUserInterface(uid, component);
     }
 
     /// <summary>
@@ -595,6 +610,19 @@ public abstract partial class SharedMechSystem : EntitySystem
         args.Handled = true;
 
         args.CanDrop |= CanInsert(uid, args.Dragged, component); // Mono: moved mech broken check to CanInsert
+    }
+
+    private void RaiseEquipmentEquippedEvent(Entity<MechComponent> ent, EntityUid? pilot = null)
+    {
+        if (!_net.IsServer || ent.Comp.CurrentSelectedEquipment == null)
+            return;
+
+        var ev = new MechEquipmentEquippedAction
+        {
+            Mech = ent,
+            Pilot = pilot ?? ent.Comp.PilotSlot.ContainedEntity
+        };
+        RaiseLocalEvent(ent.Comp.CurrentSelectedEquipment.Value, ev);
     }
     //private void OnEmagged(EntityUid uid, MechComponent component, ref GotEmaggedEvent args) // Goobstation
     //{

@@ -21,4 +21,26 @@ public sealed partial class FireControlConsoleComponent : Component
 
     [DataField]
     public float LogGridLookupRange = 1024f;
+
+    /// <summary>
+    /// Server-side input limits. Client throttles are only a UX optimization and
+    /// cannot be trusted for network messages.
+    /// </summary>
+    [ViewVariables]
+    public TimeSpan NextCursorUpdate;
+
+    [ViewVariables]
+    public TimeSpan NextFireUpdate;
+
+    [ViewVariables]
+    public TimeSpan NextRefreshUpdate;
+
+    [DataField]
+    public TimeSpan CursorUpdateInterval = TimeSpan.FromMilliseconds(75);
+
+    [DataField]
+    public TimeSpan FireUpdateInterval = TimeSpan.FromMilliseconds(50);
+
+    [DataField]
+    public TimeSpan RefreshUpdateInterval = TimeSpan.FromSeconds(1);
 }

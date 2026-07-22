@@ -33,18 +33,24 @@ public sealed partial class DetectionSystem : EntitySystem
         if (!Resolve(grid, ref grid.Comp))
             return DetectionLevel.Undetected;
 
-        var comp = EnsureComp<DetectionRangeMultiplierComponent>(byUid);
+        // Detection is a read-only query. Callers such as radar snapshot assembly
+        // must not add components as a side effect merely to obtain default values.
+        TryComp<DetectionRangeMultiplierComponent>(byUid, out var comp);
 
-        if (comp.AlwaysDetect)
+        if (comp?.AlwaysDetect == true)
             return DetectionLevel.Detected;
+
+        var infraredMultiplier = comp?.InfraredMultiplier ?? 1f;
+        var infraredOutlinePortion = comp?.InfraredOutlinePortion ?? 0.6f;
+        var visualMultiplier = comp?.VisualMultiplier ?? 1f;
 
         var gridAABB = grid.Comp.LocalAABB;
         var gridDiagonal = MathF.Sqrt(gridAABB.Width * gridAABB.Width + gridAABB.Height * gridAABB.Height);
         var visualSig = gridDiagonal;
-        var visualRadius = visualSig * comp.VisualMultiplier * _visualMul;
+        var visualRadius = visualSig * visualMultiplier * _visualMul;
 
         var thermalSig = TryComp<ThermalSignatureComponent>(grid, out var sigComp) ? MathF.Max(sigComp.TotalHeat, 0f) : 0f;
-        var thermalRadius = MathF.Sqrt(thermalSig) * comp.InfraredMultiplier * _thermalMul;
+        var thermalRadius = MathF.Sqrt(thermalSig) * infraredMultiplier * _thermalMul;
 
         if (TryComp<DetectedAtRangeMultiplierComponent>(grid, out var compAt))
         {
@@ -53,7 +59,7 @@ public sealed partial class DetectionSystem : EntitySystem
             visualRadius += compAt.VisualBias;
         }
 
-        var outlineRadius = thermalRadius * comp.InfraredOutlinePortion;
+        var outlineRadius = thermalRadius * infraredOutlinePortion;
         outlineRadius = MathF.Max(outlineRadius, visualRadius);
 
         var level = DetectionLevel.Undetected;

@@ -15,6 +15,13 @@ public sealed partial class AddImplantSpecial : JobSpecial
     [DataField("implants", customTypeSerializer: typeof(PrototypeIdHashSetSerializer<EntityPrototype>))]
     public HashSet<String> Implants { get; private set; } = new();
 
+    /// <summary>
+    /// Reapply these default implants when the character receives a cloned body.
+    /// Most legacy job implants keep the old spawn-only behavior unless explicitly opted in.
+    /// </summary>
+    [DataField]
+    public bool ApplyOnClone { get; private set; }
+
     public override void AfterEquip(EntityUid mob)
     {
         var entMan = IoCManager.Resolve<IEntityManager>();

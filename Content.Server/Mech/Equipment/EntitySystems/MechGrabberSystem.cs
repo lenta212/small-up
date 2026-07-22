@@ -19,6 +19,8 @@ using Robust.Shared.Physics.Components;
 using Content.Shared.Whitelist; // Frontier
 using Content.Shared.Buckle.Components; // Frontier
 using Content.Shared.Buckle; // Frontier
+using Content.Shared.Mind.Components;
+using Content.Server.Ghost.Roles.Components;
 
 namespace Content.Server.Mech.Equipment.EntitySystems;
 
@@ -83,7 +85,9 @@ public sealed partial class MechGrabberSystem : EntitySystem
         if (!Resolve(uid, ref component))
             return;
 
-        _container.Remove(toRemove, component.ItemContainer);
+        if (!_container.Remove(toRemove, component.ItemContainer))
+            return;
+
         var mechxform = Transform(mech);
         var xform = Transform(toRemove);
         _transform.AttachToGridOrMap(toRemove, xform);
@@ -137,29 +141,8 @@ public sealed partial class MechGrabberSystem : EntitySystem
         if (args.Target == args.User || component.DoAfter != null)
             return;
 
-        if (TryComp<PhysicsComponent>(target, out var physics) && physics.BodyType == BodyType.Static ||
-            HasComp<WallMountComponent>(target) ||
-            HasComp<MobStateComponent>(target))
-        {
-            return;
-        }
-
-        if (_whitelist.IsBlacklistPass(component.Blacklist, target)) // Frontier: Blacklist
-            return;
-
-        if (Transform(target).Anchored)
-            return;
-
-        if (component.ItemContainer.ContainedEntities.Count >= component.MaxContents)
-            return;
-
-        if (!TryComp<MechComponent>(args.User, out var mech) || mech.PilotSlot.ContainedEntity == target)
-            return;
-
-        if (mech.Energy + component.GrabEnergyDelta < 0)
-            return;
-
-        if (!_interaction.InRangeUnobstructed(args.User, target))
+        if (!CanGrab(args.User, target, component) ||
+            !_container.CanInsert(target, component.ItemContainer))
             return;
 
         args.Handled = true;
@@ -183,27 +166,160 @@ public sealed partial class MechGrabberSystem : EntitySystem
             return;
         }
 
-        if (args.Handled || args.Args.Target == null)
+        if (args.Handled || args.Args.Target is not { } target)
             return;
 
         if (!TryComp<MechEquipmentComponent>(uid, out var equipmentComponent) || equipmentComponent.EquipmentOwner == null)
             return;
-        if (!_mech.TryChangeEnergy(equipmentComponent.EquipmentOwner.Value, component.GrabEnergyDelta))
+
+        var mech = equipmentComponent.EquipmentOwner.Value;
+        if (!CanGrab(mech, target, component) ||
+            !_container.CanInsert(target, component.ItemContainer))
             return;
 
-        // Frontier: Remove people from chairs
-        if (TryComp<StrapComponent>(args.Args.Target, out var strapComp) && strapComp.BuckledEntities != null)
-        {
-            foreach (var buckleUid in strapComp.BuckledEntities)
-            {
-                _buckle.Unbuckle(buckleUid, args.Args.User);
-            }
-        }
-        // End Frontier
+        var targetXform = Transform(target);
+        var originalCoordinates = targetXform.Coordinates;
+        var originalRotation = targetXform.LocalRotation;
+        var evacuationCoordinates = Transform(mech).Coordinates;
 
-        _container.Insert(args.Args.Target.Value, component.ItemContainer);
-        _mech.UpdateUserInterface(equipmentComponent.EquipmentOwner.Value);
+        if (!TryEvacuateOccupants(target, evacuationCoordinates, out var unbuckled, out var removed))
+            return;
+
+        if (!_container.Insert(target, component.ItemContainer))
+        {
+            RestoreEvacuatedOccupants(target, unbuckled, removed);
+            return;
+        }
+
+        if (!_mech.TryChangeEnergy(mech, component.GrabEnergyDelta))
+        {
+            if (!_container.Remove(target,
+                    component.ItemContainer,
+                    force: true,
+                    destination: originalCoordinates,
+                    localRotation: originalRotation))
+            {
+                Log.Error($"Failed to roll back grabber insertion of {ToPrettyString(target)} into {ToPrettyString(uid)}.");
+                return;
+            }
+
+            RestoreEvacuatedOccupants(target, unbuckled, removed);
+            return;
+        }
+
+        _mech.UpdateUserInterface(mech);
 
         args.Handled = true;
+    }
+
+    private bool CanGrab(EntityUid mech, EntityUid target, MechGrabberComponent component)
+    {
+        if (!TryComp<MechComponent>(mech, out var mechComponent) ||
+            mechComponent.Broken ||
+            mechComponent.PilotSlot.ContainedEntity is not { } pilot ||
+            pilot == target ||
+            target == mech ||
+            TerminatingOrDeleted(target) ||
+            component.ItemContainer.Count >= component.MaxContents ||
+            mechComponent.Energy + component.GrabEnergyDelta < 0 ||
+            !_interaction.InRangeUnobstructed(mech, target) ||
+            Transform(target).Anchored ||
+            (TryComp<PhysicsComponent>(target, out var physics) && physics.BodyType == BodyType.Static) ||
+            HasComp<WallMountComponent>(target) ||
+            HasComp<MobStateComponent>(target) ||
+            _whitelist.IsBlacklistPass(component.Blacklist, target))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool TryEvacuateOccupants(
+        EntityUid target,
+        EntityCoordinates destination,
+        out List<EntityUid> unbuckled,
+        out List<(EntityUid Entity, BaseContainer Container)> removed)
+    {
+        unbuckled = new List<EntityUid>();
+        removed = new List<(EntityUid Entity, BaseContainer Container)>();
+        var riders = TryComp<StrapComponent>(target, out var strap)
+            ? strap.BuckledEntities.ToArray()
+            : Array.Empty<EntityUid>();
+        var occupants = new List<(EntityUid Entity, BaseContainer Container)>();
+
+        if (TryComp<ContainerManagerComponent>(target, out var containerManager))
+        {
+            foreach (var container in containerManager.Containers.Values)
+            {
+                foreach (var contained in container.ContainedEntities)
+                {
+                    if (HasComp<GhostRoleComponent>(contained) ||
+                        TryComp<MindContainerComponent>(contained, out var mind) && mind.HasMind)
+                    {
+                        occupants.Add((contained, container));
+                    }
+                }
+            }
+        }
+
+        foreach (var occupant in occupants)
+        {
+            if (!_container.CanRemove(occupant.Entity, occupant.Container))
+                return false;
+        }
+
+        foreach (var rider in riders)
+        {
+            if (_buckle.TryUnbuckle(rider, null, popup: false))
+            {
+                unbuckled.Add(rider);
+                continue;
+            }
+
+            RestoreEvacuatedOccupants(target, unbuckled, removed);
+            return false;
+        }
+
+        foreach (var occupant in occupants)
+        {
+            if (_container.Remove(occupant.Entity, occupant.Container, destination: destination))
+            {
+                removed.Add(occupant);
+                continue;
+            }
+
+            RestoreEvacuatedOccupants(target, unbuckled, removed);
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool RestoreEvacuatedOccupants(
+        EntityUid target,
+        List<EntityUid> unbuckled,
+        List<(EntityUid Entity, BaseContainer Container)> removed)
+    {
+        var restored = true;
+        for (var i = removed.Count - 1; i >= 0; i--)
+        {
+            if (_container.Insert(removed[i].Entity, removed[i].Container))
+                continue;
+
+            restored = false;
+            Log.Error($"Failed to restore {ToPrettyString(removed[i].Entity)} to {ToPrettyString(target)} after a cancelled grab.");
+        }
+
+        for (var i = unbuckled.Count - 1; i >= 0; i--)
+        {
+            if (_buckle.TryBuckle(unbuckled[i], null, target, popup: false))
+                continue;
+
+            restored = false;
+            Log.Error($"Failed to re-buckle {ToPrettyString(unbuckled[i])} to {ToPrettyString(target)} after a cancelled grab.");
+        }
+
+        return restored;
     }
 }

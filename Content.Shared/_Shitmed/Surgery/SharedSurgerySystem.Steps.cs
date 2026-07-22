@@ -32,10 +32,14 @@ namespace Content.Shared._Shitmed.Medical.Surgery;
 
 public abstract partial class SharedSurgerySystem
 {
+    private EntityQuery<SurgeryIgnoreClothingComponent> _ignoreClothingQuery;
+
     private static readonly string[] BruteDamageTypes = { "Slash", "Blunt", "Piercing" };
     private static readonly string[] BurnDamageTypes = { "Heat", "Shock", "Cold", "Caustic" };
     private void InitializeSteps()
     {
+        _ignoreClothingQuery = GetEntityQuery<SurgeryIgnoreClothingComponent>();
+
         SubscribeLocalEvent<SurgeryStepComponent, SurgeryStepEvent>(OnToolStep);
         SubscribeLocalEvent<SurgeryStepComponent, SurgeryStepCompleteCheckEvent>(OnToolCheck);
         SubscribeLocalEvent<SurgeryStepComponent, SurgeryCanPerformStepEvent>(OnToolCanPerform);
@@ -279,7 +283,11 @@ public abstract partial class SharedSurgerySystem
             }
         }
 
-        if (_inventory.TryGetContainerSlotEnumerator(args.Body, out var containerSlotEnumerator, args.TargetSlots))
+        var ignoresClothing = _ignoreClothingQuery.HasComp(args.User) ||
+                              args.Tools.Any(tool => _ignoreClothingQuery.HasComp(tool));
+
+        if (!ignoresClothing &&
+            _inventory.TryGetContainerSlotEnumerator(args.Body, out var containerSlotEnumerator, args.TargetSlots))
         {
             while (containerSlotEnumerator.MoveNext(out var containerSlot))
             {

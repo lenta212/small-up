@@ -41,7 +41,7 @@ public sealed partial class MechSoundboardSystem : EntitySystem
             equipment.EquipmentOwner == null)
             return;
 
-        if (msg.Sound >= comp.Sounds.Count)
+        if ((uint) msg.Sound >= (uint) comp.Sounds.Count)
             return;
 
         if (TryComp(uid, out UseDelayComponent? useDelay)

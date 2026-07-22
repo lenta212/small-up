@@ -5,6 +5,8 @@ using Content.Shared.Chemistry.Components.SolutionManager;
 using Content.Shared.Chemistry.EntitySystems;
 using Content.Shared.Damage;
 using Content.Shared.Interaction;
+using Content.Shared.Interaction.Events;
+using Content.Shared.Item.ItemToggle;
 using Content.Shared.Popups;
 using Content.Shared.Tools;
 using Content.Shared._Shitmed.Targeting;
@@ -24,6 +26,7 @@ public sealed partial class WeldingHealableSystem : SharedWeldingHealableSystem
     {
         SubscribeLocalEvent<WeldingHealableComponent, InteractUsingEvent>(Repair);
         SubscribeLocalEvent<WeldingHealableComponent, SiliconRepairFinishedEvent>(OnRepairFinished);
+        SubscribeLocalEvent<WeldingHealingComponent, UseInHandEvent>(OnUseInHand, before: [typeof(ItemToggleSystem)]);
     }
 
     private void OnRepairFinished(EntityUid uid, WeldingHealableComponent healableComponent, SiliconRepairFinishedEvent args)
@@ -49,7 +52,8 @@ public sealed partial class WeldingHealableSystem : SharedWeldingHealableSystem
         _popup.PopupEntity(str, uid, args.User);
 
         if (!args.Used.HasValue
-            || _toolSystem.GetWelderFuelAndCapacity(args.Used.Value).fuel < component.FuelCost) //Mono: Nanite applicator
+            || _toolSystem.GetWelderFuelAndCapacity(args.Used.Value).fuel < component.FuelCost //Mono: Nanite applicator
+            || !HasDamage((uid, damageable), component, args.User))
             return;
 
         args.Handled = _toolSystem.UseTool
@@ -61,7 +65,9 @@ public sealed partial class WeldingHealableSystem : SharedWeldingHealableSystem
             new SiliconRepairFinishedEvent
             {
                 Delay = args.Delay
-            });
+            },
+            breakOnMove: component.BreakOnMove,
+            breakOnDamage: component.BreakOnDamage);
     }
     private async void Repair(EntityUid uid, WeldingHealableComponent healableComponent, InteractUsingEvent args)
     {
@@ -89,7 +95,40 @@ public sealed partial class WeldingHealableSystem : SharedWeldingHealableSystem
             new SiliconRepairFinishedEvent
             {
                 Delay = delay,
-            });
+            },
+            breakOnMove: component.BreakOnMove,
+            breakOnDamage: component.BreakOnDamage);
+    }
+
+    private void OnUseInHand(Entity<WeldingHealingComponent> ent, ref UseInHandEvent args)
+    {
+        var component = ent.Comp;
+
+        if (args.Handled
+            || !TryComp<WeldingHealableComponent>(args.User, out _)
+            || !TryComp<DamageableComponent>(args.User, out var damageable)
+            || damageable.DamageContainerID is null
+            || !component.DamageContainers.Contains(damageable.DamageContainerID)
+            || !HasDamage((args.User, damageable), component, args.User)
+            || !_toolSystem.HasQuality(ent.Owner, component.QualityNeeded)
+            || !component.AllowSelfHeal
+            || _toolSystem.GetWelderFuelAndCapacity(ent.Owner).fuel < component.FuelCost)
+            return;
+
+        var delay = component.DoAfterDelay * component.SelfHealPenalty;
+
+        args.Handled = _toolSystem.UseTool(
+            ent.Owner,
+            args.User,
+            args.User,
+            delay,
+            component.QualityNeeded,
+            new SiliconRepairFinishedEvent
+            {
+                Delay = delay,
+            },
+            breakOnMove: component.BreakOnMove,
+            breakOnDamage: component.BreakOnDamage);
     }
 
     private bool HasDamage(Entity<DamageableComponent> damageable, WeldingHealingComponent healable, EntityUid user)
@@ -98,7 +137,8 @@ public sealed partial class WeldingHealableSystem : SharedWeldingHealableSystem
             return false;
 
         foreach (var type in healable.Damage.DamageDict)
-            if (damageable.Comp.Damage.DamageDict[type.Key].Value > 0)
+            if (damageable.Comp.Damage.DamageDict.TryGetValue(type.Key, out var damage)
+                && damage.Value > 0)
                 return true;
 
         // In case the healer is a humanoid entity with targeting, we run the check on the targeted parts.
@@ -109,7 +149,8 @@ public sealed partial class WeldingHealableSystem : SharedWeldingHealableSystem
         foreach (var part in _bodySystem.GetBodyChildrenOfType(damageable, targetType, symmetry: targetSymmetry))
             if (TryComp<DamageableComponent>(part.Id, out var damageablePart))
                 foreach (var type in healable.Damage.DamageDict)
-                    if (damageablePart.Damage.DamageDict[type.Key].Value > 0)
+                    if (damageablePart.Damage.DamageDict.TryGetValue(type.Key, out var damage)
+                        && damage.Value > 0)
                         return true;
 
         return false;

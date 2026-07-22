@@ -29,6 +29,7 @@ using Content.Shared.UserInterface;
 using Content.Shared.Verbs;
 using Content.Shared.Wall;
 using Content.Shared._Goobstation.DoAfter; // Goobstation
+using Content.Shared._LuaM.AntiCheat;
 using JetBrains.Annotations;
 using Robust.Shared.Containers;
 using Robust.Shared.Input;
@@ -91,6 +92,7 @@ namespace Content.Shared.Interaction
         public const float InteractionRangeSquared = InteractionRange * InteractionRange;
         public const float MaxRaycastRange = 100f;
         public const string RateLimitKey = "Interaction";
+        public const string BoundUiRateLimitKey = "BoundUiMessage";
 
         private static readonly ProtoId<TagPrototype> BypassInteractionRangeChecksTag = "BypassInteractionRangeChecks";
 
@@ -137,6 +139,12 @@ namespace Content.Shared.Interaction
                     CCVars.InteractionRateLimitAnnounceAdminsDelay,
                     RateLimitAlertAdmins)
             );
+            _rateLimit.Register(
+                BoundUiRateLimitKey,
+                new RateLimitRegistration(
+                    CCVars.AntiCheatBoundUiRateLimitPeriod,
+                    CCVars.AntiCheatBoundUiRateLimitCount,
+                    OnBoundUiRateLimited));
 
             InitializeBlocking();
         }
@@ -157,6 +165,14 @@ namespace Content.Shared.Interaction
         /// </summary>
         private void OnBoundInterfaceInteractAttempt(BoundUserInterfaceMessageAttempt ev)
         {
+            if (_net.IsServer &&
+                TryComp<ActorComponent>(ev.Actor, out var rateActor) &&
+                _rateLimit.CountAction(rateActor.PlayerSession, BoundUiRateLimitKey) == RateLimitStatus.Blocked)
+            {
+                ev.Cancel();
+                return;
+            }
+
             _uiQuery.TryComp(ev.Target, out var uiComp);
             if (!_actionBlockerSystem.CanInteract(ev.Actor, ev.Target))
             {
@@ -170,8 +186,23 @@ namespace Content.Shared.Interaction
 
             var range = _ui.GetUiRange(ev.Target, ev.UiKey);
 
-            // As long as range>0, the UI frame updates should have auto-closed the UI if it is out of range.
-            DebugTools.Assert(range <= 0 || UiRangeCheck(ev.Actor, ev.Target, range));
+            // Repeat the engine's canonical, override-aware range pipeline before
+            // dispatching every client message. Release builds must not rely on
+            // the engine's debug assertion here.
+            if (_net.IsServer && range > 0 && !CheckBoundUiRange(ev.Actor, ev.Target, ev.UiKey))
+            {
+                if (TryComp<ActorComponent>(ev.Actor, out var actor))
+                {
+                    var signal = new LuaMAntiCheatSignalEvent(
+                        actor.PlayerSession,
+                        LuaMAntiCheatSignalKind.RemoteBoundUi,
+                        ev.Target);
+                    RaiseLocalEvent(signal);
+                }
+
+                ev.Cancel();
+                return;
+            }
 
             if (range <= 0 && !IsAccessible(ev.Actor, ev.Target))
             {
@@ -190,6 +221,55 @@ namespace Content.Shared.Interaction
 
             if (uiComp.RequiresComplex && !_actionBlockerSystem.CanComplexInteract(ev.Actor))
                 ev.Cancel();
+        }
+
+        private void OnBoundUiRateLimited(ICommonSession session)
+        {
+            if (!_net.IsServer)
+                return;
+
+            var signal = new LuaMAntiCheatSignalEvent(
+                session,
+                LuaMAntiCheatSignalKind.BoundUiRateLimit,
+                session.AttachedEntity);
+            RaiseLocalEvent(signal);
+        }
+
+        private bool CheckBoundUiRange(
+            Entity<TransformComponent?> actor,
+            Entity<TransformComponent?> target,
+            Enum uiKey)
+        {
+            if (!_ui.TryGetInterfaceData(target.Owner, uiKey, out var data) ||
+                !Resolve(actor, ref actor.Comp, false) ||
+                !Resolve(target, ref target.Comp, false))
+            {
+                return false;
+            }
+
+            if (actor.Comp.MapID != target.Comp.MapID)
+                return false;
+
+            var checkRange = new BoundUserInterfaceCheckRangeEvent(
+                (target.Owner, target.Comp),
+                uiKey,
+                data,
+                (actor.Owner, actor.Comp));
+            RaiseLocalEvent(target.Owner, ref checkRange, true);
+
+            if (checkRange.Result == BoundUserInterfaceRangeResult.Pass)
+                return true;
+
+            if (_ignoreUiRangeQuery.HasComp(actor.Owner))
+                return true;
+
+            if (checkRange.Result == BoundUserInterfaceRangeResult.Fail)
+                return false;
+
+            return _transform.InRange(
+                (target.Owner, target.Comp),
+                (actor.Owner, actor.Comp),
+                data.InteractionRange);
         }
 
         private bool UiRangeCheck(Entity<TransformComponent?> user, Entity<TransformComponent?> target, float range)
