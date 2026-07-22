@@ -128,12 +128,26 @@ public sealed class LuaMCharacterPersistenceTest
             Throws.TypeOf<SqliteException>(),
             "Downgrade must fail closed instead of deleting an archived identity.");
 
-        context.ChangeTracker.Clear();
-        var preservedArchive = await context.Profile.AsNoTracking().SingleAsync(p => p.Id == 5252);
+        bool preservedIsArchived;
+        long? preservedSlot;
+        await using (var command = connection.CreateCommand())
+        {
+            // The requested downgrade can successfully remove later migrations
+            // before PreserveCharacterProfiles rejects deletion of this archived
+            // identity. Query only that migration's schema instead of the current
+            // EF model, which also expects newer deep-cryo columns.
+            command.CommandText = "SELECT is_archived, slot FROM profile WHERE profile_id = 5252;";
+            await using var reader = await command.ExecuteReaderAsync();
+            Assert.That(await reader.ReadAsync(), Is.True);
+            preservedIsArchived = reader.GetBoolean(0);
+            preservedSlot = reader.IsDBNull(1) ? null : reader.GetInt64(1);
+            Assert.That(await reader.ReadAsync(), Is.False);
+        }
+
         Assert.Multiple(() =>
         {
-            Assert.That(preservedArchive.IsArchived, Is.True);
-            Assert.That(preservedArchive.Slot, Is.Null);
+            Assert.That(preservedIsArchived, Is.True);
+            Assert.That(preservedSlot, Is.Null);
         });
     }
 

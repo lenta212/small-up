@@ -33,8 +33,47 @@ namespace Content.Server.Preferences.Managers
         // Cache player prefs on the server so we don't need as much async hell related to them.
         private readonly Dictionary<NetUserId, PlayerPrefData> _cachedPlayerPrefs =
             new();
+        private readonly object _characterSlotGenerationLock = new();
+        private readonly Dictionary<(NetUserId UserId, int Slot), long> _characterSlotGenerations = new();
+        private readonly Dictionary<(NetUserId UserId, int Slot), int> _characterProfileIds = new();
+        private readonly Dictionary<NetUserId, long> _profileMutationVersions = new();
+        private readonly HashSet<NetUserId> _activeProfileMutations = new();
+        private readonly LinkedList<ProfileMutationRequest> _profileMutationWaiters = new();
+        private readonly Dictionary<NetUserId, long> _refreshRequestEpochs = new();
+
+        public event Action<CharacterSlotIdentityInvalidated>? CharacterSlotIdentityInvalidated;
 
         private ISawmill _sawmill = default!;
+
+        private sealed class ProfileMutationLease : IDisposable
+        {
+            private ServerPreferencesManager? _owner;
+            private readonly NetUserId[] _userIds;
+
+            public ProfileMutationLease(ServerPreferencesManager owner, NetUserId[] userIds)
+            {
+                _owner = owner;
+                _userIds = userIds;
+            }
+
+            public void Dispose()
+            {
+                Interlocked.Exchange(ref _owner, null)?.EndProfileMutation(_userIds);
+            }
+        }
+
+        private sealed class ProfileMutationRequest
+        {
+            public readonly NetUserId[] UserIds;
+            public readonly TaskCompletionSource<IDisposable> Completion = new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            public LinkedListNode<ProfileMutationRequest>? Node;
+
+            public ProfileMutationRequest(NetUserId[] userIds)
+            {
+                UserIds = userIds;
+            }
+        }
 
         private int MaxCharacterSlots => _cfg.GetCVar(CCVars.GameMaxCharacterSlots);
 
@@ -47,10 +86,19 @@ namespace Content.Server.Preferences.Managers
             _sawmill = _log.GetSawmill("prefs");
         }
 
-        private async void HandleSelectCharacterMessage(MsgSelectCharacter message)
+        private void HandleSelectCharacterMessage(MsgSelectCharacter message)
+        {
+            ObservePreferenceMutation(
+                SelectCharacterAsync(message),
+                "select character",
+                message.MsgChannel.UserId);
+        }
+
+        private async Task SelectCharacterAsync(MsgSelectCharacter message)
         {
             var index = message.SelectedCharacterIndex;
             var userId = message.MsgChannel.UserId;
+            using var mutation = await AcquireProfileMutationAsync(new[] { userId });
 
             if (!_cachedPlayerPrefs.TryGetValue(userId, out var prefsData) || !prefsData.PrefsLoaded)
             {
@@ -71,15 +119,19 @@ namespace Content.Server.Preferences.Managers
                 return;
             }
 
-            prefsData.Prefs = new PlayerPreferences(curPrefs.Characters, index, curPrefs.AdminOOCColor);
+            var stagedPreferences = new PlayerPreferences(
+                curPrefs.Characters,
+                index,
+                curPrefs.AdminOOCColor);
 
             if (ShouldStorePrefs(message.MsgChannel.AuthType))
-            {
                 await _db.SaveSelectedCharacterIndexAsync(message.MsgChannel.UserId, message.SelectedCharacterIndex);
-            }
+
+            lock (_characterSlotGenerationLock)
+                prefsData.Prefs = stagedPreferences;
         }
 
-        private async void HandleUpdateCharacterMessage(MsgUpdateCharacter message)
+        private void HandleUpdateCharacterMessage(MsgUpdateCharacter message)
         {
             var userId = message.MsgChannel.UserId;
 
@@ -87,12 +139,17 @@ namespace Content.Server.Preferences.Managers
             if (message.Profile == null)
                 _sawmill.Error($"User {userId} sent a {nameof(MsgUpdateCharacter)} with a null profile in slot {message.Slot}.");
             else
-                await SetProfile(userId, message.Slot, message.Profile, false);
+                ObservePreferenceMutation(
+                    SetProfile(userId, message.Slot, message.Profile, false),
+                    "update character",
+                    userId);
         }
 
         public async Task SetProfile(NetUserId userId, int slot, ICharacterProfile profile,
             bool authoritative = true) // Mono
         {
+            using var mutation = await AcquireProfileMutationAsync(new[] { userId });
+
             if (!_cachedPlayerPrefs.TryGetValue(userId, out var prefsData) || !prefsData.PrefsLoaded)
             {
                 _sawmill.Error($"Tried to modify user {userId} preferences before they loaded.");
@@ -105,6 +162,8 @@ namespace Content.Server.Preferences.Managers
             var curPrefs = prefsData.Prefs!;
             var session = _playerManager.GetSessionById(userId);
 
+            var isNewSlot = !curPrefs.Characters.ContainsKey(slot);
+
             profile.EnsureValid(session, _dependencies);
             // Mono
             if (!authoritative && profile is HumanoidCharacterProfile humanoid)
@@ -116,22 +175,77 @@ namespace Content.Server.Preferences.Managers
             }
 
             var profiles = new Dictionary<int, ICharacterProfile>(curPrefs.Characters)
-
             {
                 [slot] = profile
             };
-
-            prefsData.Prefs = new PlayerPreferences(profiles, slot, curPrefs.AdminOOCColor);
+            var stagedPreferences = new PlayerPreferences(profiles, slot, curPrefs.AdminOOCColor);
+            int? stableProfileId = null;
 
             if (ShouldStorePrefs(session.Channel.AuthType))
+            {
                 await _db.SaveCharacterSlotAsync(
                     userId,
                     profile,
                     slot,
                     preserveBankBalance: !authoritative);
+
+                if (isNewSlot || !TryGetCharacterProfileId(userId, slot, out _))
+                {
+                    var profileId = await _db.GetCharacterIdAsync(userId, slot);
+                    stableProfileId = profileId ??
+                                      throw new InvalidOperationException(
+                                          $"Stored character profile {userId}:{slot} has no durable identity after save.");
+                }
+            }
+
+            CharacterSlotIdentityInvalidated? invalidation = null;
+            lock (_characterSlotGenerationLock)
+            {
+                if (isNewSlot)
+                    invalidation = InvalidateCharacterSlotIdentityUnsafe(userId, slot);
+                if (stableProfileId is { } profileId)
+                    SetCharacterProfileIdUnsafe(userId, slot, profileId);
+                prefsData.Prefs = stagedPreferences;
+            }
+
+            if (invalidation is { } identityInvalidation)
+                CharacterSlotIdentityInvalidated?.Invoke(identityInvalidation);
+        }
+
+        private async void ObservePreferenceMutation(Task mutation, string operation, NetUserId userId)
+        {
+            try
+            {
+                await mutation;
+            }
+            catch (Exception exception)
+            {
+                _sawmill.Error($"Could not {operation} for {userId}: {exception}");
+                if (!_playerManager.TryGetSessionById(userId, out var session))
+                    return;
+
+                try
+                {
+                    // A database exception may have happened after COMMIT. Reloading
+                    // after the failed mutation lease is released makes the durable
+                    // snapshot authoritative without guessing the write outcome.
+                    await RefreshPreferencesAsync(session, CancellationToken.None);
+                }
+                catch (Exception refreshException)
+                {
+                    _sawmill.Error(
+                        $"Could not reconcile preferences after failed {operation} for {userId}: {refreshException}");
+                }
+            }
         }
 
         public bool TryApplyPersistedBankBalance(NetUserId userId, int slot, int balance)
+        {
+            lock (_characterSlotGenerationLock)
+                return TryApplyPersistedBankBalanceUnsafe(userId, slot, balance);
+        }
+
+        private bool TryApplyPersistedBankBalanceUnsafe(NetUserId userId, int slot, int balance)
         {
             if (balance < 0 ||
                 slot < 0 ||
@@ -154,13 +268,295 @@ namespace Content.Server.Preferences.Managers
                 profiles,
                 curPrefs.SelectedCharacterIndex,
                 curPrefs.AdminOOCColor);
+            AdvanceProfileMutationVersionUnsafe(userId);
             return true;
         }
 
-        private async void HandleDeleteCharacterMessage(MsgDeleteCharacter message)
+        public bool TryApplyPersistedBankBalance(
+            NetUserId userId,
+            int slot,
+            long expectedGeneration,
+            int balance)
+        {
+            lock (_characterSlotGenerationLock)
+            {
+                if (GetCharacterSlotGenerationUnsafe(userId, slot) != expectedGeneration)
+                    return false;
+
+                // Keep the identity check and cache projection atomic with respect
+                // to lifecycle invalidation. The event itself is raised after the
+                // generation lock is released below.
+                return TryApplyPersistedBankBalanceUnsafe(userId, slot, balance);
+            }
+        }
+
+        public bool TryApplyPersistedBankBalance(
+            NetUserId userId,
+            int slot,
+            int expectedProfileId,
+            int balance)
+        {
+            lock (_characterSlotGenerationLock)
+            {
+                if (!_characterProfileIds.TryGetValue((userId, slot), out var currentProfileId) ||
+                    currentProfileId != expectedProfileId)
+                {
+                    return false;
+                }
+
+                return TryApplyPersistedBankBalanceUnsafe(userId, slot, balance);
+            }
+        }
+
+        public long GetCharacterSlotGeneration(NetUserId userId, int slot)
+        {
+            lock (_characterSlotGenerationLock)
+                return GetCharacterSlotGenerationUnsafe(userId, slot);
+        }
+
+        public bool TryGetCharacterProfileId(NetUserId userId, int slot, out int profileId)
+        {
+            lock (_characterSlotGenerationLock)
+                return _characterProfileIds.TryGetValue((userId, slot), out profileId);
+        }
+
+        public async Task<IDisposable> AcquireProfileMutationAsync(
+            IReadOnlyCollection<NetUserId> userIds,
+            CancellationToken cancel = default)
+        {
+            cancel.ThrowIfCancellationRequested();
+            var request = new ProfileMutationRequest(NormalizeProfileMutationUsers(userIds));
+            lock (_characterSlotGenerationLock)
+            {
+                request.Node = _profileMutationWaiters.AddLast(request);
+                GrantProfileMutationWaitersUnsafe();
+            }
+
+            using var registration = cancel.Register(
+                static state =>
+                {
+                    var (owner, queued, cancellationToken) =
+                        ((ServerPreferencesManager, ProfileMutationRequest, CancellationToken)) state!;
+                    owner.CancelProfileMutationRequest(queued, cancellationToken);
+                },
+                (this, request, cancel));
+            return await request.Completion.Task;
+        }
+
+        public bool TryAcquireProfileMutation(
+            IReadOnlyCollection<NetUserId> userIds,
+            [NotNullWhen(true)] out IDisposable? lease)
+        {
+            var distinctUserIds = NormalizeProfileMutationUsers(userIds);
+            lock (_characterSlotGenerationLock)
+            {
+                if (distinctUserIds.Any(userId => _activeProfileMutations.Contains(userId)) ||
+                    _profileMutationWaiters.Any(request =>
+                        request.UserIds.Any(userId => distinctUserIds.Contains(userId))))
+                {
+                    lease = null;
+                    return false;
+                }
+
+                BeginProfileMutationUnsafe(distinctUserIds);
+                lease = new ProfileMutationLease(this, distinctUserIds);
+                return true;
+            }
+        }
+
+        private static NetUserId[] NormalizeProfileMutationUsers(IReadOnlyCollection<NetUserId> userIds)
+        {
+            ArgumentNullException.ThrowIfNull(userIds);
+            var distinctUserIds = userIds
+                .Distinct()
+                .OrderBy(userId => userId.UserId)
+                .ToArray();
+            if (distinctUserIds.Length == 0)
+                throw new ArgumentException("At least one profile-mutation user is required.", nameof(userIds));
+            return distinctUserIds;
+        }
+
+        private void BeginProfileMutationUnsafe(NetUserId[] userIds)
+        {
+            DebugTools.Assert(userIds.All(userId => !_activeProfileMutations.Contains(userId)));
+            foreach (var userId in userIds)
+            {
+                _activeProfileMutations.Add(userId);
+                AdvanceProfileMutationVersionUnsafe(userId);
+            }
+        }
+
+        private void GrantProfileMutationWaitersUnsafe()
+        {
+            var reservedByEarlierWaiters = new HashSet<NetUserId>();
+            var node = _profileMutationWaiters.First;
+            while (node != null)
+            {
+                var next = node.Next;
+                var request = node.Value;
+                if (request.UserIds.Any(userId =>
+                        _activeProfileMutations.Contains(userId) ||
+                        reservedByEarlierWaiters.Contains(userId)))
+                {
+                    reservedByEarlierWaiters.UnionWith(request.UserIds);
+                    node = next;
+                    continue;
+                }
+
+                _profileMutationWaiters.Remove(node);
+                request.Node = null;
+                BeginProfileMutationUnsafe(request.UserIds);
+                request.Completion.TrySetResult(new ProfileMutationLease(this, request.UserIds));
+                node = next;
+            }
+        }
+
+        private void CancelProfileMutationRequest(ProfileMutationRequest request, CancellationToken cancel)
+        {
+            var removed = false;
+            lock (_characterSlotGenerationLock)
+            {
+                if (request.Node?.List == _profileMutationWaiters)
+                {
+                    _profileMutationWaiters.Remove(request.Node);
+                    request.Node = null;
+                    removed = true;
+                    GrantProfileMutationWaitersUnsafe();
+                }
+            }
+
+            if (removed)
+                request.Completion.TrySetCanceled(cancel);
+        }
+
+        private void EndProfileMutation(IReadOnlyCollection<NetUserId> userIds)
+        {
+            lock (_characterSlotGenerationLock)
+            {
+                foreach (var userId in userIds)
+                {
+                    var removed = _activeProfileMutations.Remove(userId);
+                    DebugTools.Assert(removed);
+                    if (!removed)
+                        continue;
+                    AdvanceProfileMutationVersionUnsafe(userId);
+                }
+
+                GrantProfileMutationWaitersUnsafe();
+            }
+        }
+
+        private long AdvanceProfileMutationVersionUnsafe(NetUserId userId)
+        {
+            // Mutation versions are change tokens, not quantities. Deliberate wrap
+            // keeps lease acquisition/release exception-safe at the numeric limit.
+            var version = unchecked(_profileMutationVersions.GetValueOrDefault(userId) + 1);
+            _profileMutationVersions[userId] = version;
+            return version;
+        }
+
+        private long BeginRefreshRequest(NetUserId userId)
+        {
+            lock (_characterSlotGenerationLock)
+            {
+                var epoch = unchecked(_refreshRequestEpochs.GetValueOrDefault(userId) + 1);
+                _refreshRequestEpochs[userId] = epoch;
+                return epoch;
+            }
+        }
+
+        private void SetCharacterProfileId(NetUserId userId, int slot, int profileId)
+        {
+            lock (_characterSlotGenerationLock)
+                SetCharacterProfileIdUnsafe(userId, slot, profileId);
+        }
+
+        private void SetCharacterProfileIdUnsafe(NetUserId userId, int slot, int profileId)
+        {
+            _characterProfileIds[(userId, slot)] = profileId;
+        }
+
+        private void RemoveCharacterProfileId(NetUserId userId, int slot)
+        {
+            lock (_characterSlotGenerationLock)
+                _characterProfileIds.Remove((userId, slot));
+        }
+
+        private void ReplaceCharacterProfileIds(NetUserId userId, IReadOnlyDictionary<int, int> profileIds)
+        {
+            lock (_characterSlotGenerationLock)
+                ReplaceCharacterProfileIdsUnsafe(userId, profileIds);
+        }
+
+        private void ReplaceCharacterProfileIdsUnsafe(NetUserId userId, IReadOnlyDictionary<int, int> profileIds)
+        {
+            foreach (var key in _characterProfileIds.Keys.Where(key => key.UserId == userId).ToArray())
+                _characterProfileIds.Remove(key);
+
+            foreach (var (slot, profileId) in profileIds)
+                SetCharacterProfileIdUnsafe(userId, slot, profileId);
+        }
+
+        private void InvalidateCharacterSlotIdentity(NetUserId userId, int slot)
+        {
+            CharacterSlotIdentityInvalidated invalidation;
+            lock (_characterSlotGenerationLock)
+                invalidation = InvalidateCharacterSlotIdentityUnsafe(userId, slot);
+
+            CharacterSlotIdentityInvalidated?.Invoke(invalidation);
+        }
+
+        private CharacterSlotIdentityInvalidated InvalidateCharacterSlotIdentityUnsafe(NetUserId userId, int slot)
+        {
+            var key = (userId, slot);
+            var generation = unchecked(GetCharacterSlotGenerationUnsafe(userId, slot) + 1);
+            _characterSlotGenerations[key] = generation;
+            return new CharacterSlotIdentityInvalidated(userId, slot, generation);
+        }
+
+        private long GetCharacterSlotGenerationUnsafe(NetUserId userId, int slot)
+        {
+            return _characterSlotGenerations.GetValueOrDefault((userId, slot));
+        }
+
+        private void InvalidateAllCharacterSlotIdentities(NetUserId userId, PlayerPreferences? replacement = null)
+        {
+            CharacterSlotIdentityInvalidated[] invalidations;
+            lock (_characterSlotGenerationLock)
+                invalidations = InvalidateAllCharacterSlotIdentitiesUnsafe(userId, replacement);
+
+            foreach (var invalidation in invalidations)
+                CharacterSlotIdentityInvalidated?.Invoke(invalidation);
+        }
+
+        private CharacterSlotIdentityInvalidated[] InvalidateAllCharacterSlotIdentitiesUnsafe(
+            NetUserId userId,
+            PlayerPreferences? replacement = null)
+        {
+            var slots = new HashSet<int>();
+            if (_cachedPlayerPrefs.TryGetValue(userId, out var cached) && cached.Prefs != null)
+                slots.UnionWith(cached.Prefs.Characters.Keys);
+            if (replacement != null)
+                slots.UnionWith(replacement.Characters.Keys);
+
+            return slots
+                .Select(slot => InvalidateCharacterSlotIdentityUnsafe(userId, slot))
+                .ToArray();
+        }
+
+        private void HandleDeleteCharacterMessage(MsgDeleteCharacter message)
+        {
+            ObservePreferenceMutation(
+                DeleteCharacterAsync(message),
+                "delete character",
+                message.MsgChannel.UserId);
+        }
+
+        private async Task DeleteCharacterAsync(MsgDeleteCharacter message)
         {
             var slot = message.Slot;
             var userId = message.MsgChannel.UserId;
+            using var mutation = await AcquireProfileMutationAsync(new[] { userId });
 
             if (!_cachedPlayerPrefs.TryGetValue(userId, out var prefsData) || !prefsData.PrefsLoaded)
             {
@@ -193,8 +589,10 @@ namespace Content.Server.Preferences.Managers
 
             var arr = new Dictionary<int, ICharacterProfile>(curPrefs.Characters);
             arr.Remove(slot);
-
-            prefsData.Prefs = new PlayerPreferences(arr, nextSlot ?? curPrefs.SelectedCharacterIndex, curPrefs.AdminOOCColor);
+            var stagedPreferences = new PlayerPreferences(
+                arr,
+                nextSlot ?? curPrefs.SelectedCharacterIndex,
+                curPrefs.AdminOOCColor);
 
             if (ShouldStorePrefs(message.MsgChannel.AuthType))
             {
@@ -207,11 +605,22 @@ namespace Content.Server.Preferences.Managers
                     await _db.SaveCharacterSlotAsync(userId, null, slot);
                 }
             }
+
+            CharacterSlotIdentityInvalidated invalidation;
+            lock (_characterSlotGenerationLock)
+            {
+                _characterProfileIds.Remove((userId, slot));
+                invalidation = InvalidateCharacterSlotIdentityUnsafe(userId, slot);
+                prefsData.Prefs = stagedPreferences;
+            }
+
+            CharacterSlotIdentityInvalidated?.Invoke(invalidation);
         }
 
         // Should only be called via UserDbDataManager.
         public async Task LoadData(ICommonSession session, CancellationToken cancel)
         {
+            using var mutation = await AcquireProfileMutationAsync(new[] { session.UserId }, cancel);
             if (!ShouldStorePrefs(session.Channel.AuthType))
             {
                 // Don't store data for guests.
@@ -223,26 +632,30 @@ namespace Content.Server.Preferences.Managers
                         0, Color.Transparent)
                 };
 
-                _cachedPlayerPrefs[session.UserId] = prefsData;
+                lock (_characterSlotGenerationLock)
+                {
+                    ReplaceCharacterProfileIdsUnsafe(session.UserId, new Dictionary<int, int>());
+                    _cachedPlayerPrefs[session.UserId] = prefsData;
+                }
             }
             else
             {
-                var prefsData = new PlayerPrefData();
-                var loadTask = LoadPrefs();
-                _cachedPlayerPrefs[session.UserId] = prefsData;
-
-                await loadTask;
-
-                async Task LoadPrefs()
+                var snapshot = await GetOrCreatePreferencesSnapshotAsync(session.UserId, cancel);
+                var prefsData = new PlayerPrefData
                 {
-                    var prefs = await GetOrCreatePreferencesAsync(session.UserId, cancel);
-                    prefsData.Prefs = prefs;
+                    Prefs = snapshot.Preferences,
+                };
+                lock (_characterSlotGenerationLock)
+                {
+                    ReplaceCharacterProfileIdsUnsafe(session.UserId, snapshot.ProfileIdsBySlot);
+                    _cachedPlayerPrefs[session.UserId] = prefsData;
                 }
             }
         }
 
-        public void FinishLoad(ICommonSession session)
+        public async Task FinishLoadAsync(ICommonSession session)
         {
+            using var mutation = await AcquireProfileMutationAsync(new[] { session.UserId });
             // This is a separate step from the actual database load.
             // Sanitizing preferences requires play time info due to loadouts.
             // And play time info is loaded concurrently from the DB with preferences.
@@ -265,9 +678,19 @@ namespace Content.Server.Preferences.Managers
                 _entityManager.EventBus.RaiseLocalEvent(session.AttachedEntity.Value, new PreferencesLoadedEvent(session, prefsData.Prefs));
         }
 
-        public void OnClientDisconnected(ICommonSession session)
+        public async Task OnClientDisconnectedAsync(ICommonSession session)
         {
-            _cachedPlayerPrefs.Remove(session.UserId);
+            using var mutation = await AcquireProfileMutationAsync(new[] { session.UserId });
+            CharacterSlotIdentityInvalidated[] invalidations;
+            lock (_characterSlotGenerationLock)
+            {
+                invalidations = InvalidateAllCharacterSlotIdentitiesUnsafe(session.UserId);
+                ReplaceCharacterProfileIdsUnsafe(session.UserId, new Dictionary<int, int>());
+                _cachedPlayerPrefs.Remove(session.UserId);
+            }
+
+            foreach (var invalidation in invalidations)
+                CharacterSlotIdentityInvalidated?.Invoke(invalidation);
         }
 
         public bool HavePreferencesLoaded(ICommonSession session)
@@ -322,49 +745,61 @@ namespace Content.Server.Preferences.Managers
             return null;
         }
 
-        private async Task<PlayerPreferences> GetOrCreatePreferencesAsync(NetUserId userId, CancellationToken cancel)
+        private async Task<PlayerPreferencesSnapshot> GetOrCreatePreferencesSnapshotAsync(
+            NetUserId userId,
+            CancellationToken cancel)
         {
-            var prefs = await _db.GetPlayerPreferencesAsync(userId, cancel);
-            if (prefs is null)
-            {
-                return await _db.InitPrefsAsync(userId, HumanoidCharacterProfile.Random(), cancel);
-            }
+            var snapshot = await _db.GetPlayerPreferencesSnapshotAsync(userId, cancel);
+            if (snapshot != null)
+                return snapshot;
 
-            return prefs;
+            await _db.InitPrefsAsync(userId, HumanoidCharacterProfile.Random(), cancel);
+            return await _db.GetPlayerPreferencesSnapshotAsync(userId, cancel) ??
+                   throw new InvalidOperationException($"Could not load initialized preferences for {userId}.");
         }
 
         public async Task RefreshPreferencesAsync(ICommonSession session, CancellationToken cancel)
         {
+            var refreshEpoch = BeginRefreshRequest(session.UserId);
+            using var mutation = await AcquireProfileMutationAsync(new[] { session.UserId }, cancel);
             if (!_cachedPlayerPrefs.TryGetValue(session.UserId, out var prefsData))
                 return;
 
-            var loadTask = LoadPrefs();
-            _cachedPlayerPrefs[session.UserId] = prefsData;
+            var snapshot = await _db.GetPlayerPreferencesSnapshotAsync(session.UserId, cancel);
+            if (snapshot == null)
+                return;
 
-            await loadTask;
-            return;
-
-            async Task LoadPrefs()
+            CharacterSlotIdentityInvalidated[] invalidations;
+            lock (_characterSlotGenerationLock)
             {
-                var prefs = await _db.GetPlayerPreferencesAsync(session.UserId, cancel);
-
-                if (prefs != null)
+                if (_refreshRequestEpochs.GetValueOrDefault(session.UserId) != refreshEpoch ||
+                    !_cachedPlayerPrefs.TryGetValue(session.UserId, out var currentPrefsData) ||
+                    !ReferenceEquals(currentPrefsData, prefsData))
                 {
-                    prefsData.Prefs = prefs;
-                    prefsData.PrefsLoaded = true;
-
-                    var msg = new MsgPreferencesAndSettings
-                    {
-                        Preferences = prefs,
-                        Settings = new GameSettings
-                        {
-                            MaxCharacterSlots = MaxCharacterSlots
-                        }
-                    };
-
-                    _netManager.ServerSendMessage(msg, session.Channel);
+                    return;
                 }
+
+                invalidations = InvalidateAllCharacterSlotIdentitiesUnsafe(
+                    session.UserId,
+                    snapshot.Preferences);
+                ReplaceCharacterProfileIdsUnsafe(session.UserId, snapshot.ProfileIdsBySlot);
+                prefsData.Prefs = snapshot.Preferences;
+                prefsData.PrefsLoaded = true;
             }
+
+            foreach (var invalidation in invalidations)
+                CharacterSlotIdentityInvalidated?.Invoke(invalidation);
+
+            var msg = new MsgPreferencesAndSettings
+            {
+                Preferences = snapshot.Preferences,
+                Settings = new GameSettings
+                {
+                    MaxCharacterSlots = MaxCharacterSlots
+                }
+            };
+
+            _netManager.ServerSendMessage(msg, session.Channel);
         }
 
 
@@ -402,8 +837,8 @@ namespace Content.Server.Preferences.Managers
         void IPostInjectInit.PostInject()
         {
             _userDb.AddOnLoadPlayer(LoadData);
-            _userDb.AddOnFinishLoad(FinishLoad);
-            _userDb.AddOnPlayerDisconnect(OnClientDisconnected);
+            _userDb.AddOnFinishLoadAsync(FinishLoadAsync);
+            _userDb.AddOnPlayerDisconnectAsync(OnClientDisconnectedAsync);
         }
     }
 

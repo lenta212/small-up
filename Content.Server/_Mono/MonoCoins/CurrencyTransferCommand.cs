@@ -77,26 +77,104 @@ public sealed partial class CurrencyTransferCommand : LocalizedCommands
 
         var senderUserId = senderSession.UserId;
         var targetUserId = targetSession.UserId;
+        long committedSenderBalance;
+        long committedTargetBalance;
+        Guid committedOperationId;
 
         try
         {
-            // Check if sender has enough MonoCoins
-            var senderBalance = await _coins.GetMonoCoinsBalanceAsync(senderUserId);
-            if (senderBalance < amount)
+            var result = await _coins.TransferMonoCoinsAsync(
+                senderUserId,
+                targetUserId,
+                amount,
+                Guid.NewGuid());
+
+            if (result.Status == MonoCoinsTransferStatus.PendingOperation)
             {
-                shell.WriteError($"Insufficient currency. You have ${senderBalance}, cannot transfer ${amount}.");
+                var pending = await _coins.GetUnacknowledgedMonoCoinsTransferAsync(senderUserId);
+                if (pending is { } recovery)
+                {
+                    try
+                    {
+                        shell.WriteError(
+                            $"A previous transfer of ${recovery.Amount} to {recovery.RecipientUserId} " +
+                            $"already committed. This request was not executed; run it again if still desired.");
+                    }
+                    finally
+                    {
+                        // Observing the durable recovery record closes it. If this
+                        // acknowledgement fails, the next invocation reports it again.
+                        try
+                        {
+                            await _coins.AcknowledgeMonoCoinsTransferAsync(
+                                senderUserId,
+                                recovery.OperationId);
+                        }
+                        catch
+                        {
+                            // The committed transfer remains recoverable in the journal.
+                        }
+                    }
+                }
+                else
+                {
+                    shell.WriteError("Another currency transfer is pending reconciliation.");
+                }
+
                 return;
             }
 
-            // Perform the transfer (subtract from sender, add to target)
-            var newSenderBalance = await _coins.AddMonoCoinsAsync(senderUserId, -amount);
-            var newTargetBalance = await _coins.AddMonoCoinsAsync(targetUserId, amount);
+            if (!result.Success)
+            {
+                var error = result.Status switch
+                {
+                    MonoCoinsTransferStatus.InsufficientFunds =>
+                        $"Insufficient currency. You have ${result.SenderBalance}, cannot transfer ${amount}.",
+                    MonoCoinsTransferStatus.RecipientOverflow =>
+                        "The recipient balance cannot hold this transfer.",
+                    MonoCoinsTransferStatus.SenderNotFound =>
+                        "Your MonoCoins account no longer exists.",
+                    MonoCoinsTransferStatus.RecipientNotFound =>
+                        "The recipient MonoCoins account no longer exists.",
+                    MonoCoinsTransferStatus.Blocked =>
+                        "Transfer blocked pending MonoCoins reconciliation.",
+                    MonoCoinsTransferStatus.UnknownOutcome =>
+                        "Transfer outcome is unknown; both accounts are blocked pending reconciliation.",
+                    _ => $"Transfer was rejected ({result.Status}).",
+                };
+                shell.WriteError(error);
+                return;
+            }
 
-            // Notify both players
-            shell.WriteLine($"Successfully transferred ${amount} to {targetPlayerName}. New balance: ${newSenderBalance}");
+            // Nothing below this point in the mutation block may be a fallible
+            // notification. The atomic DB operation is authoritative now, so a
+            // UI/chat failure must never be reported as a failed transfer and
+            // encourage the sender to repeat it.
+            committedSenderBalance = result.SenderBalance;
+            committedTargetBalance = result.RecipientBalance;
+            committedOperationId = result.OperationId;
+        }
+        catch (Exception ex)
+        {
+            shell.WriteError($"Transfer failed due to database error: {ex.Message}");
+            return;
+        }
 
-            // Notify the target player via chat
-            var notificationMessage = $"Received ${amount} from {senderSession.Name}. New balance: ${newTargetBalance}";
+        try
+        {
+            shell.WriteLine(
+                $"Successfully transferred ${amount} to {targetPlayerName}. " +
+                $"New balance: ${committedSenderBalance}");
+        }
+        catch
+        {
+            // The transfer is committed. Console delivery is best effort only.
+        }
+
+        try
+        {
+            var notificationMessage =
+                $"Received ${amount} from {senderSession.Name}. New balance: ${committedTargetBalance}";
             _chatManager.ChatMessageToOne(
                 ChatChannel.Notifications,
                 notificationMessage,
@@ -105,9 +183,18 @@ public sealed partial class CurrencyTransferCommand : LocalizedCommands
                 false,
                 targetSession.Channel);
         }
-        catch (Exception ex)
+        catch
         {
-            shell.WriteError($"Transfer failed due to database error: {ex.Message}");
+            // The transfer is committed. Chat delivery is best effort only.
+        }
+
+        try
+        {
+            await _coins.AcknowledgeMonoCoinsTransferAsync(senderUserId, committedOperationId);
+        }
+        catch
+        {
+            // Retry recovery remains available through the durable journal.
         }
     }
 

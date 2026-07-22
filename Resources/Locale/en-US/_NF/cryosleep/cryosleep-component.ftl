@@ -4,6 +4,12 @@ cryopod-examine-occupied = Occupied
 accept-cryo-window-accept-button = Accept
 accept-cryo-window-deny-button = Cancel
 accept-cryo-window-prompt-text-part = Enter cryo sleep and finish your shift?
+accept-cryo-window-rules-text = [color=#8fd7e5][bold]Cryosleep rules[/bold][/color]
+    Your body will be stored and you will immediately become a ghost.
+    If you return to your body, your character remembers nothing learned while observing as a ghost.
+    Returning requires an available cryopod and may be disabled by server settings.
+
+    Continue and finish your current shift?
 accept-cryo-window-title = Cryo Sleep Chamber
 
 cryo-wakeup-window-title = Waking up

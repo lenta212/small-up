@@ -11,6 +11,7 @@ using Content.Server.Roles.Jobs;
 using Content.Server.Station.Components;
 using Content.Server.Station.Systems;
 using Content.Shared.ActionBlocker;
+using Content.Shared.Bed.Sleep;
 using Content.Shared.Chat;
 using Content.Shared.Climbing.Systems;
 using Content.Shared._NF.CryoSleep;
@@ -19,7 +20,10 @@ using Content.Shared.DoAfter;
 using Content.Shared.DragDrop;
 using Content.Shared.Examine;
 using Content.Shared.GameTicking;
+using Content.Shared.Interaction;
+using Content.Shared.Ghost;
 using Content.Shared.Interaction.Events;
+using Content.Shared.Mind;
 using Content.Shared.Mind.Components;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Mobs.Systems;
@@ -39,8 +43,10 @@ using Robust.Shared.Network;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Timing;
 using Content.Server.Ghost;
+using Content.Server.Ghost.Components;
 using Content.Shared.Roles;
 using Content.Server._NF.Shuttles.Components;
+using Content.Server._LuaM.Cryo;
 
 namespace Content.Server._NF.CryoSleep;
 
@@ -68,6 +74,7 @@ public sealed partial class CryoSleepSystem : SharedCryoSleepSystem
     [Dependency] private JobSystem _jobs = default!;
     [Dependency] private StationJobsSystem _stationJobs = default!;
     [Dependency] private StationSystem _station = default!;
+    [Dependency] private LuaMDeepCryoPersistenceSystem _deepCryo = default!;
 
     private readonly Dictionary<NetUserId, StoredBody?> _storedBodies = new();
     private EntityUid? _storageMap;
@@ -79,6 +86,7 @@ public sealed partial class CryoSleepSystem : SharedCryoSleepSystem
         SubscribeLocalEvent<CryoSleepComponent, ComponentStartup>(OnInit);
         SubscribeLocalEvent<CryoSleepComponent, GetVerbsEvent<InteractionVerb>>(AddInsertOtherVerb);
         SubscribeLocalEvent<CryoSleepComponent, GetVerbsEvent<AlternativeVerb>>(AddAlternativeVerbs);
+        SubscribeLocalEvent<CryoSleepComponent, InteractHandEvent>(OnInteractHand);
         SubscribeLocalEvent<CryoSleepComponent, SuicideEvent>(OnSuicide);
         SubscribeLocalEvent<CryoSleepComponent, ExaminedEvent>(OnExamine);
         SubscribeLocalEvent<CryoSleepComponent, DestructionEventArgs>((e,c,_) => EjectBody(e, c));
@@ -112,11 +120,12 @@ public sealed partial class CryoSleepSystem : SharedCryoSleepSystem
 
     private void AddInsertOtherVerb(EntityUid uid, CryoSleepComponent component, GetVerbsEvent<InteractionVerb> args)
     {
-        if (!args.CanAccess || !args.CanInteract)
+        if (!args.CanAccess)
             return;
 
         // If the user is currently holding/pulling an entity that can be cryo-sleeped, add a verb for that.
-        if (args.Using is { Valid: true } @using &&
+        if (args.CanInteract &&
+            args.Using is { Valid: true } @using &&
             !IsOccupied(component) &&
             _interaction.InRangeUnobstructed(@using, args.Target) &&
             _actionBlocker.CanMove(@using) &&
@@ -134,15 +143,27 @@ public sealed partial class CryoSleepSystem : SharedCryoSleepSystem
             };
             args.Verbs.Add(verb);
         }
+
+        if (CanSelfEnterCryo(args.User, component, args.CanInteract))
+        {
+            InteractionVerb verb = new()
+            {
+                Act = () => InsertBody(args.User, component, false),
+                Category = VerbCategory.Insert,
+                Text = Loc.GetString("medical-scanner-verb-enter"),
+                Priority = 1
+            };
+            args.Verbs.Add(verb);
+        }
     }
 
     private void AddAlternativeVerbs(EntityUid uid, CryoSleepComponent component, GetVerbsEvent<AlternativeVerb> args)
     {
-        if (!args.CanAccess || !args.CanInteract)
+        if (!args.CanAccess)
             return;
 
         // Eject verb
-        if (IsOccupied(component))
+        if (args.CanInteract && IsOccupied(component))
         {
             AlternativeVerb verb = new()
             {
@@ -154,17 +175,40 @@ public sealed partial class CryoSleepSystem : SharedCryoSleepSystem
         }
 
         // Self-insert verb
-        if (!IsOccupied(component) &&
-            (_actionBlocker.CanMove(args.User))) // || HasComp<WheelchairBoundComponent>(args.User))) // just get working legs
+        if (CanSelfEnterCryo(args.User, component, args.CanInteract))
         {
             AlternativeVerb verb = new()
             {
                 Act = () => InsertBody(args.User, component, false),
                 Category = VerbCategory.Insert,
-                Text = Loc.GetString("medical-scanner-verb-enter")
+                Text = Loc.GetString("medical-scanner-verb-enter"),
+                Priority = 1
             };
             args.Verbs.Add(verb);
         }
+    }
+
+    private bool CanSelfEnterCryo(EntityUid user, CryoSleepComponent component, bool canInteract)
+    {
+        if (IsOccupied(component))
+            return false;
+
+        if (!canInteract && !HasComp<SleepingComponent>(user))
+            return false;
+
+        if (!TryComp<MobStateComponent>(user, out var mob) || !_mobSystem.IsAlive(user, mob))
+            return false;
+
+        return HasComp<MindContainerComponent>(user);
+    }
+
+    private void OnInteractHand(EntityUid uid, CryoSleepComponent component, InteractHandEvent args)
+    {
+        if (args.Handled || !CanSelfEnterCryo(args.User, component, true))
+            return;
+
+        if (InsertBody(args.User, component, false))
+            args.Handled = true;
     }
 
     private void OnSuicide(EntityUid uid, CryoSleepComponent component, SuicideEvent args)
@@ -192,15 +236,28 @@ public sealed partial class CryoSleepSystem : SharedCryoSleepSystem
     private void OnAutoCryoSleep(EntityUid uid, CryoSleepComponent component, CryoStoreDoAfterEvent args)
     {
         if (args.Cancelled || args.Handled)
+        {
+            ClearCryoStoreDoAfter(component);
             return;
+        }
 
         var pod = args.Used;
         var body = args.Target;
         if (body is not { Valid: true } || pod is not { Valid: true })
+        {
+            ClearCryoStoreDoAfter(component);
             return;
+        }
 
-        CryoStoreBody(body.Value, pod.Value);
         args.Handled = true;
+        ClearCryoStoreDoAfter(component);
+        // Let SharedDoAfterSystem finish and remove its pod/body references before
+        // the DB-first snapshot walks the entity graph.
+        Timer.Spawn(TimeSpan.Zero, () =>
+        {
+            if (Exists(body.Value) && Exists(pod.Value))
+                CryoStoreBody(body.Value, pod.Value);
+        });
     }
 
     private void OnEntityDragDropped(EntityUid uid, CryoSleepComponent component, DragDropTargetEvent args)
@@ -236,66 +293,193 @@ public sealed partial class CryoSleepSystem : SharedCryoSleepSystem
             return false;
         }
 
-        // If the inserted player has disconnected, it will be stored immediately.
-        if (_player.TryGetSessionByEntity(toInsert.Value, out var session)
-            && session.Status == SessionStatus.Disconnected)
+        var success = _container.Insert(toInsert.Value, component.BodyContainer);
+        if (!success)
+            return false;
+
+        if (_player.TryGetSessionByEntity(toInsert.Value, out var session) &&
+            session.Status != SessionStatus.Disconnected)
+        {
+            _euiManager.OpenEui(new CryoSleepEui(toInsert.Value, cryopod, this), session);
+            StartAutomaticCryoStore(toInsert.Value, cryopod, component);
+        }
+        else
         {
             CryoStoreBody(toInsert.Value, cryopod);
-            return true;
         }
 
-        var success = _container.Insert(toInsert.Value, component.BodyContainer);
+        return true;
+    }
 
-        if (success && session != null)
+    private void StartAutomaticCryoStore(EntityUid body, EntityUid cryopod, CryoSleepComponent component)
+    {
+        if (component.CryosleepDoAfter is { } existingDoAfter)
         {
-            _euiManager.OpenEui(new CryoSleepEui(toInsert.Value,  cryopod, this), session);
+            if (_doAfter.GetStatus(existingDoAfter) == DoAfterStatus.Running)
+                return;
+
+            ClearCryoStoreDoAfter(component);
         }
 
-        if (success)
+        var ev = new CryoStoreDoAfterEvent();
+        var args = new DoAfterArgs(
+            _entityManager,
+            body,
+            TimeSpan.FromSeconds(30),
+            ev,
+            cryopod,
+            body,
+            cryopod)
         {
-            // Start a do-after event - if the inserted body is still inside and has not decided to sleep/leave, it will be stored.
-            // It does not matter whether the entity has a mind or not.
-            var ev = new CryoStoreDoAfterEvent();
-            var args = new DoAfterArgs(
-                _entityManager,
-                toInsert.Value,
-                TimeSpan.FromSeconds(30),
-                ev,
-                cryopod,
-                toInsert,
-                cryopod
-            )
-            {
-                BreakOnMove = true,
-                BreakOnWeightlessMove = true
-            };
+            BreakOnMove = true,
+            BreakOnWeightlessMove = true,
+        };
 
-            if (_doAfter.TryStartDoAfter(args))
-                component.CryosleepDoAfter = ev.DoAfter.Id;
+        if (_doAfter.TryStartDoAfter(args))
+        {
+            component.CryosleepDoAfter = ev.DoAfter.Id;
         }
+        else
+        {
+            ClearCryoStoreDoAfter(component);
+        }
+    }
 
-        return success;
+    private void ClearCryoStoreDoAfter(CryoSleepComponent component)
+    {
+        component.CryosleepDoAfter = null;
+    }
+
+    private void CancelCryoStoreDoAfter(CryoSleepComponent component)
+    {
+        if (component.CryosleepDoAfter is not { } doAfter)
+            return;
+
+        if (_doAfter.GetStatus(doAfter) == DoAfterStatus.Running)
+            _doAfter.Cancel(doAfter);
+
+        ClearCryoStoreDoAfter(component);
     }
 
     public void CryoStoreBody(EntityUid bodyId, EntityUid cryopod)
     {
-        if (!TryComp<CryoSleepComponent>(cryopod, out var cryo))
+        // Manual confirmation and the 30-second fallback may race. The first
+        // durable store owns the body; a duplicate must not unghost or eject it.
+        if (_deepCryo.IsStorePending(bodyId))
             return;
+
+        if (!TryComp<CryoSleepComponent>(cryopod, out var cryo) ||
+            cryo.BodyContainer.ContainedEntity != bodyId)
+            return;
+
+        NetUserId? userId = null;
+        if (_deepCryo.TryGetIdentity(bodyId, out var stableUserId))
+            userId = stableUserId;
+        else if (_mind.TryGetMind(bodyId, out _, out var mind))
+            userId = mind.UserId;
+
+        if (!TryStartImmediateCryoGhost(bodyId, out var temporaryGhostVisit))
+        {
+            Log.Error($"Refused deep-cryo store for {ToPrettyString(bodyId)}: ghost-spawn-failed");
+            EjectBody(cryopod, body: bodyId);
+            return;
+        }
+
+        if (!_deepCryo.TryBeginStore(
+                bodyId,
+                cryopod,
+                userId,
+                LuaMDeepCryoSource.FrontierCryoSleep,
+                completion =>
+                {
+                    if (!completion.Success)
+                    {
+                        Log.Error($"Deep-cryo store failed for {ToPrettyString(bodyId)}: {completion.FailureReason}");
+                        RollbackImmediateCryoGhost(bodyId, cryopod, temporaryGhostVisit);
+                        return;
+                    }
+
+                    if (!Exists(bodyId) || !Exists(cryopod) ||
+                        !TryComp<CryoSleepComponent>(cryopod, out var currentCryo) ||
+                        currentCryo.BodyContainer.ContainedEntity != bodyId)
+                    {
+                        Log.Error($"Deep-cryo body/pod changed after durable store for {bodyId}.");
+                        return;
+                    }
+
+                    FinalizeCryoStoreBody(bodyId, cryopod, currentCryo);
+                },
+                out var reason))
+        {
+            Log.Error($"Refused deep-cryo store for {ToPrettyString(bodyId)}: {reason}");
+            RollbackImmediateCryoGhost(bodyId, cryopod, temporaryGhostVisit);
+        }
+    }
+
+    private bool TryStartImmediateCryoGhost(
+        EntityUid bodyId,
+        out (EntityUid Mind, EntityUid Ghost)? temporaryVisit)
+    {
+        temporaryVisit = null;
+        if (!_mind.TryGetMind(bodyId, out var mindId, out var mind) || mind.VisitingEntity != null)
+            return true;
+
+        if (_ghost.SpawnGhost((mindId, mind), bodyId, canReturn: true) is { } ghost)
+        {
+            temporaryVisit = (mindId, ghost);
+            return true;
+        }
+
+        // SpawnGhost detaches the mind when no valid observer position exists.
+        // Restore control before returning the body to the player.
+        if (Exists(bodyId) && mind.OwnedEntity != bodyId)
+            _mind.TransferTo(mindId, bodyId, createGhost: false, mind: mind);
+
+        return false;
+    }
+
+    private void RollbackImmediateCryoGhost(
+        EntityUid bodyId,
+        EntityUid cryopod,
+        (EntityUid Mind, EntityUid Ghost)? temporaryVisit)
+    {
+        if (temporaryVisit is { } visit &&
+            TryComp<MindComponent>(visit.Mind, out var mind) &&
+            mind.OwnedEntity == bodyId &&
+            mind.VisitingEntity == visit.Ghost)
+        {
+            _mind.UnVisit(visit.Mind, mind);
+        }
+
+        EjectBody(cryopod, body: bodyId);
+    }
+
+    private void FinalizeCryoStoreBody(EntityUid bodyId, EntityUid cryopod, CryoSleepComponent cryo)
+    {
 
         NetUserId? id = null;
         var characterName = "Unknown";
         string? jobTitle = null;
 
-        if (_mind.TryGetMind(bodyId, out var mindEntity, out var mind) && mind.CurrentEntity is { Valid : true } body)
+        if (_mind.TryGetMind(bodyId, out var mindEntity, out var mind) && mind.OwnedEntity == bodyId)
         {
             var argMind = mind;
             RaiseLocalEvent(bodyId, new CryosleepBeforeMindRemovedEvent(cryopod, argMind?.UserId), true);
-            _ghost.OnGhostAttempt(mindEntity, false, true, mind: mind);
+
+            if (mind.VisitingEntity is { } ghost && TryComp<GhostComponent>(ghost, out var ghostComponent))
+            {
+                _ghost.SetCanReturnToBody(ghost, false, ghostComponent);
+                _mind.TransferTo(mindEntity, ghost, mind: mind);
+            }
+            else
+            {
+                _ghost.OnGhostAttempt(mindEntity, false, true, mind: mind);
+            }
 
             id = mind.UserId;
             if (id != null)
             {
-                _storedBodies[id.Value] = new StoredBody() { Body = body, Cryopod = cryopod };
+                _storedBodies[id.Value] = new StoredBody() { Body = bodyId, Cryopod = cryopod };
 
                 // Get the player's current job prototype, first from mind, then from component
                 string? currentJobPrototype = null;
@@ -390,8 +574,7 @@ public sealed partial class CryoSleepSystem : SharedCryoSleepSystem
 
         RaiseLocalEvent(bodyId, new CryosleepEnterEvent(cryopod, mind?.UserId), true);
 
-        if (cryo.CryosleepDoAfter != null && _doAfter.GetStatus(cryo.CryosleepDoAfter) == DoAfterStatus.Running)
-            _doAfter.Cancel(cryo.CryosleepDoAfter);
+        CancelCryoStoreDoAfter(cryo);
 
         // Get the pod's location information for the radio message
         string message;
@@ -490,18 +673,23 @@ public sealed partial class CryoSleepSystem : SharedCryoSleepSystem
         if (toEject == null)
             return false;
 
+        // Once serialization has started, ejecting would invalidate the body that
+        // is being committed. Failure clears the fence and leaves it in the pod.
+        if (_deepCryo.IsStorePending(toEject.Value))
+            return false;
+
         _container.Remove(toEject.Value, component.BodyContainer, force: true);
         //_climb.ForciblySetClimbing(toEject.Value, pod);
 
-        if (component.CryosleepDoAfter != null && _doAfter.GetStatus(component.CryosleepDoAfter) == DoAfterStatus.Running)
-            _doAfter.Cancel(component.CryosleepDoAfter);
+        CancelCryoStoreDoAfter(component);
 
         return true;
     }
 
     private bool IsOccupied(CryoSleepComponent component)
     {
-        return component.BodyContainer.ContainedEntity != null;
+        return component.BodyContainer.ContainedEntity != null ||
+               HasComp<LuaMDeepCryoRestoreReservationComponent>(component.Owner);
     }
 
     private void OnRoundEnded(RoundEndedEvent args)

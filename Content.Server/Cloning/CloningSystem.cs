@@ -313,8 +313,11 @@ namespace Content.Server.Cloning
             {
                 foreach (var special in prototype.Special)
                 {
-                    if (special is AddComponentSpecial)
+                    if (special is AddComponentSpecial ||
+                        special is AddImplantSpecial { ApplyOnClone: true })
+                    {
                         special.AfterEquip(mob);
+                    }
                 }
             }
 

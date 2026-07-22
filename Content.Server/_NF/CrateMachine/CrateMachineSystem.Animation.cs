@@ -104,4 +104,25 @@ public sealed partial class CrateMachineSystem : SharedCrateMachineSystem
         component.OpeningTimeRemaining = component.OpeningTime;
         UpdateVisualState(crateMachineUid, component);
     }
+
+    /// <summary>
+    /// Reprojects the visual state after a caller rolls back a prepared open.
+    /// </summary>
+    public void RefreshVisualState(EntityUid crateMachineUid, CrateMachineComponent component)
+    {
+        UpdateVisualState(crateMachineUid, component);
+    }
+
+    /// <summary>
+    /// Restores a prepared opening timer and its visual projection from the
+    /// crate-machine system, which owns write access to this component.
+    /// </summary>
+    public void RestoreOpeningTime(
+        EntityUid crateMachineUid,
+        CrateMachineComponent component,
+        float openingTimeRemaining)
+    {
+        component.OpeningTimeRemaining = openingTimeRemaining;
+        UpdateVisualState(crateMachineUid, component);
+    }
 }

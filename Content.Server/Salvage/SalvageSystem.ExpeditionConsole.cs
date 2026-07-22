@@ -28,10 +28,7 @@ public sealed partial class SalvageSystem
 
     private void OnSalvageClaimMessage(EntityUid uid, SalvageExpeditionConsoleComponent component, ClaimSalvageMessage args)
     {
-        var station = _station.GetOwningStation(uid);
-
-        // Frontier
-        if (!TryComp<SalvageExpeditionDataComponent>(station, out var data) || data.Claimed) // Moved up before the active expedition count
+        if (!TryEnsureConsoleExpeditionData(uid, out var station, out var data) || data.Claimed)
             return;
 
         var activeExpeditionCount = 0;
@@ -44,7 +41,7 @@ public sealed partial class SalvageSystem
         {
             PlayDenySound(uid, component);
             _popupSystem.PopupEntity(Loc.GetString("shuttle-ftl-too-many"), uid, PopupType.MediumCaution);
-            UpdateConsoles(station.Value, data);
+            UpdateConsoles(station, data);
             return;
         }
         // End Frontier
@@ -58,7 +55,7 @@ public sealed partial class SalvageSystem
         {
             if (!TryComp<StationDataComponent>(station, out var stationData))
                 return;
-            if (_station.GetLargestGrid((station!.Value, stationData)) is not { Valid: true } grid)
+            if (_station.GetLargestGrid((station, stationData)) is not { Valid: true } grid)
                 return;
             if (!TryComp<MapGridComponent>(grid, out var gridComp))
                 return;
@@ -68,7 +65,7 @@ public sealed partial class SalvageSystem
             {
                 PlayDenySound(uid, component);
                 _popupSystem.PopupEntity(Loc.GetString("shuttle-ftl-recharge"), uid, PopupType.MediumCaution);
-                UpdateConsoles(station.Value, data); // Sure, why not?
+                UpdateConsoles(station, data); // Sure, why not?
                 return;
             }
 
@@ -127,7 +124,7 @@ public sealed partial class SalvageSystem
 
                 PlayDenySound(uid, component);
                 _popupSystem.PopupEntity(Loc.GetString("shuttle-ftl-proximity"), uid, PopupType.Medium);
-                UpdateConsoles(station.Value, data);
+                UpdateConsoles(station, data);
                 return;
             }
         }
@@ -135,7 +132,7 @@ public sealed partial class SalvageSystem
 
         // Frontier  change - disable coordinate disks for expedition missions
         //var cdUid = Spawn(CoordinatesDisk, Transform(uid).Coordinates);
-        SpawnMission(missionparams, station.Value, null);
+        SpawnMission(missionparams, station, null);
 
         data.ActiveMission = args.Index;
         var mission = GetMission(missionparams.MissionType, missionparams.Difficulty, missionparams.Seed);
@@ -145,7 +142,7 @@ public sealed partial class SalvageSystem
         //_labelSystem.Label(cdUid, GetFTLName(_prototypeManager.Index<LocalizedDatasetPrototype>("NamesBorer"), missionparams.Seed));
         //_audio.PlayPvs(component.PrintSound, uid);
 
-        UpdateConsoles(station.Value, data); // Frontier: add station
+        UpdateConsoles(station, data); // Frontier: add station
     }
 
     // Frontier: early expedition end
@@ -221,12 +218,47 @@ public sealed partial class SalvageSystem
 
     private void OnSalvageConsoleInit(Entity<SalvageExpeditionConsoleComponent> console, ref ComponentInit args)
     {
+        TryEnsureConsoleExpeditionData(console.Owner, out _, out _);
         UpdateConsole(console);
     }
 
     private void OnSalvageConsoleParent(Entity<SalvageExpeditionConsoleComponent> console, ref EntParentChangedMessage args)
     {
+        TryEnsureConsoleExpeditionData(console.Owner, out _, out _);
         UpdateConsole(console);
+    }
+
+
+    private bool TryEnsureConsoleExpeditionData(
+        EntityUid consoleUid,
+        out EntityUid stationUid,
+        out SalvageExpeditionDataComponent data)
+    {
+        data = default!;
+        stationUid = EntityUid.Invalid;
+
+        if (!TryComp(consoleUid, out TransformComponent? xform))
+            return false;
+
+        var station = _station.GetOwningStation(consoleUid, xform);
+        if (station is not { Valid: true })
+            return false;
+
+        stationUid = station.Value;
+        if (TryComp<SalvageExpeditionDataComponent>(stationUid, out var existingData))
+        {
+            data = existingData;
+            return true;
+        }
+
+        if (xform.GridUid is not { Valid: true } grid || !HasComp<ShuttleComponent>(grid))
+            return false;
+
+        data = EnsureComp<SalvageExpeditionDataComponent>(stationUid);
+        if (data.Missions.Count == 0)
+            GenerateMissions(data);
+
+        return true;
     }
 
     private void UpdateConsoles(EntityUid stationUid, SalvageExpeditionDataComponent component)
@@ -259,8 +291,9 @@ public sealed partial class SalvageSystem
         var station = _station.GetOwningStation(component);
         SalvageExpeditionConsoleState state;
 
-        if (TryComp<SalvageExpeditionDataComponent>(station, out var dataComponent))
+        if (TryEnsureConsoleExpeditionData(component.Owner, out var ensuredStation, out var dataComponent))
         {
+            station = ensuredStation;
             state = GetState(dataComponent);
         }
         else

@@ -19,6 +19,13 @@ namespace Content.Server.Stack
 
         public static readonly int[] DefaultSplitAmounts = { 1, 5, 10, 20, 50, 100, 500, 1000, 5000, 10000 };
 
+        /// <summary>
+        /// Hard safety bound for a single bulk-spawn call. Callers that need more
+        /// entities must explicitly batch across ticks instead of allocating and
+        /// spawning an attacker-controlled number in one transaction.
+        /// </summary>
+        public const int MaxSpawnedEntitiesPerCall = 1024;
+
         public override void Initialize()
         {
             base.Initialize();
@@ -88,11 +95,23 @@ namespace Content.Server.Stack
         {
             // Set the output result parameter to the new stack entity...
             var entity = Spawn(prototype.Spawn, spawnPosition);
-            var stack = Comp<StackComponent>(entity);
+            try
+            {
+                var stack = Comp<StackComponent>(entity);
 
-            // And finally, set the correct amount!
-            SetCount(entity, amount, stack);
-            return entity;
+                // And finally, set the correct amount!
+                SetCount(entity, amount, stack);
+                return entity;
+            }
+            catch
+            {
+                // A caller such as an ATM may compensate its durable debit when
+                // this method throws. Ensure the corresponding cash entity cannot
+                // survive that compensation as a free payout.
+                if (!Deleted(entity))
+                    QueueDel(entity);
+                throw;
+            }
         }
 
         /// <summary>
@@ -111,11 +130,27 @@ namespace Content.Server.Stack
             var spawns = CalculateSpawns(entityPrototype, amount);
 
             var spawnedEnts = new List<EntityUid>();
-            foreach (var count in spawns)
+            try
             {
-                var entity = SpawnAtPosition(entityPrototype, spawnPosition);
-                spawnedEnts.Add(entity);
-                SetCount(entity, count);
+                foreach (var count in spawns)
+                {
+                    var entity = SpawnAtPosition(entityPrototype, spawnPosition);
+                    spawnedEnts.Add(entity);
+                    SetCount(entity, count);
+                }
+            }
+            catch
+            {
+                // Never leak a partially-created payout when a later spawn or
+                // stack initialization fails. Callers cannot recover entities from
+                // a method that threw before returning its result.
+                foreach (var entity in spawnedEnts)
+                {
+                    if (!Deleted(entity))
+                        QueueDel(entity);
+                }
+
+                throw;
             }
 
             return spawnedEnts;
@@ -134,11 +169,24 @@ namespace Content.Server.Stack
             var spawns = CalculateSpawns(entityPrototype, amount);
 
             var spawnedEnts = new List<EntityUid>();
-            foreach (var count in spawns)
+            try
             {
-                var entity = SpawnNextToOrDrop(entityPrototype, target);
-                spawnedEnts.Add(entity);
-                SetCount(entity, count);
+                foreach (var count in spawns)
+                {
+                    var entity = SpawnNextToOrDrop(entityPrototype, target);
+                    spawnedEnts.Add(entity);
+                    SetCount(entity, count);
+                }
+            }
+            catch
+            {
+                foreach (var entity in spawnedEnts)
+                {
+                    if (!Deleted(entity))
+                        QueueDel(entity);
+                }
+
+                throw;
             }
 
             return spawnedEnts;
@@ -155,7 +203,25 @@ namespace Content.Server.Stack
             var proto = _prototypeManager.Index<EntityPrototype>(entityPrototype);
             proto.TryGetComponent<StackComponent>(out var stack, EntityManager.ComponentFactory);
             var maxCountPerStack = GetMaxCount(stack);
-            var amounts = new List<int>();
+            if (maxCountPerStack <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"Refused to spawn {amount} units of {entityPrototype}: " +
+                    $"invalid maximum stack size {maxCountPerStack}.");
+            }
+
+            var entityCount = ((long) amount + maxCountPerStack - 1L) / maxCountPerStack;
+            if (entityCount > MaxSpawnedEntitiesPerCall)
+            {
+                throw new InvalidOperationException(
+                    $"Refused to spawn {amount} units of {entityPrototype}: " +
+                    $"the payout requires {entityCount} entities, exceeding the per-call limit " +
+                    $"of {MaxSpawnedEntitiesPerCall}.");
+            }
+
+            // Do not allocate a payout-sized plan until its entity count has
+            // passed the hard bound above.
+            var amounts = new List<int>((int) entityCount);
             while (amount > 0)
             {
                 var countAmount = Math.Min(maxCountPerStack, amount);

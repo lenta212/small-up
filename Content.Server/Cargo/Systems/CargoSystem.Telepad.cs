@@ -65,9 +65,8 @@ public sealed partial class CargoSystem
                 continue;
             }
 
-            var station = _station.GetOwningStation(console);
-
-            if (!TryComp<StationCargoOrderDatabaseComponent>(station, out var orderDatabase) ||
+            if (!TryEnsureCargoOrderDatabase(console, out var station, out var orderDatabase) ||
+                station is not { Valid: true } stationUid ||
                 orderDatabase.Orders.Count == 0)
             {
                 comp.Accumulator += comp.Delay;
@@ -81,7 +80,7 @@ public sealed partial class CargoSystem
             if (FulfillNextOrder(consoleUidList, orderDatabase, xform.Coordinates, comp.PrinterOutput))
             {
                 _audio.PlayPvs(_audio.ResolveSound(comp.TeleportSound), uid, AudioParams.Default.WithVolume(-8f));
-                UpdateOrders(station.Value); // Frontier
+                UpdateOrders(stationUid); // Frontier
 
                 comp.CurrentState = CargoTelepadState.Teleporting;
                 _appearance.SetData(uid, CargoTelepadVisuals.State, CargoTelepadState.Teleporting, appearance);

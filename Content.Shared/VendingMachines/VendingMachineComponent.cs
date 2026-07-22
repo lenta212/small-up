@@ -14,6 +14,12 @@ namespace Content.Shared.VendingMachines
     public sealed partial class VendingMachineComponent : Component
     {
         /// <summary>
+        /// Maximum number of items that can be bought in one request.
+        /// This bounds both network input and the number of entities spawned in one update.
+        /// </summary>
+        public const int MaxPurchaseQuantity = 30;
+
+        /// <summary>
         /// PrototypeID for the vending machine's inventory, see <see cref="VendingMachineInventoryPrototype"/>
         /// </summary>
         [DataField("pack", customTypeSerializer: typeof(PrototypeIdSerializer<VendingMachineInventoryPrototype>), required: true)]
@@ -82,6 +88,12 @@ namespace Content.Shared.VendingMachines
         public bool DispenseOnHitCoolingDown;
 
         public string? NextItemToEject;
+
+        /// <summary>
+        /// Number of copies reserved by the current vend operation.
+        /// Server-only runtime state; normal and random vends leave this at one.
+        /// </summary>
+        public int NextItemToEjectQuantity = 1;
 
         [DataField]
         public bool Broken;
@@ -257,14 +269,23 @@ namespace Content.Shared.VendingMachines
     }
 
     [Serializable, NetSerializable]
-    public sealed class VendingMachineInventoryEntry
+    [DataDefinition]
+    public sealed partial class VendingMachineInventoryEntry
     {
+        [DataField]
         [ViewVariables(VVAccess.ReadWrite)]
         public InventoryType Type;
+        [DataField]
         [ViewVariables(VVAccess.ReadWrite)]
-        public string ID;
+        public string ID = string.Empty;
+        [DataField]
         [ViewVariables(VVAccess.ReadWrite)]
         public uint Amount;
+
+        public VendingMachineInventoryEntry()
+        {
+        }
+
         public VendingMachineInventoryEntry(InventoryType type, string id, uint amount)
         {
             Type = type;

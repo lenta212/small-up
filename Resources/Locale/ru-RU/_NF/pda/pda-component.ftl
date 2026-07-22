@@ -7,12 +7,17 @@ comp-pda-ui-bank-id = Банковский ID: [color=white]{ $id }[/color]
 comp-pda-ui-bank-id-copied = [color=green]Банковский ID { $id } скопирован.[/color]
 comp-pda-ui-bank-transfer-recipient-placeholder = ID получателя
 comp-pda-ui-bank-transfer-amount-placeholder = Сумма
+comp-pda-ui-bank-transfer-recipient-label = Банковский ID получателя
+comp-pda-ui-bank-transfer-amount-label = Целая сумма
+comp-pda-ui-bank-transfer-id-hint = Скопируйте банковский ID из КПК получателя. Не отправляйте деньги только по имени персонажа.
+comp-pda-ui-bank-transfer-title = Защищённый перевод
+comp-pda-ui-bank-transfer-description = Введите банковский ID получателя и положительную целую сумму. Перед отправкой появится экран проверки.
 comp-pda-ui-bank-transfer-send = Перевести
 comp-pda-ui-bank-transfer-confirm = Подтвердить перевод
 comp-pda-ui-bank-transfer-cancel = Отмена
 comp-pda-ui-bank-transfer-acknowledge = Подтвердить результат
-comp-pda-ui-bank-transfer-confirmation = [color=yellow]Подтвердите перевод[/color]\nПолучатель: [bold]{ $recipient }[/bold]\nБанковский ID: [bold]{ $id }[/bold]\nСумма: [bold]{ $amount }[/bold]\nОперация: { $operation }
-comp-pda-ui-bank-transfer-recovered = [color=yellow]Восстановлен выполненный перевод[/color]\nПолучатель: [bold]{ $recipient }[/bold] [{ $id }]\nСумма: [bold]{ $amount }[/bold]\nБаланс после перевода: { $balance }\nОперация: { $operation }\nПодтвердите этот сохранённый результат перед созданием нового перевода.
+comp-pda-ui-bank-transfer-confirmation = [color=yellow]Подтвердите необратимый перевод[/color]\nПолучатель: [bold]{ $recipient }[/bold]\nБанковский ID: [bold]{ $id }[/bold]\nСумма: [bold]{ $amount }[/bold]\nПроверьте каждое поле перед передачей средств.
+comp-pda-ui-bank-transfer-recovered = [color=yellow]Восстановлен выполненный перевод[/color]\nПолучатель: [bold]{ $recipient }[/bold] [{ $id }]\nСумма: [bold]{ $amount }[/bold]\nБаланс после перевода: { $balance }\nПодтвердите этот сохранённый результат перед созданием нового перевода.
 comp-pda-ui-bank-transfer-confirmation-ready = Проверьте имя получателя, банковский ID и сумму, затем подтвердите перевод.
 comp-pda-ui-bank-transfer-confirmation-expired = [color=orange]Время подтверждения истекло. Сформируйте перевод заново.[/color]
 comp-pda-ui-bank-transfer-cancelled = Перевод отменён до перемещения денег.
@@ -40,9 +45,11 @@ comp-pda-ui-donation-shop-no-access-until = нет активного досту
 comp-pda-ui-donation-shop-copy = Донат-баланс: { $balance } { $currency }; доступ до: { $until }
 comp-pda-ui-donation-shop-entry = [bold]{ $name }[/bold]: { $description } Цена: { $price } { $currency }.
 comp-pda-ui-donation-shop-buy = Купить
+comp-pda-ui-donation-shop-price = Цена: [color=white]{ $price } { $currency }[/color]
 comp-pda-ui-donation-shop-owned = Куплено
 comp-pda-ui-donation-shop-insufficient = Нужно { $price } { $currency }
 comp-pda-ui-donation-shop-locked-button = Закрыто
+comp-pda-ui-donation-shop-unavailable = Недоступно
 comp-pda-ui-donation-shop-status-no-user = [color=red]Пользователь магазина не найден.[/color]
 comp-pda-ui-donation-shop-status-unknown-item = [color=red]Позиция магазина не найдена.[/color]
 comp-pda-ui-donation-shop-status-locked = [color=orange]Доступ к магазину не активен. Администратор должен выдать единицы доступа; 1 единица = 1 месяц.[/color]
@@ -55,7 +62,7 @@ comp-pda-ui-donation-shop-announcement = Сигнал поддержки LuaM з
 comp-pda-ui-donation-shop-item-supporter-badge = Знак поддержки
 comp-pda-ui-donation-shop-item-supporter-badge-desc = Постоянная косметическая отметка поддержки в записях LuaM.
 comp-pda-ui-donation-shop-item-pda-gold-frame = Золотая рамка КПК
-comp-pda-ui-donation-shop-item-pda-gold-frame-desc = Косметическое право на визуальную рамку КПК для последующего внедрения.
+comp-pda-ui-donation-shop-item-pda-gold-frame-desc = Навсегда включает золотую рамку интерфейса КПК.
 comp-pda-ui-donation-shop-item-sector-certificate = Сертификат сектора
 comp-pda-ui-donation-shop-item-sector-certificate-desc = Печатает бумажный сертификат поддержки в руки.
 comp-pda-ui-donation-shop-item-luam-announcement = Объявление LuaM

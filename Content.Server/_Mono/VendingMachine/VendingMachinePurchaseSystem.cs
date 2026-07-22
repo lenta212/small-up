@@ -2,7 +2,6 @@ using Content.Server.Cargo.Systems;
 using Content.Shared._Mono.VendingMachine;
 using Content.Shared.Cargo.Components;
 using Content.Shared.Cargo.Events;
-using Robust.Shared.Map;
 
 namespace Content.Server._Mono.VendingMachine;
 
@@ -11,8 +10,6 @@ namespace Content.Server._Mono.VendingMachine;
 /// </summary>
 public sealed partial class VendingMachinePurchaseSystem : EntitySystem
 {
-    [Dependency] private IMapManager _mapManager = default!;
-
     public override void Initialize()
     {
         base.Initialize();
@@ -29,15 +26,12 @@ public sealed partial class VendingMachinePurchaseSystem : EntitySystem
     /// <param name="purchasePrice">The price paid for the entity</param>
     public void MarkAsPurchased(EntityUid purchasedEntity, EntityUid vendingMachine, double purchasePrice)
     {
-        // Get the grid the vending machine is on
-        var vendingTransform = Transform(vendingMachine);
-        if (vendingTransform.GridUid == null)
-            return;
-
         // Add the component to track this purchase
-        var purchaseComponent = AddComp<VendingMachinePurchaseComponent>(purchasedEntity);
-        purchaseComponent.PurchaseGrid = vendingTransform.GridUid.Value;
-        purchaseComponent.OriginalPurchasePrice = purchasePrice;
+        var purchaseComponent = EnsureComp<VendingMachinePurchaseComponent>(purchasedEntity);
+        purchaseComponent.PurchaseGrid = Transform(vendingMachine).GridUid ?? EntityUid.Invalid;
+        purchaseComponent.OriginalPurchasePrice = double.IsFinite(purchasePrice)
+            ? Math.Max(0d, purchasePrice)
+            : 0d;
 
         Dirty(purchasedEntity, purchaseComponent);
     }
@@ -59,13 +53,31 @@ public sealed partial class VendingMachinePurchaseSystem : EntitySystem
         if (!TryComp<StaticPriceComponent>(entity, out var staticPrice))
             return null;
 
-        // Only apply discount if on the same grid as original purchase
-        if (component.PurchaseGrid == currentGrid)
-        {
-            return staticPrice.Price * 0.5; // 50% discount
-        }
+        _ = currentGrid;
+        var normalPrice = double.IsFinite(staticPrice.Price)
+            ? Math.Max(0d, staticPrice.Price)
+            : 0d;
+        return Math.Min(normalPrice, CalculateResaleCap(component.OriginalPurchasePrice));
+    }
 
-        return null;
+    /// <summary>
+    /// Returns the maximum total cargo resale value for a vending purchase.
+    /// Provenance follows the item across grids and caps every source of appraised
+    /// value, not just its StaticPrice component.
+    /// </summary>
+    public double? GetVendingMachineResaleCap(EntityUid entity)
+    {
+        return TryComp<VendingMachinePurchaseComponent>(entity, out var component)
+            ? CalculateResaleCap(component.OriginalPurchasePrice)
+            : null;
+    }
+
+    internal static double CalculateResaleCap(double originalPurchasePrice)
+    {
+        if (!double.IsFinite(originalPurchasePrice) || originalPurchasePrice <= 0d)
+            return 0d;
+
+        return originalPurchasePrice * 0.5d;
     }
 
     /// <summary>

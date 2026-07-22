@@ -66,11 +66,17 @@ public sealed partial class ResearchSystem
         if (!Resolve(client, ref clientComponent, false) || !Resolve(server, ref serverComponent, false))
             return;
 
-        if (serverComponent.Clients.Contains(client))
+        if (!IsSameResearchScope(client, server))
+            return;
+
+        if (clientComponent.Server == server && serverComponent.Clients.Contains(client))
             return;
 
         UnregisterClient(client, clientComponent); // Mono Research Fix, unregister a client if applicable before registering to a new server
 
+        // Add is deliberately idempotent: it also repairs a stale one-sided
+        // server membership where the server still lists this client but the
+        // client's selected server was cleared during initialization/movement.
         serverComponent.Clients.Add(client);
         clientComponent.Server = server;
         SyncClientWithServer(client, clientComponent: clientComponent);

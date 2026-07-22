@@ -33,7 +33,9 @@ public sealed partial class StationRecordSet
     /// <summary>
     /// Dictionary between a record's type and then each record indexed by id.
     /// </summary>
-    [DataField]
+    // Runtime station records contain System.Type keys and are rebuilt by the
+    // station-record systems. They are not map/snapshot data.
+    [ViewVariables]
     private Dictionary<Type, Dictionary<uint, object>> _tables = new();
 
     /// <summary>

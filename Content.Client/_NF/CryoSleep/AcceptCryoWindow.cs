@@ -1,3 +1,4 @@
+using System.Numerics;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
 using Robust.Client.UserInterface.CustomControls;
@@ -12,8 +13,16 @@ public sealed class AcceptCryoWindow : DefaultWindow
 
     public AcceptCryoWindow()
     {
-
         Title = Loc.GetString("accept-cryo-window-title");
+        MinSize = new Vector2(500, 230);
+
+        var rules = new RichTextLabel
+        {
+            MinSize = new Vector2(460, 145),
+            HorizontalExpand = true,
+            VerticalExpand = true,
+        };
+        rules.SetMessage(Loc.GetString("accept-cryo-window-rules-text"));
 
         Contents.AddChild(new BoxContainer
         {
@@ -25,10 +34,7 @@ public sealed class AcceptCryoWindow : DefaultWindow
                     Orientation = LayoutOrientation.Vertical,
                     Children =
                     {
-                        (new Label()
-                        {
-                            Text = Loc.GetString("accept-cryo-window-prompt-text-part")
-                        }),
+                        rules,
                         new BoxContainer
                         {
                             Orientation = LayoutOrientation.Horizontal,

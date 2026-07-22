@@ -9,6 +9,7 @@ using Content.Server.Station.Components;
 using Content.Server.Station.Systems;
 using Content.Server.StationRecords;
 using Content.Server.StationRecords.Systems;
+using Content.Server._LuaM.Cryo;
 using Content.Shared.Access.Systems;
 using Content.Shared.Bed.Cryostorage;
 using Content.Shared.Chat;
@@ -27,6 +28,7 @@ using Robust.Shared.Containers;
 using Robust.Shared.Enums;
 using Robust.Shared.Network;
 using Robust.Shared.Player;
+using Robust.Shared.Timing;
 
 namespace Content.Server.Bed.Cryostorage;
 
@@ -49,6 +51,9 @@ public sealed partial class CryostorageSystem : SharedCryostorageSystem
     [Dependency] private StationRecordsSystem _stationRecords = default!;
     [Dependency] private TransformSystem _transform = default!;
     [Dependency] private UserInterfaceSystem _ui = default!;
+    [Dependency] private LuaMDeepCryoPersistenceSystem _deepCryo = default!;
+
+    private readonly HashSet<EntityUid> _durableStoreFinalizing = new();
 
     /// <inheritdoc/>
     public override void Initialize()
@@ -57,6 +62,8 @@ public sealed partial class CryostorageSystem : SharedCryostorageSystem
 
         SubscribeLocalEvent<CryostorageComponent, BeforeActivatableUIOpenEvent>(OnBeforeUIOpened);
         SubscribeLocalEvent<CryostorageComponent, CryostorageRemoveItemBuiMessage>(OnRemoveItemBuiMessage);
+        SubscribeLocalEvent<CryostorageComponent, ContainerIsRemovingAttemptEvent>(OnDeepCryoRemoveAttempt);
+        SubscribeLocalEvent<LuaMDeepCryoRestoreReservationComponent, ContainerIsInsertingAttemptEvent>(OnDeepCryoInsertAttempt);
 
         SubscribeLocalEvent<CryostorageContainedComponent, PlayerSpawnCompleteEvent>(OnPlayerSpawned);
         SubscribeLocalEvent<CryostorageContainedComponent, MindRemovedMessage>(OnMindRemoved);
@@ -84,6 +91,14 @@ public sealed partial class CryostorageSystem : SharedCryostorageSystem
 
         if (!comp.StoredPlayers.Contains(cryoContained) || !IsInPausedMap(cryoContained))
             return;
+
+        // Persistent inventory is part of the hashed snapshot. Taking an item
+        // without a corresponding durable mutation would mint a duplicate on wake.
+        if (_deepCryo.IsPersistentBody(cryoContained))
+        {
+            _popup.PopupEntity(Loc.GetString("cryostorage-popup-access-denied"), attachedEntity, attachedEntity);
+            return;
+        }
 
         if (!HasComp<HandsComponent>(attachedEntity))
             return;
@@ -117,6 +132,25 @@ public sealed partial class CryostorageSystem : SharedCryostorageSystem
         _transform.SetCoordinates(entity.Value, Transform(attachedEntity).Coordinates);
         _hands.PickupOrDrop(attachedEntity, entity.Value);
         UpdateCryostorageUIState(ent);
+    }
+
+    private void OnDeepCryoInsertAttempt(
+        Entity<LuaMDeepCryoRestoreReservationComponent> ent,
+        ref ContainerIsInsertingAttemptEvent args)
+    {
+        args.Cancel();
+    }
+
+    private void OnDeepCryoRemoveAttempt(
+        Entity<CryostorageComponent> ent,
+        ref ContainerIsRemovingAttemptEvent args)
+    {
+        if (args.Container.ID == ent.Comp.ContainerId &&
+            !_durableStoreFinalizing.Contains(args.EntityUid) &&
+            _deepCryo.IsStorePending(args.EntityUid))
+        {
+            args.Cancel();
+        }
     }
 
     private void UpdateCryostorageUIState(Entity<CryostorageComponent> ent)
@@ -167,6 +201,64 @@ public sealed partial class CryostorageSystem : SharedCryostorageSystem
 
     public void HandleEnterCryostorage(Entity<CryostorageContainedComponent> ent, NetUserId? userId)
     {
+        if (_deepCryo.IsStorePending(ent.Owner))
+            return;
+
+        if (!_deepCryo.TryBeginStore(
+                ent.Owner,
+                ent.Comp.Cryostorage ?? EntityUid.Invalid,
+                userId,
+                LuaMDeepCryoSource.UpstreamCryostorage,
+                completion =>
+                {
+                    if (!completion.Success)
+                    {
+                        Log.Error($"Deep cryostorage store failed for {ToPrettyString(ent.Owner)}: {completion.FailureReason}");
+                        if (TryComp<CryostorageContainedComponent>(ent.Owner, out var retryContained))
+                        {
+                            retryContained.GracePeriodEndTime = Timing.CurTime + TimeSpan.FromMinutes(1);
+                            Dirty(ent.Owner, retryContained);
+                        }
+                        return;
+                    }
+
+                    if (!Exists(ent.Owner) ||
+                        !TryComp<CryostorageContainedComponent>(ent.Owner, out var current) ||
+                        current.Cryostorage == null)
+                    {
+                        Log.Error($"Cryostorage body changed after durable store for {ent.Owner}.");
+                        return;
+                    }
+
+                    FinalizeEnterCryostorage((ent.Owner, current), userId);
+
+                    if (userId != null &&
+                        _playerManager.TryGetSessionById(userId.Value, out var session) &&
+                        session.Status == SessionStatus.InGame)
+                    {
+                        // StoreCore removes its pending fence after this callback
+                        // returns. Retry on the next tick so a reconnect that
+                        // happened during the DB write is not lost behind it.
+                        Timer.Spawn(TimeSpan.Zero, () =>
+                        {
+                            if (Exists(ent.Owner) &&
+                                TryComp<CryostorageContainedComponent>(ent.Owner, out var reconnected))
+                            {
+                                HandleCryostorageReconnection((ent.Owner, reconnected));
+                            }
+                        });
+                    }
+                },
+                out var reason))
+        {
+            Log.Error($"Refused durable cryostorage store for {ToPrettyString(ent.Owner)}: {reason}");
+            ent.Comp.GracePeriodEndTime = Timing.CurTime + TimeSpan.FromMinutes(1);
+            Dirty(ent.Owner, ent.Comp);
+        }
+    }
+
+    private void FinalizeEnterCryostorage(Entity<CryostorageContainedComponent> ent, NetUserId? userId)
+    {
         var comp = ent.Comp;
         var cryostorageEnt = ent.Comp.Cryostorage;
 
@@ -215,7 +307,15 @@ public sealed partial class CryostorageSystem : SharedCryostorageSystem
         }
 
         comp.AllowReEnteringBody = false;
-        _transform.SetParent(ent, PausedMap.Value);
+        _durableStoreFinalizing.Add(ent.Owner);
+        try
+        {
+            _transform.SetParent(ent, PausedMap.Value);
+        }
+        finally
+        {
+            _durableStoreFinalizing.Remove(ent.Owner);
+        }
         cryostorageComponent.StoredPlayers.Add(ent);
         Dirty(ent, comp);
         UpdateCryostorageUIState((cryostorageEnt.Value, cryostorageComponent));
@@ -246,11 +346,76 @@ public sealed partial class CryostorageSystem : SharedCryostorageSystem
         );
     }
 
-    private void HandleCryostorageReconnection(Entity<CryostorageContainedComponent> entity)
+    private async void HandleCryostorageReconnection(Entity<CryostorageContainedComponent> entity)
     {
         var (uid, comp) = entity;
         if (!CryoSleepRejoiningEnabled || !IsInPausedMap(uid))
             return;
+
+        if (_deepCryo.IsStorePending(uid))
+            return;
+
+        if (_deepCryo.IsPersistentBody(uid))
+        {
+            var userId = comp.UserId;
+            if (userId == null && _deepCryo.TryGetIdentity(uid, out var identityUser))
+                userId = identityUser;
+            if (userId == null)
+                return;
+
+            var claim = await _deepCryo.ClaimRestoreAsync(userId.Value);
+            if (claim.Handle is not { } handle)
+                return;
+            if (handle.Body != uid)
+            {
+                await _deepCryo.AbortRestoreAsync(handle, "upstream-live-body-mismatch");
+                return;
+            }
+
+            if (comp.Cryostorage is not { } reservedCryo ||
+                !Exists(reservedCryo) ||
+                !TryComp<CryostorageComponent>(reservedCryo, out _))
+            {
+                await _deepCryo.AbortRestoreAsync(handle, "upstream-original-cryo-missing");
+                return;
+            }
+
+            EnsureComp<LuaMDeepCryoRestoreReservationComponent>(reservedCryo).LeaseId = handle.LeaseId;
+            if (!await _deepCryo.ConsumeRestoreAsync(handle))
+            {
+                ClearUpstreamRestoreReservation(reservedCryo, handle.LeaseId);
+                return;
+            }
+
+            var published = false;
+            try
+            {
+                if (!Exists(uid))
+                    return;
+
+                // The active restore still fences fresh spawn. Remove the pod
+                // reservation immediately before the synchronous insertion so
+                // the reservation's own insert guard permits this body.
+                ClearUpstreamRestoreReservation(reservedCryo, handle.LeaseId);
+                published = FinalizeCryostorageReconnection(entity);
+            }
+            finally
+            {
+                if (!published && Exists(uid))
+                    QueueDel(uid);
+                ClearUpstreamRestoreReservation(reservedCryo, handle.LeaseId);
+                _deepCryo.FinishRestorePublication(handle);
+            }
+
+            return;
+        }
+
+        FinalizeCryostorageReconnection(entity);
+    }
+
+    private bool FinalizeCryostorageReconnection(Entity<CryostorageContainedComponent> entity)
+    {
+        var (uid, comp) = entity;
 
         // how did you destroy these? they're indestructible.
         if (comp.Cryostorage is not { } cryostorage ||
@@ -258,7 +423,7 @@ public sealed partial class CryostorageSystem : SharedCryostorageSystem
             !TryComp<CryostorageComponent>(cryostorage, out var cryostorageComponent))
         {
             QueueDel(entity);
-            return;
+            return false;
         }
 
         var cryoXform = Transform(cryostorage);
@@ -274,6 +439,16 @@ public sealed partial class CryostorageSystem : SharedCryostorageSystem
         cryostorageComponent.StoredPlayers.Remove(uid);
         AdminLog.Add(LogType.Action, LogImpact.High, $"{ToPrettyString(entity):player} re-entered the game from cryostorage {ToPrettyString(cryostorage)}");
         UpdateCryostorageUIState((cryostorage, cryostorageComponent));
+        return true;
+    }
+
+    private void ClearUpstreamRestoreReservation(EntityUid pod, Guid leaseId)
+    {
+        if (Exists(pod) && TryComp<LuaMDeepCryoRestoreReservationComponent>(pod, out var reservation) &&
+            reservation.LeaseId == leaseId)
+        {
+            RemComp<LuaMDeepCryoRestoreReservationComponent>(pod);
+        }
     }
 
     protected override void OnInsertedContainer(Entity<CryostorageComponent> ent, ref EntInsertedIntoContainerMessage args)
@@ -336,6 +511,9 @@ public sealed partial class CryostorageSystem : SharedCryostorageSystem
         var query = EntityQueryEnumerator<CryostorageContainedComponent>();
         while (query.MoveNext(out var uid, out var containedComp))
         {
+            if (_deepCryo.IsPersistentBody(uid))
+                continue;
+
             if (containedComp.GracePeriodEndTime == null)
                 continue;
 

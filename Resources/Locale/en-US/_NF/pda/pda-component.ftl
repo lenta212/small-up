@@ -7,12 +7,17 @@ comp-pda-ui-bank-id = Bank ID: [color=white]{ $id }[/color]
 comp-pda-ui-bank-id-copied = [color=green]Bank ID { $id } copied.[/color]
 comp-pda-ui-bank-transfer-recipient-placeholder = Recipient ID
 comp-pda-ui-bank-transfer-amount-placeholder = Amount
+comp-pda-ui-bank-transfer-recipient-label = Recipient bank ID
+comp-pda-ui-bank-transfer-amount-label = Whole amount
+comp-pda-ui-bank-transfer-id-hint = Copy the bank ID from the recipient's PDA. Never transfer by character name alone.
+comp-pda-ui-bank-transfer-title = Secure transfer
+comp-pda-ui-bank-transfer-description = Enter the recipient bank ID and a positive whole amount. You will review the transfer before funds move.
 comp-pda-ui-bank-transfer-send = Transfer
 comp-pda-ui-bank-transfer-confirm = Confirm transfer
 comp-pda-ui-bank-transfer-cancel = Cancel
 comp-pda-ui-bank-transfer-acknowledge = Acknowledge result
-comp-pda-ui-bank-transfer-confirmation = [color=yellow]Confirm transfer[/color]\nRecipient: [bold]{ $recipient }[/bold]\nBank ID: [bold]{ $id }[/bold]\nAmount: [bold]{ $amount }[/bold]\nOperation: { $operation }
-comp-pda-ui-bank-transfer-recovered = [color=yellow]Recovered completed transfer[/color]\nRecipient: [bold]{ $recipient }[/bold] [{ $id }]\nAmount: [bold]{ $amount }[/bold]\nBalance after transfer: { $balance }\nOperation: { $operation }\nAcknowledge this durable result before creating another transfer.
+comp-pda-ui-bank-transfer-confirmation = [color=yellow]Confirm irreversible transfer[/color]\nRecipient: [bold]{ $recipient }[/bold]\nBank ID: [bold]{ $id }[/bold]\nAmount: [bold]{ $amount }[/bold]\nCheck every field before transmitting funds.
+comp-pda-ui-bank-transfer-recovered = [color=yellow]Recovered completed transfer[/color]\nRecipient: [bold]{ $recipient }[/bold] [{ $id }]\nAmount: [bold]{ $amount }[/bold]\nBalance after transfer: { $balance }\nAcknowledge this durable result before creating another transfer.
 comp-pda-ui-bank-transfer-confirmation-ready = Verify the recipient name, bank ID, and amount, then confirm the transfer.
 comp-pda-ui-bank-transfer-confirmation-expired = [color=orange]The confirmation expired. Create a new transfer preview.[/color]
 comp-pda-ui-bank-transfer-cancelled = Transfer cancelled before money was moved.
@@ -40,9 +45,11 @@ comp-pda-ui-donation-shop-no-access-until = no active access
 comp-pda-ui-donation-shop-copy = Donation balance: { $balance } { $currency }; access until: { $until }
 comp-pda-ui-donation-shop-entry = [bold]{ $name }[/bold]: { $description } Price: { $price } { $currency }.
 comp-pda-ui-donation-shop-buy = Buy
+comp-pda-ui-donation-shop-price = Price: [color=white]{ $price } { $currency }[/color]
 comp-pda-ui-donation-shop-owned = Owned
 comp-pda-ui-donation-shop-insufficient = Need { $price } { $currency }
 comp-pda-ui-donation-shop-locked-button = Locked
+comp-pda-ui-donation-shop-unavailable = Unavailable
 comp-pda-ui-donation-shop-status-no-user = [color=red]Donation shop user not found.[/color]
 comp-pda-ui-donation-shop-status-unknown-item = [color=red]Donation item not found.[/color]
 comp-pda-ui-donation-shop-status-locked = [color=orange]Donation shop access is inactive. Ask an admin to grant units; 1 unit = 1 month.[/color]
@@ -55,7 +62,7 @@ comp-pda-ui-donation-shop-announcement = LuaM support signal registered for { $p
 comp-pda-ui-donation-shop-item-supporter-badge = Supporter badge
 comp-pda-ui-donation-shop-item-supporter-badge-desc = Permanent cosmetic support mark in LuaM records.
 comp-pda-ui-donation-shop-item-pda-gold-frame = Gold PDA frame
-comp-pda-ui-donation-shop-item-pda-gold-frame-desc = Cosmetic PDA-frame entitlement for later visual rollout.
+comp-pda-ui-donation-shop-item-pda-gold-frame-desc = Permanently enables a gold frame on your PDA interface.
 comp-pda-ui-donation-shop-item-sector-certificate = Sector certificate
 comp-pda-ui-donation-shop-item-sector-certificate-desc = Prints a paper support certificate into your hands.
 comp-pda-ui-donation-shop-item-luam-announcement = LuaM announcement

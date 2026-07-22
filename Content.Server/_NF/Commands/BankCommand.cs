@@ -73,9 +73,21 @@ public sealed partial class BankCommand : IConsoleCommand
         }
 
         // If not online, check cached preferences for offline players
-        if (TryGetOfflinePlayerData(target, out var offlineUserId, out var offlinePrefs, out var offlineProfile))
+        if (TryGetOfflinePlayerData(
+                target,
+                out var offlineUserId,
+                out var offlinePrefs,
+                out var offlineProfile,
+                out var offlineProfileId))
         {
-            await HandleOfflinePlayer(shell, offlineUserId, offlinePrefs, offlineProfile, amount, target);
+            await HandleOfflinePlayer(
+                shell,
+                offlineUserId,
+                offlinePrefs,
+                offlineProfile,
+                offlineProfileId,
+                amount,
+                target);
             return;
         }
 
@@ -84,14 +96,26 @@ public sealed partial class BankCommand : IConsoleCommand
         if (record != null)
         {
             var dbUserId = record.UserId;
-            var dbPrefs = await _dbManager.GetPlayerPreferencesAsync(dbUserId, default);
-            if (dbPrefs != null &&
-                dbPrefs.SelectedCharacterIndex >= 0 &&
-                dbPrefs.Characters.TryGetValue(dbPrefs.SelectedCharacterIndex, out var dbProfile))
+            var dbSnapshot = await _dbManager.GetPlayerPreferencesSnapshotAsync(dbUserId, default);
+            if (dbSnapshot != null &&
+                dbSnapshot.Preferences.SelectedCharacterIndex >= 0 &&
+                dbSnapshot.Preferences.Characters.TryGetValue(
+                    dbSnapshot.Preferences.SelectedCharacterIndex,
+                    out var dbProfile) &&
+                dbSnapshot.ProfileIdsBySlot.TryGetValue(
+                    dbSnapshot.Preferences.SelectedCharacterIndex,
+                    out var dbProfileId))
             {
                 if (dbProfile is HumanoidCharacterProfile dbHumanoid)
                 {
-                    await HandleOfflinePlayer(shell, dbUserId, dbPrefs, dbHumanoid, amount, target);
+                    await HandleOfflinePlayer(
+                        shell,
+                        dbUserId,
+                        dbSnapshot.Preferences,
+                        dbHumanoid,
+                        dbProfileId,
+                        amount,
+                        target);
                     return;
                 }
             }
@@ -133,10 +157,10 @@ public sealed partial class BankCommand : IConsoleCommand
 
         if (playerEntity != null && _entityManager.HasComponent<BankAccountComponent>(playerEntity.Value))
         {
-            // Player is in-game with entity that has bank account - use entity methods which will update the profile
+            // A command result is reported only after the exact durable mutation commits.
             if (amount > 0)
             {
-                success = bankSystem.TryBankDeposit(playerEntity.Value, amount, false);
+                success = await bankSystem.TryBankDepositAsync(playerEntity.Value, amount, tax: false);
                 if (success)
                 {
                     // Get updated balance after deposit
@@ -147,7 +171,7 @@ public sealed partial class BankCommand : IConsoleCommand
             }
             else if (amount < 0)
             {
-                success = bankSystem.TryBankWithdraw(playerEntity.Value, Math.Abs(amount));
+                success = await bankSystem.TryBankWithdrawAsync(playerEntity.Value, Math.Abs(amount));
                 if (success)
                 {
                     // Get updated balance after withdrawal
@@ -167,14 +191,37 @@ public sealed partial class BankCommand : IConsoleCommand
         }
         else
         {
-            // Player is not in-game or entity has no bank account - update profile directly
+            var slot = prefs.IndexOfCharacter(profile);
+            if (slot < 0 ||
+                !_prefsManager.TryGetCharacterProfileId(targetSession.UserId, slot, out var expectedProfileId))
+            {
+                shell.WriteError($"Player '{target}' has no resolved durable character identity.");
+                return;
+            }
+
+            // The session has no bank component, so use the same exact ProfileId CAS
+            // as the offline command path and then project the committed cache value.
             if (amount > 0)
             {
-                success = bankSystem.TryBankDeposit(targetSession, prefs, profile, amount, out newBalance);
+                success = await bankSystem.TryBankDepositOffline(
+                    targetSession.UserId,
+                    prefs,
+                    profile,
+                    expectedProfileId,
+                    amount);
+                if (success)
+                    newBalance = currentBalance + amount;
             }
             else if (amount < 0)
             {
-                success = bankSystem.TryBankWithdraw(targetSession, prefs, profile, Math.Abs(amount), out newBalance);
+                success = await bankSystem.TryBankWithdrawOffline(
+                    targetSession.UserId,
+                    prefs,
+                    profile,
+                    expectedProfileId,
+                    Math.Abs(amount));
+                if (success)
+                    newBalance = currentBalance - Math.Abs(amount);
             }
             else
             {
@@ -194,7 +241,14 @@ public sealed partial class BankCommand : IConsoleCommand
             : $"Removed {Math.Abs(amount)} from player '{target}' balance. New balance: {newBalance.Value}");
     }
 
-    private async Task HandleOfflinePlayer(IConsoleShell shell, NetUserId userId, PlayerPreferences prefs, HumanoidCharacterProfile profile, int amount, string target)
+    private async Task HandleOfflinePlayer(
+        IConsoleShell shell,
+        NetUserId userId,
+        PlayerPreferences prefs,
+        HumanoidCharacterProfile profile,
+        int expectedProfileId,
+        int amount,
+        string target)
     {
         var bankSystem = _entitySystemManager.GetEntitySystem<BankSystem>();
         var currentBalance = profile.BankBalance;
@@ -218,13 +272,23 @@ public sealed partial class BankCommand : IConsoleCommand
         // Use the new offline bank methods
         if (amount > 0)
         {
-            success = await bankSystem.TryBankDepositOffline(userId, prefs, profile, amount);
+            success = await bankSystem.TryBankDepositOffline(
+                userId,
+                prefs,
+                profile,
+                expectedProfileId,
+                amount);
             if (success)
                 newBalance = currentBalance + amount;
         }
         else
         {
-            success = await bankSystem.TryBankWithdrawOffline(userId, prefs, profile, Math.Abs(amount));
+            success = await bankSystem.TryBankWithdrawOffline(
+                userId,
+                prefs,
+                profile,
+                expectedProfileId,
+                Math.Abs(amount));
             if (success)
                 newBalance = currentBalance - Math.Abs(amount);
         }
@@ -240,25 +304,33 @@ public sealed partial class BankCommand : IConsoleCommand
             : $"Removed {Math.Abs(amount)} from offline player '{target}' balance. New balance: {newBalance.Value}");
     }
 
-    private bool TryGetOfflinePlayerData(string username, out NetUserId userId, out PlayerPreferences prefs, out HumanoidCharacterProfile profile)
+    private bool TryGetOfflinePlayerData(
+        string username,
+        out NetUserId userId,
+        out PlayerPreferences prefs,
+        out HumanoidCharacterProfile profile,
+        out int profileId)
     {
         userId = default;
         prefs = null!;
         profile = null!;
+        profileId = 0;
 
         // Check all users in the preferences cache
         foreach (var playerData in _playerManager.GetAllPlayerData())
         {
             if (_prefsManager.TryGetCachedPreferences(playerData.UserId, out var cachedPrefs))
             {
-                foreach (var (_, characterProfile) in cachedPrefs.Characters)
+                foreach (var (slot, characterProfile) in cachedPrefs.Characters)
                 {
                     if (characterProfile is HumanoidCharacterProfile humanoid &&
-                        humanoid.Name.Equals(username, StringComparison.OrdinalIgnoreCase))
+                        humanoid.Name.Equals(username, StringComparison.OrdinalIgnoreCase) &&
+                        _prefsManager.TryGetCharacterProfileId(playerData.UserId, slot, out var stableProfileId))
                     {
                         userId = playerData.UserId;
                         prefs = cachedPrefs;
                         profile = humanoid;
+                        profileId = stableProfileId;
                         return true;
                     }
                 }

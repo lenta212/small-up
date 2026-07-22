@@ -2,6 +2,7 @@ using System.Linq;
 using Content.Server._NF.Market.Components;
 using Content.Server._NF.Market.Extensions;
 using Content.Server.Cargo.Systems;
+using Content.Server.Shuttles.Components;
 using Content.Server.Storage.Components;
 using Content.Shared._NF.Market;
 using Content.Shared._NF.Market.BUI;
@@ -12,6 +13,7 @@ using Content.Shared.Power;
 using Content.Shared.Stacks;
 using Content.Shared.Storage;
 using Content.Shared.Materials;
+using Robust.Shared.Map.Components;
 using Robust.Shared.Prototypes;
 
 
@@ -19,14 +21,28 @@ namespace Content.Server._NF.Market.Systems;
 
 public sealed partial class MarketSystem
 {
+    [ValidatePrototypeId<EntityPrototype>]
+    private const string MarketFrontierOutpostPrototype = "MarketFrontierOutpost";
 
     [Dependency] private SharedMaterialStorageSystem _sharedMaterialStorageSystem = default!;
     private void InitializeConsole()
     {
         SubscribeLocalEvent<EntitySoldEvent>(OnEntitySoldEvent);
+        SubscribeLocalEvent<MarketConsoleComponent, ComponentInit>(OnConsoleInit);
+        SubscribeLocalEvent<MarketConsoleComponent, EntParentChangedMessage>(OnConsoleParentChanged);
         SubscribeLocalEvent<MarketConsoleComponent, BoundUIOpenedEvent>(OnConsoleUiOpened);
         SubscribeLocalEvent<MarketConsoleComponent, MarketConsoleCartMessage>(OnCartMessage);
         SubscribeLocalEvent<MarketConsoleComponent, PowerChangedEvent>(OnPowerChanged);
+    }
+
+    private void OnConsoleInit(Entity<MarketConsoleComponent> console, ref ComponentInit args)
+    {
+        TryEnsureLocalMarketData(console.Owner, out _, out _);
+    }
+
+    private void OnConsoleParentChanged(Entity<MarketConsoleComponent> console, ref EntParentChangedMessage args)
+    {
+        TryEnsureLocalMarketData(console.Owner, out _, out _);
     }
 
     private void OnPowerChanged(EntityUid uid, MarketConsoleComponent component, ref PowerChangedEvent args)
@@ -36,18 +52,61 @@ public sealed partial class MarketSystem
         _ui.CloseUi(uid, MarketConsoleUiKey.Default);
     }
 
+    private bool TryEnsureLocalMarketData(
+        EntityUid entity,
+        out EntityUid stationUid,
+        out CargoMarketDataComponent market)
+    {
+        stationUid = EntityUid.Invalid;
+        market = default!;
+
+        if (!TryComp(entity, out TransformComponent? xform))
+            return false;
+
+        var station = _station.GetOwningStation(entity, xform);
+        if (station is not { Valid: true })
+            return false;
+
+        stationUid = station.Value;
+        if (TryComp<CargoMarketDataComponent>(stationUid, out var existingMarket))
+        {
+            market = existingMarket;
+            return true;
+        }
+
+        var grid = HasComp<MapGridComponent>(entity)
+            ? entity
+            : xform.GridUid;
+
+        if (grid is not { Valid: true } gridUid || !HasComp<ShuttleComponent>(gridUid))
+            return false;
+
+        market = EnsureComp<CargoMarketDataComponent>(stationUid);
+        ApplyDefaultMarketFilters(market);
+        return true;
+    }
+
+    private void ApplyDefaultMarketFilters(CargoMarketDataComponent market)
+    {
+        if (!_prototypeManager.TryIndex<EntityPrototype>(MarketFrontierOutpostPrototype, out var prototype) ||
+            !prototype.TryGetComponent<CargoMarketDataComponent>(out var prototypeMarket, EntityManager.ComponentFactory))
+        {
+            return;
+        }
+
+        market.Whitelist = prototypeMarket.Whitelist;
+        market.Blacklist = prototypeMarket.Blacklist;
+        market.WhitelistOverride = prototypeMarket.WhitelistOverride;
+    }
+
     /// <summary>
     /// This event signifies that something has been sold at a cargo pallet.
     /// </summary>
     /// <param name="entitySoldEvent">The details of the event</param>
     private void OnEntitySoldEvent(ref EntitySoldEvent entitySoldEvent)
     {
-        var station = _station.GetOwningStation(entitySoldEvent.Grid);
-        if (station is null ||
-            !_entityManager.TryGetComponent<CargoMarketDataComponent>(station, out var market))
-        {
+        if (!TryEnsureLocalMarketData(entitySoldEvent.Grid, out _, out var market))
             return;
-        }
 
         foreach (var sold in entitySoldEvent.Sold)
         {
@@ -211,25 +270,47 @@ public sealed partial class MarketSystem
     /// <returns>The total number of entities in the market data list.</returns>
     public int CalculateEntityAmount(List<MarketData> marketDataList)
     {
-        var count = 0;
+        return CalculateEntityAmount(
+            marketDataList,
+            data =>
+            {
+                if (data.StackPrototype != null &&
+                    _prototypeManager.TryIndex(data.StackPrototype, out var stackPrototype))
+                {
+                    return stackPrototype.MaxCount;
+                }
 
+                // Unknown stack prototypes must be counted conservatively as
+                // non-stackable. Otherwise a forged payload can bypass the crate
+                // entity cap.
+                return 1;
+            });
+    }
+
+    internal static int CalculateEntityAmount(
+        IReadOnlyCollection<MarketData> marketDataList,
+        Func<MarketData, int?> resolveMaxStackCount)
+    {
+        long count = 0;
         foreach (var data in marketDataList)
         {
-            if (data.StackPrototype != null && _prototypeManager.TryIndex(data.StackPrototype, out var stackPrototype))
-            {
-                var maxStackCount = stackPrototype.MaxCount;
-                if (maxStackCount != null)
-                    count += (int)Math.Ceiling((double)data.Quantity / int.Max(1, maxStackCount.Value)); // Ensure denominator is positive
-                else
-                    count += 1;
-            }
-            else
-            {
+            if (data.Quantity <= 0)
+                return int.MaxValue;
+
+            var maxStackCount = data.StackPrototype == null
+                ? 1
+                : resolveMaxStackCount(data);
+            if (maxStackCount == null)
                 count += 1;
-            }
+            else
+                count += ((long) data.Quantity + int.Max(1, maxStackCount.Value) - 1) /
+                         int.Max(1, maxStackCount.Value);
+
+            if (count >= int.MaxValue)
+                return int.MaxValue;
         }
 
-        return count;
+        return (int) count;
     }
 
     /// <summary>
@@ -267,6 +348,9 @@ public sealed partial class MarketSystem
         ref MarketConsoleCartMessage args
     )
     {
+        if (_marketConsolePurchasesInFlight.Contains(consoleUid))
+            return;
+
         if (args.Actor is not { Valid: true } player)
             return;
         if (!TryComp<BankAccountComponent>(player, out var bank))
@@ -284,8 +368,7 @@ public sealed partial class MarketSystem
         }
 
         // No data set for market data, can't update cart, no data.
-        var stationUid = _station.GetOwningStation(consoleUid);
-        if (!TryComp<CargoMarketDataComponent>(stationUid, out var market))
+        if (!TryEnsureLocalMarketData(consoleUid, out _, out var market))
             return;
 
         var marketData = market.MarketDataList;
@@ -305,26 +388,31 @@ public sealed partial class MarketSystem
             // Calculate maximum we can fit.
             var entityAmount = CalculateEntityAmount(consoleComponent.CartDataList);
             var amountPerEntity = GetAmountPerEntitySpace(existing);
+            var existingCart = FindMarketDataByPrototype(consoleComponent.CartDataList, args.ItemPrototype!);
             int amountLeft;
             if (amountPerEntity == null)
             {
-                amountLeft = int.MaxValue; // Infinite stack, infinite space.
+                // An existing infinite stack consumes one slot and can grow. A
+                // new one still needs a free entity slot.
+                amountLeft = existingCart != null || entityAmount < 30
+                    ? int.MaxValue
+                    : 0;
             }
             else
             {
-                amountLeft = (30 - entityAmount) * amountPerEntity.Value;
+                var amountLeftLong = Math.Max(0L, 30L - entityAmount) * amountPerEntity.Value;
 
-                var existingCart = FindMarketDataByPrototype(consoleComponent.CartDataList, args.ItemPrototype!);
                 if (existingCart != null)
                 {
                     // Find if there's a partially filled entity in the cart.
                     var quantityMod = existingCart.Quantity % amountPerEntity.Value;
                     if (quantityMod != 0)
                     {
-                        amountLeft += amountPerEntity.Value - quantityMod;
+                        amountLeftLong += amountPerEntity.Value - quantityMod;
                     }
                 }
-                amountLeft = int.Max(0, amountLeft); // If we're over the limit as-is, don't move anything.
+
+                amountLeft = (int) Math.Min(int.MaxValue, amountLeftLong);
             }
 
             toWithdraw = int.Min(toWithdraw, amountLeft);
@@ -396,8 +484,7 @@ public sealed partial class MarketSystem
         var marketData = new List<MarketData>();
 
         // Get station and the market data attached to it.
-        var consoleStationUid = _station.GetOwningStation(consoleUid);
-        if (TryComp<CargoMarketDataComponent>(consoleStationUid, out var market))
+        if (TryEnsureLocalMarketData(consoleUid, out _, out var market))
         {
             marketData = market.MarketDataList;
         }

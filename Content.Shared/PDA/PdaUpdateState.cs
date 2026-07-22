@@ -4,9 +4,7 @@ using Robust.Shared.Serialization;
 namespace Content.Shared.PDA
 {
     [Serializable, NetSerializable]
-    public sealed class PdaUpdateState : CartridgeLoaderUiState // WTF is this. what. I ... fuck me I just want net entities to work
-        // TODO purge this shit
-        //AAAAAAAAAAAAAAAA
+    public sealed class PdaUpdateState : CartridgeLoaderUiState
     {
         public bool FlashlightEnabled;
         public bool HasPen;
@@ -31,6 +29,7 @@ namespace Content.Shared.PDA
         public string? DonationShopAccessUntil; // LuaM
         public string? DonationShopStatus; // LuaM
         public List<PdaDonationShopListing> DonationShopListings; // LuaM
+        public bool HasGoldPdaFrame; // LuaM
 
         public PdaUpdateState(
             List<NetEntity> programs,
@@ -57,7 +56,8 @@ namespace Content.Shared.PDA
             bool donationShopAccess = false,
             string? donationShopAccessUntil = null,
             string? donationShopStatus = null,
-            List<PdaDonationShopListing>? donationShopListings = null)
+            List<PdaDonationShopListing>? donationShopListings = null,
+            bool hasGoldPdaFrame = false)
             : base(programs, activeUI)
         {
             FlashlightEnabled = flashlightEnabled;
@@ -83,6 +83,7 @@ namespace Content.Shared.PDA
             DonationShopAccessUntil = donationShopAccessUntil; // LuaM
             DonationShopStatus = donationShopStatus; // LuaM
             DonationShopListings = donationShopListings ?? new List<PdaDonationShopListing>(); // LuaM
+            HasGoldPdaFrame = hasGoldPdaFrame; // LuaM
         }
     }
 

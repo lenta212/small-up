@@ -103,15 +103,11 @@ namespace Content.Server.Research.Systems
         {
             var allServers = EntityQueryEnumerator<ResearchServerComponent>();
             var list = new List<string>();
-            var station = _station.GetOwningStation(gridUid);
 
-            if (station is { } stationUid)
+            while (allServers.MoveNext(out var uid, out var comp))
             {
-                while (allServers.MoveNext(out var uid, out var comp))
-                {
-                    if (_station.GetOwningStation(uid) == stationUid)
-                        list.Add(comp.ServerName);
-                }
+                if (IsSameResearchScope(gridUid, uid))
+                    list.Add(comp.ServerName);
             }
 
             var serverList = list.ToArray();
@@ -122,19 +118,37 @@ namespace Content.Server.Research.Systems
         {
             var allServers = EntityQueryEnumerator<ResearchServerComponent>();
             var list = new List<int>();
-            var station = _station.GetOwningStation(gridUid);
 
-            if (station is { } stationUid)
+            while (allServers.MoveNext(out var uid, out var comp))
             {
-                while (allServers.MoveNext(out var uid, out var comp))
-                {
-                    if (_station.GetOwningStation(uid) == stationUid)
-                        list.Add(comp.Id);
-                }
+                if (IsSameResearchScope(gridUid, uid))
+                    list.Add(comp.Id);
             }
 
             var serverList = list.ToArray();
             return serverList;
+        }
+
+
+        private bool IsSameResearchScope(EntityUid clientUid, EntityUid serverUid)
+        {
+            if (!TryComp(clientUid, out TransformComponent? clientXform) ||
+                !TryComp(serverUid, out TransformComponent? serverXform))
+                return false;
+
+            // A machine and server mounted on the same grid are always in the
+            // same R&D scope, even during a station-membership update tick.
+            if (clientXform.GridUid is { Valid: true } clientGrid &&
+                serverXform.GridUid is { Valid: true } serverGrid &&
+                clientGrid == serverGrid)
+            {
+                return true;
+            }
+
+            var clientStation = _station.GetOwningStation(clientUid, clientXform);
+            var serverStation = _station.GetOwningStation(serverUid, serverXform);
+
+            return clientStation is { Valid: true } && clientStation == serverStation;
         }
 
         public override void Update(float frameTime)

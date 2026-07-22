@@ -294,12 +294,13 @@ public sealed partial class PricingSystem : EntitySystem
     /// <returns>The price with vending machine discount applied if applicable</returns>
     public double GetPriceWithVendingDiscount(EntityUid uid, EntityUid currentGrid, bool includeContents = true)
     {
+        var vendingResaleCap = _vendingPurchase.GetVendingMachineResaleCap(uid);
         var ev = new PriceCalculationEvent();
         ev.Price = 0;
         RaiseLocalEvent(uid, ref ev);
 
         if (ev.Handled)
-            return ev.Price;
+            return ApplyVendingResaleCap(ev.Price, vendingResaleCap);
 
         var price = ev.Price;
         price += GetMaterialsPrice(uid);
@@ -326,7 +327,21 @@ public sealed partial class PricingSystem : EntitySystem
             }
         }
 
-        return price;
+        return ApplyVendingResaleCap(price, vendingResaleCap);
+    }
+
+    internal static double ApplyVendingResaleCap(double appraisedPrice, double? resaleCap)
+    {
+        if (resaleCap == null)
+            return appraisedPrice;
+
+        if (!double.IsFinite(appraisedPrice) || appraisedPrice <= 0d)
+            return 0d;
+
+        var safeCap = double.IsFinite(resaleCap.Value)
+            ? Math.Max(0d, resaleCap.Value)
+            : 0d;
+        return Math.Min(appraisedPrice, safeCap);
     }
 
     // Begin Frontier - GetPrice variant that uses predicate

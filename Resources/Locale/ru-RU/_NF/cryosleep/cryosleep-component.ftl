@@ -6,6 +6,12 @@ accept-cryo-window-accept-button = Принять
 accept-cryo-window-deny-button = Отменить
 accept-cryo-window-prompt-text-part = Вы решили отдохнуть в капсуле криогенного сна?
 accept-cryo-window-title = Капсула криогенного сна
+accept-cryo-window-rules-text = [color=#8fd7e5][bold]Правила криосна[/bold][/color]
+    Ваше тело будет сохранено, а вы сразу станете призраком.
+    При возвращении персонаж не помнит ничего, что вы узнали, наблюдая за миром в роли призрака.
+    Для возвращения нужна свободная криокапсула; возможность возврата также может быть отключена настройками сервера.
+
+    Продолжить и завершить текущую смену?
 cryo-wakeup-window-title = Проснуться
 cryo-wakeup-window-accept-button = Принять
 cryo-wakeup-window-deny-button = Отменить

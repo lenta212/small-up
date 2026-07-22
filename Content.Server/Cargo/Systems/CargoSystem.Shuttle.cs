@@ -50,7 +50,7 @@ public sealed partial class CargoSystem
 
     #region Console
 
-    private void UpdateCargoShuttleConsoles(EntityUid shuttleUid, CargoShuttleComponent _)
+    private void UpdateCargoShuttleConsoles(EntityUid shuttleUid, CargoShuttleComponent component)
     {
         // Update pilot consoles that are already open.
         _console.RefreshDroneConsoles();
@@ -60,7 +60,7 @@ public sealed partial class CargoSystem
 
         while (shuttleConsoleQuery.MoveNext(out var uid, out var _))
         {
-            var stationUid = _station.GetOwningStation(uid);
+            TryEnsureCargoOrderDatabase(uid, out var stationUid, out _);
             if (stationUid != shuttleUid)
                 continue;
 
@@ -85,7 +85,7 @@ public sealed partial class CargoSystem
         // End Frontier
 
         // Monolith: display multiplier
-        var station = _station.GetOwningStation(uid);
+        var station = _station.GetOwningStation(gridUid);
         var tradeCrateMultiplier = 1D;
         var otherMultiplier = 1D;
 
@@ -121,7 +121,7 @@ public sealed partial class CargoSystem
 
     private void OnCargoShuttleConsoleStartup(EntityUid uid, CargoShuttleConsoleComponent component, ComponentStartup args)
     {
-        var station = _station.GetOwningStation(uid);
+        TryEnsureCargoOrderDatabase(uid, out var station, out _);
         UpdateShuttleState(uid, station);
     }
 
@@ -349,6 +349,8 @@ public sealed partial class CargoSystem
         medicalTaxAmount = 0;
         toSell = new HashSet<EntityUid>();
 
+        var saleStation = _station.GetOwningStation(gridUid);
+
         foreach (var (palletUid, _, _) in GetCargoPallets(consoleUid, gridUid, BuySellType.Sell))
         {
             // Containers should already get the sell price of their children so can skip those.
@@ -384,11 +386,10 @@ public sealed partial class CargoSystem
                     continue;
                 toSell.Add(ent);
 
-                var station = _station.GetOwningStation(ent);
                 double multiplier = 1;
 
-                if (station != null
-                    && !HasComp<TradeCrateWildcardDestinationComponent>(station)
+                if (saleStation != null
+                    && !HasComp<TradeCrateWildcardDestinationComponent>(saleStation)
                     && TryComp<MarketModifierComponent>(consoleUid, out var marketModifier)
                     && !HasComp<IgnoreMarketModifierComponent>(ent)
                     && !marketModifier.Buy
@@ -397,8 +398,8 @@ public sealed partial class CargoSystem
                     multiplier = marketModifier.Mod;
                 }
 
-                if (station != null
-                    && TryComp<TradeCrateWildcardDestinationComponent>(station, out var wildcard)
+                if (saleStation != null
+                    && TryComp<TradeCrateWildcardDestinationComponent>(saleStation, out var wildcard)
                     && HasComp<TradeCrateComponent>(ent))
                 {
                     multiplier = wildcard.ValueMultiplier;

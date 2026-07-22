@@ -38,6 +38,31 @@ public sealed class NFCCVars
     public static readonly CVarDef<float> CryoExpirationTime =
         CVarDef.Create("nf14.uncryo.maxtime", 180 * 60f, CVar.SERVER | CVar.REPLICATED);
 
+    /// <summary>
+    /// Number of cryosleep rule warnings acknowledged on this client.
+    /// </summary>
+    public static readonly CVarDef<int> CryoWarningAcknowledgements =
+        CVarDef.Create("nf14.cryo.warning_acknowledgements", 0, CVar.CLIENTONLY | CVar.ARCHIVE);
+
+    /// <summary>
+    /// Legacy Frontier onboarding choice: 0 not answered, 1 accepted, 2 declined.
+    /// Retained only so the sequential tutorial can migrate existing clients safely.
+    /// </summary>
+    public static readonly CVarDef<int> FrontierTutorialChoice =
+        CVarDef.Create("nf14.tutorial.choice", 0, CVar.CLIENTONLY | CVar.ARCHIVE);
+
+    /// <summary>
+    /// Bit mask of completed Frontier onboarding topics. Topic bit positions are append-only.
+    /// </summary>
+    public static readonly CVarDef<int> FrontierTutorialCompletedTopics =
+        CVarDef.Create("nf14.tutorial.completed_topics", 0, CVar.CLIENTONLY | CVar.ARCHIVE);
+
+    /// <summary>
+    /// Schema version for the archived Frontier onboarding progress.
+    /// </summary>
+    public static readonly CVarDef<int> FrontierTutorialProgressVersion =
+        CVarDef.Create("nf14.tutorial.progress_version", 0, CVar.CLIENTONLY | CVar.ARCHIVE);
+
     /*
      *  Public Transit
      */

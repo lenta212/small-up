@@ -25,7 +25,8 @@ public sealed partial class ResearchSystem
 
     private void OnClientSelected(EntityUid uid, ResearchClientComponent component, ResearchClientServerSelectedMessage args)
     {
-        if (!TryGetServerById(args.ServerId, out var serveruid, out var serverComponent))
+        if (!TryGetServerById(args.ServerId, out var serveruid, out var serverComponent) ||
+            !IsSameResearchScope(uid, serveruid.Value))
             return;
 
         UnregisterClient(uid, component);

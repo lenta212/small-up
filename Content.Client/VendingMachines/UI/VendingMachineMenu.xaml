@@ -33,8 +33,18 @@
         </GridContainer>
         </PanelContainer>
         <!-- End Frontier: balance -->
-        <controls:StripeBack MinSize="48 48">
-        <LineEdit Name="SearchBar" PlaceHolder="{Loc 'vending-machine-component-search-filter'}" HorizontalExpand="True"  Margin ="4 4"/>
+        <controls:StripeBack MinSize="82 82">
+        <BoxContainer Orientation="Vertical" HorizontalExpand="True">
+            <BoxContainer Orientation="Horizontal" HorizontalExpand="True" Margin="4 4 4 0">
+                <Label Text="{Loc 'vending-machine-menu-purchase-quantity'}"
+                       VerticalAlignment="Center"
+                       HorizontalExpand="True" />
+                <SpinBox Name="PurchaseQuantity"
+                         Value="1"
+                         MinWidth="100" />
+            </BoxContainer>
+            <LineEdit Name="SearchBar" PlaceHolder="{Loc 'vending-machine-component-search-filter'}" HorizontalExpand="True" Margin="4 4"/>
+        </BoxContainer>
         </controls:StripeBack>
         <co:SearchListContainer Name="VendingContents" VerticalExpand="True" Margin="4 4"/>
          <!-- Footer -->

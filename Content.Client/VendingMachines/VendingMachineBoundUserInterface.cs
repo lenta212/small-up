@@ -6,8 +6,6 @@ using Robust.Shared.Input;
 using System.Linq;
 using Robust.Client.GameObjects;
 using Content.Shared._NF.Bank.Components; // Frontier
-using Content.Shared.Containers.ItemSlots; // Frontier
-using Content.Shared.Stacks; // Frontier
 
 namespace Content.Client.VendingMachines
 {
@@ -19,12 +17,9 @@ namespace Content.Client.VendingMachines
         [ViewVariables]
         private List<VendingMachineInventoryEntry> _cachedInventory = new();
 
-        // Frontier: market price modifier & balance
+        // Frontier: balance
         private UserInterfaceSystem _uiSystem = default!;
-        private ItemSlotsSystem _itemSlots = default!;
 
-        [ViewVariables]
-        private float _mod = 1f;
         [ViewVariables]
         private int _balance = 0;
         [ViewVariables]
@@ -32,6 +27,8 @@ namespace Content.Client.VendingMachines
         // End Frontier
         [ViewVariables]
         private bool _requiresCash; // mono
+        private IReadOnlyDictionary<string, int> _unitPrices = new Dictionary<string, int>();
+        private bool _hasPriceState;
 
         public VendingMachineBoundUserInterface(EntityUid owner, Enum uiKey) : base(owner, uiKey)
         {
@@ -41,12 +38,8 @@ namespace Content.Client.VendingMachines
         {
             base.Open();
 
-            // Frontier: state, market modifier, balance status
+            // Frontier: state and balance status
             _uiSystem = EntMan.System<UserInterfaceSystem>();
-            _itemSlots = EntMan.System<ItemSlotsSystem>();
-
-            if (EntMan.TryGetComponent<MarketModifierComponent>(Owner, out var market))
-                _mod = market.Mod;
             // End Frontier
 
             _menu = this.CreateWindowCenteredLeft<VendingMachineMenu>();
@@ -65,7 +58,7 @@ namespace Content.Client.VendingMachines
             var system = EntMan.System<VendingMachineSystem>();
             _cachedInventory = system.GetAllInventory(Owner);
 
-            // Frontier: state, market modifier, balance status
+            // Frontier: state and balance status
             var uiUsers = _uiSystem.GetActors(Owner, UiKey);
             foreach (var uiUser in uiUsers)
             {
@@ -76,7 +69,8 @@ namespace Content.Client.VendingMachines
             if (EntMan.TryGetComponent<VendingMachineComponent>(Owner, out var vendingMachine))
             {
                 _cashSlotBalance = vendingMachine.CashSlotBalance;
-                _requiresCash = vendingMachine.RequiresCash; // mono
+                if (!_hasPriceState)
+                    _requiresCash = vendingMachine.RequiresCash; // mono
                 if (vendingMachine.CashSlotName != null)
                     cashSlotValue = _cashSlotBalance;
             }
@@ -86,7 +80,21 @@ namespace Content.Client.VendingMachines
             }
             // End Frontier
 
-            _menu?.Populate(_cachedInventory, _mod, _balance, cashSlotValue, _requiresCash); // Frontier: add _balance, mono: add _requiresCash
+            _menu?.Populate(_cachedInventory, _unitPrices, _balance, cashSlotValue, _requiresCash); // Frontier: add _balance, mono: add _requiresCash
+        }
+
+        protected override void UpdateState(BoundUserInterfaceState state)
+        {
+            base.UpdateState(state);
+
+            if (state is not VendingMachineBoundUserInterfaceState vendingState)
+                return;
+
+            _unitPrices = new Dictionary<string, int>(vendingState.UnitPrices);
+            _requiresCash = vendingState.RequiresCash;
+            _hasPriceState = true;
+            if (_menu != null)
+                Refresh();
         }
 
         private void OnItemSelected(GUIBoundKeyEventArgs args, ListData data)
@@ -94,7 +102,13 @@ namespace Content.Client.VendingMachines
             if (args.Function != EngineKeyFunctions.UIClick)
                 return;
 
-            if (data is not VendorItemsListData { ItemIndex: var itemIndex })
+            if (data is not VendorItemsListData
+                {
+                    ItemIndex: var itemIndex,
+                    PurchaseQuantity: var purchaseQuantity,
+                    TotalPrice: var totalPrice,
+                    CanPurchase: true,
+                })
                 return;
 
             if (_cachedInventory.Count == 0)
@@ -105,7 +119,11 @@ namespace Content.Client.VendingMachines
             if (selectedItem == null)
                 return;
 
-            SendMessage(new VendingMachineEjectMessage(selectedItem.Type, selectedItem.ID));
+            SendMessage(new VendingMachineEjectMessage(
+                selectedItem.Type,
+                selectedItem.ID,
+                purchaseQuantity,
+                totalPrice));
         }
 
         protected override void Dispose(bool disposing)

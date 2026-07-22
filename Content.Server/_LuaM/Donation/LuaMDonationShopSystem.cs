@@ -75,7 +75,8 @@ public sealed class LuaMDonationShopSystem : EntitySystem
             record.Balance,
             access,
             FormatAccessUntil(record),
-            BuildListings(record, access));
+            BuildListings(record, access),
+            record.Purchases.ContainsKey("pda-gold-frame"));
     }
 
     public bool TryPurchase(EntityUid buyer, string listingId, out string status)
@@ -346,11 +347,12 @@ public sealed record DonationShopPdaState(
     int Balance,
     bool Access,
     string AccessUntil,
-    List<PdaDonationShopListing> Listings)
+    List<PdaDonationShopListing> Listings,
+    bool HasGoldPdaFrame)
 {
     public static DonationShopPdaState Locked(List<PdaDonationShopListing> listings)
     {
-        return new DonationShopPdaState(0, false, string.Empty, listings);
+        return new DonationShopPdaState(0, false, string.Empty, listings, false);
     }
 }
 
