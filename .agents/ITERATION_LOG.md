@@ -1,6 +1,6 @@
 ﻿# Monolith-DS iteration journal
 
-Updated: 2026-07-22 05:07 MSK
+Updated: 2026-07-22 06:09 MSK
 
 ## 2026-07-22 -- accumulated release split and docking scope corrected
 
@@ -16,6 +16,8 @@ Updated: 2026-07-22 05:07 MSK
 - The first local journal commit attempt retained both files staged but failed with `fatal: unable to write new index file` while two short-lived Git processes were still present. No index lock remained and more than 1 TB was free; after those processes exited, the identical commit succeeded as `2a68bad829` without resetting or restaging data.
 - The release authorization in `.agents/RELEASE_POLICY.json` remains active for the accumulated server, client-static, and AI-gateway batch. No release binary or client package has yet been deployed.
 - The first policy-bound `ship_luam_release.ps1` gate ran for 645.8 seconds but failed before creating the source-package step because `prepare_luam_hotfix.ps1` evaluated `.Count` on the scalar/null result of `Get-ChangedRepoFiles` under inherited strict mode. No artifact was accepted and no remote mutation occurred. `changedFiles` is now explicitly array-wrapped; a focused `-Scope Policy -Json` regression passed with `ok=true`, one changed file, and the release-policy contract green.
+- The second policy-bound gate ran for 2,154.9 seconds. Its clean local-fast stage passed, the production source-package tests and local smoke passed, source verification passed, and fresh client/server archives plus a binary receipt were physically produced. The outer orchestrator nevertheless rejected the binary-build step before accepting it because `build_luam_server_release.ps1 -Json` streamed normal MSBuild text before its JSON result. The release state therefore ended in `failed` at `2026-07-22T02:56:55Z`; none of those artifacts is approved for deployment, and no production mutation occurred.
+- `Invoke-CheckedNative` in the binary builder now captures native stdout/stderr while `-Json` is active and emits no successful native output; on failure it retains only the final 80 diagnostic lines in the exception. The wrapper temporarily uses `ErrorActionPreference=Continue` only around native capture and restores the prior strict behavior in `finally`, so benign stderr cannot bypass the explicit exit-code check. PowerShell parsing passed. An extracted-function regression proved that successful stdout/stderr is suppressed and a nonzero exit preserves its code and diagnostic tail. A fast whole-script `-LocalOnly -SkipPackageBuild -SkipAudit -Json` invocation parsed as one JSON document with `ok=true`. The first extracted-function test command itself failed only because its nested PowerShell string lost quotes; the corrected `cmd.exe` harness passed. A read-only independent audit confirmed the observed mixed-stdout fix and identified the now-hardened benign-stderr edge. A previously started full local regression lost its tracked execution cell during context compaction and has no usable result; it is explicitly not counted as green. The next production gate must rebuild and re-receipt the current HEAD rather than reuse the rejected archives.
 
 Commands and outcomes:
 
@@ -37,14 +39,22 @@ ssh monolith-new "<protected admin-token override and no-restart verification>"
 git commit -m "docs(ops): record production release preflight"
 powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -Json
 powershell -NoProfile -ExecutionPolicy Bypass -File Tools/prepare_luam_hotfix.ps1 -Scope Policy -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -Json
+[System.Management.Automation.Language.Parser]::ParseFile(<build_luam_server_release.ps1>, ...)
+Invoke-CheckedNative powershell.exe <nested stdout/stderr test; failed because the harness lost nested quotes>
+Invoke-CheckedNative cmd.exe <successful stdout/stderr suppression and exit-7 tail test>
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/build_luam_server_release.ps1 -LocalOnly -SkipPackageBuild -SkipAudit -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/test_luam_release_contract.ps1 -Json
 ```
 
-Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. The first artifact gate is also explicitly failed/superseded by the focused wrapper repair and has not authorized deployment. No production deploy has yet been claimed.
+Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. Both artifact-gate attempts failed closed locally and have not authorized deployment: the first exposed clean-worktree scalar handling, while the second exposed mixed native/JSON output only after all expensive build checks passed. The hardened binary-builder JSON isolation and strict benign-stderr regressions are green, the fast whole-script output parsed successfully, and the policy release contract remains green. A new current-HEAD artifact gate is still required. No production deploy has yet been claimed.
 
-Next action: commit the local-fast array normalization and this handoff, require a clean tree, then repeat the complete policy-bound source/client/server artifact gate:
+Next action: commit the binary-builder JSON isolation and this handoff, require a clean tree, then repeat the policy-bound source/client/server artifact gate with the already-completed local-fast stage skipped but all production package tests, smoke checks, verification, binary construction, audit, and deployment dry-runs retained:
 
 ```powershell
-git add -- Tools/prepare_luam_hotfix.ps1 .agents/ITERATION_LOG.md
+git add -- Tools/build_luam_server_release.ps1 .agents/ITERATION_LOG.md
+git commit -m "fix(release): keep binary build JSON machine-readable"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -SkipLocalFast -Json
 ```
 
 ## 2026-07-22 -- damaged-AI unknown-shuttle accumulation diagnosis

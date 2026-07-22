@@ -100,6 +100,24 @@ function Invoke-CheckedNative {
         [string[]]$NativeArgs
     )
 
+    if ($Json) {
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            $nativeOutput = @(& $FilePath @NativeArgs 2>&1 | ForEach-Object { [string]$_ })
+            $exit = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+
+        if ($exit -ne 0) {
+            $tail = @($nativeOutput | Select-Object -Last 80)
+            throw "$FilePath failed with exit code $exit.`n$($tail -join "`n")"
+        }
+        return
+    }
+
     & $FilePath @NativeArgs
     if ($LASTEXITCODE -ne 0) {
         throw "$FilePath failed with exit code $LASTEXITCODE"
