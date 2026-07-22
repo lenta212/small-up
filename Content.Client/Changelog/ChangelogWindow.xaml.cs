@@ -20,6 +20,8 @@ namespace Content.Client.Changelog
         [Dependency] private IClientAdminManager _adminManager = default!;
         [Dependency] private ChangelogManager _changelog = default!;
 
+        private int _populateGeneration;
+
         public ChangelogWindow()
         {
             RobustXamlLoader.Load(this);
@@ -31,8 +33,7 @@ namespace Content.Client.Changelog
         {
             base.Opened();
 
-            _changelog.SaveNewReadId();
-            PopulateChangelog();
+            PopulateChangelog(++_populateGeneration);
         }
 
         protected override void EnteredTree()
@@ -43,6 +44,8 @@ namespace Content.Client.Changelog
 
         protected override void ExitedTree()
         {
+            // Invalidate an asynchronous load before this window can be reopened.
+            _populateGeneration++;
             base.ExitedTree();
             _adminManager.AdminStatusUpdated -= OnAdminStatusUpdated;
         }
@@ -52,10 +55,19 @@ namespace Content.Client.Changelog
             TabsUpdated();
         }
 
-        private async void PopulateChangelog()
+        private async void PopulateChangelog(int generation)
         {
             // Changelog is not kept in memory so load it again.
             var changelogs = await _changelog.LoadChangelog();
+
+            if (!CanApplyPopulateResult(generation, _populateGeneration, IsOpen))
+                return;
+
+            var readThroughId = changelogs
+                .Where(changelog => changelog.Name == ChangelogManager.MainChangelogName)
+                .SelectMany(changelog => changelog.Entries)
+                .Select(entry => (int?) entry.Id)
+                .Max();
 
             Tabs.DisposeAllChildren();
 
@@ -72,6 +84,14 @@ namespace Content.Client.Changelog
             VersionLabel.Text = _changelog.GetClientVersion();
 
             TabsUpdated();
+            // Only acknowledge entries after the changelog was loaded and every visible card was built.
+            if (readThroughId is { } id)
+                _changelog.SaveNewReadId(id);
+        }
+
+        internal static bool CanApplyPopulateResult(int generation, int currentGeneration, bool isOpen)
+        {
+            return isOpen && generation == currentGeneration;
         }
 
         private void TabsUpdated()

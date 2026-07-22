@@ -1,7 +1,7 @@
 <Document>
-  # Asakim
+  # Асаким
 
-  Asakim are abandoned pre-fracture genetically enhanced reptillian bioweapons, they are remnants of long-gone wars, only woken up after extreme circumstances causing them to have a [color=red]cryostasis failure[/color] near the Colossus Sector.
+  Асаким — брошенное генетически усовершенствованное рептилоидное биооружие времён до Раскола. Это пережиток давно минувших войн, пробудившийся лишь из-за чрезвычайных обстоятельств, вызвавших [color=red]отказ криостазиса[/color] вблизи сектора Колосс.
 
   <Box>
     <GuideEntityEmbed Entity="MobAsakim"/>
@@ -12,28 +12,28 @@
     <GuideEntityEmbed Entity="WeaponRifleAsakimAutopulser"/>
   </Box>
 
-  ##As an Asakim:
-  - You generally have no modern knowledge (maybe basic at most) of the sector and its inhabitants. You don't speak Andromeda Standard, and you shouldn't know about the culture of the TSF, PDV, or other factions.
-  - Your goal is to secure territory and establish a base of operations in the absence of a chain of command.
-  - Should you find stolen pre-fracture technology, you may reclaim it by force.
-  - [bold]Your specialized gear is incredibly [color=#00CCFF]valuable and rare[/color], you should never give it up.[/bold]
-  - [color=green]Civilians (Non-Faction) are not your enemy[/color], and can be bartered with if you can get past the language barrier.
+  ## Игра за Асаким:
+  - Обычно у вас нет современных знаний о секторе и его обитателях — в лучшем случае лишь самые базовые. Вы не говорите на общем языке Андромеды и не должны знать культуру TSF, PDV или других фракций.
+  - В отсутствие командования ваша цель — закрепиться на территории и создать оперативную базу.
+  - Обнаружив похищенную технологию времён до Раскола, вы можете вернуть её силой.
+  - [bold]Ваше специализированное снаряжение чрезвычайно [color=#00CCFF]ценно и редко[/color] — никогда не отдавайте его.[/bold]
+  - [color=green]Гражданские, не состоящие во фракциях, вам не враги[/color]. С ними можно торговать, если удастся преодолеть языковой барьер.
 
-  [color=#00FFCC][bold][italic]Fight with honor, prevent harm to the innocent, and destroy anything that stands in your path.[/italic][/bold][/color]
+  [color=#00FFCC][bold][italic]Сражайтесь с честью, оберегайте невинных и уничтожайте всё, что встаёт у вас на пути.[/italic][/bold][/color]
 
-  ##Species Notes:
-  [bold]As a genemodded trained bioweapon, you'll find that:[/bold]
-  - Your highly developed lungs give you additional powerful melee damage, and claws inject 1u of [color=orange]Gastrotoxin[/color] on hit.
-  - Your thick scales protect you more than they normally would.
-  - Your additional eyes grants you basic biological nightvision.
-  - You are generally bulkier than most, and have more power to drag things around.
-  - Your heart is capable of processing up to 5 reagents at once.
+  ## Особенности вида:
+  [bold]Как обученное и генетически модифицированное биооружие вы обладаете следующими особенностями:[/bold]
+  - Сильно развитые лёгкие повышают ваш урон в ближнем бою, а когти при попадании вводят 1 ед. [color=orange]гастротоксина[/color].
+  - Толстая чешуя защищает лучше обычной.
+  - Дополнительные глаза обеспечивают простое биологическое ночное зрение.
+  - Вы крупнее большинства существ и можете тащить более тяжёлые предметы.
+  - Ваше сердце способно одновременно перерабатывать до пяти реагентов.
 
-  ## Misc Notes:
-  - Asakim are generally undiscovered to the sector, and should not be commonly known IC.
-  - [color=red][bold]Like Chimeras, you are not immune to safezone rules as an Asakim.[/bold][/color]
-  - Asakim are hostile towards Factions and do not require escalation to attack or be attacked.
-  - You are allied with the Remnant ADS ships and are expected to follow the orders of ADC AI units.
-  - Stolen pre-fracture technology includes items and devices [bold]only[/bold] accessible through pre-fracture tech disks or theft, such as MS-250/500 Shield Generators and Curio-class ship weaponry. Research-tree technology such as CTLA-50s do not qualify as stolen technology.
+  ## Прочие примечания:
+  - Асаким практически неизвестны в секторе, поэтому персонажи обычно не должны знать о них.
+  - [color=red][bold]Как и Химеры, Асаким обязаны соблюдать правила зелёных зон.[/bold][/color]
+  - Асаким враждебны фракциям: для нападения на них или с их стороны эскалация не требуется.
+  - Вы союзник кораблей Remnant ADS и обязаны выполнять приказы ИИ-модулей ADC.
+  - К похищенным технологиям времён до Раскола относятся предметы и устройства, доступные [bold]только[/bold] через технологические диски той эпохи либо кражу, например генераторы щитов MS-250/500 и корабельные орудия класса Curio. Технологии из дерева исследований, такие как CTLA-50, похищенными не считаются.
 
 </Document>

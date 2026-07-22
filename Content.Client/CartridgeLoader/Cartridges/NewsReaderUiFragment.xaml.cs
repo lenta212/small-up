@@ -31,6 +31,7 @@ public sealed partial class NewsReaderUiFragment : BoxContainer
         Author.Visible = true;
 
         PageName.Text = article.Title;
+        PageName.ToolTip = article.Title;
         PageText.SetMarkupPermissive(article.Content);
 
         PageNum.Text = $"{targetNum}/{totalNum}";
@@ -54,6 +55,10 @@ public sealed partial class NewsReaderUiFragment : BoxContainer
         Author.Visible = false;
 
         PageName.Text = Loc.GetString("news-read-ui-not-found-text");
+        PageName.ToolTip = null;
+        PageText.SetMarkup(string.Empty);
+        Prev.Disabled = true;
+        Next.Disabled = true;
 
         NotificationSwitch.Text = Loc.GetString(notificationOn ? "news-read-ui-notification-on" : "news-read-ui-notification-off");
     }

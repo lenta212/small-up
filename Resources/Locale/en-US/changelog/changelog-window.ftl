@@ -1,6 +1,10 @@
 ### ChangelogWindow.xaml.cs
 
 changelog-window-title = Changelog
+changelog-window-description = Sector dispatches, newest first. Unread transmissions are marked until this screen loads successfully.
+changelog-entry-meta = { $time } // { $author }
+changelog-entry-new = NEW
+changelog-empty = No dispatches received.
 changelog-author-changed = [color=#EEE]{ $author }[/color] changed:
 changelog-today = Today
 changelog-yesterday = Yesterday

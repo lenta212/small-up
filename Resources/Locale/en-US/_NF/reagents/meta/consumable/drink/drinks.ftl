@@ -30,3 +30,5 @@ reagent-desc-wassail = Hot mulled ale.
 
 reagent-name-eggnog = eggnog
 reagent-desc-eggnog = Creamy, sweet, and slightly boozy. Fully nogged.
+reagent-name-nanocaf = nanocaf
+reagent-desc-nanocaf = If you've never had coffee before this will be the best coffee you've ever had.

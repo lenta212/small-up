@@ -1,0 +1,29 @@
+syndicate-mob-prefix-1 = Agent
+syndicate-mob-prefix-2 = Operative
+syndicate-mob-prefix-3 = Specialist
+syndicate-mob-prefix-4 = Mercenary
+syndicate-mob-prefix-5 = Saboteur
+syndicate-mob-prefix-6 = Enforcer
+syndicate-mob-prefix-7 = Gunner
+syndicate-mob-prefix-8 = Sapper
+syndicate-mob-prefix-9 = Assault
+
+syndicate-mob-names-normal-1 = Alpha
+syndicate-mob-names-normal-2 = Beta
+syndicate-mob-names-normal-3 = Gamma
+syndicate-mob-names-normal-4 = Delta
+syndicate-mob-names-normal-5 = Falcon
+syndicate-mob-names-normal-6 = Hawk
+syndicate-mob-names-normal-7 = Wolf
+syndicate-mob-names-normal-8 = Serpent
+syndicate-mob-names-normal-9 = Ghost
+
+syndicate-mob-names-elite-1 = Nemesis
+syndicate-mob-names-elite-2 = Reaper
+syndicate-mob-names-elite-3 = Viper
+syndicate-mob-names-elite-4 = Wraith
+syndicate-mob-names-elite-5 = Harbinger
+syndicate-mob-names-elite-6 = Revenant
+syndicate-mob-names-elite-7 = Blackstar
+syndicate-mob-names-elite-8 = Manticore
+syndicate-mob-names-elite-9 = Leviathan

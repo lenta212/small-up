@@ -3,13 +3,13 @@
 Это отдел, куда приходят, когда им больно. Задача работающих здесь — поставить на ноги пострадавших.
 
 ## Персонал
-Персонал [color=#5b97bc]медицинского отдела[/color] состоит из мединтернов, врачей, парамедиков и химиков. Руководит [color=#5b97bc]медициной[/color] Главный врач (Chief Medical Officer).
+Персонал [color=#5b97bc]медицинского отдела[/color] состоит из мединтернов, врачей, парамедиков и химиков. Руководит [color=#5b97bc]медициной[/color] главный врач.
 
   <Box>
-    <GuideEntityEmbed Entity="ToyFigurineMedicalDoctor" Caption="Doctor"/>
-    <GuideEntityEmbed Entity="ToyFigurineParamedic" Caption="Paramedic"/>
-    <GuideEntityEmbed Entity="ToyFigurineChemist" Caption="Chemist"/>
-    <GuideEntityEmbed Entity="ToyFigurineChiefMedicalOfficer" Caption="CMO"/>
+    <GuideEntityEmbed Entity="ToyFigurineMedicalDoctor" Caption="врач"/>
+    <GuideEntityEmbed Entity="ToyFigurineParamedic" Caption="парамедик"/>
+    <GuideEntityEmbed Entity="ToyFigurineChemist" Caption="химик"/>
+    <GuideEntityEmbed Entity="ToyFigurineChiefMedicalOfficer" Caption="главный врач"/>
   </Box>
 
 Сейчас медбей делится на два основных направления помощи:

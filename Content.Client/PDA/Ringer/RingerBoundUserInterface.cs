@@ -24,15 +24,27 @@ namespace Content.Client.PDA.Ringer
 
             _menu.TestRingerButton.OnPressed += _ =>
             {
-                SendMessage(new RingerPlayRingtoneMessage());
+                if (!TryGetRingtone(out var preview))
+                {
+                    _menu.RingtoneStatusLabel.Text = Loc.GetString("comp-ringer-ui-status-invalid");
+                    return;
+                }
+
+                _menu.RingtoneStatusLabel.Text = Loc.GetString("comp-ringer-ui-status-previewing");
+                _menu.TestRingerButton.Disabled = true;
+                SendMessage(new RingerPlayRingtoneMessage(preview));
             };
 
             _menu.SetRingerButton.OnPressed += _ =>
             {
                 if (!TryGetRingtone(out var ringtone))
+                {
+                    _menu.RingtoneStatusLabel.Text = Loc.GetString("comp-ringer-ui-status-invalid");
                     return;
+                }
 
                 SendMessage(new RingerSetRingtoneMessage(ringtone));
+                _menu.RingtoneStatusLabel.Text = Loc.GetString("comp-ringer-ui-status-save-requested");
                 _menu.SetRingerButton.Disabled = true;
 
                 Timer.Spawn(333, () =>
@@ -70,19 +82,35 @@ namespace Content.Client.PDA.Ringer
             if (_menu == null || state is not RingerUpdateState msg)
                 return;
 
-            for (int i = 0; i < _menu.RingerNoteInputs.Length; i++)
+            if (!msg.PreserveEditorInput)
             {
-
-                var note = msg.Ringtone[i].ToString();
-                if (RingtoneMenu.IsNote(note))
+                for (int i = 0; i < _menu.RingerNoteInputs.Length; i++)
                 {
-                    _menu.PreviousNoteInputs[i] = note.Replace("sharp", "#");
-                    _menu.RingerNoteInputs[i].Text = _menu.PreviousNoteInputs[i];
+                    var note = msg.Ringtone[i].ToString();
+                    if (RingtoneMenu.IsNote(note))
+                    {
+                        _menu.PreviousNoteInputs[i] = note.Replace("sharp", "#");
+                        _menu.RingerNoteInputs[i].Text = _menu.PreviousNoteInputs[i];
+                    }
                 }
-
             }
 
             _menu.TestRingerButton.Disabled = msg.IsPlaying;
+            if (msg.IsPreview)
+            {
+                _menu.RingtoneStatusLabel.Text = Loc.GetString(
+                    msg.IsPlaying
+                        ? "comp-ringer-ui-status-previewing"
+                        : "comp-ringer-ui-status-preview-complete");
+            }
+            else if (msg.PreserveEditorInput)
+            {
+                _menu.RingtoneStatusLabel.Text = Loc.GetString("comp-ringer-ui-status-preview-interrupted");
+            }
+            else if (!msg.IsPlaying)
+            {
+                _menu.RingtoneStatusLabel.Text = Loc.GetString("comp-ringer-ui-status-saved");
+            }
         }
 
 

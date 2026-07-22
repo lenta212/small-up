@@ -1,5 +1,5 @@
 ﻿<Document>
-  # Обратный клапан (Passive Gate)
+  # Обратный клапан
   Обратный клапан — простой односторонний клапан, не допускающий обратного течения газа.
   <Box>
     <GuideEntityEmbed Entity="GasPassiveGate"/>

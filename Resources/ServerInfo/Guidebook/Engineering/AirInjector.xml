@@ -1,5 +1,5 @@
 ﻿<Document>
-  # Air Injector
+  # Инжектор воздуха
   Инжектор — это особый вент, который принудительно закачивает газ в открытую атмосферу.
   <Box>
     <GuideEntityEmbed Entity="GasOutletInjector"/>

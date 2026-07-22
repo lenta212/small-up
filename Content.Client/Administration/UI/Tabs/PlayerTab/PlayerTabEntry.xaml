@@ -32,5 +32,10 @@
                SizeFlagsStretchRatio="2"
                HorizontalExpand="True"
                ClipText="True"/>
+        <customControls:VSeparator/>
+        <Button Name="CameraButton"
+                MinWidth="84"
+                Text="{Loc player-tab-camera}"
+                ToolTip="{Loc player-tab-camera-tooltip}"/>
     </BoxContainer>
 </PanelContainer>

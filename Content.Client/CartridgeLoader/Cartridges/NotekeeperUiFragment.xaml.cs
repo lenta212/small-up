@@ -20,8 +20,12 @@ public sealed partial class NotekeeperUiFragment : BoxContainer
 
         Input.OnTextEntered += _ =>
         {
-            AddNote(Input.Text);
-            OnNoteAdded?.Invoke(Input.Text);
+            var note = Input.Text.Trim();
+            if (string.IsNullOrWhiteSpace(note))
+                return;
+
+            AddNote(note);
+            OnNoteAdded?.Invoke(note);
             Input.Clear();
         };
 
@@ -31,6 +35,9 @@ public sealed partial class NotekeeperUiFragment : BoxContainer
     public void UpdateState(List<string> notes)
     {
         MessageContainer.RemoveAllChildren();
+        EmptyLabel.Visible = notes.Count == 0;
+        if (EmptyLabel.Visible)
+            MessageContainer.AddChild(EmptyLabel);
 
         foreach (var note in notes)
         {
@@ -40,23 +47,41 @@ public sealed partial class NotekeeperUiFragment : BoxContainer
 
     private void AddNote(string note)
     {
-        var row = new BoxContainer();
-        row.HorizontalExpand = true;
-        row.Orientation = LayoutOrientation.Horizontal;
-        row.Margin = new Thickness(4);
+        EmptyLabel.Visible = false;
+        if (EmptyLabel.Parent == MessageContainer)
+            MessageContainer.RemoveChild(EmptyLabel);
 
-        var label = new Label();
-        label.Text = note;
-        label.HorizontalExpand = true;
-        label.ClipText = true;
+        var card = new PanelContainer
+        {
+            HorizontalExpand = true,
+            Margin = new Thickness(0, 0, 0, 6),
+            StyleClasses = { "PdaListingCard" },
+        };
+        var row = new BoxContainer
+        {
+            HorizontalExpand = true,
+            Orientation = LayoutOrientation.Horizontal,
+            Margin = new Thickness(8, 6),
+        };
 
-        var removeButton = new TextureButton();
+        var label = new Label
+        {
+            Text = note,
+            ToolTip = note,
+            HorizontalExpand = true,
+            ClipText = true,
+        };
+
+        var removeButton = new TextureButton
+        {
+            ToolTip = Loc.GetString("notekeeper-remove"),
+        };
         removeButton.AddStyleClass("windowCloseButton");
         removeButton.OnPressed += _ => OnNoteRemoved?.Invoke(label.Text);
 
         row.AddChild(label);
         row.AddChild(removeButton);
-
-        MessageContainer.AddChild(row);
+        card.AddChild(row);
+        MessageContainer.AddChild(card);
     }
 }

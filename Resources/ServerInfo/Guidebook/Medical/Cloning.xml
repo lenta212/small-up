@@ -6,7 +6,7 @@
 
 Замечание: клонирование не всегда доступно, не стоит полностью на него рассчитывать.
 <Box>
-<GuideEntityEmbed Entity="ComputerCloningConsole" Caption="cloning console"/>
+    <GuideEntityEmbed Entity="ComputerCloningConsole" Caption="консоль клонирования"/>
 <GuideEntityEmbed Entity="MedicalScanner"/>
 <GuideEntityEmbed Entity="CloningPod"/>
 <GuideEntityEmbed Entity="NetworkConfigurator"/>
@@ -15,7 +15,7 @@
 ## Биомасса
 Для создания клона нужна биомасса — грубо говоря, переработанное органическое сырьё. Это могут быть тела без души, питомцы станции или обезвреженные противники — всё это нередко идёт в переработку.
 
-Перетащите тело на утилизатор биомассы — он переработает его. Если это член экипажа, обычно практикуют снять экипировку и вернуть departmental‑снаряжение перед утилизацией.
+Перетащите тело на утилизатор биомассы — он переработает его. Если это член экипажа, перед утилизацией принято снять экипировку и вернуть снаряжение отдела.
 <Box>
 <GuideEntityEmbed Entity="BiomassReclaimer"/>
 <GuideEntityEmbed Entity="MaterialBiomass"/>

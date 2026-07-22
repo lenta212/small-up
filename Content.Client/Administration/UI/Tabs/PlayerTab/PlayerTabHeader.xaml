@@ -45,5 +45,10 @@
                ClipText="True"
                Text="{Loc player-tab-balance}"
                MouseFilter="Pass"/>
+        <cc:VSeparator/>
+        <Label MinWidth="84"
+               Text="{Loc player-tab-camera}"
+               HorizontalAlignment="Center"
+               MouseFilter="Pass"/>
     </BoxContainer>
 </Control>

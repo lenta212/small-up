@@ -10,7 +10,59 @@ comp-pda-ui-owner = Owner: [color=white]{$actualOwnerName}[/color]
 
 comp-pda-ui-owner-with-company = Owner: [color=white]{$actualOwnerName}[/color] [color={$companyColor}]({$companyName})[/color]
 
+comp-pda-ui-device-status = SECURE LINK // ONLINE
+
+comp-pda-ui-home-tooltip = Dashboard
+
+comp-pda-ui-close-program-tooltip = Close active program
+
+comp-pda-ui-eject-pai-button = Eject pAI
+
+comp-pda-ui-dashboard-title = Dashboard
+
+comp-pda-ui-dashboard-description = Identity and sector status at a glance. Financial and support operations are isolated under Services.
+
+comp-pda-ui-services-title = Frontier services
+
+comp-pda-ui-services-description = Money and support operations use the secure sector link. Verify every recipient and amount: frontier transfers cannot be undone in open space.
+
+comp-pda-ui-section-identity = IDENTITY
+
+comp-pda-ui-section-sector = SECTOR STATUS
+
+comp-pda-ui-section-finance = FINANCE
+
+comp-pda-ui-section-vessel = REGISTERED VESSEL
+
+comp-pda-ui-copy-tooltip = Copy value
+
+comp-pda-ui-bank-copy-tooltip = Copy bank ID
+
+comp-pda-ui-copied = Copied: { $label }
+comp-pda-ui-copy-owner = owner
+comp-pda-ui-copy-id = identity record
+comp-pda-ui-copy-sector = sector
+comp-pda-ui-copy-alert = alert level
+comp-pda-ui-copy-advisory = sector advisory
+comp-pda-ui-copy-time = shift time
+comp-pda-ui-copy-balance = balance
+comp-pda-ui-copy-bank-id = bank ID
+comp-pda-ui-copy-support = support account
+comp-pda-ui-copy-vessel = registered vessel
+
+comp-pda-ui-programs-title = Programs
+
+comp-pda-ui-programs-description = Installed and available PDA cartridges.
+
+comp-pda-ui-settings-title = Device settings
+
+comp-pda-ui-settings-description = Sound, utilities and secure services.
+
+comp-pda-ui-os-brand = LuaM POCKETLINK // SECURE
+
 comp-pda-io-program-list-button = Programs
+
+comp-pda-io-services-button = Services
 
 comp-pda-io-settings-button = Settings
 
@@ -28,15 +80,11 @@ comp-pda-ui-menu-title = PDA
 
 comp-pda-ui-footer = Personal Digital Assistant
 
-# Mono
-# comp-pda-ui-station = Station: [color=white]{$station}[/color]
-comp-pda-ui-station = Sector Central: [color=white]{$station}[/color]
+comp-pda-ui-station = Sector: [color=white]{$station}[/color]
 
-# Mono
-# comp-pda-ui-station-alert-level = Sector Alert Level: [color={ $color }]{ $level }[/color]
-comp-pda-ui-station-alert-level = Sector is at DEFCON [color={ $color }]{ $level }[/color]
+comp-pda-ui-station-alert-level = Sector alert: [color={ $color }]{ $level }[/color]
 
-comp-pda-ui-station-alert-level-instructions = Advise: [color=white]{ $instructions }[/color]
+comp-pda-ui-station-alert-level-instructions = Advisory: [color=white]{ $instructions }[/color]
 
 comp-pda-ui-station-time = Shift duration: [color=white]{ $time }[/color]
 

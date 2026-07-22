@@ -26,10 +26,10 @@
   </Box>
 
   ## Постановка на взрыв
-  Чтобы завести таймер бомбы, [color=yellow]кликните правой кнопкой[/color] и выберите [color=yellow]Begin countdown[/click], либо [color=yellow]альт-клик[/color] по бомбе. Она начнет пищать.
+  Чтобы запустить таймер бомбы, [color=yellow]кликните правой кнопкой[/color] и выберите [color=yellow]«Начать отсчёт»[/color] либо [color=yellow]нажмите с Alt[/color] по бомбе. Она начнёт пищать.
 
   ## Таймер
-  У бомбы ограниченное время: минимум [protodata="SyndicateBomb" comp="OnUseTimerTrigger" member="ShortestDelayOption"/] секунд и максимум [protodata="SyndicateBomb" comp="OnUseTimerTrigger" member="LongestDelayOption"/] секунд. Таймер виден при осмотре, если провод Proceed не перерезан. Когда дойдёт до нуля, бомба взорвется.
+  У бомбы ограниченное время: минимум [protodata="SyndicateBomb" comp="OnUseTimerTrigger" member="ShortestDelayOption"/] секунд и максимум [protodata="SyndicateBomb" comp="OnUseTimerTrigger" member="LongestDelayOption"/] секунд. Таймер виден при осмотре, если провод хода таймера (PRCD) не перерезан. Когда он дойдёт до нуля, бомба взорвётся.
 
   ## Болты
   По умолчанию после постановки на взрыв бомба болтируется к полу. Найдите провод BOLT и перережьте его, после чего сможете отвернуть её и выкинуть в космос.
@@ -43,31 +43,31 @@
   Далее — типы проводов.
 
   ## Типы проводов
-  [color=#a4885c]Activation Wire (LIVE)[/color]
+  [color=#a4885c]Провод активации (LIVE)[/color]
   - [color=yellow]Пульс[/color]: провод пискнет и задержит взрыв на 30 секунд.
   - [color=red]Срез[/color]: обезвредит бомбу, если она активна, иначе запустит таймер.
   - [color=green]Срастить[/color]: ничего.
 
-  [color=#a4885c]Proceed Wire (PRCD)[/color]
+  [color=#a4885c]Провод хода таймера (PRCD)[/color]
   - [color=yellow]Пульс[/color]: перемотает таймер на 15 секунд вперёд.
   - [color=red]Срез[/color]: отключит отображение таймера при осмотре.
   - [color=green]Срастить[/color]: ничего.
 
-  [color=#a4885c]Delay Wire (DLAY)[/color]
+  [color=#a4885c]Провод задержки (DLAY)[/color]
   - [color=yellow]Пульс[/color]: задержит взрыв на 30 секунд.
   - [color=red]Срез[/color]: ничего.
   - [color=green]Срастить[/color]: ничего.
 
-  [color=#a4885c]Boom Wire (BOOM)[/color]
+  [color=#a4885c]Провод взрыва (BOOM)[/color]
   - [color=yellow]Пульс[/color]: [color=red]бомба взорвётся, если активна![/color]
   - [color=red]Срез[/color]: [color=red]бомба взорвётся, если активна![/color] Иначе — отключит бомбу.
   - [color=green]Срастить[/color]: повторно включит бомбу, если ранее была отключена.
 
-  [color=#a4885c]Bolt Wire (BOLT)[/color]
+  [color=#a4885c]Провод болтов (BOLT)[/color]
   - [color=yellow]Пульс[/color]: болты прокрутятся.
   - [color=red]Срез[/color]: отключит болты — можно выбрасывать в космос.
   - [color=green]Срастить[/color]: снова включит болты.
 
-  [color=#a4885c]Dummy Wire[/color]
+  [color=#a4885c]Фиктивный провод[/color]
   - Ничего не делает. Можно свободно пульсировать, резать и сращивать — это не повлияет на бомбу.
 </Document>

@@ -1,11 +1,23 @@
-﻿<pda:PdaSettingsButton xmlns="https://spacestation14.io"
+<pda:PdaSettingsButton xmlns="https://spacestation14.io"
                        xmlns:pda="clr-namespace:Content.Client.PDA"
                        HorizontalExpand="True"
-                       MinHeight="48"
-                       Margin="5 4 6 0">
-<PanelContainer Name="Panel"/>
-<BoxContainer Orientation="Vertical" HorizontalExpand="True" VerticalExpand="True" Margin="8 4 0 4">
-    <Label Name="OptionName"/>
-    <Label Name="OptionDescription"/>
-</BoxContainer>
+                       MinHeight="64"
+                       Margin="0 0 0 6">
+    <PanelContainer Name="Panel"/>
+    <BoxContainer Orientation="Horizontal" HorizontalExpand="True" VerticalExpand="True" Margin="12 8">
+        <BoxContainer Orientation="Vertical" HorizontalExpand="True" VerticalExpand="True">
+            <Label Name="OptionName"
+                   StyleClasses="PdaSettingsTitle"
+                   FontColorOverride="#DCE8EB"/>
+            <Label Name="OptionDescription"
+                   StyleClasses="PdaSectionHint"
+                   FontColorOverride="#82969C"
+                   ClipText="False"/>
+        </BoxContainer>
+        <Label Text="›"
+               StyleClasses="PdaSettingsChevron"
+               FontColorOverride="#72C2D0"
+               VerticalAlignment="Center"
+               Margin="10 0 2 0"/>
+    </BoxContainer>
 </pda:PdaSettingsButton>

@@ -55,4 +55,15 @@ reagent-effect-condition-guidebook-has-tag =
         [true] не имеет
        *[false] имеет
     } метку { $tag }
+
+reagent-effect-condition-guidebook-blood-reagent-threshold =
+    { $max ->
+        [2147483648] в крови содержится не менее { NATURALFIXED($min, 2) } ед. реагента { $reagent }
+       *[other]
+            { $min ->
+                [0] в крови содержится не более { NATURALFIXED($max, 2) } ед. реагента { $reagent }
+               *[other] в крови содержится от { NATURALFIXED($min, 2) } до { NATURALFIXED($max, 2) } ед. реагента { $reagent }
+            }
+    }
+
 reagent-effect-condition-guidebook-this-reagent = этот реагент

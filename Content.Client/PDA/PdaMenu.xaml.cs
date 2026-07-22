@@ -24,9 +24,10 @@ namespace Content.Client.PDA
         private readonly ClientGameTicker _gameTicker;
 
         public const int HomeView = 0;
-        public const int ProgramListView = 1;
-        public const int SettingsView = 2;
-        public const int ProgramContentView = 3;
+        public const int ServicesView = 1;
+        public const int ProgramListView = 2;
+        public const int SettingsView = 3;
+        public const int ProgramContentView = 4;
 
 
         private string _pdaOwner = Loc.GetString("comp-pda-ui-unknown");
@@ -45,6 +46,7 @@ namespace Content.Client.PDA
         private const string DonationCurrencyCode = "LC"; // LuaM
 
         private int _currentView;
+        private long _lastDisplayedStationSecond = -1;
 
         public event Action<EntityUid>? OnProgramItemPressed;
         public event Action<EntityUid>? OnUninstallButtonPressed;
@@ -59,6 +61,21 @@ namespace Content.Client.PDA
             IoCManager.InjectDependencies(this);
             _gameTicker = _entitySystem.GetEntitySystem<ClientGameTicker>();
             RobustXamlLoader.Load(this);
+
+            // Reapply localized text after nested custom controls have loaded their own XAML.
+            // Depending on XAML construction order, assigning these custom properties only in
+            // the parent markup can leave their inner labels empty in the live PDA window.
+            ProgramListButton.LabelText = Loc.GetString("comp-pda-io-program-list-button");
+            ServicesButton.LabelText = Loc.GetString("comp-pda-io-services-button");
+            SettingsButton.LabelText = Loc.GetString("comp-pda-io-settings-button");
+            AccessRingtoneButton.Text = Loc.GetString("comp-pda-ui-ringtone-button");
+            AccessRingtoneButton.Description = Loc.GetString("comp-pda-ui-ringtone-button-description");
+            ActivateMusicButton.Text = Loc.GetString("pda-bound-user-interface-music-button");
+            ActivateMusicButton.Description = Loc.GetString("pda-bound-user-interface-music-button-description");
+            ShowUplinkButton.Text = Loc.GetString("pda-bound-user-interface-show-uplink-title");
+            ShowUplinkButton.Description = Loc.GetString("pda-bound-user-interface-show-uplink-description");
+            LockUplinkButton.Text = Loc.GetString("pda-bound-user-interface-lock-uplink-title");
+            LockUplinkButton.Description = Loc.GetString("pda-bound-user-interface-lock-uplink-description");
 
             ViewContainer.OnChildAdded += control => control.Visible = false;
 
@@ -76,10 +93,22 @@ namespace Content.Client.PDA
             {
                 HomeButton.IsCurrent = false;
                 ProgramListButton.IsCurrent = true;
+                ServicesButton.IsCurrent = false;
                 SettingsButton.IsCurrent = false;
                 ProgramTitle.IsCurrent = false;
 
                 ChangeView(ProgramListView);
+            };
+
+            ServicesButton.OnPressed += _ =>
+            {
+                HomeButton.IsCurrent = false;
+                ProgramListButton.IsCurrent = false;
+                ServicesButton.IsCurrent = true;
+                SettingsButton.IsCurrent = false;
+                ProgramTitle.IsCurrent = false;
+
+                ChangeView(ServicesView);
             };
 
 
@@ -87,6 +116,7 @@ namespace Content.Client.PDA
             {
                 HomeButton.IsCurrent = false;
                 ProgramListButton.IsCurrent = false;
+                ServicesButton.IsCurrent = false;
                 SettingsButton.IsCurrent = true;
                 ProgramTitle.IsCurrent = false;
 
@@ -97,6 +127,7 @@ namespace Content.Client.PDA
             {
                 HomeButton.IsCurrent = false;
                 ProgramListButton.IsCurrent = false;
+                ServicesButton.IsCurrent = false;
                 SettingsButton.IsCurrent = false;
                 ProgramTitle.IsCurrent = true;
 
@@ -111,33 +142,32 @@ namespace Content.Client.PDA
 
             PdaOwnerButton.OnPressed += _ =>
             {
-                _clipboard.SetText(_pdaOwner);
+                CopyToClipboard(_pdaOwner, "comp-pda-ui-copy-owner");
             };
 
             IdInfoButton.OnPressed += _ =>
             {
-                _clipboard.SetText(_owner + ", " + _jobTitle);
+                CopyToClipboard(_owner + ", " + _jobTitle, "comp-pda-ui-copy-id");
             };
 
             StationNameButton.OnPressed += _ =>
             {
-                _clipboard.SetText(_stationName);
+                CopyToClipboard(_stationName, "comp-pda-ui-copy-sector");
             };
 
             StationAlertLevelButton.OnPressed += _ =>
             {
-                _clipboard.SetText(_alertLevel);
+                CopyToClipboard(_alertLevel, "comp-pda-ui-copy-alert");
             };
 
             // Frontier
             BalanceButton.OnPressed += _ =>
             {
-                _clipboard.SetText(_balance);
+                CopyToClipboard(_balance, "comp-pda-ui-copy-balance");
             };
             BankIdButton.OnPressed += _ =>
             {
-                _clipboard.SetText(_bankAccountId);
-                BankTransferStatusLabel.SetMarkup(Loc.GetString("comp-pda-ui-bank-id-copied", ("id", _bankAccountId)));
+                CopyToClipboard(_bankAccountId, "comp-pda-ui-copy-bank-id");
             };
             BankTransferButton.OnPressed += _ => SubmitBankTransfer();
             BankTransferConfirmButton.OnPressed += _ =>
@@ -157,23 +187,23 @@ namespace Content.Client.PDA
             };
             DonationShopInfoButton.OnPressed += _ =>
             {
-                _clipboard.SetText(_donationShopInfo);
+                CopyToClipboard(_donationShopInfo, "comp-pda-ui-copy-support");
             };
             ShuttleDeedButton.OnPressed += _ =>
             {
-                _clipboard.SetText(_shuttleDeed);
+                CopyToClipboard(_shuttleDeed, "comp-pda-ui-copy-vessel");
             };
             // End Frontier
 
             StationTimeButton.OnPressed += _ =>
             {
                 var stationTime = _gameTiming.CurTime.Subtract(_gameTicker.RoundStartTimeSpan);
-                _clipboard.SetText((stationTime.ToString("hh\\:mm\\:ss")));
+                CopyToClipboard(FormatStationTime(stationTime), "comp-pda-ui-copy-time");
             };
 
             StationAlertLevelInstructionsButton.OnPressed += _ =>
             {
-                _clipboard.SetText(_instructions);
+                CopyToClipboard(_instructions, "comp-pda-ui-copy-advisory");
             };
 
 
@@ -186,6 +216,7 @@ namespace Content.Client.PDA
         public void UpdateState(PdaUpdateState state)
         {
             FlashLightToggleButton.IsActive = state.FlashlightEnabled;
+            GoldFrameVisible = state.HasGoldPdaFrame;
 
             if (state.PdaOwnerInfo.ActualOwnerName != null)
             {
@@ -205,10 +236,12 @@ namespace Content.Client.PDA
                         ("actualOwnerName", _pdaOwner)));
                 }
                 PdaOwnerLabel.Visible = true;
+                PdaOwnerButton.Visible = true;
             }
             else
             {
                 PdaOwnerLabel.Visible = false;
+                PdaOwnerButton.Visible = false;
             }
 
 
@@ -249,12 +282,9 @@ namespace Content.Client.PDA
 
             _shuttleDeed = state.OwnedShipName ?? ""; // Frontier
             ShuttleDeedLabel.SetMarkup(Loc.GetString("comp-pda-ui-shuttle-deed", ("shipname", _shuttleDeed))); // Frontier
-            ShuttleDeedLabel.Visible = !string.IsNullOrEmpty(state.OwnedShipName); // Frontier
+            ShuttleDeedSection.Visible = !string.IsNullOrEmpty(state.OwnedShipName); // Frontier
 
-            var stationTime = _gameTiming.CurTime.Subtract(_gameTicker.RoundStartTimeSpan);
-
-            StationTimeLabel.SetMarkup(Loc.GetString("comp-pda-ui-station-time",
-                ("time", stationTime.ToString("hh\\:mm\\:ss"))));
+            UpdateStationTime(force: true);
 
             var alertLevel = state.PdaOwnerInfo.StationAlertLevel;
             var alertColor = state.PdaOwnerInfo.StationAlertColor;
@@ -277,6 +307,9 @@ namespace Content.Client.PDA
             EjectIdButton.IsActive = state.PdaOwnerInfo.IdOwner != null || state.PdaOwnerInfo.JobTitle != null;
             EjectPenButton.IsActive = state.HasPen;
             EjectPaiButton.IsActive = state.HasPai;
+            EjectIdButton.Disabled = !EjectIdButton.IsActive;
+            EjectPenButton.Disabled = !state.HasPen;
+            EjectPaiButton.Disabled = !state.HasPai;
             ActivateMusicButton.Visible = state.CanPlayMusic;
             ShowUplinkButton.Visible = state.HasUplink;
             LockUplinkButton.Visible = state.HasUplink;
@@ -299,6 +332,14 @@ namespace Content.Client.PDA
 
             BankTransferButton.Disabled = true;
             OnBankTransferPreviewPressed?.Invoke(recipientId, amount);
+        }
+
+        private void CopyToClipboard(string value, string labelLocId)
+        {
+            _clipboard.SetText(value);
+            ClipboardStatusLabel.Text = Loc.GetString(
+                "comp-pda-ui-copied",
+                ("label", Loc.GetString(labelLocId)));
         }
 
         private void UpdateBankTransferState(PdaUpdateState state)
@@ -388,21 +429,40 @@ namespace Content.Client.PDA
                 var name = Loc.GetString(listing.NameLocId);
                 var description = Loc.GetString(listing.DescriptionLocId);
                 var buttonText = GetDonationShopButtonText(state, listing);
-                var disabled = !state.DonationShopAccess || listing.Owned || state.DonationBalance < listing.Price;
+                var disabled = !listing.Available;
+
+                var card = new PanelContainer
+                {
+                    StyleClasses = { "PdaListingCard" },
+                    HorizontalExpand = true,
+                    Margin = new Thickness(3),
+                };
 
                 var box = new BoxContainer
                 {
                     Orientation = BoxContainer.LayoutOrientation.Vertical,
                     HorizontalExpand = true,
-                    MinWidth = 250,
+                    Margin = new Thickness(9, 7),
                 };
 
-                var label = new RichTextLabel();
-                label.SetMarkup(Loc.GetString("comp-pda-ui-donation-shop-entry",
-                    ("name", name),
-                    ("description", description),
+                box.AddChild(new Label
+                {
+                    Text = name,
+                    StyleClasses = { "PdaListingTitle" },
+                });
+
+                var descriptionLabel = new RichTextLabel();
+                descriptionLabel.SetMarkup(description);
+                box.AddChild(descriptionLabel);
+
+                var priceLabel = new RichTextLabel
+                {
+                    Margin = new Thickness(0, 5, 0, 5),
+                };
+                priceLabel.SetMarkup(Loc.GetString("comp-pda-ui-donation-shop-price",
                     ("price", listing.Price),
                     ("currency", DonationCurrencyCode)));
+                box.AddChild(priceLabel);
 
                 var button = new Button
                 {
@@ -412,9 +472,9 @@ namespace Content.Client.PDA
                 };
                 button.OnPressed += _ => OnDonationShopPurchasePressed?.Invoke(listing.Id);
 
-                box.AddChild(label);
                 box.AddChild(button);
-                DonationShopListings.AddChild(box);
+                card.AddChild(box);
+                DonationShopListings.AddChild(card);
             }
         }
 
@@ -432,6 +492,9 @@ namespace Content.Client.PDA
                     ("price", listing.Price),
                     ("currency", DonationCurrencyCode));
             }
+
+            if (!listing.Available)
+                return Loc.GetString("comp-pda-ui-donation-shop-unavailable");
 
             return Loc.GetString("comp-pda-ui-donation-shop-buy");
         }
@@ -453,19 +516,8 @@ namespace Content.Client.PDA
                 return;
             }
 
-            var row = CreateProgramListRow();
-            var itemCount = 1;
-            ProgramList.AddChild(row);
-
             foreach (var (uid, component) in programs)
             {
-                //Create a new row every second program item starting from the first
-                if (itemCount % 2 != 0)
-                {
-                    row = CreateProgramListRow();
-                    ProgramList.AddChild(row);
-                }
-
                 var item = new PdaProgramItem();
 
                 if (component.Icon is not null)
@@ -488,15 +540,8 @@ namespace Content.Client.PDA
                 }
 
                 item.ProgramName.Text = Loc.GetString(component.ProgramName);
-                item.SetHeight = 20;
-                row.AddChild(item);
-
-                itemCount++;
+                ProgramList.AddChild(item);
             }
-
-            //Add a filler item to the last row when it only contains one item
-            if (itemCount % 2 == 0)
-                row.AddChild(new Control() { HorizontalExpand = true });
         }
 
         /// <summary>
@@ -506,6 +551,7 @@ namespace Content.Client.PDA
         {
             HomeButton.IsCurrent = true;
             ProgramListButton.IsCurrent = false;
+            ServicesButton.IsCurrent = false;
             SettingsButton.IsCurrent = false;
             ProgramTitle.IsCurrent = false;
 
@@ -521,7 +567,9 @@ namespace Content.Client.PDA
             ProgramTitle.Visible = false;
             ProgramCloseButton.Visible = false;
             ProgramListButton.Visible = true;
+            ServicesButton.Visible = true;
             SettingsButton.Visible = true;
+            NavigationSpacer.Visible = true;
         }
 
         /// <summary>
@@ -531,15 +579,19 @@ namespace Content.Client.PDA
         {
             HomeButton.IsCurrent = false;
             ProgramListButton.IsCurrent = false;
+            ServicesButton.IsCurrent = false;
             SettingsButton.IsCurrent = false;
             ProgramTitle.IsCurrent = false;
             ProgramTitle.IsCurrent = true;
             ProgramTitle.Visible = true;
             ProgramCloseButton.Visible = true;
             ProgramListButton.Visible = false;
+            ServicesButton.Visible = false;
             SettingsButton.Visible = false;
+            NavigationSpacer.Visible = false;
 
             ProgramTitle.LabelText = title;
+            ProgramTitle.ToolTip = title;
             ChangeView(ProgramContentView);
         }
 
@@ -557,15 +609,6 @@ namespace Content.Client.PDA
             _currentView = view;
         }
 
-        private static BoxContainer CreateProgramListRow()
-        {
-            return new BoxContainer()
-            {
-                Orientation = BoxContainer.LayoutOrientation.Horizontal,
-                HorizontalExpand = true
-            };
-        }
-
         private void HideAllViews()
         {
             var views = ViewContainer.Children;
@@ -579,10 +622,27 @@ namespace Content.Client.PDA
         {
             base.Draw(handle);
 
-            var stationTime = _gameTiming.CurTime.Subtract(_gameTicker.RoundStartTimeSpan);
+            UpdateStationTime();
+        }
 
+        private void UpdateStationTime(bool force = false)
+        {
+            var stationTime = _gameTiming.CurTime.Subtract(_gameTicker.RoundStartTimeSpan);
+            var elapsedSecond = Math.Max(0L, (long) stationTime.TotalSeconds);
+            if (!force && elapsedSecond == _lastDisplayedStationSecond)
+                return;
+
+            _lastDisplayedStationSecond = elapsedSecond;
             StationTimeLabel.SetMarkup(Loc.GetString("comp-pda-ui-station-time",
-                ("time", stationTime.ToString("hh\\:mm\\:ss"))));
+                ("time", FormatStationTime(stationTime))));
+        }
+
+        private static string FormatStationTime(TimeSpan stationTime)
+        {
+            if (stationTime < TimeSpan.Zero)
+                stationTime = TimeSpan.Zero;
+
+            return $"{(int) stationTime.TotalHours:00}:{stationTime.Minutes:00}:{stationTime.Seconds:00}";
         }
     }
 }

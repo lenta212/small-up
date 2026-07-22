@@ -9,12 +9,14 @@ namespace Content.Client.PDA;
 public sealed partial class PdaProgramItem : ContainerButton
 {
     public const string StylePropertyBgColor = "backgroundColor";
-    public const string NormalBgColor = "#313331";
-    public const string HoverColor = "#3E6C45";
+    public const string NormalBgColor = "#182024";
+    public const string HoverColor = "#22343A";
 
     private readonly StyleBoxFlat _styleBox = new()
     {
-        BackgroundColor = Color.FromHex("#252725"),
+        BackgroundColor = Color.FromHex("#182024"),
+        BorderColor = Color.FromHex("#344A52"),
+        BorderThickness = new Thickness(1),
     };
 
     public Color BackgroundColor
@@ -27,6 +29,7 @@ public sealed partial class PdaProgramItem : ContainerButton
     {
         RobustXamlLoader.Load(this);
         Panel.PanelOverride = _styleBox;
+        InstallButton.Label.FontColorOverride = Color.FromHex("#DCE8EB");
     }
 
     protected override void Draw(DrawingHandleScreen handle)

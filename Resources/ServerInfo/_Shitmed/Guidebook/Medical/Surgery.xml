@@ -55,7 +55,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 <GuideEntityEmbed Entity="Wirecutter" Caption="кусачки"/>
 <GuideEntityEmbed Entity="KitchenKnife" Caption="нож"/>
 <GuideEntityEmbed Entity="Crowbar" Caption="лом"/>
-<GuideEntityEmbed Entity="CableApcStack" Caption="lv cable"/>
+<GuideEntityEmbed Entity="CableApcStack" Caption="низковольтный кабель"/>
 </Box>
 
 Они не идеальны по сравнению с настоящим хирургическим оборудованием, но подойдут в экстренной ситуации!

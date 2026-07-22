@@ -27,6 +27,11 @@ guide-entry-armorexplanation = Armor Mechanics
 # Rules
 guide-entry-monolith-rules = Monolith Rules
 
+# Lore, factions, and economy
+guide-entry-monolith-economy = Economy
+guide-entry-monolith-economy-recipes = Production technology map
+guide-entry-monolith-arc-furnace-recipes = Arc furnace recipes
+
 # Creatures
 guide-entry-creatures = Creatures of the Sector
 guide-entry-cortical-borer = Cortical Borer

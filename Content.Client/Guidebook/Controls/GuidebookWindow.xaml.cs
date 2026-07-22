@@ -20,6 +20,8 @@ public sealed partial class GuidebookWindow : FancyWindow, ILinkClickHandler
     [Dependency] private IResourceManager _resourceManager = default!;
 
     private Dictionary<ProtoId<GuideEntryPrototype>, GuideEntry> _entries = new();
+    private List<ProtoId<GuideEntryPrototype>>? _rootEntries;
+    private ProtoId<GuideEntryPrototype>? _forcedRoot;
 
     private readonly ISawmill _sawmill;
 
@@ -37,6 +39,8 @@ public sealed partial class GuidebookWindow : FancyWindow, ILinkClickHandler
         {
             HandleFilter();
         };
+
+        TreeSearchBar.OnTextChanged += _ => HandleTreeFilter();
     }
 
     public void HandleClick(string link)
@@ -103,7 +107,11 @@ public sealed partial class GuidebookWindow : FancyWindow, ILinkClickHandler
         ProtoId<GuideEntryPrototype>? selected = null)
     {
         _entries = entries;
-        RepopulateTree(rootEntries, forceRoot);
+        _rootEntries = rootEntries?.ToList();
+        _forcedRoot = forceRoot;
+        TreeSearchBar.Text = string.Empty;
+        TreeSearchBar.Visible = entries.Count > 1;
+        RepopulateTree(_rootEntries, _forcedRoot);
         ClearSelectedGuide();
 
         Split.State = SplitContainer.SplitState.Auto;
@@ -152,28 +160,43 @@ public sealed partial class GuidebookWindow : FancyWindow, ILinkClickHandler
             .ThenBy(rootEntry => Loc.GetString(rootEntry.Name));
     }
 
-    private void RepopulateTree(List<ProtoId<GuideEntryPrototype>>? roots = null,
-        ProtoId<GuideEntryPrototype>? forcedRoot = null)
+    private void RepopulateTree(
+        List<ProtoId<GuideEntryPrototype>>? roots = null,
+        ProtoId<GuideEntryPrototype>? forcedRoot = null,
+        string? filter = null)
     {
         Tree.Clear();
 
         HashSet<ProtoId<GuideEntryPrototype>> addedEntries = new();
+        Dictionary<ProtoId<GuideEntryPrototype>, bool> matchCache = new();
 
-        var parent = forcedRoot == null ? null : AddEntry(forcedRoot.Value, null, addedEntries);
+        var parent = forcedRoot == null
+            ? null
+            : AddEntry(forcedRoot.Value, null, addedEntries, filter, matchCache);
         foreach (var entry in GetSortedEntries(roots))
         {
-            AddEntry(entry.Id, parent, addedEntries);
+            AddEntry(entry.Id, parent, addedEntries, filter, matchCache);
         }
+
+        TreeEmptyLabel.Visible = Tree.Items.Count == 0;
 
         Tree.SetAllExpanded(true);
     }
 
     private TreeItem? AddEntry(ProtoId<GuideEntryPrototype> id,
         TreeItem? parent,
-        HashSet<ProtoId<GuideEntryPrototype>> addedEntries)
+        HashSet<ProtoId<GuideEntryPrototype>> addedEntries,
+        string? filter = null,
+        Dictionary<ProtoId<GuideEntryPrototype>, bool>? matchCache = null)
     {
         if (!_entries.TryGetValue(id, out var entry))
             return null;
+
+        if (!string.IsNullOrWhiteSpace(filter) &&
+            !EntryMatchesFilter(entry, filter, matchCache ?? new()))
+        {
+            return null;
+        }
 
         if (!addedEntries.Add(id))
         {
@@ -194,10 +217,56 @@ public sealed partial class GuidebookWindow : FancyWindow, ILinkClickHandler
 
         foreach (var child in entry.Children)
         {
-            AddEntry(child, item, addedEntries);
+            AddEntry(child, item, addedEntries, filter, matchCache);
         }
 
         return item;
+    }
+
+    private bool EntryMatchesFilter(
+        GuideEntry entry,
+        string filter,
+        Dictionary<ProtoId<GuideEntryPrototype>, bool> cache)
+    {
+        if (cache.TryGetValue(entry.Id, out var cached))
+            return cached;
+
+        // Cache a conservative value before descending so malformed cyclic guide data cannot recurse forever.
+        cache[entry.Id] = false;
+        if (Loc.GetString(entry.Name).Contains(filter, StringComparison.CurrentCultureIgnoreCase))
+        {
+            cache[entry.Id] = true;
+            return true;
+        }
+
+        foreach (var childId in entry.Children)
+        {
+            if (_entries.TryGetValue(childId, out var child) && EntryMatchesFilter(child, filter, cache))
+            {
+                cache[entry.Id] = true;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void HandleTreeFilter()
+    {
+        var filter = TreeSearchBar.Text.Trim();
+        var previousEntry = LastEntry;
+        RepopulateTree(_rootEntries, _forcedRoot, filter);
+
+        if (Tree.Items.Count == 0)
+        {
+            ClearSelectedGuide();
+            return;
+        }
+
+        var selected = Tree.Items.FirstOrDefault(item =>
+            item.Metadata is GuideEntry entry && entry.Id == previousEntry);
+        Tree.SetSelectedIndex(selected?.Index ?? Tree.Items[0].Index);
+        Tree.SetAllExpanded(true, string.IsNullOrEmpty(filter) ? 0 : -1);
     }
 
     private void HandleFilter()

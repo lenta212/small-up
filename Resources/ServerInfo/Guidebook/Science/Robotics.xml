@@ -1,58 +1,58 @@
 <Document>
   # Робототехника
-  Научная команда может создавать разные типы роботов под нужды станции. Для начала исследуйте технологию [color=#a4885c]Robotics[/color].
+  Научная команда может создавать разные типы роботов под нужды станции. Для начала исследуйте технологию [color=#a4885c]«Робототехника»[/color].
 
-  ## Exosuit Fabricator
+  ## Фабрикатор экзокостюмов
   <Box>
-  <GuideEntityEmbed Entity="ExosuitFabricator" Caption="Exosuit Fabricator"/>
+  <GuideEntityEmbed Entity="ExosuitFabricator" Caption="фабрикатор экзокостюмов"/>
   </Box>
-  [color=#a4885c]Exosuit Fabricator[/color] печатает большинство деталей для ваших проектов, например:
+  [color=#a4885c]Фабрикатор экзокостюмов[/color] печатает большинство деталей для ваших проектов, например:
   - конечности [textlink="киборгов" link="Cyborgs"]
   - части и оборудование мехов
   - датчики приближения
 
   Работа с экзокостюм-фабрикатором как с любым станком: кликните по нему, чтобы открыть интерфейс, затем выберите нужную деталь.
-  - Нет рецептов? Нажмите кнопку [color=#a4885c]sync[/color] — возможно, появились новые чертежи. Если всё равно пусто, нужная технология пока не исследована.
+  - Нет рецептов? Нажмите кнопку [color=#a4885c]«Синхронизировать»[/color] — возможно, появились новые чертежи. Если всё равно пусто, нужная технология пока не исследована.
   - Рецепт серый? Не хватает материалов. Вставляйте материалы ([color=#99A3A4]сталь[/color], [color=#ECF0F1]пластик[/color], [color=#AED6F1]стекло[/color]) кликом по станку, держа их в руке.
 
-  На старте у станции есть полный набор оборудования для робототехники, но можно сделать ещё один фабрикатор при наличии технологии [color=#a4885c]Robotics[/color], чтобы напечатать соответствующую плату.
+  На старте у станции есть полный набор оборудования для робототехники, но можно сделать ещё один фабрикатор при наличии технологии [color=#a4885c]«Робототехника»[/color], чтобы напечатать соответствующую плату.
 
   ## Боты
   <Box>
-  <GuideEntityEmbed Entity="MobCleanBot" Caption="Cleanbot"/>
-  <GuideEntityEmbed Entity="MobMedibot" Caption="Medibot"/>
+  <GuideEntityEmbed Entity="MobCleanBot" Caption="чистобот"/>
+  <GuideEntityEmbed Entity="MobMedibot" Caption="медбот"/>
   </Box>
   <Box>
-  <GuideEntityEmbed Entity="MobHonkBot" Caption="Honkbot"/>
-  <GuideEntityEmbed Entity="MobMimeBot" Caption="Mimebot"/>
+  <GuideEntityEmbed Entity="MobHonkBot" Caption="хонкбот"/>
+  <GuideEntityEmbed Entity="MobMimeBot" Caption="мимобот"/>
   </Box>
-  [color=#a4885c]Боты[/color] — маленькие автоматы для простых задач вроде уборки. Питание им не нужно, но они хрупкие. Для сборки потребуются части из Exosuit Fabricator.
+  [color=#a4885c]Боты[/color] — маленькие автоматы для простых задач вроде уборки. Питание им не нужно, но они хрупкие. Для сборки потребуются части из фабрикатора экзокостюмов.
 
-  Откройте [color=#a4885c]меню строительства[/color] и выберите категорию "Utilities" (или ищите "bot") — там весь список. Имея нужные части рядом, жмите [color=#a4885c]Build[/color] — через пару секунд новый кремниевый помощник появится у ваших ног.
+  Откройте [color=#a4885c]меню строительства[/color] и выберите категорию «Вспомогательное» (или введите в поиск «бот») — там весь список. Имея нужные части рядом, нажмите [color=#a4885c]«Построить»[/color] — через пару секунд новый кремниевый помощник появится у ваших ног.
 
   ## Мехи
   <Box>
-  <GuideEntityEmbed Entity="MechRipley" Caption="Ripley APLU"/>
+  <GuideEntityEmbed Entity="MechRipley" Caption="АРП «Рипли»"/>
   <GuideEntityEmbed Entity="MechHonker" Caption="H.O.N.K."/>
   <GuideEntityEmbed Entity="MechHamtr" Caption="HAMTR"/>
-  <GuideEntityEmbed Entity="MechVim" Caption="Vim"/>
+  <GuideEntityEmbed Entity="MechVim" Caption="«Вим»"/>
   </Box>
   [color=#a4885c]Мехи[/color] — гигантские машины под разные задачи, пилотируемые игроками, требуют энергоячейки.
 
-  У каждого меха свой набор конечностей и деталей. Их печатают на Exosuit Fabricator; платы делают на [color=#a4885c]Circuit Board Imprinter[/color], обычно в отделе [textlink="науки" link="Science"].
+  У каждого меха свой набор конечностей и деталей. Их печатают на фабрикаторе экзокостюмов; платы делают на [color=#a4885c]принтере плат[/color], обычно в отделе [textlink="науки" link="Science"].
   <Box>
-  <GuideEntityEmbed Entity="RipleyCentralElectronics" Caption="Ripley central controls module"/>
+  <GuideEntityEmbed Entity="RipleyCentralElectronics" Caption="центральный модуль управления «Рипли»"/>
   </Box>
   <Box>
-  <GuideEntityEmbed Entity="RipleyPeripheralsElectronics" Caption="Ripley peripherals control module"/>
+  <GuideEntityEmbed Entity="RipleyPeripheralsElectronics" Caption="модуль управления периферией «Рипли»"/>
   </Box>
 
-  Например, обе эти платы нужны для меха Ripley и не подходят для других мехов.
+  Например, обе эти платы нужны для меха «Рипли» и не подходят для других мехов.
 
   Начните с печати каркаса и установки конечностей; затем [color=#a4885c]осматривайте[/color] его, чтобы видеть дальнейшие шаги.
-  - Каждый мех после сборки шасси требует проводки, инструментов и уникальных плат. Для Ripley нужны платы [color=#a4885c]ripley controls module[/color] и [color=#a4885c]ripley peripherals module[/color].
+  - Каждый мех после сборки шасси требует проводки, инструментов и уникальных плат. Для «Рипли» нужны модуль управления и модуль периферии «Рипли».
   - Мехи требуют много материалов — просите коллег и карго помочь с недостающим.
-  - Экзокостюм Vim требует пару борго-ног и EVA-шлем (обычный или синдикатовский), затем голосовой триггер и энергоячейку.
+  - Экзокостюм «Вим» требует пару ног киборга и EVA-шлем (обычный или синдикатовский), затем голосовой триггер и энергоячейку.
 
   ## Оборудование
     Мех без инструментов — просто дорогая болванка. Оборудование печатается как и прочие детали.
@@ -60,5 +60,5 @@
   <GuideEntityEmbed Entity="MechEquipmentGrabber" Caption="Гидрозахват, как пример."/>
   </Box>
   - Установка: кликните по меху, держа модуль в руке.
-  - Использование: переключайте действие "Cycle Equipment" до нужного инструмента.
+  - Использование: переключайте действие «Сменить оборудование» до нужного инструмента.
 </Document>

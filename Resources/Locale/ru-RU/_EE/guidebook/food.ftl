@@ -1,5 +1,5 @@
 guidebook-food-name = [bold][color={$color}]{CAPITALIZE($name)}[/color][/bold]
-guidebook-food-unknown-proto = Unknown prototype
+guidebook-food-unknown-proto = Неизвестный прототип
 # Frontier
 guidebook-food-recipes-header = Рецепты
 guidebook-food-recipes-ent-wrapper = [bold]{$name}[/bold] \[{$amount}\]

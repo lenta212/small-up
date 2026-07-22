@@ -1,11 +1,185 @@
 <Document>
 
-  # Economy Recipes
+  # Технологическая карта производства
 
-  These combinations of materials, when in their respective machines, can create important resources.
+  Здесь собраны основные цепочки [bold]«источник → переработка → заготовка → готовый объект»[/bold] и их базовая стоимость.
 
-  Reminder: Chemicals can be present in any container inserted into the machine in addition to other resources.
+  [color=#a4885c][bold]Главная цепочка:[/bold][/color]
+  добыча или синтезатор → руда → переработчик руды → листы → автолат/техфаб → деталь → меню строительства [color=yellow][bold][keybind="OpenCraftingMenu"][/bold][/color] → готовый объект.
 
-  Many common materials can also contain chemicals. These can be extracted via a reagent grinder.
+  <Box>
+    <GuideEntityEmbed Entity="StationLaserDrill" Caption="Добыча"/>
+    <GuideEntityEmbed Entity="OreProcessor" Caption="Переработка"/>
+    <GuideEntityEmbed Entity="Autolathe" Caption="Печать"/>
+    <GuideEntityEmbed Entity="ConveyorBeltAssembly" Caption="Заготовка"/>
+    <GuideEntityEmbed Entity="ConveyorBelt" Caption="Объект"/>
+  </Box>
+
+  ## Как читать стоимость
+
+  - В автолате и техфабах [bold]100 единиц материала = 1 полный лист или слиток[/bold]. Например, 250 стали — это 2,5 листа.
+  - Ниже указана [bold]базовая цена[/bold] до скидок от улучшенных деталей станка.
+  - В меню строительства стоимость считается целыми предметами: листами, отрезками кабеля, платами и заготовками.
+  - Для торговых автоматов стоимость указана в [color=#44cc00]кредитах[/color]. Это цена покупки, а не оценочная цена продажи.
+  - Инструменты многоразовые и в итоговую цену конструкции не включены.
+
+  ## 1. Откуда брать материалы
+
+  <Box>
+    <GuideEntityEmbed Entity="LaserDrill" Caption="Экспедиции"/>
+    <GuideEntityEmbed Entity="StationLaserDrill" Caption="Космос и экспедиции"/>
+    <GuideEntityEmbed Entity="OreProcessor" Caption="Руда в листы"/>
+    <GuideEntityEmbed Entity="SheetSteel" Caption="Сталь"/>
+    <GuideEntityEmbed Entity="SheetCopper1" Caption="Медь"/>
+    <GuideEntityEmbed Entity="SheetGlass" Caption="Стекло"/>
+    <GuideEntityEmbed Entity="SheetPlastic" Caption="Пластик"/>
+  </Box>
+
+  - [bold]Руда:[/bold] добыча на экспедициях, разбор обломков или синтезатор материи. Синтезатор раз в 10 секунд пытается выдать стопку из 15 единиц железа, кварца, угля, меди, лития, золота, серебра, плазмы или урана; редкие материалы выходят по 1 единице.
+  - [bold]Сталь:[/bold] переработчик руды — 100 сырого железа + 30 угля → 1 лист стали.
+  - [bold]Медь:[/bold] переработчик руды — 100 малахита → 1 лист меди. Малахитовые жилы встречаются на планетоидах и астероидах.
+  - [bold]Стекло:[/bold] переработчик руды — 100 сырого кварца → 1 лист стекла.
+  - [bold]Армированное стекло:[/bold] автолат — 100 стекла + 50 стали → 1 лист. В меню строительства тот же результат получается из 1 стекла и 1 металлического прута.
+  - [bold]Пластик, биогенератор:[/bold] 5 биомассы → 1 лист пластика. Это самый простой возобновляемый путь.
+  - [bold]Пластик, утилизатор материалов:[/bold] переработать ненужные предметы, содержащие пластик. Его упакованная версия стоит 3 750 кредитов в обычном Упак-О-Мате.
+  - [bold]Пластик, химия:[/bold] нагреть смесь 5 ед. масла + 3 ед. пепла + 2 ед. серной кислоты минимум до 374 K → 5 листов пластика.
+  - [bold]Пластик, кристаллизатор:[/bold] 4 моля CO₂ + 6 молей водяного пара при 500–800 K → 10 листов пластика.
+  - [color=orange][bold]Важно:[/bold][/color] синтезаторы материи пластик не производят. Для автономного конвейерного производства заранее подготовьте один из путей выше.
+  - [bold]Золото, серебро, плазма, уран и редкие материалы:[/bold] соответствующая руда → переработчик руды. Точный расход всегда показан в интерфейсе выбранного рецепта.
+
+  ## 2. Какой станок использовать
+
+  <Box>
+    <GuideEntityEmbed Entity="OreProcessor" Caption="Переработчик руды"/>
+    <GuideEntityEmbed Entity="Autolathe" Caption="Автолат"/>
+    <GuideEntityEmbed Entity="EngineeringTechFab" Caption="Инженерный техфаб"/>
+    <GuideEntityEmbed Entity="Protolathe" Caption="Протолат"/>
+    <GuideEntityEmbed Entity="CircuitImprinter" Caption="Принтер плат"/>
+  </Box>
+
+  - [bold]Переработчик руды:[/bold] превращает руду в листы и слитки.
+  - [bold]Автолат:[/bold] базовые инструменты, кабели, детали машин, электроника шлюзов, армированное стекло и сборка конвейера.
+  - [bold]Инженерный техфаб:[/bold] инженерные инструменты, электроника и открываемые исследованиями устройства.
+  - [bold]Протолат:[/bold] исследованное продвинутое оборудование и улучшенные детали.
+  - [bold]Принтер плат:[/bold] платы машин и компьютеров. Часть плат требует открытого исследования.
+  - [bold]Меню строительства G:[/bold] превращает листы, детали, платы и заготовки в рамы и готовые конструкции. Подробнее: [textlink="Строительство" link="Construction"].
+  - [bold]Упак-О-Мат (FlatpackVend):[/bold] продаёт готовые упакованные станки за кредиты; распакуйте их на свободной клетке.
+
+  ## 3. Базовые детали и их цена
+
+  <Box>
+    <GuideEntityEmbed Entity="CableApcStack1" Caption="Кабель"/>
+    <GuideEntityEmbed Entity="Screwdriver" Caption="Отвёртка"/>
+    <GuideEntityEmbed Entity="WelderEmpty" Caption="Сварка"/>
+    <GuideEntityEmbed Entity="Multitool" Caption="Мультитул"/>
+    <GuideEntityEmbed Entity="MatterBinStockPart" Caption="Деталь машины"/>
+    <GuideEntityEmbed Entity="DoorElectronics" Caption="Плата шлюза"/>
+  </Box>
+
+  - 1 отрезок НН-, СВ- или ВВ-кабеля: [bold]30 меди[/bold].
+  - Отвёртка или кусачки: [bold]200 стали + 50 пластика[/bold].
+  - Гаечный ключ или лом: [bold]200 стали[/bold].
+  - Сварочный аппарат: [bold]400 стали[/bold].
+  - Мультитул: [bold]200 стали + 200 пластика[/bold].
+  - Базовый манипулятор, накопитель материи или конденсатор: [bold]50 стали + 50 меди + 50 пластика[/bold] за штуку.
+  - Все рецепты во вкладке «Компоненты», включая кабели, элементы питания, триггеры и детали машин, требуют медь.
+  - Электроника шлюза: [bold]250 стали + 150 пластика[/bold].
+  - Стандартная плата машины: обычно [bold]100 стали + 500 стекла[/bold]. Продвинутые платы дополнительно требуют золото, серебро, блюспейс или другие редкие материалы.
+  - Стальная напольная плитка: [bold]25 стали[/bold] за штуку, то есть 4 плитки из 1 листа.
+  - Металлические прутья: [bold]1 лист стали → 2 прута[/bold] через G → Материалы.
+
+  ## 4. Готовые производственные цепочки
+
+  ### Конвейерная лента
+
+  <Box>
+    <GuideEntityEmbed Entity="Autolathe" Caption="1. Автолат"/>
+    <GuideEntityEmbed Entity="ConveyorBeltAssembly" Caption="2. Сборка"/>
+    <GuideEntityEmbed Entity="ConveyorBelt" Caption="3. Конвейер"/>
+  </Box>
+
+  1. В автолате напечатать [bold]сборку конвейерной ленты[/bold]: [bold]250 стали + 50 пластика[/bold].
+  2. Открыть G → [bold]Конструкции[/bold] → [bold]Конвейерная лента[/bold]. Нужна 1 сборка.
+  3. Итоговая цена одного конвейера: [bold]2,5 листа стали + 0,5 листа пластика[/bold].
+  4. Ломом готовый конвейер можно вернуть в переносимую сборку.
+
+  ### Шлюзы
+
+  <Box>
+    <GuideEntityEmbed Entity="AirlockAssembly" Caption="Каркас"/>
+    <GuideEntityEmbed Entity="DoorElectronics" Caption="Электроника"/>
+    <GuideEntityEmbed Entity="Airlock" Caption="Обычный"/>
+    <GuideEntityEmbed Entity="AirlockGlass" Caption="Стеклянный"/>
+  </Box>
+
+  - Обычный шлюз через G → Конструкции: [bold]4 стали + 5 кабелей + электроника шлюза[/bold].
+  - Если кабели и плату печатать с нуля, итог: [bold]650 стали + 150 меди + 150 пластика[/bold], или [bold]6,5 листа стали + 1,5 листа меди + 1,5 листа пластика[/bold].
+  - Стеклянный шлюз дополнительно требует 2 армированных стекла. Полный итог: [bold]750 стали + 150 меди + 200 стекла + 150 пластика[/bold], или [bold]7,5 стали + 1,5 меди + 2 стекла + 1,5 пластика в листах[/bold].
+
+  ### Машины и компьютеры
+
+  <Box>
+    <GuideEntityEmbed Entity="MachineFrame" Caption="Рама машины"/>
+    <GuideEntityEmbed Entity="AutolatheMachineCircuitboard" Caption="Плата"/>
+    <GuideEntityEmbed Entity="MatterBinStockPart" Caption="Детали"/>
+    <GuideEntityEmbed Entity="ComputerFrame" Caption="Рама компьютера"/>
+  </Box>
+
+  - Рама машины через G → Машины: [bold]5 листов стали + 1 кабель[/bold]. С учётом печати кабеля основа стоит [bold]500 стали + 30 меди[/bold]. Затем вставьте нужную плату и детали, показанные при осмотре рамы, и закрутите отвёрткой.
+  - Рама компьютера: [bold]5 листов стали + плата компьютера + 5 кабелей + 2 стекла[/bold]. Без цены платы основа стоит [bold]500 стали + 150 меди + 200 стекла[/bold].
+  - Обычная стена через G → Конструкции: [bold]4 листа стали[/bold]. Первые 2 листа создают балку, ещё 2 закрывают её стеной.
+
+  ### Киберорганы и хирургия
+
+  <Box>
+    <GuideEntityEmbed Entity="BasicCyberneticLungs" Caption="Базовые лёгкие"/>
+    <GuideEntityEmbed Entity="UpgradedCyberneticHeart" Caption="Улучшенное сердце"/>
+    <GuideEntityEmbed Entity="ClothingHandsGlovesSurgical" Caption="Хирургические перчатки"/>
+    <GuideEntityEmbed Entity="AdvancedBoneGel" Caption="Костный мультитул"/>
+  </Box>
+
+  Киберорганы печатаются в [bold]фабрикаторе экзокостюмов[/bold] или [bold]медицинском техфабе[/bold] после соответствующего исследования. Цены указаны в единицах материалов; 100 единиц равны одному полному листу или слитку.
+
+  - Диагностические киберглаза: [bold]1000 стали + 500 стекла + 500 пластика + 300 золота + 300 серебра[/bold].
+  - Базовая киберпечень: [bold]2000 стали + 1000 стекла + 1000 пластика + 1500 серебра + 600 золота + 200 блюспейса[/bold].
+  - Базовые киберлёгкие: [bold]2500 стали + 500 стекла + 2000 пластика + 1000 серебра + 1250 плазмы + 200 блюспейса[/bold].
+  - Базовое киберсердце: [bold]3000 стали + 500 стекла + 1500 пластика + 1000 золота + 1250 плазмы + 200 блюспейса[/bold].
+  - Улучшенное киберсердце: [bold]3000 пластали + 1500 стекла + 2500 пластика + 1000 золота + 2500 плазмы + 400 блюспейса[/bold].
+  - Улучшенные киберлёгкие: [bold]3500 пластали + 1500 стекла + 2000 пластика + 1000 серебра + 2500 плазмы + 400 блюспейса[/bold].
+  - Хирургические перчатки, позволяющие оперировать через одежду: [bold]800 пластика + 500 серебра + 100 блюспейса[/bold].
+  - Костный мультитул: [bold]600 стали + 150 стекла + 150 плазмы[/bold].
+
+  ## 5. Готовые станки из Упак-О-Мата
+
+  <Box>
+    <GuideEntityEmbed Entity="VendingMachineFlatpackVend" Caption="Упак-О-Мат"/>
+    <GuideEntityEmbed Entity="AutolatheFlatpack" Caption="Автолат"/>
+    <GuideEntityEmbed Entity="OreProcessorFlatpack" Caption="Переработчик"/>
+    <GuideEntityEmbed Entity="EngineeringTechFabFlatpack" Caption="Техфаб"/>
+    <GuideEntityEmbed Entity="MachineFlatpackerFlatpack" Caption="Упаковщик"/>
+  </Box>
+
+  Обычный и экспедиционный Упак-О-Маты стоят рядом на станции [bold]Colossus Central[/bold]; обычные автоматы также встречаются на Фронтире и других торговых точках.
+
+  - Автолат, переработчик руды или утилизатор материалов: [color=#44cc00][bold]3 750 кредитов[/bold][/color].
+  - Инженерный техфаб, протолат, принтер плат или упаковщик машин: [color=#44cc00][bold]6 250 кредитов[/bold][/color].
+  - Материальный силос: [color=#44cc00][bold]10 000 кредитов[/bold][/color].
+  - Минимальный автономный контур с универсальным синтезатором, переработчиком руды, автолатом и утилизатором: [color=#44cc00][bold]61 250 кредитов[/bold][/color].
+  - Тот же контур с экспедиционным синтезатором: [color=#44cc00][bold]46 250 кредитов[/bold][/color].
+
+  ### Синтезаторы материи
+
+  <Box>
+    <GuideEntityEmbed Entity="VendingMachineExpeditionaryFlatpackVend" Caption="Экспедиционный магазин"/>
+    <GuideEntityEmbed Entity="LaserDrillFlatpack" Caption="35 000"/>
+    <GuideEntityEmbed Entity="StationLaserDrillFlatpack" Caption="50 000"/>
+    <GuideEntityEmbed Entity="StationLaserDrill" Caption="50 кВт ВВ"/>
+  </Box>
+
+  - [bold]Экспедиционный синтезатор:[/bold] экспедиционный Упак-О-Мат, [color=#44cc00][bold]35 000 кредитов[/bold][/color]. Работает только на планетах экспедиций.
+  - [bold]Универсальный синтезатор:[/bold] обычный Упак-О-Мат, [color=#44cc00][bold]50 000 кредитов[/bold][/color]. Работает и в космосе, и на планетах экспедиций.
+  - Оба требуют [bold]50 кВт ВВ-питания[/bold] каждый, не расходуют топливо и теперь снимаются и закрепляются гаечным ключом.
+
+  Для специальных переплавок смотрите [textlink="Рецепты дуговой печи" link="ArcFurnace"]. Интерфейс конкретного станка остаётся источником истины для исследуемых рецептов и скидок от улучшений.
 
 </Document>

@@ -43,3 +43,4 @@ rcd-component-atmosphericutility = Атмос-оборудование
 rcd-component-deconstruct = демонтаж
 rcd-component-floor-steel = стальной пол
 rcd-component-plating = корпусное покрытие
+rcd-component-wall-plasteel = ????????????? ?????

@@ -1,10 +1,14 @@
 ﻿<ui:ChangelogWindow xmlns="https://spacestation14.io"
                     xmlns:ui="clr-namespace:Content.Client.Changelog"
                     Title="{Loc 'changelog-window-title'}"
-                    MinSize="500 400"
-                    SetSize="500 400">
+                    MinSize="640 480"
+                    SetSize="700 560"
+                    Resizable="True">
     <PanelContainer StyleClasses="AngleRect" />
     <BoxContainer Orientation="Vertical">
+        <Label Text="{Loc 'changelog-window-description'}"
+               StyleClasses="UiTextMuted"
+               Margin="10 7 10 3"/>
         <TabContainer Name="Tabs" Access="Public" HorizontalExpand="True" VerticalExpand="True" />
         <PanelContainer StyleClasses="LowDivider" />
         <Label Name="VersionLabel" Access="Public" HorizontalAlignment="Right" StyleClasses="LabelSubText" Margin="4 0" />

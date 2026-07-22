@@ -1,8 +1,8 @@
 ﻿<Document>
   # Мониторинг и управление устройствами
-  Given the station-wide nature of the atmospherics network, it is important to have a way to monitor and control devices from a central location.
+  Поскольку атмосферная сеть охватывает всю станцию, важно иметь возможность наблюдать за устройствами и управлять ими из единого центра.
 
-  Using these systems, Atmospherics can monitor and control the atmosphere across the entire station.
+  Эти системы позволяют атмосферным техникам следить за состоянием атмосферы по всей станции и управлять ею.
 
   <Box>
     <GuideEntityEmbed Entity="AirAlarm" Caption=""/>

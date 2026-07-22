@@ -38,30 +38,33 @@ public abstract class CartridgeLoaderBoundUserInterface : BoundUserInterface
         var programs = GetCartridgeComponents(_entManager.GetEntityList(loaderUiState.Programs));
         UpdateAvailablePrograms(programs);
 
-        var activeUI = _entManager.GetEntity(loaderUiState.ActiveUI);
-
-        _activeProgram = activeUI;
-
-        var ui = RetrieveCartridgeUI(activeUI);
-        var comp = RetrieveCartridgeComponent(activeUI);
-        var control = ui?.GetUIFragmentRoot();
-
-        //Prevent the same UI fragment from getting disposed and attached multiple times
-        if (_activeUiFragment?.GetType() == control?.GetType())
+        var nextProgram = _entManager.GetEntity(loaderUiState.ActiveUI);
+        if (_activeProgram == nextProgram)
             return;
 
         if (_activeUiFragment is not null)
-            DetachCartridgeUI(_activeUiFragment);
-
-        if (control is not null && _activeProgram.HasValue)
         {
-            AttachCartridgeUI(control, Loc.GetString(comp?.ProgramName ?? "default-program-name"));
-            SendCartridgeUiReadyEvent(_activeProgram.Value);
+            DetachCartridgeUI(_activeUiFragment);
+            _activeUiFragment.Dispose();
         }
 
+        _activeCartridgeUI = null;
+        _activeUiFragment = null;
+        _activeProgram = nextProgram;
+
+        var ui = RetrieveCartridgeUI(nextProgram);
+        if (ui is null || !nextProgram.HasValue)
+            return;
+
+        ui.Setup(this, nextProgram);
+        var control = ui.GetUIFragmentRoot();
+        var comp = RetrieveCartridgeComponent(nextProgram);
+
         _activeCartridgeUI = ui;
-        _activeUiFragment?.Dispose();
         _activeUiFragment = control;
+
+        AttachCartridgeUI(control, Loc.GetString(comp?.ProgramName ?? "default-program-name"));
+        SendCartridgeUiReadyEvent(nextProgram.Value);
     }
 
     protected void ActivateCartridge(EntityUid cartridgeUid)
@@ -139,7 +142,6 @@ public abstract class CartridgeLoaderBoundUserInterface : BoundUserInterface
     private UIFragment? RetrieveCartridgeUI(EntityUid? cartridgeUid)
     {
         var component = EntMan.GetComponentOrNull<UIFragmentComponent>(cartridgeUid);
-        component?.Ui?.Setup(this, cartridgeUid);
         return component?.Ui;
     }
 }

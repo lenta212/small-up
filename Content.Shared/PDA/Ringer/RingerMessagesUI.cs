@@ -11,6 +11,12 @@ namespace Content.Shared.PDA.Ringer
     [Serializable, NetSerializable]
     public sealed class RingerPlayRingtoneMessage : BoundUserInterfaceMessage
     {
+        public Note[] Ringtone { get; }
+
+        public RingerPlayRingtoneMessage(Note[] ringtone)
+        {
+            Ringtone = ringtone;
+        }
     }
 
     [Serializable, NetSerializable]

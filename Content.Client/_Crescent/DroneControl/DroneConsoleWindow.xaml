@@ -24,7 +24,7 @@
         </BoxContainer>
 
         <!-- Mono - wrap -->
-        <LayoutContainer>
+        <LayoutContainer HorizontalExpand="True" VerticalExpand="True">
             <ui:ShuttleNavControl Name="NavRadar"
                                   HorizontalExpand="True"
                                   VerticalExpand="True"

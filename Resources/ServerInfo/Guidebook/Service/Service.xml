@@ -6,22 +6,22 @@
 В [color=#9fed58]сервис[/color] входят сервисные рабочие, повара, ботаники, бармены, уборщики, капелланы, клоуны, мимы, музыканты, юристы, библиотекари и пассажиры. Руководит — глава персонала.
 
   <Box>
-    <GuideEntityEmbed Entity="ToyFigurineChef" Caption="Chef"/>
-    <GuideEntityEmbed Entity="ToyFigurineBotanist" Caption="Botanist"/>
-    <GuideEntityEmbed Entity="ToyFigurineBartender" Caption="Bartender"/>
-    <GuideEntityEmbed Entity="ToyFigurineJanitor" Caption="Janitor"/>
+    <GuideEntityEmbed Entity="ToyFigurineChef" Caption="шеф-повар"/>
+    <GuideEntityEmbed Entity="ToyFigurineBotanist" Caption="ботаник"/>
+    <GuideEntityEmbed Entity="ToyFigurineBartender" Caption="бармен"/>
+    <GuideEntityEmbed Entity="ToyFigurineJanitor" Caption="уборщик"/>
   </Box>
   <Box>
-    <GuideEntityEmbed Entity="ToyFigurineChaplain" Caption="Chaplain"/>
-    <GuideEntityEmbed Entity="ToyFigurineClown" Caption="Clown"/>
-    <GuideEntityEmbed Entity="ToyFigurineMime" Caption="Mime"/>
-    <GuideEntityEmbed Entity="ToyFigurineMusician" Caption="Musician"/>
+    <GuideEntityEmbed Entity="ToyFigurineChaplain" Caption="священник"/>
+    <GuideEntityEmbed Entity="ToyFigurineClown" Caption="клоун"/>
+    <GuideEntityEmbed Entity="ToyFigurineMime" Caption="мим"/>
+    <GuideEntityEmbed Entity="ToyFigurineMusician" Caption="музыкант"/>
   </Box>
   <Box>
-    <GuideEntityEmbed Entity="ToyFigurineLawyer" Caption="Lawyer"/>
-    <GuideEntityEmbed Entity="ToyFigurineLibrarian" Caption="Librarian"/>
-    <GuideEntityEmbed Entity="ToyFigurinePassenger" Caption="Passenger"/>
-    <GuideEntityEmbed Entity="ToyFigurineHeadOfPersonnel" Caption="HoP"/>
+    <GuideEntityEmbed Entity="ToyFigurineLawyer" Caption="адвокат"/>
+    <GuideEntityEmbed Entity="ToyFigurineLibrarian" Caption="библиотекарь"/>
+    <GuideEntityEmbed Entity="ToyFigurinePassenger" Caption="пассажир"/>
+    <GuideEntityEmbed Entity="ToyFigurineHeadOfPersonnel" Caption="глава персонала"/>
   </Box>
 
 ## Совместная работа

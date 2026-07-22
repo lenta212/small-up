@@ -23,6 +23,7 @@ namespace Content.Client.Administration.UI.Tabs.AdminTab
             SubmitKickButton.OnPressed += SubmitKickButtonOnPressed;
             SubmitAHelpButton.OnPressed += SubmitAhelpButtonOnPressed;
             SubmitRespawnButton.OnPressed += SubmitRespawnButtonOnPressed;
+            ObserveButton.OnPressed += ObserveButtonOnPressed;
             PlayerList.OnSelectionChanged += OnListOnOnSelectionChanged;
         }
 
@@ -36,6 +37,7 @@ namespace Content.Client.Administration.UI.Tabs.AdminTab
             SubmitKickButton.Disabled = disableButtons;
             SubmitAHelpButton.Disabled = disableButtons;
             SubmitRespawnButton.Disabled = disableButtons;
+            ObserveButton.Disabled = disableButtons || _selectedPlayer?.Connected != true;
         }
 
         private void SubmitKickButtonOnPressed(BaseButton.ButtonEventArgs obj)
@@ -69,6 +71,15 @@ namespace Content.Client.Administration.UI.Tabs.AdminTab
 
             IoCManager.Resolve<IClientConsoleHost>().ExecuteCommand(
                 $"respawn \"{_selectedPlayer.Username}\"");
+        }
+
+        private void ObserveButtonOnPressed(BaseButton.ButtonEventArgs obj)
+        {
+            if (_selectedPlayer is not { Connected: true } player)
+                return;
+
+            IoCManager.Resolve<IClientConsoleHost>().ExecuteCommand(
+                $"camera \"{CommandParsing.Escape(player.Username)}\"");
         }
     }
 }

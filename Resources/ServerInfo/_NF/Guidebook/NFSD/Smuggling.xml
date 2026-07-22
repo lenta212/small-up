@@ -1,46 +1,46 @@
 <Document>
 
-  # Smuggling Prevention
+  # Противодействие контрабанде
 
-  As an officer in the TSFMC, part of your job is to prevent smuggling.
+  Как офицер TSFMC, вы обязаны предотвращать контрабанду.
 
-  Smugglers use [color=#9ef5ff]dead drops[/color], objects where the Black Market leaves notes with clues to the location of [color=#c4261d]drop pods[/color] filled with contraband.
+  Контрабандисты используют [color=#9ef5ff]тайники[/color] — места, где Чёрный рынок оставляет записки с подсказками о расположении [color=#c4261d]десантных капсул[/color], заполненных контрабандой.
 
-  Remember:
-  - These are spread across the seedier points of interest across the sector.
-  - Use any clue you might find lying around.
-  - Ask around to see if the public's seen suspicious activity.
-  - Be on the lookout for strange traffic patterns.
+  Помните:
+  - Тайники разбросаны по самым сомнительным объектам сектора.
+  - Используйте любые найденные подсказки.
+  - Расспрашивайте местных жителей о подозрительной активности.
+  - Следите за необычными маршрутами движения кораблей.
 
-  As TSFMC officers, part of your job is to prevent smuggling, and to catch smugglers in the act.
+  Офицеры TSFMC должны не только предотвращать контрабанду, но и ловить контрабандистов с поличным.
 
-  Do not allow the TSF's control to waver, doing a poor job counter-smuggling will cause the TSF bank to take budget hits.
+  Не допускайте ослабления контроля TSF: неэффективная борьба с контрабандой приведёт к сокращению бюджета банка TSF.
 
   <Box>
-    <GuideEntityEmbed Entity="CrateTradeContrabandSecure1" Caption="contraband crate"/>
+    <GuideEntityEmbed Entity="CrateTradeContrabandSecure1" Caption="ящик с контрабандой"/>
   </Box>
 
-  ## Notifications
+  ## Оповещения
 
-  When a note is taken from a [color=#9ef5ff]dead drop[/color], a [color=#c4261d]drop pod[/color] is teleported into the sector. This [color=#c4261d]drop pod[/color] contains cargo, some of it contraband, and these illicit goods tend to be sold for profit.
+  Когда из [color=#9ef5ff]тайника[/color] забирают записку, в сектор телепортируется [color=#c4261d]десантная капсула[/color]. В ней находится груз, в том числе контрабанда, которую обычно продают ради прибыли.
 
-  With cutting-edge bluespace technology, [bold]we can get signatures when these notes are taken[/bold], and, with some delay, get [bold]the approximate location of a [color=#c4261d]drop pod[/color][/bold].
+  Передовые блюспейс-технологии позволяют [bold]зафиксировать момент извлечения записки[/bold], а после некоторой задержки — определить [bold]примерное местоположение [color=#c4261d]десантной капсулы[/color][/bold].
 
-  Due to the nature of bluespace, [bold]these notifications are not completely reliable[/bold], but that is no excuse for laziness. Remain vigilant.
+  Из-за природы блюспейса [bold]эти оповещения не всегда надёжны[/bold], но это не оправдывает бездействие. Сохраняйте бдительность.
 
-  ## Forensics
+  ## Криминалистика
 
-  As an incentive to prevent smuggling and catch active smugglers, a [color=#5d8c45]contraband forensics module[/color] comes standard in a TSF officer's equipment. [bold]Using these rewards your department for good field work[/bold].
+  Чтобы поощрять борьбу с контрабандой и поимку действующих контрабандистов, в стандартное снаряжение офицера TSF входит [color=#5d8c45]модуль криминалистического анализа контрабанды[/color]. [bold]Его использование приносит вашему отделу награду за хорошую работу на местах[/bold].
 
-  [color=#5d8c45]Scanning[/color] active or previously used [color=#9ef5ff]dead drops[/color], and Black Market [color=#c4261d]drop pods[/color] credits the TSF' bank with credits and FMCs. FMCs will be paid out to the scanning officer when enough have been collected.
+  [color=#5d8c45]Сканирование[/color] действующих или уже использованных [color=#9ef5ff]тайников[/color] и [color=#c4261d]десантных капсул[/color] Чёрного рынка пополняет банк TSF кредитами и FMC. Когда накопится достаточная сумма, FMC будут выплачены сканировавшему офицеру.
 
-  [bold]You get bigger rewards by being the first to a [color=#9ef5ff]dead drop[/color], so get moving![/bold]
+  [bold]Кто первым доберётся до [color=#9ef5ff]тайника[/color], получит более крупную награду, так что поторопитесь![/bold]
 
   <Box>
-    <GuideEntityEmbed Entity="ContrabandForensicsModule" Caption="forensics module"/>
+    <GuideEntityEmbed Entity="ContrabandForensicsModule" Caption="криминалистический модуль"/>
     <GuideEntityEmbed Entity="FederationMilitaryCredit"/>
   </Box>
 
-  [bold]Remember to use any DNA you find to track down and prosecute the smugglers.[/bold] It is one of your duties as a TSF officer to keep sector commerce legal.
+  [bold]Не забывайте использовать обнаруженную DNA, чтобы выследить контрабандистов и привлечь их к ответственности.[/bold] Одна из обязанностей офицера TSF — поддерживать законность торговли в секторе.
 
 </Document>

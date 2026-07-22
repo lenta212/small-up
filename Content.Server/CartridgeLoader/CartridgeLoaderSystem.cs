@@ -433,8 +433,8 @@ public sealed partial class CartridgeLoaderSystem : SharedCartridgeLoaderSystem
                 UninstallProgram(loaderUid, cartridge, component);
                 break;
             case CartridgeUiMessageAction.UIReady:
-                if (component.ActiveProgram.HasValue)
-                    RaiseLocalEvent(component.ActiveProgram.Value, new CartridgeUiReadyEvent(loaderUid));
+                if (component.ActiveProgram == cartridge)
+                    RaiseLocalEvent(cartridge, new CartridgeUiReadyEvent(loaderUid));
                 break;
             default:
                 throw new ArgumentOutOfRangeException($"Unrecognized UI action passed from cartridge loader ui {message.Action}.");

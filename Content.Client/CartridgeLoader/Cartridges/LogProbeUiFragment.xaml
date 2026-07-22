@@ -1,26 +1,60 @@
-﻿ <cartridges:LogProbeUiFragment xmlns="https://spacestation14.io"
-                                xmlns:cartridges="clr-namespace:Content.Client.CartridgeLoader.Cartridges"
-                                xmlns:gfx="clr-namespace:Robust.Client.Graphics;assembly=Robust.Client"
-                                Orientation="Vertical"
-                                VerticalExpand="True">
-    <PanelContainer>
-        <PanelContainer.PanelOverride>
-            <gfx:StyleBoxFlat BackgroundColor="#000000FF"
-                              BorderColor="#5a5a5a"
-                              BorderThickness="0 0 0 1"/>
-        </PanelContainer.PanelOverride>
-        <BoxContainer Orientation="Horizontal" Margin="4 8">
-            <Label Align="Right" SetWidth="26" ClipText="True" Text="{Loc 'log-probe-label-number'}"/>
-            <Label Align="Center" SetWidth="100" ClipText="True" Text="{Loc 'log-probe-label-time'}"/>
-            <Label Align="Left" SetWidth="390" ClipText="True" Text="{Loc 'log-probe-label-accessor'}"/>
+<cartridges:LogProbeUiFragment xmlns="https://spacestation14.io"
+                               xmlns:cartridges="clr-namespace:Content.Client.CartridgeLoader.Cartridges"
+                               Orientation="Vertical"
+                               HorizontalExpand="True"
+                               VerticalExpand="True">
+    <Label Text="{Loc 'log-probe-program-name'}"
+           StyleClasses="PdaScreenTitle" />
+
+    <PanelContainer StyleClasses="PdaNoticeInfo"
+                    HorizontalExpand="True"
+                    Margin="0 4 0 8">
+        <Label Name="EntityName"
+               Text="{Loc 'log-probe-no-device'}"
+               StyleClasses="PdaSectionHint"
+               HorizontalExpand="True"
+               ClipText="True"
+               Margin="8 6" />
+    </PanelContainer>
+
+    <PanelContainer StyleClasses="PdaSectionPanel"
+                    HorizontalExpand="True"
+                    SetHeight="34">
+        <BoxContainer Orientation="Horizontal"
+                      HorizontalExpand="True"
+                      Margin="8 4"
+                      SeparationOverride="8">
+            <Label Align="Center" SetWidth="38"
+                   StyleClasses="PdaSectionTitle" Text="{Loc 'log-probe-label-number'}" />
+            <Label Align="Center" SetWidth="110"
+                   StyleClasses="PdaSectionTitle" Text="{Loc 'log-probe-label-time'}" />
+            <Label HorizontalExpand="True"
+                   StyleClasses="PdaSectionTitle" Text="{Loc 'log-probe-label-accessor'}" />
         </BoxContainer>
     </PanelContainer>
-    <ScrollContainer VerticalExpand="True" HScrollEnabled="True">
-        <BoxContainer Orientation="Vertical" Name="ProbedDeviceContainer"/>
+
+    <ScrollContainer VerticalExpand="True"
+                     HorizontalExpand="True"
+                     HScrollEnabled="False"
+                     Margin="0 6 0 0">
+        <BoxContainer Orientation="Vertical"
+                      Name="ProbedDeviceContainer"
+                      HorizontalExpand="True">
+            <Label Name="EmptyLabel"
+                   Text="{Loc 'log-probe-no-device'}"
+                   StyleClasses="PdaSectionHint"
+                   Align="Center"
+                   Margin="8 18" />
+        </BoxContainer>
     </ScrollContainer>
-    <BoxContainer Orientation="Horizontal" Margin="4 8">
-        <Button Name="PrintButton" HorizontalAlignment="Left" Text="{Loc 'log-probe-print-button'}" Disabled="True"/>
-        <BoxContainer HorizontalExpand="True"/>
-        <Label Name="EntityName" Align="Right"/>
+
+    <BoxContainer Orientation="Horizontal"
+                  HorizontalExpand="True"
+                  HorizontalAlignment="Right"
+                  Margin="0 8 0 0">
+        <Button Name="PrintButton"
+                Text="{Loc 'log-probe-print-button'}"
+                Disabled="True"
+                MinWidth="120" />
     </BoxContainer>
 </cartridges:LogProbeUiFragment>

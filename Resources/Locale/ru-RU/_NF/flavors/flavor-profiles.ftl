@@ -20,3 +20,4 @@ flavor-complex-hairy = волосатый и резкий
 flavor-complex-licorice = как лакрица
 flavor-complex-blueraspberry = как синий цвет
 flavor-complex-silence = как тишина
+flavor-complex-nanocaf = как горький кофе

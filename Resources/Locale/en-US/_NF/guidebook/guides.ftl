@@ -8,6 +8,7 @@ guide-entry-expeditions = Expeditions
 guide-entry-sector-topology = Sector Topology
 guide-entry-cargo-hauling = Cargo Hauling
 guide-entry-shipyard = Shipyard
+guide-entry-preflightchecklist = Preflight Checklist
 guide-entry-frontier-rules = Server Rules
 
 # Engineering entries
@@ -81,6 +82,7 @@ guide-entry-shipyard-skipper = Skipper
 guide-entry-shipyard-spirit = Spirit
 guide-entry-shipyard-stasis = Stasis
 guide-entry-shipyard-tide = Tide
+guide-entry-shipyard-tyne = Tyne
 guide-entry-shipyard-vagabond = Vagabond
 
 # Rules entries

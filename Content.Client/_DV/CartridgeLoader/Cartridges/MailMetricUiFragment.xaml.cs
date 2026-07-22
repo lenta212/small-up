@@ -26,6 +26,7 @@ public sealed partial class MailMetricUiFragment : BoxContainer
         DamagedMailCount.StyleClasses.Add("Danger");
         DamagedMailSpesos.StyleClasses.Add("Danger");
         UnopenedMailCount.StyleClasses.Add("Caution");
+        UnopenedMailSpesos.StyleClasses.Add("Caution");
     }
 
     public void UpdateState(MailMetricUiState state)
@@ -47,6 +48,7 @@ public sealed partial class MailMetricUiFragment : BoxContainer
         DamagedMailCount.Text = stats.DamagedCount.ToString();
         DamagedMailSpesos.Text = stats.DamagedLosses.ToString();
         UnopenedMailCount.Text = state.UnopenedMailCount.ToString();
+        UnopenedMailSpesos.Text = "—";
         TotalMailCount.Text = state.TotalMail.ToString();
         TotalMailSpesos.Text = stats.TotalIncome.ToString();
         SuccessRateCounts.Text = Loc.GetString("mail-metrics-progress",

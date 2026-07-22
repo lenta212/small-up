@@ -32,5 +32,14 @@ namespace Content.Server.PDA.Ringer
     [RegisterComponent]
     public sealed partial class ActiveRingerComponent : Component
     {
+        /// <summary>
+        /// A transient editor preview. Null means the durable ringtone should be played.
+        /// </summary>
+        public Note[]? PreviewRingtone;
+
+        /// <summary>
+        /// Keeps unsaved editor input intact if a real incoming signal interrupts a preview.
+        /// </summary>
+        public bool PreserveEditorInput;
     }
 }

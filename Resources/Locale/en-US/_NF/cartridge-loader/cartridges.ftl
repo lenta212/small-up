@@ -2,6 +2,8 @@
 appraisal-program-name = AppraiseAll Plus
 appraisal-label-name = Item
 appraisal-label-price = Appraised Price
+appraisal-hint = Recently appraised objects and their estimated value.
+appraisal-empty = Scan an object to add it to this list.
 
 luam-sector-terminal-section-traffic = Live radar contacts
 luam-sector-terminal-no-traffic = No interceptable traffic is currently visible to an active sector radar.
@@ -68,7 +70,17 @@ ledger-entry-type-StationWithdrawalOther = Misc. Expenses
 # LuaM sector status cartridge
 luam-sector-status-program-name = LuaM Sector Status
 luam-sector-status-header = LuaM Sector Status
-luam-sector-status-summary = Stories: {$stories} | Locked: {$locked} | Active hazards: {$active} | Conditions: {$conditions} | Filed hazards: {$acknowledged} | Insurance: {$insurance} | Black boxes: {$blackbox} | Companies: {$companies} | Ships: {$ships}
+luam-sector-status-operational-state = [bold]Operational state[/bold]: {$state} · highest severity SC-{$severity} · active signals {$active}
+luam-sector-status-operational-critical = CRITICAL / shelter and verify extraction
+luam-sector-status-operational-danger = DANGER / active frontier threat
+luam-sector-status-operational-monitoring = MONITORING / filed hazards remain on record
+luam-sector-status-operational-stable = STABLE / no active threat signal
+luam-sector-status-showing-count = Showing {$shown} of {$total}.
+luam-sector-status-summary = [bold]Stories[/bold] {$stories} · locked {$locked} · conditions {$conditions} · companies {$companies} · ships {$ships}\n[bold]Hazards[/bold] {$active} active · {$acknowledged} filed · insurance {$insurance} · black boxes {$blackbox}
+luam-sector-status-tab-overview = Overview
+luam-sector-status-tab-tasks = Tasks
+luam-sector-status-tab-sector = Sector
+luam-sector-status-tab-journal = Journal
 luam-sector-status-digest = Daily digest
 luam-sector-status-digest-line = - {$line}
 luam-sector-status-no-digest = No digest assembled yet.

@@ -1,7 +1,7 @@
 - type: entity
   parent: PosterBase
   id: MonoSectorMap
-  name: sector map
+  name: карта сектора
   categories: [ HideSpawnMenu ]
   components:
   - type: Sprite

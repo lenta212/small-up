@@ -10,7 +10,7 @@ namespace Content.Client.PDA;
 [GenerateTypedNameReferences]
 public sealed partial class PdaNavigationButton : ContainerButton
 {
-
+    private bool _xamlLoaded;
     private bool _isCurrent;
     private bool _isActive = true;
 
@@ -19,15 +19,17 @@ public sealed partial class PdaNavigationButton : ContainerButton
 
     private readonly StyleBoxFlat _styleBox = new()
     {
-        BackgroundColor = Color.FromHex("#202023"),
-        BorderColor = Color.FromHex("#5a5a5a"),
+        BackgroundColor = Color.FromHex("#12191C"),
+        BorderColor = Color.FromHex("#33464E"),
         BorderThickness = new Thickness(0, 0, 0, 2)
     };
 
-    public string InactiveBgColor { get; set; } = "#202320";
-    public string ActiveBgColor { get; set; } = "#252725";
-    public string InactiveFgColor { get; set; } = "#5a5a5a";
-    public string ActiveFgColor { get; set; } = "#FFFFFF";
+    public string InactiveBgColor { get; set; } = "#12191C";
+    public string ActiveBgColor { get; set; } = "#1D343B";
+    public string HoverBgColor { get; set; } = "#1A292E";
+    public string PressedBgColor { get; set; } = "#0E1416";
+    public string InactiveFgColor { get; set; } = "#66777D";
+    public string ActiveFgColor { get; set; } = "#DCE8EB";
 
     public SpriteSpecifier? IconTexture
     {
@@ -62,7 +64,7 @@ public sealed partial class PdaNavigationButton : ContainerButton
         set
         {
             _borderThickness = value;
-            _styleBox.BorderThickness = _isCurrent ? _currentTabBorderThickness : value;
+            UpdateVisualState();
         }
     }
 
@@ -75,7 +77,7 @@ public sealed partial class PdaNavigationButton : ContainerButton
         set
         {
             _currentTabBorderThickness = value;
-            _styleBox.BorderThickness = _isCurrent ? value : _borderThickness;
+            UpdateVisualState();
         }
     }
 
@@ -85,8 +87,7 @@ public sealed partial class PdaNavigationButton : ContainerButton
         set
         {
             _isCurrent = value;
-            _styleBox.BackgroundColor = Color.FromHex(value ? ActiveBgColor : InactiveBgColor);
-            _styleBox.BorderThickness = value ? CurrentTabBorderThickness : BorderThickness;
+            UpdateVisualState();
         }
     }
 
@@ -96,8 +97,7 @@ public sealed partial class PdaNavigationButton : ContainerButton
         set
         {
             _isActive = value;
-            Icon.Modulate = Color.FromHex(value ? ActiveFgColor : InactiveFgColor);
-            Label.FontColorOverride = Color.FromHex(value ? ActiveFgColor : InactiveFgColor);
+            UpdateVisualState();
         }
     }
 
@@ -105,5 +105,37 @@ public sealed partial class PdaNavigationButton : ContainerButton
     {
         RobustXamlLoader.Load(this);
         Background.PanelOverride = _styleBox;
+        _xamlLoaded = true;
+        UpdateVisualState();
+    }
+
+    protected override void DrawModeChanged()
+    {
+        base.DrawModeChanged();
+        UpdateVisualState();
+    }
+
+    private void UpdateVisualState()
+    {
+        // ContainerButton invokes DrawModeChanged from its base constructor,
+        // before this control's XAML namespace and named children exist.
+        if (!_xamlLoaded)
+            return;
+
+        var background = _isCurrent
+            ? ActiveBgColor
+            : DrawMode switch
+            {
+                DrawModeEnum.Hover => HoverBgColor,
+                DrawModeEnum.Pressed => PressedBgColor,
+                _ => InactiveBgColor,
+            };
+
+        _styleBox.BackgroundColor = Color.FromHex(background);
+        _styleBox.BorderThickness = _isCurrent ? _currentTabBorderThickness : _borderThickness;
+
+        var foreground = Color.FromHex(_isActive ? ActiveFgColor : InactiveFgColor);
+        Icon.Modulate = foreground;
+        Label.FontColorOverride = foreground;
     }
 }

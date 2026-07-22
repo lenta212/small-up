@@ -4,17 +4,26 @@ using Content.Client.Guidebook;
 using Content.Client.Guidebook.Controls;
 using Content.Client.Lobby;
 using Content.Client.Players.PlayTimeTracking;
+using Content.Client.Station;
 using Content.Client.UserInterface.Controls;
 using Content.Shared.CCVar;
+using Content.Shared._NF.CCVar;
+using Content.Shared.Ghost;
 using Content.Shared.Guidebook;
 using Content.Shared.Input;
+using Content.Shared.Mobs;
+using Content.Shared.Mobs.Components;
+using Robust.Client.Player;
 using Robust.Client.State;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controllers;
 using Robust.Shared.Configuration;
+using Robust.Shared.GameObjects;
 using static Robust.Client.UserInterface.Controls.BaseButton;
 using Robust.Shared.Input.Binding;
+using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
+using Robust.Shared.Timing;
 using Robust.Shared.Utility;
 
 namespace Content.Client.UserInterface.Systems.Guidebook;
@@ -22,24 +31,48 @@ namespace Content.Client.UserInterface.Systems.Guidebook;
 public sealed partial class GuidebookUIController : UIController, IOnStateEntered<LobbyState>, IOnStateEntered<GameplayState>, IOnStateExited<LobbyState>, IOnStateExited<GameplayState>, IOnSystemChanged<GuidebookSystem>
 {
     [UISystemDependency] private readonly GuidebookSystem _guidebookSystem = default!;
+    [UISystemDependency] private readonly StationSystem _stationSystem = default!;
     [Dependency] private IPrototypeManager _prototypeManager = default!;
     [Dependency] private IConfigurationManager _configuration = default!;
+    [Dependency] private IPlayerManager _playerManager = default!;
     [Dependency] private JobRequirementsManager _jobRequirements = default!;
 
-    private const int PlaytimeOpenGuidebook = 180; // Frontier 60<180
+    private static readonly TimeSpan FrontierTutorialNewPlayerWindow = TimeSpan.FromMinutes(180);
 
     private GuidebookWindow? _guideWindow;
+    private FrontierTutorialOfferWindow? _tutorialOffer;
     private MenuButton? GuidebookButton => UIManager.GetActiveUIWidgetOrNull<MenuBar.Widgets.GameTopMenuBar>()?.GuidebookButton;
     private ProtoId<GuideEntryPrototype>? _lastEntry;
 
+    private FrontierTutorialFlow? _tutorialFlow;
+    private EntityUid? _tutorialEntity;
+    private bool _inGameplay;
+    private bool _tutorialPromptedThisGameplay;
+    private bool _waitingForTutorialLesson;
+    private bool _suppressTutorialOfferClose;
+    private int _stationCheckGeneration;
+
+    public override void Initialize()
+    {
+        base.Initialize();
+
+        SubscribeLocalEvent<LocalPlayerAttachedEvent>(OnLocalPlayerAttached);
+        SubscribeLocalEvent<LocalPlayerDetachedEvent>(OnLocalPlayerDetached);
+        SubscribeLocalEvent<EntParentChangedMessage>(OnParentChanged);
+        SubscribeLocalEvent<MobStateChangedEvent>(OnMobStateChanged);
+    }
+
     public void OnStateEntered(LobbyState state)
     {
+        _inGameplay = false;
         HandleStateEntered(state);
     }
 
     public void OnStateEntered(GameplayState state)
     {
+        _inGameplay = true;
         HandleStateEntered(state);
+        TryStartFrontierTutorialForLocalPlayer();
     }
 
     private void HandleStateEntered(State state)
@@ -50,14 +83,8 @@ public sealed partial class GuidebookUIController : UIController, IOnStateEntere
         _guideWindow = UIManager.CreateWindow<GuidebookWindow>();
         _guideWindow.OnClose += OnWindowClosed;
         _guideWindow.OnOpen += OnWindowOpen;
-
-        if (state is LobbyState &&
-            _jobRequirements.FetchOverallPlaytime() < TimeSpan.FromMinutes(PlaytimeOpenGuidebook))
-        {
-            OpenGuidebook();
-            _guideWindow.RecenterWindow(new(0.5f, 0.5f));
-            _guideWindow.SetPositionFirst();
-        }
+        _guideWindow.TutorialCompleteButton.OnPressed += _ => CompleteFrontierTutorialLesson();
+        _guideWindow.TutorialBackButton.OnPressed += _ => ReturnToFrontierTutorialQuestion();
 
         // setup keybinding
         CommandBinds.Builder
@@ -73,6 +100,9 @@ public sealed partial class GuidebookUIController : UIController, IOnStateEntere
 
     public void OnStateExited(GameplayState state)
     {
+        _inGameplay = false;
+        CancelFrontierTutorial(closeLesson: true);
+        _tutorialPromptedThisGameplay = false;
         HandleStateExited();
     }
 
@@ -87,7 +117,280 @@ public sealed partial class GuidebookUIController : UIController, IOnStateEntere
         // shutdown
         _guideWindow.Dispose();
         _guideWindow = null;
+        _tutorialOffer?.Dispose();
+        _tutorialOffer = null;
         CommandBinds.Unregister<GuidebookUIController>();
+    }
+
+    private void OnLocalPlayerAttached(LocalPlayerAttachedEvent args)
+    {
+        ScheduleFrontierTutorialStationChecks(args.Entity);
+    }
+
+    private void OnLocalPlayerDetached(LocalPlayerDetachedEvent args)
+    {
+        _stationCheckGeneration++;
+        if (_tutorialEntity == args.Entity)
+            CancelFrontierTutorial(closeLesson: true);
+    }
+
+    private void OnParentChanged(ref EntParentChangedMessage args)
+    {
+        if (_playerManager.LocalEntity == args.Entity)
+            ScheduleFrontierTutorialStationChecks(args.Entity);
+    }
+
+    private void OnMobStateChanged(MobStateChangedEvent args)
+    {
+        if (_playerManager.LocalEntity != args.Target)
+            return;
+
+        if (args.Component.CurrentState == MobState.Alive)
+        {
+            ScheduleFrontierTutorialStationChecks(args.Target);
+            return;
+        }
+
+        if (_tutorialEntity == args.Target)
+            CancelFrontierTutorial(closeLesson: true);
+    }
+
+    private void TryStartFrontierTutorialForLocalPlayer()
+    {
+        if (_playerManager.LocalEntity is { } local)
+            ScheduleFrontierTutorialStationChecks(local);
+    }
+
+    private void ScheduleFrontierTutorialStationChecks(EntityUid entity)
+    {
+        var generation = ++_stationCheckGeneration;
+        TryStartFrontierTutorial(entity);
+
+        // Attachment can precede the station-grid component in the first client state.
+        Timer.Spawn(250, () => RetryFrontierTutorialStationCheck(entity, generation));
+        Timer.Spawn(1000, () => RetryFrontierTutorialStationCheck(entity, generation));
+    }
+
+    private void RetryFrontierTutorialStationCheck(EntityUid entity, int generation)
+    {
+        if (generation != _stationCheckGeneration ||
+            !_inGameplay ||
+            _playerManager.LocalEntity != entity)
+        {
+            return;
+        }
+
+        TryStartFrontierTutorial(entity);
+    }
+
+    private void TryStartFrontierTutorial(EntityUid entity)
+    {
+        if (!_inGameplay ||
+            _guideWindow == null ||
+            _tutorialFlow != null ||
+            _waitingForTutorialLesson ||
+            _playerManager.LocalEntity != entity ||
+            _tutorialPromptedThisGameplay ||
+            EntityManager.HasComponent<GhostComponent>(entity) ||
+            !EntityManager.TryGetComponent(entity, out MobStateComponent? mobState) ||
+            mobState.CurrentState != MobState.Alive ||
+            _stationSystem.GetOwningStation(entity) is not { Valid: true } ||
+            !TryMigrateFrontierTutorialProgress(out var completedMask))
+        {
+            return;
+        }
+
+        var flow = new FrontierTutorialFlow(FrontierTutorialCatalog.Topics.Count, completedMask);
+        if (flow.IsComplete ||
+            !FrontierTutorialFlow.ShouldOfferForPlaytime(
+                completedMask,
+                FrontierTutorialCatalog.Topics.Count,
+                _jobRequirements.FetchOverallPlaytime(),
+                FrontierTutorialNewPlayerWindow))
+        {
+            return;
+        }
+
+        // One readiness check per gameplay session. Respawning or changing bodies must not reopen it.
+        _tutorialPromptedThisGameplay = true;
+        _tutorialEntity = entity;
+        _tutorialFlow = flow;
+        OpenCurrentFrontierTutorialQuestion();
+    }
+
+    private bool TryMigrateFrontierTutorialProgress(out int completedMask)
+    {
+        var legacyChoice = _configuration.GetCVar(NFCCVars.FrontierTutorialChoice);
+        var storedMask = _configuration.GetCVar(NFCCVars.FrontierTutorialCompletedTopics);
+        var storedVersion = _configuration.GetCVar(NFCCVars.FrontierTutorialProgressVersion);
+        var migration = FrontierTutorialFlow.Migrate(
+            legacyChoice,
+            storedMask,
+            storedVersion,
+            FrontierTutorialCatalog.Topics.Count);
+
+        completedMask = migration.CompletedMask;
+        if (!migration.Compatible)
+            return false;
+
+        // Write the version last so an interrupted migration is safely retried.
+        if (migration.CompletedMask != storedMask)
+            _configuration.SetCVar(NFCCVars.FrontierTutorialCompletedTopics, migration.CompletedMask);
+        if (migration.LegacyChoice != legacyChoice)
+            _configuration.SetCVar(NFCCVars.FrontierTutorialChoice, migration.LegacyChoice);
+        if (migration.Version != storedVersion)
+            _configuration.SetCVar(NFCCVars.FrontierTutorialProgressVersion, migration.Version);
+
+        return true;
+    }
+
+    private void OpenCurrentFrontierTutorialQuestion()
+    {
+        if (_tutorialFlow == null || _tutorialFlow.IsComplete)
+        {
+            FinishFrontierTutorial();
+            return;
+        }
+
+        if (_tutorialOffer == null)
+        {
+            _tutorialOffer = UIManager.CreateWindow<FrontierTutorialOfferWindow>();
+            _tutorialOffer.KnowButton.OnPressed += _ => CompleteCurrentFrontierTutorialTopic();
+            _tutorialOffer.ExplainButton.OnPressed += _ => OpenCurrentFrontierTutorialLesson();
+            _tutorialOffer.LaterButton.OnPressed += _ => CancelFrontierTutorial(closeLesson: false);
+            _tutorialOffer.TopicSelected += SelectFrontierTutorialTopic;
+            _tutorialOffer.OnClose += OnFrontierTutorialOfferClosed;
+        }
+
+        _tutorialOffer.SetChecklist(
+            FrontierTutorialCatalog.Topics
+                .Select(topic => Loc.GetString(topic.NameLocId))
+                .ToList(),
+            _tutorialFlow.CompletedMask,
+            _tutorialFlow.CurrentIndex);
+        if (!_tutorialOffer.IsOpen)
+            _tutorialOffer.OpenCentered();
+    }
+
+    private void SelectFrontierTutorialTopic(int index)
+    {
+        if (_tutorialFlow == null || !_tutorialFlow.SelectTopic(index))
+            return;
+
+        OpenCurrentFrontierTutorialQuestion();
+    }
+
+    private void OnFrontierTutorialOfferClosed()
+    {
+        if (!_suppressTutorialOfferClose)
+            CancelFrontierTutorial(closeLesson: false, closeOffer: false);
+    }
+
+    private void OpenCurrentFrontierTutorialLesson()
+    {
+        if (_tutorialFlow == null || _tutorialFlow.IsComplete || _waitingForTutorialLesson)
+            return;
+
+        var topic = FrontierTutorialCatalog.Topics[_tutorialFlow.CurrentIndex];
+        _waitingForTutorialLesson = true;
+        CloseFrontierTutorialOffer();
+
+        var guides = new List<ProtoId<GuideEntryPrototype>> { topic.Guide };
+        OpenGuidebook(
+            guides,
+            rootEntries: guides,
+            includeChildren: false,
+            selected: topic.Guide);
+        if (_guideWindow != null)
+            _guideWindow.TutorialActionContainer.Visible = true;
+    }
+
+    private void CompleteFrontierTutorialLesson()
+    {
+        if (!_waitingForTutorialLesson || _tutorialFlow == null)
+            return;
+
+        _waitingForTutorialLesson = false;
+        if (_guideWindow != null)
+        {
+            _guideWindow.TutorialActionContainer.Visible = false;
+            _guideWindow.Close();
+        }
+
+        CompleteCurrentFrontierTutorialTopic();
+    }
+
+    private void ReturnToFrontierTutorialQuestion()
+    {
+        if (!_waitingForTutorialLesson || _tutorialFlow == null)
+            return;
+
+        _waitingForTutorialLesson = false;
+        if (_guideWindow != null)
+        {
+            _guideWindow.TutorialActionContainer.Visible = false;
+            _guideWindow.Close();
+        }
+
+        OpenCurrentFrontierTutorialQuestion();
+    }
+
+    private void CompleteCurrentFrontierTutorialTopic()
+    {
+        if (_tutorialFlow == null || !_tutorialFlow.CompleteCurrent())
+            return;
+
+        _configuration.SetCVar(
+            NFCCVars.FrontierTutorialCompletedTopics,
+            _tutorialFlow.CompletedMask);
+
+        if (_tutorialFlow.IsComplete)
+        {
+            FinishFrontierTutorial();
+            return;
+        }
+
+        OpenCurrentFrontierTutorialQuestion();
+    }
+
+    private void FinishFrontierTutorial()
+    {
+        _tutorialFlow = null;
+        _tutorialEntity = null;
+        _waitingForTutorialLesson = false;
+        CloseFrontierTutorialOffer();
+    }
+
+    private void CancelFrontierTutorial(bool closeLesson, bool closeOffer = true)
+    {
+        var shouldCloseLesson = closeLesson && _waitingForTutorialLesson && _guideWindow?.IsOpen == true;
+        _waitingForTutorialLesson = false;
+        _tutorialFlow = null;
+        _tutorialEntity = null;
+
+        if (_guideWindow != null)
+            _guideWindow.TutorialActionContainer.Visible = false;
+
+        if (closeOffer)
+            CloseFrontierTutorialOffer();
+        if (shouldCloseLesson)
+            _guideWindow?.Close();
+    }
+
+    private void CloseFrontierTutorialOffer()
+    {
+        if (_tutorialOffer?.IsOpen != true)
+            return;
+
+        _suppressTutorialOfferClose = true;
+        try
+        {
+            _tutorialOffer.Close();
+        }
+        finally
+        {
+            _suppressTutorialOfferClose = false;
+        }
     }
 
     public void OnSystemLoaded(GuidebookSystem system)
@@ -139,14 +442,21 @@ public sealed partial class GuidebookUIController : UIController, IOnStateEntere
 
     private void OnWindowClosed()
     {
+        var interruptedTutorialLesson = _waitingForTutorialLesson;
+        _waitingForTutorialLesson = false;
+
         if (GuidebookButton != null)
             GuidebookButton.Pressed = false;
 
         if (_guideWindow != null)
         {
             _guideWindow.ReturnContainer.Visible = false;
+            _guideWindow.TutorialActionContainer.Visible = false;
             _lastEntry = _guideWindow.LastEntry;
         }
+
+        if (interruptedTutorialLesson && _inGameplay && _tutorialFlow != null)
+            OpenCurrentFrontierTutorialQuestion();
     }
 
     private void OnWindowOpen()

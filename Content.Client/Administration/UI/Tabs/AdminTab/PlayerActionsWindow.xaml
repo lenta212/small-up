@@ -13,6 +13,7 @@
             <Button Name="SubmitKickButton" Text="{Loc admin-player-actions-kick}" Disabled="True"/>
             <Button Name="SubmitAHelpButton" Text="{Loc admin-player-actions-ahelp}" Disabled="True"/>
             <Button Name="SubmitRespawnButton" Text="{Loc admin-player-actions-respawn}" Disabled="True"/>
+            <Button Name="ObserveButton" Text="{Loc admin-player-actions-observe}" Disabled="True"/>
         </BoxContainer>
     </BoxContainer>
 </DefaultWindow>

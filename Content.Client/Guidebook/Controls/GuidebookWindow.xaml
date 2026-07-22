@@ -3,14 +3,26 @@
                 xmlns:fancyTree="clr-namespace:Content.Client.UserInterface.Controls.FancyTree"
                 xmlns:controls="clr-namespace:Content.Client.UserInterface.Controls"
                 SetSize="900 700"
-                MinSize="100 200"
+                MinSize="640 420"
                 Resizable="True"
                 Title="{Loc 'guidebook-window-title'}">
     <SplitContainer Orientation="Horizontal" HorizontalExpand="True" Name="Split">
         <!-- Guide select -->
-        <BoxContainer Orientation="Horizontal" Name="TreeBox">
-            <fancyTree:FancyTree Name="Tree" VerticalExpand="True" HorizontalExpand="True" Access="Public"/>
-            <cc:VSeparator StyleClasses="LowDivider" Margin="0 -2"/>
+        <BoxContainer Orientation="Vertical" Name="TreeBox" MinWidth="240">
+            <LineEdit Name="TreeSearchBar"
+                      PlaceHolder="{Loc 'guidebook-tree-filter-placeholder-text'}"
+                      HorizontalExpand="True"
+                      Margin="5 5 8 3"/>
+            <Label Name="TreeEmptyLabel"
+                   Text="{Loc 'guidebook-tree-filter-empty'}"
+                   StyleClasses="UiTextMuted"
+                   HorizontalAlignment="Center"
+                   Visible="False"
+                   Margin="6 3 8 3"/>
+            <BoxContainer Orientation="Horizontal" HorizontalExpand="True" VerticalExpand="True">
+                <fancyTree:FancyTree Name="Tree" VerticalExpand="True" HorizontalExpand="True" Access="Public"/>
+                <cc:VSeparator StyleClasses="LowDivider" Margin="0 -2"/>
+            </BoxContainer>
         </BoxContainer>
         <BoxContainer Orientation="Vertical" HorizontalExpand="True" VerticalExpand="True">
             <BoxContainer Name="SearchContainer" Visible="False" HorizontalExpand="True">
@@ -34,6 +46,27 @@
                     </BoxContainer>
                 </Control>
             </ScrollContainer>
+            <PanelContainer StyleClasses="LowDivider"/>
+            <BoxContainer Name="TutorialActionContainer"
+                          Access="Internal"
+                          Orientation="Horizontal"
+                          HorizontalExpand="True"
+                          Visible="False"
+                          Margin="8 7">
+                <Label Text="{Loc 'frontier-tutorial-guide-status'}"
+                       StyleClasses="UiTextMuted"
+                       VerticalAlignment="Center"
+                       HorizontalExpand="True"/>
+                <Button Name="TutorialBackButton"
+                        Access="Internal"
+                        Text="{Loc 'frontier-tutorial-guide-back'}"
+                        MinWidth="150"
+                        Margin="0 0 6 0"/>
+                <Button Name="TutorialCompleteButton"
+                        Access="Internal"
+                        Text="{Loc 'frontier-tutorial-guide-complete'}"
+                        MinWidth="180"/>
+            </BoxContainer>
         </BoxContainer>
     </SplitContainer>
 </controls:FancyWindow>

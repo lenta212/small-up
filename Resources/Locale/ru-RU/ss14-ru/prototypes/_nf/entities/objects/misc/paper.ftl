@@ -16,3 +16,6 @@ ent-BoxFolderPalGreen = { ent-BoxFolderPalBrown }
 
 ent-PaperDeadDropHint = подозрительная записка
     .desc = Смятый лист с каракулями. Похоже, написано в спешке.
+
+ent-PowerForkCertification = сертификат оператора силовой вилки
+    .desc = Сертификат на управление тяжёлой техникой.

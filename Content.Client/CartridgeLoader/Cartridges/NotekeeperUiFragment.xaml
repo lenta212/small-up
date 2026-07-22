@@ -1,10 +1,38 @@
 <cartridges:NotekeeperUiFragment xmlns:cartridges="clr-namespace:Content.Client.CartridgeLoader.Cartridges"
-                                 xmlns="https://spacestation14.io" Margin="1 0 2 0">
-    <PanelContainer StyleClasses="BackgroundDark"></PanelContainer>
-    <BoxContainer Orientation="Vertical" HorizontalExpand="True" VerticalExpand="True">
-        <ScrollContainer HorizontalExpand="True" VerticalExpand="True" HScrollEnabled="True">
-            <BoxContainer Orientation="Vertical" Name="MessageContainer" HorizontalExpand="True" VerticalExpand="True"/>
-        </ScrollContainer>
-        <LineEdit Name="Input" HorizontalExpand="True" SetHeight="32"/>
+                                 xmlns="https://spacestation14.io">
+    <BoxContainer Orientation="Vertical"
+                  HorizontalExpand="True"
+                  VerticalExpand="True">
+        <Label Text="{Loc 'notekeeper-program-name'}"
+               StyleClasses="PdaScreenTitle" />
+        <Label Text="{Loc 'notekeeper-hint'}"
+               StyleClasses="PdaSectionHint"
+               Margin="0 1 0 8" />
+
+        <PanelContainer StyleClasses="PdaProgramSurface"
+                        HorizontalExpand="True"
+                        VerticalExpand="True">
+            <ScrollContainer HorizontalExpand="True"
+                             VerticalExpand="True"
+                             HScrollEnabled="False"
+                             Margin="8">
+                <BoxContainer Orientation="Vertical"
+                              Name="MessageContainer"
+                              HorizontalExpand="True"
+                              VerticalExpand="True">
+                    <Label Name="EmptyLabel"
+                           Text="{Loc 'notekeeper-empty'}"
+                           StyleClasses="PdaSectionHint"
+                           Align="Center"
+                           Margin="8 18" />
+                </BoxContainer>
+            </ScrollContainer>
+        </PanelContainer>
+
+        <LineEdit Name="Input"
+                  HorizontalExpand="True"
+                  SetHeight="34"
+                  Margin="0 8 0 0"
+                  PlaceHolder="{Loc 'notekeeper-placeholder'}" />
     </BoxContainer>
 </cartridges:NotekeeperUiFragment>

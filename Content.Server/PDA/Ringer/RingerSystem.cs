@@ -63,11 +63,24 @@ namespace Content.Server.PDA.Ringer
 
         private void RingerPlayRingtone(EntityUid uid, RingerComponent ringer, RingerPlayRingtoneMessage args)
         {
-            EnsureComp<ActiveRingerComponent>(uid);
+            if (HasComp<ActiveRingerComponent>(uid) ||
+                !IsValidRingtone(args.Ringtone))
+            {
+                return;
+            }
+
+            var active = EnsureComp<ActiveRingerComponent>(uid);
+            active.PreviewRingtone = args.Ringtone.ToArray();
+            active.PreserveEditorInput = true;
 
             _popupSystem.PopupEntity(Loc.GetString("comp-ringer-vibration-popup"), uid, Filter.Pvs(uid, 0.05f), false, PopupType.Small);
 
-            UpdateRingerUserInterface(uid, ringer, true);
+            UpdateRingerUserInterface(
+                uid,
+                ringer,
+                true,
+                preserveEditorInput: true,
+                isPreview: true);
         }
 
         public void RingerPlayRingtone(Entity<RingerComponent?> ent)
@@ -75,16 +88,27 @@ namespace Content.Server.PDA.Ringer
             if (!Resolve(ent, ref ent.Comp))
                 return;
 
-            EnsureComp<ActiveRingerComponent>(ent);
+            var active = EnsureComp<ActiveRingerComponent>(ent);
+            PrepareIncomingPlayback(ent.Comp, active);
 
             _popupSystem.PopupEntity(Loc.GetString("comp-ringer-vibration-popup"), ent, Filter.Pvs(ent, 0.05f), false, PopupType.Medium);
 
-            UpdateRingerUserInterface(ent, ent.Comp, true);
+            UpdateRingerUserInterface(
+                ent,
+                ent.Comp,
+                true,
+                preserveEditorInput: active.PreserveEditorInput);
         }
 
         private void UpdateRingerUserInterfaceDriver(EntityUid uid, RingerComponent ringer, RingerRequestUpdateInterfaceMessage args)
         {
-            UpdateRingerUserInterface(uid, ringer, HasComp<ActiveRingerComponent>(uid));
+            var isPlaying = TryComp<ActiveRingerComponent>(uid, out var active);
+            UpdateRingerUserInterface(
+                uid,
+                ringer,
+                isPlaying,
+                preserveEditorInput: active?.PreserveEditorInput == true,
+                isPreview: active?.PreviewRingtone != null);
         }
 
         private void OnSetRingtone(EntityUid uid, RingerComponent ringer, RingerSetRingtoneMessage args)
@@ -101,7 +125,7 @@ namespace Content.Server.PDA.Ringer
             lastSetAt = _gameTiming.CurTime;
 
             // Client sent us an updated ringtone so set it to that.
-            if (args.Ringtone.Length != RingtoneLength)
+            if (!IsValidRingtone(args.Ringtone))
                 return;
 
             var ev = new BeforeRingtoneSetEvent(args.Ringtone);
@@ -185,14 +209,48 @@ namespace Content.Server.PDA.Ringer
         {
             // Assume validation has already happened.
             ringer.Ringtone = ringtone;
-            UpdateRingerUserInterface(uid, ringer, HasComp<ActiveRingerComponent>(uid));
+            var isPlaying = TryComp<ActiveRingerComponent>(uid, out var active);
+            UpdateRingerUserInterface(
+                uid,
+                ringer,
+                isPlaying,
+                preserveEditorInput: active?.PreserveEditorInput == true,
+                isPreview: active?.PreviewRingtone != null);
 
             return true;
         }
 
-        private void UpdateRingerUserInterface(EntityUid uid, RingerComponent ringer, bool isPlaying)
+        private void UpdateRingerUserInterface(
+            EntityUid uid,
+            RingerComponent ringer,
+            bool isPlaying,
+            bool preserveEditorInput = false,
+            bool isPreview = false)
         {
-            _ui.SetUiState(uid, RingerUiKey.Key, new RingerUpdateState(isPlaying, ringer.Ringtone));
+            _ui.SetUiState(
+                uid,
+                RingerUiKey.Key,
+                new RingerUpdateState(isPlaying, ringer.Ringtone, preserveEditorInput, isPreview));
+        }
+
+        internal static bool IsValidRingtone(Note[]? ringtone)
+        {
+            return ringtone is { Length: RingtoneLength } &&
+                   ringtone.All(note => Enum.IsDefined(note));
+        }
+
+        internal static bool PrepareIncomingPlayback(
+            RingerComponent ringer,
+            ActiveRingerComponent active)
+        {
+            if (active.PreviewRingtone == null)
+                return false;
+
+            active.PreviewRingtone = null;
+            active.PreserveEditorInput = true;
+            ringer.TimeElapsed = 0f;
+            ringer.NoteCount = 0;
+            return true;
         }
 
         public bool ToggleRingerUI(EntityUid uid, EntityUid actor)
@@ -206,7 +264,7 @@ namespace Content.Server.PDA.Ringer
             var remove = new RemQueue<EntityUid>();
 
             var pdaQuery = EntityQueryEnumerator<RingerComponent, ActiveRingerComponent>();
-            while (pdaQuery.MoveNext(out var uid, out var ringer, out var _))
+            while (pdaQuery.MoveNext(out var uid, out var ringer, out var active))
             {
                 ringer.TimeElapsed += frameTime;
 
@@ -216,8 +274,9 @@ namespace Content.Server.PDA.Ringer
                 ringer.TimeElapsed -= NoteDelay;
                 var ringerXform = Transform(uid);
 
+                var ringtone = active.PreviewRingtone ?? ringer.Ringtone;
                 _audio.PlayEntity(
-                    GetSound(ringer.Ringtone[ringer.NoteCount]),
+                    GetSound(ringtone[ringer.NoteCount]),
                     Filter.Empty().AddInRange(_transform.GetMapCoordinates(uid, ringerXform), ringer.Range),
                     uid,
                     true,
@@ -229,7 +288,12 @@ namespace Content.Server.PDA.Ringer
                 if (ringer.NoteCount > RingtoneLength - 1)
                 {
                     remove.Add(uid);
-                    UpdateRingerUserInterface(uid, ringer, false);
+                    UpdateRingerUserInterface(
+                        uid,
+                        ringer,
+                        false,
+                        preserveEditorInput: active.PreserveEditorInput,
+                        isPreview: active.PreviewRingtone != null);
                     ringer.TimeElapsed = 0;
                     ringer.NoteCount = 0;
                     break;

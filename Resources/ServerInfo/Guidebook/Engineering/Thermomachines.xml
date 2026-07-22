@@ -16,7 +16,7 @@
 
   У всех термомашин допуск по цели равен [color=orange][protodata="GasThermoMachineFreezer" comp="GasThermoMachine" member="TemperatureTolerance"/] K[/color]. Они перестают греть/охлаждать, когда попадают в диапазон [color=orange][protodata="GasThermoMachineFreezer" comp="GasThermoMachine" member="TemperatureTolerance"/] K[/color] от цели.
 
-  ## Обогреватель помещения (Space Heater)
+  ## Обогреватель помещения
   Переносной блок, который греет или охлаждает газ в открытой атмосфере.
 
   <Box>
@@ -30,7 +30,7 @@
   Есть три уровня мощности, определяющие скорость работы.
   Ботаника и наука часто просят такие устройства для поддержания температур растений и установок.
 
-  ## Термомашины трубосети (Freezer и Heater)
+  ## Охладители и нагреватели трубосети
   Стационарные, более мощные блоки для нагрева/охлаждения газа в [textlink="трубосети" link="PipeNetworks"].
 
   <Box>
@@ -53,8 +53,8 @@
 
   </Box>
 
-  ## Термомашины Hellfire
-  Наука может исследовать более мощные термомашины: hellfire heater и hellfire freezer.
+  ## Адские термомашины
+  Научный отдел может исследовать более мощные термомашины: адский нагреватель и адский охладитель.
 
   <Box>
     <GuideEntityEmbed Entity="GasThermoMachineHellfireHeater"/>

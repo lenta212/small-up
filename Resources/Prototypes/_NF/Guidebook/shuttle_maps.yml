@@ -408,6 +408,18 @@
 
 - type: entity
   parent: PosterBase
+  id: ShuttleMapTyne
+  name: "BB Tyne"
+  description: "Detailed map of a Tyne shuttle."
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _NF/Guidebook/shuttle_maps/128x96.rsi
+    state: tyne
+    scale: 1.2, 1.2
+
+- type: entity
+  parent: PosterBase
   id: ShuttleMapStasis
   name: "NM Stasis"
   description: "Detailed map of a Stasis shuttle."

@@ -80,4 +80,32 @@ public sealed class LuaMCopyIdButtonTest : RobustUnitTest
 
         Assert.That(clipboard.Text, Is.EqualTo("RO-98765"));
     }
+
+    [Test]
+    public void SectorStatusNamesOperationalSeverityAndVisibleItemCount()
+    {
+        var stable = (string) InvokeFragmentBuilder("GetOperationalStateLocKey", 0, 0, 0);
+        var monitoring = (string) InvokeFragmentBuilder("GetOperationalStateLocKey", 0, 2, 2);
+        var danger = (string) InvokeFragmentBuilder("GetOperationalStateLocKey", 2, 0, 3);
+        var critical = (string) InvokeFragmentBuilder("GetOperationalStateLocKey", 1, 0, 5);
+        var limitedCount = (int) InvokeFragmentBuilder("GetVisibleCount", 11, 6);
+        var completeCount = (int) InvokeFragmentBuilder("GetVisibleCount", 5, 6);
+
+        Assert.That(stable, Is.EqualTo("luam-sector-status-operational-stable"));
+        Assert.That(monitoring, Is.EqualTo("luam-sector-status-operational-monitoring"));
+        Assert.That(danger, Is.EqualTo("luam-sector-status-operational-danger"));
+        Assert.That(critical, Is.EqualTo("luam-sector-status-operational-critical"));
+        Assert.That(limitedCount, Is.EqualTo(6));
+        Assert.That(completeCount, Is.EqualTo(5));
+    }
+
+    private static object InvokeFragmentBuilder(string name, params object[] arguments)
+    {
+        var method = typeof(LuaMSectorStatusUiFragment).GetMethod(
+            name,
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(method, Is.Not.Null, $"Missing private {name} method");
+
+        return method!.Invoke(null, arguments)!;
+    }
 }

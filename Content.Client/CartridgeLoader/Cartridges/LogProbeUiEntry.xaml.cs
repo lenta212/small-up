@@ -13,5 +13,6 @@ public sealed partial class LogProbeUiEntry : BoxContainer
         NumberLabel.Text = numberLabel.ToString();
         TimeLabel.Text = timeText;
         AccessorLabel.Text = accessorText;
+        AccessorLabel.ToolTip = accessorText;
     }
 }

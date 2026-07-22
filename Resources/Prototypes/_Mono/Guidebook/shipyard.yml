@@ -12,6 +12,8 @@
 #  - ShipyardRuby
   - ShipyardMotleyAnne
   - ShipyardFenrir
+  - ShipyardSpirit
+  - ShipyardTyne
 
 - type: guideEntry
   id: ShipyardArgent
@@ -52,3 +54,13 @@
   id: ShipyardNFROperation
   name: guide-entry-shipyard-nfr
   text: "/ServerInfo/_Mono/Guidebook/Shipyard/NFRManual.xml"
+
+- type: guideEntry
+  id: ShipyardSpirit
+  name: guide-entry-shipyard-spirit
+  text: "/ServerInfo/_NF/Guidebook/Shipyard/Spirit.xml"
+
+- type: guideEntry
+  id: ShipyardTyne
+  name: guide-entry-shipyard-tyne
+  text: "/ServerInfo/_NF/Guidebook/Shipyard/Tyne.xml"

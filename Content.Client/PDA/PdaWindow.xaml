@@ -2,30 +2,53 @@
                 xmlns:pda="clr-namespace:Content.Client.PDA"
                 MouseFilter="Stop">
     <PanelContainer Name="Background" Access="Public" StyleClasses="PdaBackgroundRect" />
-    <!-- The negative markin fixes a gap between the window edges and the decorative panel -->
-    <PanelContainer Name="AccentH" Margin="-1 170 -2 170" Access="Public" StyleClasses="PdaBackground" />
-    <PanelContainer Name="AccentV" Margin="220 -1 220 -1" Access="Public" StyleClasses="PdaBackground" />
+    <!-- Department accents stay inside the exposed side rails and scale with the window. -->
+    <PanelContainer Name="AccentH"
+                    HorizontalAlignment="Left"
+                    SetWidth="5"
+                    Margin="5 42 0 38"
+                    Access="Public"
+                    StyleClasses="PdaBackground" />
+    <PanelContainer Name="AccentV"
+                    HorizontalAlignment="Right"
+                    SetWidth="5"
+                    Margin="0 42 5 38"
+                    Access="Public"
+                    StyleClasses="PdaBackground" />
     <PanelContainer Name="Border" StyleClasses="PdaBorderRect" />
+    <PanelContainer Name="GoldFrame" StyleClasses="PdaGoldFrameRect" Visible="False" />
     <BoxContainer Orientation="Vertical" HorizontalExpand="True">
-        <!--Heading-->
-        <BoxContainer SetHeight="26" Margin="4 2 8 0" Orientation="Horizontal">
-            <Control HorizontalExpand="True"/>
-            <TextureButton Name="CloseButton" StyleClasses="windowCloseButton"
-                           VerticalAlignment="Center" Margin="0 4 4 0"/>
-        </BoxContainer>
+        <PanelContainer StyleClasses="PdaHeaderSurface" SetHeight="34" Margin="14 2 14 0">
+            <BoxContainer Margin="8 0 4 0" Orientation="Horizontal">
+                <Label Text="{Loc 'comp-pda-ui-menu-title'}"
+                       StyleClasses="PdaDeviceTitle"
+                       VerticalAlignment="Center" />
+                <Label Text="{Loc 'comp-pda-ui-device-status'}"
+                       StyleClasses="PdaDeviceStatus"
+                       VerticalAlignment="Center"
+                       Margin="8 0 0 0" />
+                <Control HorizontalExpand="True"/>
+                <TextureButton Name="CloseButton" StyleClasses="windowCloseButton"
+                               VerticalAlignment="Center" Margin="0 3 0 0"/>
+            </BoxContainer>
+        </PanelContainer>
         <!--Content-->
-        <Control Margin="18 0" RectClipContent="True" VerticalExpand="true"
+        <Control Margin="14 0" RectClipContent="True" VerticalExpand="true"
                  HorizontalExpand="True">
             <PanelContainer Name="ContentBorder" StyleClasses="PdaBackground"/>
-            <Control Margin="3 3">
+            <Control Margin="2 2">
                 <PanelContainer Name="ContentBackground" StyleClasses="PdaContentBackground"/>
-                <BoxContainer Access="Public" Name="ContentsContainer" Orientation="Vertical" StyleClasses="PdaContent"/>
+                <BoxContainer Access="Public" Name="ContentsContainer" Orientation="Vertical"/>
 
             </Control>
         </Control>
         <!--Footer-->
-        <BoxContainer Orientation="Horizontal" SetHeight="28">
-            <Label Text="{Loc 'comp-pda-ui-footer'}" StyleClasses="PdaWindowFooterText" Margin="32 0 0 6"/>
-        </BoxContainer>
+        <PanelContainer StyleClasses="PdaOuterFooterSurface" SetHeight="30" Margin="14 0">
+            <BoxContainer Orientation="Horizontal" Margin="10 0">
+                <Label Text="{Loc 'comp-pda-ui-footer'}"
+                       StyleClasses="PdaWindowFooterText"
+                       VerticalAlignment="Center"/>
+            </BoxContainer>
+        </PanelContainer>
     </BoxContainer>
 </pda:PdaWindow>

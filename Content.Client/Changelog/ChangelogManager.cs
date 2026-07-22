@@ -19,7 +19,7 @@ namespace Content.Client.Changelog
         [Dependency] private IConfigurationManager _configManager = default!;
 
         private const string SawmillName = "changelog";
-        public const string MainChangelogName = "Changelog";
+        public const string MainChangelogName = "ServerNews";
 
         private ISawmill _sawmill = default!;
 
@@ -33,18 +33,24 @@ namespace Content.Client.Changelog
         ///     Ran when the user opens ("read") the changelog,
         ///     stores the new ID to disk and clears <see cref="NewChangelogEntries"/>.
         /// </summary>
-        /// <remarks>
-        ///     <see cref="LastReadId"/> is NOT cleared
-        ///     since that's used in the changelog menu to show the "since you last read" bar.
-        /// </remarks>
-        public void SaveNewReadId()
+        public void SaveNewReadId(int readThroughId)
         {
-            NewChangelogEntries = false;
+            var newReadId = AdvanceReadCutoff(LastReadId, readThroughId);
+
+            using (var sw = _resource.UserData.OpenWriteText(new ($"/changelog_last_seen_{_configManager.GetCVar(CCVars.ServerId)}")))
+            {
+                sw.Write(newReadId.ToString());
+            }
+
+            MaxId = Math.Max(MaxId, readThroughId);
+            LastReadId = newReadId;
+            NewChangelogEntries = LastReadId < MaxId;
             NewChangelogEntriesChanged?.Invoke();
+        }
 
-            using var sw = _resource.UserData.OpenWriteText(new ($"/changelog_last_seen_{_configManager.GetCVar(CCVars.ServerId)}"));
-
-            sw.Write(MaxId.ToString());
+        internal static int AdvanceReadCutoff(int currentReadId, int readThroughId)
+        {
+            return Math.Max(currentReadId, readThroughId);
         }
 
         public async void Initialize()
@@ -68,7 +74,7 @@ namespace Content.Client.Changelog
                 return;
             }
 
-            var changelog = changelogs[0];
+            var changelog = mainChangelogs[0];
             if (mainChangelogs.Length > 1)
             {
                 _sawmill.Error($"More than one file found in Resource/Changelog with name {MainChangelogName}");
@@ -82,14 +88,19 @@ namespace Content.Client.Changelog
             MaxId = changelog.Entries.Max(c => c.Id);
 
             var path = new ResPath($"/changelog_last_seen_{_configManager.GetCVar(CCVars.ServerId)}");
-            if (_resource.UserData.TryReadAllText(path, out var lastReadIdText))
-            {
-                LastReadId = int.Parse(lastReadIdText);
-            }
+            LastReadId = _resource.UserData.TryReadAllText(path, out var lastReadIdText) &&
+                         TryParseReadCutoff(lastReadIdText, out var lastReadId)
+                ? lastReadId
+                : 0;
 
             NewChangelogEntries = LastReadId < MaxId;
 
             NewChangelogEntriesChanged?.Invoke();
+        }
+
+        internal static bool TryParseReadCutoff(string value, out int readCutoff)
+        {
+            return int.TryParse(value, out readCutoff) && readCutoff >= 0;
         }
 
         public Task<List<Changelog>> LoadChangelog()

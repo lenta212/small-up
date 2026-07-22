@@ -7,7 +7,7 @@
   ## Интерфейс
   В левом верхнем углу находятся [bold]кнопки меню[/bold] и их горячие клавиши.
   Посмотрите, что они делают, особенно меню эмоутов.
-  Кнопка [color=red]Admin Help[/color] ([italic]ahelp[/italic]) станет [color=red][bold]красной[/bold][/color], если админ пытается связаться с вами.
+  Кнопка [color=red]«Помощь администрации»[/color] ([italic]А-хелп[/italic]) станет [color=red][bold]красной[/bold][/color], если администратор пытается связаться с вами.
 
   ### Панель действий
   Под кнопками меню расположена [bold]панель действий[/bold] с кнопками общих и зависящих от экипировки [color=cyan]действий[/color].
@@ -28,7 +28,7 @@
   ### Инвентарь
   Внизу экранa — [bold]панель инвентаря[/bold] с иконками экипировки и хранения, слева направо:
   - [color=cyan]инвентарь одежды[/color] (нижний левый угол) — открывается [color=yellow][bold][keybind="OpenInventoryMenu"][/bold][/color] — слоты глаза, голова, шея, лицо, уши, тело, внешний, руки, обувь,
-  - слот [bold]PDA[/bold],
+  - слот [bold]КПК[/bold],
   - слот [bold]пояса[/bold] — для ремней с инструментами и джетпаков,
   - слот [bold]спины[/bold] — для сумок; также вмещает среднее/крупное оружие и баллоны,
   - слоты [bold]рук[/bold],
@@ -79,26 +79,26 @@
 
   ### Активация в мире
   [color=yellow][bold][keybind="ActivateItemInWorld"][/bold][/color] — взаимодействовать с объектами, не поднимая их, открывать двери с занятыми руками, [bold]перезводить[/bold] оружие и т. п.
-  Нажмите по мобу — откроется [color=cyan]strip menu[/color].
+  Нажмите по существу — откроется [color=cyan]меню снятия предметов[/color].
 
   ### В руке
-  Многие предметы имеют [bold]use-in-hand[/bold]: открыть бутылку, [bold]взять в две руки[/bold] тяжёлое (дробовики, копья, швабры и т. д.) или [bold]перезвести[/bold] оружие.
+  Многие предметы можно [bold]использовать в руке[/bold]: открыть бутылку, [bold]взять в две руки[/bold] тяжёлое (дробовики, копья, швабры и т. д.) или [bold]перевзвести[/bold] оружие.
   Горячие клавиши: [color=yellow][bold][keybind="ActivateItemInHand"][/bold][/color] и [color=yellow][bold][keybind="AltActivateItemInHand"][/bold][/color].
 
-  ### Click and drag
+  ### Нажатие и перетаскивание
   Чтобы "использовать" моба на объекте, перетащите его на объект с [color=yellow][bold][keybind="Use"][/bold][/color].
-  \nПримеры: [color=cyan]посадить[/color] на кресло/кровать/в крио; [color=cyan]залезть[/color] на стол (или [color=yellow][bold][keybind="AltActivateItemInWorld"][/bold][/color] по столу); открыть [color=cyan]strip menu[/color], перетащив моба на себя.
+  \nПримеры: [color=cyan]посадить[/color] на кресло/кровать/в крио; [color=cyan]залезть[/color] на стол (или [color=yellow][bold][keybind="AltActivateItemInWorld"][/bold][/color] по столу); открыть [color=cyan]меню снятия предметов[/color], перетащив существо на себя.
 
   ### Указание
   [color=yellow][bold][keybind="Point"][/bold][/color] — [color=cyan]указать[/color] место видимой всем стрелкой.
 
   ### Итого
   Основные взаимодействия:
-  - [bolditalic]standard[/bolditalic] ([color=yellow][bold][keybind="Use"][/bold][/color]),
-  - [italic]alternative[/italic] ([color=yellow][bold][keybind="AltActivateItemInWorld"][/bold][/color]),
-  - [bold]activation[/bold] ([color=yellow][bold][keybind="ActivateItemInWorld"][/bold][/color]),
-  - [bolditalic]use-in-hand[/bolditalic] ([color=yellow][bold][keybind="ActivateItemInHand"][/bold][/color]),
-  - [italic]alternative use-in-hand[/italic] ([color=yellow][bold][keybind="AltActivateItemInHand"][/bold][/color]),
+  - [bolditalic]обычное взаимодействие[/bolditalic] ([color=yellow][bold][keybind="Use"][/bold][/color]),
+  - [italic]альтернативное взаимодействие[/italic] ([color=yellow][bold][keybind="AltActivateItemInWorld"][/bold][/color]),
+  - [bold]активация[/bold] ([color=yellow][bold][keybind="ActivateItemInWorld"][/bold][/color]),
+  - [bolditalic]использование в руке[/bolditalic] ([color=yellow][bold][keybind="ActivateItemInHand"][/bold][/color]),
+  - [italic]альтернативное использование в руке[/italic] ([color=yellow][bold][keybind="AltActivateItemInHand"][/bold][/color]),
   - перетаскивание мобов на объекты.
 
   Не переживайте — взаимодействия интуитивны и единообразны, большинство сущностей используют 1-2 типа.
@@ -113,7 +113,7 @@
   - выбирать точные [bold]объёмы[/bold] реагентов,
   - показать [bold]шаги разборки[/bold] объектов.
 
-  Клик [color=yellow][bold][keybind="UIRightClick"/][/bold][/color] по куче предметов открывает [color=cyan]entity menu[/color] перекрывающихся объектов.
+  Клик [color=yellow][bold][keybind="UIRightClick"/][/bold][/color] по куче предметов открывает [color=cyan]меню перекрывающихся объектов[/color].
 
   ### Осмотр
   Если не уверены, [color=cyan]осматривайте[/color] через [color=yellow][bold][keybind="ExamineEntity"][/bold][/color].

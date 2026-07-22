@@ -1,6 +1,10 @@
 ### ChangelogWindow.xaml.cs
 
 changelog-window-title = Обновления
+changelog-window-description = Сводки сектора, новые сверху. Непрочитанные передачи отмечаются до успешной загрузки этого экрана.
+changelog-entry-meta = { $time } // { $author }
+changelog-entry-new = НОВОЕ
+changelog-empty = Передач из сектора пока нет.
 changelog-author-changed = [color=#EEE]{ $author }[/color] изменил:
 changelog-today = Сегодня
 changelog-yesterday = Вчера

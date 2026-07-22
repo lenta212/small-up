@@ -22,12 +22,12 @@
 <Box>
 <GuideEntityEmbed Entity="NFVehicleJanicart"/>
 <GuideEntityEmbed Entity="WetFloorSign"/>
-<GuideEntityEmbed Entity="Holoprojector" Caption="holosign projector"/>
+<GuideEntityEmbed Entity="Holoprojector" Caption="проектор голографических знаков"/>
 <GuideEntityEmbed Entity="LightReplacer"/>
 <GuideEntityEmbed Entity="WireBrush"/>
 </Box>
 <Box>
-<GuideEntityEmbed Entity="AdvMopItem" Caption="Продвинутая швабра, спросите в R&D"/>
+<GuideEntityEmbed Entity="AdvMopItem" Caption="продвинутая швабра, спросите в научном отделе"/>
 </Box>
 
 ## Получение и слив жидкостей

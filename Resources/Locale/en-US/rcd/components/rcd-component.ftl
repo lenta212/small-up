@@ -104,3 +104,4 @@ rcd-component-LatticeHalfTiltNEWUpper = Lattice half tilt NEW upper
 rcd-component-LatticeHalfTiltSENUpper = Lattice half tilt SEN upper
 rcd-component-LatticeHalfTiltSWEUpper = Lattice half tilt SWE upper
 rcd-component-LatticeHalfTiltNWSUpper = Lattice half tilt NWS upper
+rcd-component-wall-plasteel = plasteel wall

@@ -24,7 +24,7 @@
     <GuideEntityEmbed Entity="AlwaysPoweredWallLight" Caption=""/>
   </Box>
 
-  Питание [color=green]LV[/color] дают APC — настенные устройства, понижающие [color=yellow]MV[/color] в [color=green]LV[/color].
+  Питание [color=green]LV[/color] дают ЛКП — настенные устройства, понижающие [color=yellow]MV[/color] до [color=green]LV[/color].
   <Box>
     <GuideEntityEmbed Entity="APCBasic"/>
   </Box>
@@ -32,7 +32,7 @@
   Кабель [color=green]LV[/color] не нужно тянуть к каждой машине: он питает устройства в радиусе 2 тайлов и на 3 тайла по кардиналям.
 
   ## Средневольтная сеть (MV)
-  [color=yellow]MV[/color] питает APC и «прожорливые» машины, которые принимают только [color=yellow]MV[/color].
+  [color=yellow]MV[/color] питает ЛКП и «прожорливые» машины, которые принимают только [color=yellow]MV[/color].
   Пример — ускоритель частиц.
 
   <Box>
@@ -67,7 +67,7 @@
   </Box>
 
   ## Высоковольтная сеть (HV)
-  [color=orange]HV[/color] переносит большие мощности. Питает большинство силового оборудования: SMES и подстанции.
+  [color=orange]HV[/color] переносит большие мощности. Питает большинство силового оборудования: СМЭС и подстанции.
   Большинство высокопроизводительных генераторов отдают энергию в [color=orange]HV[/color].
 
   <Box>

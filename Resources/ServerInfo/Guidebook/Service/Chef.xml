@@ -14,10 +14,10 @@
 <GuideEntityEmbed Entity="MobCow"/>
 </Box>
 <Box>
-<GuideEntityEmbed Entity="VendingMachineChefvend" Caption="Chef Vendor"/>
+<GuideEntityEmbed Entity="VendingMachineChefvend" Caption="автомат шеф-повара"/>
 <GuideEntityEmbed Entity="KitchenMicrowave"/>
 <GuideEntityEmbed Entity="KitchenSpike"/>
-<GuideEntityEmbed Entity="VendingMachineDinnerware" Caption="Dinnerware Vend"/>
+<GuideEntityEmbed Entity="VendingMachineDinnerware" Caption="автомат посуды"/>
 </Box>
 
 ## Подготовка кухни
@@ -25,7 +25,7 @@
 Сложно описать игру за шефа без приказного тона, но вот базовые шаги:
 - Проверьте, что есть из ингредиентов: обычно немного муки, рис, яйца, кубики обезьян и ещё кое-что для старта.
 - Попробуйте замесить тесто: смешайте воду и муку в мензурке. (Пользуйтесь раковиной!)
-- Сверьтесь с вики (или разделом Food Recipes) и положите все ингредиенты в микроволновку — на выходе блюдо.
+- Сверьтесь с вики или разделом «Рецепты еды» и положите все ингредиенты в микроволновку — на выходе получите блюдо.
 - Поставьте мышеловки. Да, правда. Иначе мыши быстро уничтожат вашу работу.
 
 Когда освоитесь, составьте меню или «шпаргалку», чтобы выдавать ботанике списки ингредиентов.
@@ -35,7 +35,7 @@
 <Box>
 <GuideEntityEmbed Entity="LargeBeaker"/>
 <GuideEntityEmbed Entity="ReagentContainerFlour"/>
-<GuideEntityEmbed Entity="DrinkWaterBottleFull" Caption="water"/>
+<GuideEntityEmbed Entity="DrinkWaterBottleFull" Caption="вода"/>
 <GuideEntityEmbed Entity="FoodDough"/>
 </Box>
 

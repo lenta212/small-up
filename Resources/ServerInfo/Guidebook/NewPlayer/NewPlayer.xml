@@ -6,7 +6,7 @@
 
 [bold]Обязательно соблюдайте правила сервера.[/bold] Можно задавать вопросы или сообщать о нарушениях [color=#EB2D3A][bold]админам[/bold][/color] через [bold]меню помощи администрации[/bold]. ([italic]открывается по [/italic][color=yellow][bold][keybind="OpenAHelp"/][/bold][/color])
 
-Более детальные гайды по [italic]ролям[/italic] и [italic]механикам[/italic] доступны [textlink="здесь." link="SS14"/]
+Более подробные материалы по [italic]ролям[/italic] и [italic]механикам[/italic] собраны в остальных разделах этого руководства.
 
 Этот гид можно открыть в любой момент с помощью [color=yellow][bold][keybind="OpenGuidebook"][/bold][/color].
 
@@ -27,14 +27,14 @@
 
 - Тянуть/отпускать: [color=yellow][bold][keybind="TryPullObject"][/bold][/color] и [color=yellow][bold][keybind="ReleasePulledObject"][/bold][/color]
 
-Полный список на странице [textlink="controls" link="Controls"].
+Полный список приведён на странице [textlink="«Управление»" link="Controls"].
 
 ## Что такое SS14?
 Space Station 14 — это мультиплеер про паранойю и хаос на космической станции и ремейк культовой Space Station 13.
 
 Присоединяйтесь к десяткам игроков на продуманной симулированной станции, погружайтесь в ролевую игру и справляйтесь с угрозами.
 
-SS14 — [italic]open-source[/italic] игра, которую делают люди [bold]такие же, как вы![/bold]
+SS14 — игра с [italic]открытым исходным кодом[/italic], которую делают люди [bold]такие же, как вы![/bold]
 Она получает [color=lime]ежедневные обновления[/color] и временами может быть [color=#EB2D3A][bold]нестабильной.[/bold][/color]
 
 [italic]Хотите сообщить об ошибках или помочь разработке? Присоединяйтесь к Discord и узнайте, как начать.[/italic]

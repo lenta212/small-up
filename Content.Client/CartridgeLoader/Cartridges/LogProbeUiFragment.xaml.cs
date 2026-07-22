@@ -22,12 +22,22 @@ public sealed partial class LogProbeUiFragment : BoxContainer
 
     public void UpdateState(string name, List<PulledAccessLog> logs)
     {
-        EntityName.Text = name;
-        PrintButton.Disabled = string.IsNullOrEmpty(name);
+        var hasDevice = !string.IsNullOrWhiteSpace(name);
+        EntityName.Text = hasDevice
+            ? Loc.GetString("log-probe-printout-device", ("name", name))
+            : Loc.GetString("log-probe-no-device");
+        EntityName.ToolTip = EntityName.Text;
+        PrintButton.Disabled = !hasDevice;
 
         ProbedDeviceContainer.RemoveAllChildren();
+        EmptyLabel.Text = hasDevice
+            ? Loc.GetString("log-probe-empty")
+            : Loc.GetString("log-probe-no-device");
+        EmptyLabel.Visible = logs.Count == 0;
+        if (EmptyLabel.Visible)
+            ProbedDeviceContainer.AddChild(EmptyLabel);
 
-        var count =  1;
+        var count = 1;
         foreach (var log in logs)
         {
             AddAccessLog(log, count);

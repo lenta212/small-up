@@ -39,7 +39,7 @@ public sealed partial class WantedListUiFragment : BoxContainer
     {
         var found = !String.IsNullOrWhiteSpace(args.Text)
             ? _wantedRecords.FindAll(r =>
-                r.TargetInfo.Name.Contains(args.Text) ||
+                r.TargetInfo.Name.Contains(args.Text, StringComparison.OrdinalIgnoreCase) ||
                 r.Status.ToString().Contains(args.Text, StringComparison.OrdinalIgnoreCase))
             : _wantedRecords;
 
@@ -51,7 +51,7 @@ public sealed partial class WantedListUiFragment : BoxContainer
         if (records.Count == 0)
         {
             NoRecords.Visible = true;
-            RecordsList.Visible = false;
+            MainContainer.Visible = false;
             RecordUnselected.Visible = false;
             PersonContainer.Visible = false;
 
@@ -65,7 +65,7 @@ public sealed partial class WantedListUiFragment : BoxContainer
         }
 
         NoRecords.Visible = false;
-        RecordsList.Visible = true;
+        MainContainer.Visible = true;
         RecordUnselected.Visible = true;
         PersonContainer.Visible = false;
 
@@ -94,6 +94,7 @@ public sealed partial class WantedListUiFragment : BoxContainer
 
         // Set personal info
         PersonName.Text = record.TargetInfo.Name;
+        PersonName.ToolTip = record.TargetInfo.Name;
         TargetAge.SetMessage(GetLoc(
             "wanted-list-age-label",
             ("age", record.TargetInfo.Age)
@@ -132,6 +133,7 @@ public sealed partial class WantedListUiFragment : BoxContainer
         // History table
         // Clear table if it exists
         HistoryTable.RemoveAllChildren();
+        HistoryTable.Visible = false;
 
         HistoryTable.AddChild(new Label()
         {
@@ -167,20 +169,24 @@ public sealed partial class WantedListUiFragment : BoxContainer
                     VerticalAlignment = VAlignment.Top,
                 });
 
-                HistoryTable.AddChild(new RichTextLabel()
+                HistoryTable.AddChild(new Label()
                 {
-                    Text = $"[color=white]{history.Crime}[/color]",
+                    Text = history.Crime,
                     HorizontalExpand = true,
                     VerticalAlignment = VAlignment.Top,
                     StyleClasses = { "LabelSubText" },
                     Margin = new(10f, 0f),
+                    ClipText = true,
+                    ToolTip = history.Crime,
                 });
 
-                HistoryTable.AddChild(new RichTextLabel()
+                HistoryTable.AddChild(new Label()
                 {
-                    Text = $"[color=white]{history.InitiatorName}[/color]",
+                    Text = history.InitiatorName,
                     StyleClasses = { "LabelSubText" },
                     VerticalAlignment = VAlignment.Top,
+                    ClipText = true,
+                    ToolTip = history.InitiatorName,
                 });
             }
         }
@@ -198,7 +204,13 @@ public sealed partial class WantedListUiFragment : BoxContainer
             return;
 
         var box = new BoxContainer() { Orientation = LayoutOrientation.Horizontal, HorizontalExpand = true };
-        var label = new Label() { Text = record.TargetInfo.Name };
+        var label = new Label
+        {
+            Text = record.TargetInfo.Name,
+            ToolTip = record.TargetInfo.Name,
+            HorizontalExpand = true,
+            ClipText = true,
+        };
         var rect = new TextureRect()
         {
             TextureScale = new(2.2f),

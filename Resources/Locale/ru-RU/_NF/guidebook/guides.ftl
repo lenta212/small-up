@@ -12,6 +12,7 @@ guide-entry-bank = NT Галактический банк
 guide-entry-piloting = Пилотирование
 guide-entry-hiring = Наём экипажа
 guide-entry-expeditions = Экспедиции
+guide-entry-gas-mining = Добыча газа
 guide-entry-shipyard = Верфи
 guide-entry-frontier-rules = Правила сервера
 
@@ -56,6 +57,7 @@ guide-entry-shipyard-eagle = Eagle
 guide-entry-shipyard-garden = Garden
 guide-entry-shipyard-gasbender = Gasbender
 guide-entry-shipyard-geode = Geode
+guide-entry-shipyard-gourd = Gourd
 guide-entry-shipyard-hammer = Hammer
 guide-entry-shipyard-hauler = Hauler
 guide-entry-shipyard-harbormaster = Harbormaster
@@ -87,22 +89,23 @@ guide-entry-shipyard-spirit = Spirit
 guide-entry-shipyard-stasis = Stasis
 guide-entry-shipyard-surveyor = Surveyor
 guide-entry-shipyard-tide = Tide
+guide-entry-shipyard-tyne = Tyne
 guide-entry-shipyard-vagabond = Vagabond
 guide-entry-shipyard-vitalis = Vitalis
 
 # Rules entries
-guide-entry-frontier-rule-0 = 0. Admin
+guide-entry-frontier-rule-0 = 0. Администрация
 guide-entry-frontier-rule-1 = 1. ERP
-guide-entry-frontier-rule-2 = 2. Community
-guide-entry-frontier-rule-3 = 3. IC Info
-guide-entry-frontier-rule-4 = 4. Respawning
-guide-entry-frontier-rule-5 = 5. Chat
-guide-entry-frontier-rule-6 = 6. Roleplay
-guide-entry-frontier-rule-7 = 7. Antag
-guide-entry-frontier-rule-8 = 8. Safe Zone
-guide-entry-frontier-rule-9 = 9. Security
-guide-entry-frontier-rule-10 = 10. Command
-guide-entry-frontier-rule-11 = 11. Escalation
+guide-entry-frontier-rule-2 = 2. Сообщество
+guide-entry-frontier-rule-3 = 3. IC-информация
+guide-entry-frontier-rule-4 = 4. Возвращение в игру
+guide-entry-frontier-rule-5 = 5. Чат
+guide-entry-frontier-rule-6 = 6. Ролевая игра
+guide-entry-frontier-rule-7 = 7. Антагонисты
+guide-entry-frontier-rule-8 = 8. Безопасные зоны
+guide-entry-frontier-rule-9 = 9. Служба безопасности
+guide-entry-frontier-rule-10 = 10. Командование
+guide-entry-frontier-rule-11 = 11. Эскалация
 guide-entry-frontier-rule-12 = 12. PVP
 
 # Reference entries
@@ -127,6 +130,7 @@ guide-entry-startinggear = Стартовое снаряжение
 guide-entry-interviews = Интервью
 guide-entry-sector-topology = Топология сектора
 guide-entry-cargo-hauling = Перевозка грузов
+guide-entry-preflightchecklist = Предполётная проверка
 guide-entry-offshore-gas-mining = Добыча газа в открытом космосе
 
 # Security entries

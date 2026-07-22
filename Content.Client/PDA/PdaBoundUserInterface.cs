@@ -22,10 +22,10 @@ namespace Content.Client.PDA
 
         protected override void Open()
         {
-            base.Open();
-
             if (_menu == null)
                 CreateMenu();
+
+            base.Open();
         }
 
         private void CreateMenu()

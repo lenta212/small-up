@@ -13,3 +13,4 @@ flavor-complex-wassail = warm and comforting
 flavor-complex-fine-noodles = like fine noodles
 flavor-complex-rich-broth = rich broth
 flavor-complex-tangy = tangy
+flavor-complex-nanocaf = like bitter coffee

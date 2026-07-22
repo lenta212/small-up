@@ -9,6 +9,7 @@ namespace Content.Client.PDA;
 [GenerateTypedNameReferences]
 public partial class PdaWindow : BaseWindow
 {
+    private const float DragMarginSize = 7f;
 
     public string? BorderColor
     {
@@ -39,6 +40,12 @@ public partial class PdaWindow : BaseWindow
         }
     }
 
+    public bool GoldFrameVisible
+    {
+        get => GoldFrame.Visible;
+        set => GoldFrame.Visible = value;
+    }
+
     public PdaWindow()
     {
         RobustXamlLoader.Load(this);
@@ -52,6 +59,20 @@ public partial class PdaWindow : BaseWindow
 
     protected override DragMode GetDragModeFor(Vector2 relativeMousePos)
     {
-        return DragMode.Move;
+        var mode = DragMode.Move;
+        if (!Resizable)
+            return mode;
+
+        if (relativeMousePos.Y < DragMarginSize)
+            mode = DragMode.Top;
+        else if (relativeMousePos.Y > Size.Y - DragMarginSize)
+            mode = DragMode.Bottom;
+
+        if (relativeMousePos.X < DragMarginSize)
+            mode |= DragMode.Left;
+        else if (relativeMousePos.X > Size.X - DragMarginSize)
+            mode |= DragMode.Right;
+
+        return mode;
     }
 }

@@ -1,9 +1,9 @@
 <Document>
-  # Series 4 Combat Mechs
+  # Боевые мехи серии 4
 
- The very expensive finale to the Mechanized lineup in the Colossus Sector, S4 Mechs are exclusively usable in microgravity and mount weapons intended for use against ships.
+ Мехи S4 — чрезвычайно дорогая вершина механизированной техники сектора Колосс. Они предназначены исключительно для микрогравитации и несут противокорабельное оружие.
 
- All S4 Mechs are space insulated, provide breathable atmosphere, and have maneuvering jets. They also all possess improved ocular processors and radar modules, allowing their operators to see further both visually and on the scanner.
+ Все мехи S4 изолированы от космоса, снабжают пилота пригодной для дыхания атмосферой и оснащены маневровыми двигателями. Улучшенные оптические процессоры и радарные модули увеличивают дальность как визуального обзора, так и сканера.
 
   <Box>
     <GuideEntityEmbed Entity="AFFlail" Scale="0.9"/>
@@ -11,38 +11,38 @@
     <GuideEntityEmbed Entity="AFFlailE" Scale="0.9"/>
   </Box>
 
-##Flail
+## Flail
 
- The Flail is an extremely durable, very fast Armored Frame capable of fighting military-grade ships.
+ Flail — чрезвычайно прочный и очень быстрый бронекаркас, способный сражаться с военными кораблями.
 
-##Mace
+## Mace
 
- The Mace is a variant of the Flail that sacrifices half its Armor and all but one of its weapon mounts to go even faster.
+ Mace — вариант Flail, который жертвует половиной брони и всеми креплениями оружия, кроме одного, ради ещё большей скорости.
 
-##Spyglass
+## Spyglass
 
- The Spyglass is an EWAR variant of the Flail, which sacrifices Armor, Speed, and can only mount "Light" mech weapons in exchange for the ability to also mount EWAR modules.\n
+ Spyglass — вариант Flail для радиоэлектронной борьбы. Он жертвует бронёй и скоростью, может нести только «лёгкое» оружие мехов, зато поддерживает установку модулей EWAR.
 
 
-##Heavy Mech Weapons
- All Heavy Mech weapons are incapable of operating while under Gravity.
+## Тяжёлое вооружение мехов
+ Всё тяжёлое вооружение мехов не работает под действием гравитации.
   <Box>
     <GuideEntityEmbed Entity="HeavyMechCannon" Caption="Metronome 220mm"/>
     <GuideEntityEmbed Entity="HeavyMechProjector" Caption="Ravager Plasma Cannon"/>
     <GuideEntityEmbed Entity="HeavyMechRPG" Caption="R-3 Bazooka"/>
   </Box>
- - The Metronome 220mm Heavy Burst Cannon is a mostly-accurate 3-round burst, long range autocannon. Max Range: ~800m.
- - The Ravager-type Plasma Cannon is an [italic]extremely[/italic] damaging ship-destroying automatic cannon. Max Range: ~550m.
- - The R-3 Bazooka is a very slow firing short-ranged missile launcher with minimal target tracking. Max Range: ~256m.
+ - Metronome 220mm Heavy Burst Cannon — достаточно точная дальнобойная автопушка, стреляющая очередями по три снаряда. Максимальная дальность: около 800 м.
+ - Ravager-type Plasma Cannon — автоматическая пушка с [italic]чрезвычайно[/italic] высоким уроном, предназначенная для уничтожения кораблей. Максимальная дальность: около 550 м.
+ - R-3 Bazooka — ближнобойная ракетная установка с очень низкой скорострельностью и минимальным наведением. Максимальная дальность: около 256 м.
 
-##EWAR Modules
- Electronic Warfare modules provide screening to other Mechs and small ships by emitting radar signatures that interfere with targeting.
+## Модули EWAR
+ Модули радиоэлектронной борьбы прикрывают другие мехи и малые корабли, создавая радарные сигнатуры, мешающие наведению.
 
   <Box>
     <GuideEntityEmbed Entity="EWACMechaJammer"/>
     <GuideEntityEmbed Entity="EWACMechaFlares"/>
   </Box>
-  - The E-58 "Blanket" Jammer launches a radar emitter producing a 40m radius radar jamming "blanket", somewhat obscuring Mechs and projectiles from radar observation.
-  - The E-58 "Spark" Jammer launches a series of small emitters that are visible from radar observation.
+  - E-58 "Blanket" Jammer запускает радарный излучатель, создающий 40-метровую «завесу» помех, которая частично скрывает мехи и снаряды от радарного наблюдения.
+  - E-58 "Spark" Jammer запускает серию небольших излучателей, заметных на радаре.
 
 </Document>

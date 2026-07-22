@@ -72,6 +72,23 @@ reagent-effect-guidebook-health-change =
                *[both] изменяют здоровье на
             }
     } { $changes }
+
+reagent-effect-guidebook-even-health-change =
+    { $chance ->
+        [1]
+            { $healsordeals ->
+                [heals] Равномерно излечивает
+                [deals] Равномерно наносит
+               *[both] Равномерно изменяет здоровье на
+            }
+       *[other]
+            { $healsordeals ->
+                [heals] равномерно излечивают
+                [deals] равномерно наносят
+               *[both] равномерно изменяют здоровье на
+            }
+    } { $changes }
+
 reagent-effect-guidebook-status-effect =
     { $type ->
         [add]
@@ -250,6 +267,13 @@ reagent-effect-guidebook-make-polymorph =
         [1] Превращает
        *[other] превращают
     } употребившего в { $entityname }
+
+reagent-effect-guidebook-revert-polymorph =
+    { $chance ->
+        [1] Возвращает
+       *[other] возвращают
+    } употребившего из формы { $entityname }
+
 reagent-effect-guidebook-modify-bleed-amount =
     { $chance ->
         [1]
@@ -367,3 +391,20 @@ reagent-effect-guidebook-plant-seeds-remove = { $chance ->
 [1] Удаляет
 *[other] удаляют
 } семена растения
+
+reagent-effect-guidebook-add-to-chemicals =
+    { $chance ->
+        [1]
+            { $deltasign ->
+                [1] Добавляет
+               *[-1] Удаляет
+            }
+       *[other]
+            { $deltasign ->
+                [1] добавляют
+               *[-1] удаляют
+            }
+    } { NATURALFIXED($amount, 2) } ед. реагента { $reagent } { $deltasign ->
+        [1] в раствор
+       *[-1] из раствора
+    }

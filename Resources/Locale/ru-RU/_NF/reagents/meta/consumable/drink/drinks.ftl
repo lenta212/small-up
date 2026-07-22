@@ -17,3 +17,5 @@ reagent-desc-honey = Густой, золотистый и липкий, ори�
 reagent-desc-honey-iced-tea = Чай с капелькой меда.
 reagent-name-wassail = Вассейл
 reagent-desc-wassail = Горячий, пряный эль. Рождество!
+reagent-name-nanocaf = нанокаф
+reagent-desc-nanocaf = Если вы никогда не пробовали кофе, это будет лучший кофе в вашей жизни.
