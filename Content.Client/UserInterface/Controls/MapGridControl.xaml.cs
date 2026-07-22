@@ -79,11 +79,14 @@ public partial class MapGridControl : LayoutContainer
 
     public Vector2 MaxRadarRangeVector => new Vector2(MaxRadarRange, MaxRadarRange);
 
-    protected Vector2 MidPointVector => new Vector2(MidPoint, MidPoint);
-
-    protected int MidPoint => SizeFull / 2;
     protected int SizeFull => (int)((UIDisplayRadius + MinimapMargin) * 2 * UIScale);
-    protected int ScaledMinimapRadius => (int)(UIDisplayRadius * UIScale);
+    private (Vector2 Midpoint, float Radius) ViewportGeometry => GetViewportGeometry(
+        new Vector2(PixelWidth, PixelHeight),
+        UIScale);
+
+    protected Vector2 MidPointVector => ViewportGeometry.Midpoint;
+    protected float MidPoint => MathF.Max(1f, MathF.Min(MidPointVector.X, MidPointVector.Y));
+    protected int ScaledMinimapRadius => (int) ViewportGeometry.Radius;
     protected float MinimapScale => WorldRange != 0 ? ScaledMinimapRadius / WorldRange : 0f;
 
     public event Action<float>? WorldRangeChanged;
@@ -109,6 +112,18 @@ public partial class MapGridControl : LayoutContainer
         _largerFont = new VectorFont(cache.GetResource<FontResource>("/EngineFonts/NotoSans/NotoSans-Regular.ttf"), 16);
 
         _circleMaskShader = PrototypeManager.Index<ShaderPrototype>("CircleAlphaMask").InstanceUnique(); // Mono
+    }
+
+    internal static (Vector2 Midpoint, float Radius) GetViewportGeometry(Vector2 pixelSize, float uiScale)
+    {
+        var fallbackSize = (UIDisplayRadius + MinimapMargin) * 2f * uiScale;
+        var effectiveSize = pixelSize.X > 0f && pixelSize.Y > 0f
+            ? pixelSize
+            : new Vector2(fallbackSize, fallbackSize);
+        var midpoint = effectiveSize / 2f;
+        var radius = MathF.Max(1f, MathF.Min(effectiveSize.X, effectiveSize.Y) / 2f - MinimapMargin * uiScale);
+
+        return (midpoint, radius);
     }
 
     public void ForceRecenter()
