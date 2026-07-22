@@ -1,0 +1,20 @@
+[Unit]
+Description=Monolith-DS security pressure monitor
+After=network-online.target fail2ban.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/monitor-monolith-security
+User=root
+Group=root
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+StateDirectory=monolith-security-monitor
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/monolith-security-monitor
+CapabilityBoundingSet=
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictSUIDSGID=yes

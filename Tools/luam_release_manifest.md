@@ -1,10 +1,70 @@
 # LuaM Local Release Manifest
 
-Current policy: `20260713-durable-bank-animal-sector-277.2.1` is live after a guarded zero-player rollout. Remote deployment is frozen again until another release is explicitly reviewed and authorized.
+Current policy: the 2026-07-18 rollout `luam-20260718-195400` is complete and remote deployment is frozen. Batch `20260718-pda-text-hotfix` is back to `local-package-only`; any later rollout requires a fresh explicit authorization and newly rebuilt policy-bound artifacts.
 
-The machine-readable policy lives in `Tools\luam_release_policy.json`. The deploy helper reads that JSON file first and falls back to this manifest only if the JSON file is missing.
+The machine-readable policy lives in `Tools\luam_release_policy.json` and is the only authority for the release gate and remote freeze. A missing or invalid JSON policy blocks remote deployment; this markdown manifest is documentation, not a fallback policy.
 
-This manifest exists to prevent the local LuaM feature pack from being partially released. The LuaM package scope should be present in the git snapshot before deployment; use `Tools\check_luam_release_ready.ps1` as the automated gate for this check.
+This manifest exists to prevent the local LuaM feature pack from being partially released. During implementation use `Tools\prepare_luam_hotfix.ps1` for scoped local checks. Before deployment use `Tools\ship_luam_release.ps1` to drive the complete production gate and dry-runs through the existing guarded scripts.
+
+## Observe-First Anti-Cheat Follow-Up — 2026-07-16
+
+The authorized follow-up adds server-side validation and bounded telemetry for remote bound-UI requests, implausible shooting coordinates or targets, and predicted-hit floods. Suspicion scores decay over time and alert administrators with player attribution; automatic kicks and bans remain disabled until production telemetry establishes safe thresholds. The matching client archive is required because shared shooting and UI request paths changed.
+
+## Authorized Post-Rollout Follow-Up — 2026-07-16
+
+The reviewed follow-up is now deployed in production. Post-deployment checks passed, `remoteDeployFrozen=true`, `deploymentAuthorization.state=frozen`, and the pending batch has returned to `local-package-only`.
+
+The production package deployed on 2026-07-16 included the following reviewed slice. Any later follow-up in these scopes requires fresh strict readiness, source verification, binary receipts, dry-runs, data backup, explicit authorization, and post-deployment verification:
+
+- Radar/fire-control missile-vector networking and map/grid-correct rendering, plus IFF and dock-visibility controls.
+- The LuaM PDV Scorpion voucher, shipyard listing, canonical Tier 1 map, and its Helios reference without retaining the conflicting Mono listing.
+- PDA/bank generation and profile guards that prevent stale asynchronous transfer results from applying to a replacement character, plus exact MonoCoins compare-and-swap accounting for long-term credits, debits, and compensation.
+- Exact-quantity vending purchases from 1 to 30 items: the client shows unit price, selected quantity, and total price; the server reserves exact stock and charges the batch in one transaction before issuing every item.
+- A per-user FIFO profile-mutation gate shared by preference lifecycle and bank operations. Durable writes are DB-first, and post-commit callbacks revalidate the exact session, entity, slot, and `Profile.Id` before applying world or cache state.
+- SQLite/PostgreSQL expedition and progression shadow persistence: provider-matched models, migrations and snapshots; revision-checked manifests/checkpoints and shift sealing; idempotent expedition mutation checkpoints; an append-only XP ledger; and integration coverage for replay, conflicts, rollback, and provider parity. Gameplay award producers and ECS expedition materialization are still outside this slice.
+- Profile-bound deep cryo persistence for both cryo implementations: recursive body/inventory snapshots, atomic store/claim/consume transitions, a single restore lease, append-only operation proofs, quarantine on incompatible payloads, and fail-closed removal of old round job/access authority before wake. A fresh ordinary spawn explicitly consumes the stored snapshot; joining the lobby does not.
+- Physical AI-base entities remain disabled by default. If explicitly enabled, startup and producer admission enforce per-map/live-per-round/spawn-per-round caps of `1/2/2` anchors, `5/10/20` zones, `1/2/2` ships, `6/12/12` drones, `32/64/128` traces, and `4/8/16` drops; bounded update slices, disable/round cleanup, and rejection metrics remain active.
+- Pow3r-linked power-cell, fluid-drain, mech, and mixed-power receiver changes outside automatic `_LuaM` directories, including the non-removable integral EMU equipment contract, plus the rendering package update in `Directory.Packages.props`.
+- The restored NF shuttle/content slice, including Caladrius, Spirit, Tyne, their shipyard prototypes and maps, the Spirit guide page, and the Preflight Checklist guide dependency.
+- Required C# systems, locales, audio, prototypes, RSI metadata, and PNG assets outside `_LuaM` ownership paths, including container-count storage visuals and their wall-locker fill states.
+- A server-only packaging canary that must be absent from the client archive and present in the freshly built server archive; the surface audit fails either direction closed.
+
+Runtime map dependencies are packaged, not allowlisted. In particular, the package carries the Scorpion voucher/listing/map chain and the Caladrius/Spirit/Tyne shipyard/listing/map chain together with their guidebook pages. `Resources/Maps/_LuaM/**` is a full release directory; the former six NF vessel map/prototype pairs plus Spirit and Tyne are explicit payload files, while other changed NF shuttle dependencies are selected fail-closed through the release scopes.
+
+`test_results/` remains local verification evidence and is intentionally excluded from both payload selection and changed-file scope accounting.
+
+## Policy-Owned Release Gate
+
+`releaseGate` in `Tools\luam_release_policy.json` is the single source of truth for production test suites, critical test files, smoke checks, and gate tooling. The policy also owns integration package scopes, safe local-artifact exclusions, the outside-package allowlist, approved release additions, and runtime dependencies. The package builder, readiness checker, and package verifier consume these contracts through `Tools\luam_release_contract.ps1`; critical tests are not duplicated in their hardcoded historical payload lists.
+
+The current production test contract runs the full `FullyQualifiedName~LuaM` filters for both test projects and explicitly binds these critical files to those suites:
+
+- `Content.IntegrationTests/Tests/_LuaM/LuaMBankAndPdaContractsTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMBankDurableMutationContractTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMBankPersistenceTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMAiPhysicalBaseDisabledTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMAiPhysicalBaseGrowthLimitTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMSectorStoryTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMDurablePersistenceTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMDeepCryoPersistenceTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMDeepCryoRuntimeTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMRadarIsolationTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMTargetSeekingMapIsolationTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMProgressionBuildRulesTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMTransactionalCommerceContractTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMVendingBatchPurchaseTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMPaidLoadoutLifecycleTest.cs`
+- `Content.IntegrationTests/Tests/_LuaM/LuaMMonoCoinsTransferPersistenceTest.cs`
+- `Content.Tests/Client/_LuaM/LuaMRadarGeometryTest.cs`
+- `Content.Tests/Server/_LuaM/LuaMRadarRangeGeometryTest.cs`
+
+The policy also owns the always-on AI gateway smoke and the `-RunLocalSmoke` local server/client stack smoke. A production package verifies fail-closed unless its embedded readiness evidence has the same policy SHA256 and records every `requiredForProduction` test and smoke step as passed. Run the lightweight contract check without building or launching the stack with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\test_luam_release_contract.ps1 -Json
+```
+
+The contract test also runs `python Tools\validate_luam_feature_pack.py --self-test`. Its tamper cases bind the validator to the current DB-first/exact-profile BankSystem API and reject the removed `SaveCharacterSlotAsync` path, slot-only balance writes, or a world finalizer moved ahead of the durable debit.
 
 ## Release Scope
 
@@ -22,13 +82,15 @@ The local pack currently covers:
 - AI Director admin UI keeps the latest AI review separately, can copy it to clipboard, can save it to the server log, and shows a short review history.
 - PDA sector status display without a free-form AI message input.
 - PDA bank transfers by short copy-friendly database-backed bank ID, with a confirmation preview showing recipient, ID, amount, and operation ID.
-- An atomic transfer journal keyed by durable operation ID, restart reconciliation, explicit acknowledgement, and idempotent replay protection against duplicate debits.
-- Durable, fail-closed settlement for PDA transfers, ATM cash exchange, cargo order payments, and shipyard purchases and sales before irreversible world changes.
+- An atomic transfer journal keyed by durable operation ID, restart reconciliation, explicit acknowledgement, and idempotent replay protection against duplicate debits. Persistent-to-persistent MonoCoins transfers use their own journaled, atomic database transaction.
+- Generic Bank finalize callbacks used by the six ATM/cargo/shipyard/commerce callers are exception-atomic only while the current server process remains alive. They do not make payment plus world fulfillment crash-atomic: a process/host crash can still occur after durable settlement and before the caller finishes its world mutation.
+- FIFO-exclusive profile lifecycle mutations and non-blocking bank admission, with exact durable `Profile.Id`/slot/session finalizers. A universal crash-safe commerce saga still requires migrating all six callers to stable operation IDs plus durable fulfillment/recovery state; this pending slice must not be described as providing that guarantee.
 - Donation shop state, PDA listings, and manual account access.
 - Sector story memory, dynamic tasks, route text, site notes, evidence, terminal/report flows.
 - Dynamic quest debris and periodic hostile contacts on every fifth debris site.
 - Four staggered radar-only contact profiles (civilian, cargo, distress, unknown) on the active primary sector map, with a global hard cap of four, player-presence gating, collision-free routes, expiry, and round cleanup.
 - Physical sector-terminal interception that converts contacts into bounded route, distress, or cargo tasks without NPC ships or debris grids; recoveries must be delivered back to a terminal and are removed on completion, expiry, reset, or round cleanup.
+- Default-off physical AI-base machinery with fail-closed admission, fixed per-map/live/spawn caps, bounded work slices, disable cleanup, and round cleanup for physical anchors, work zones, logistics ships, drones, traces, and supply drops.
 - Per-map animal population reports and throttled overflow alerts, plus a fingerprint-confirmed cleanup command restricted to safe excess pests while preserving pets, livestock, named/player-controlled creatures, and species minimums.
 - Subspace/stargate-style temporary portal actions.
 - Synthetic/robot control hooks and tests.
@@ -40,28 +102,53 @@ The local pack currently covers:
 - Local AI gateway audit reader for model, request path, status, time window, token, cache-token, fallback, estimated cost, and observed provider-cost checks.
 - Hub-safe compact `/info` description, a 100-player admission cap, and 128 network connections so administrator access and handshakes retain headroom.
 - Release-surface protection: client/server zip packaging drops debug symbols, source files, project files, local secrets, logs, and cache artifacts; CI runs `Tools/audit_release_surface.ps1` before publish.
-- Server-only deterministic expedition planning with versioned seeds, a stable plan hash, bounded macro-regions, six POIs, connectivity/uniqueness validation, and an admin diagnostic command. This is a planning foundation only; it is not yet connected to ECS world materialization.
+- Server-only deterministic expedition planning with versioned seeds, a stable plan hash, bounded macro-regions, six POIs, connectivity/uniqueness validation, and an admin diagnostic command. Durable shadow storage now covers manifests, regions, sites, mutation deltas, entity snapshots, tombstones, and checkpoints with revision/idempotency guards; ECS world materialization is still not connected.
 - Character persistence groundwork that archives profile rows instead of physically deleting them, exposes the active server-side `Profile.Id`, and carries matching SQLite/PostgreSQL migrations and integration coverage. This is not yet the complete eternal-character or career system described by the design document.
-- Server-only progression rules for exact seven-day `CampaignShiftId` periods, the 100-XP weekly cap, the joint 700-XP/seven-shift level gate, level 10 cap, and stable award idempotency keys. Database ledgers and gameplay award sources are not connected yet.
+- Deep-cryo characters and nested inventory are stored against that durable `Profile.Id` before the world body is removed. Cross-round wake claims the snapshot with a time-bounded lease, materializes it in nullspace, consumes the DB state before exposing the body, and restores the character alive and sleeping without old mind, objectives, job, access, or coordinates.
+- Server-only progression rules for exact seven-day `CampaignShiftId` periods, the 100-XP weekly cap, the joint 700-XP/seven-shift level gate, level 10 cap, and stable award identities. Durable shadow tables and APIs now cover campaign shifts/runs, career state, participation, idempotent append-only XP awards/reversals, and revision-checked shift sealing; gameplay award sources are not connected yet.
+- Fresh client/server release packaging is guarded by `Resources/ServerOnly/_LuaM/client-package-canary.txt`: client exclusion and server inclusion are both mandatory surface-audit conditions.
 
 ## Files That Must Be Included
+
+Current integration scopes outside the established LuaM baseline:
+
+- `Content.Client/_Mono/FireControl/**`, `Content.Client/_Mono/Radar/**`, and `Content.Client/Shuttles/UI/ShuttleNavControl.xaml.cs`.
+- Mech client controls; client/shared vending UI and messages; `Content.Server/_Mono/MonoCoins/**`, target-seeking and radar; the exact PDA, station-spawning, vending, and NF market callers; `Content.Server/PowerCell/PowerCellSystem.cs`; and the new `_NF` fluid, mech, and power systems.
+- Exact DB-first lifecycle files: `Content.Server/Database/UserDbDataManager.cs`, both preference-manager files, `Content.Server/_NF/Bank/BankSystem.cs`, `Content.Server/_Mono/MonoCoins/MonoCoinsManager.cs`, and their PDA/station/vending/market finalizer callers.
+- Exact durable persistence files: `Content.Server.Database/LuaMExpeditionModel.cs`, `Content.Server.Database/LuaMProgressionModel.cs`, `Content.Server.Database/LuaMDeepCryoModel.cs`, all provider migration pairs and both snapshots, plus the `DatabaseRecords` and `ServerDb*` LuaM/deep-cryo API partials.
+- Exact deep-cryo runtime files: `Content.Server/_LuaM/Cryo/**`, `Content.Server/_NF/CryoSleep/CryoSleepSystem*.cs`, `Content.Server/Bed/Cryostorage/CryostorageSystem.cs`, plus the entity-save guards in `Content.Shared/Follower/FollowerSystem.cs` and `Content.Server/DeviceNetwork/Systems/{DeviceListSystem,NetworkConfiguratorSystem}.cs`.
+- Exact physical AI runtime files: `LuaMAiPhysicalBaseBudgetSystem.cs`, `LuaMAiPhysicalBaseFeature.cs`, the ecology/logistics/mining/supply producers, `LuaMSectorAiDirectorSystem.cs`, the server-only CVar/default-off preset, and the bound physical-AI integration tests.
+- `Content.Shared/_Mono/Radar/**`, the linked shared fluid/mech systems, and the new `_NF` cargo, fluid, mech, species, and whitelist components.
+- `Directory.Packages.props`, NF mecha audio, NF locale changes, vending locales for English and Russian, and the affected Russian launcher/prototype locale paths.
+- `Resources/Maps/_LuaM/**`, changed `Resources/Maps/_NF/Shuttles/**`, and changed LuaM/Mono/NF/catalog/entity prototypes declared by the packaging policy.
+- `Resources/ServerInfo/_NF/Guidebook/**`, `Resources/Textures/_NF/**`, the salvage airlock RSI, and the shared holopad RSI.
 
 Tracked modified files:
 
 - `Content.Client/PDA/PdaBoundUserInterface.cs`
 - `Content.Client/PDA/PdaMenu.xaml`
 - `Content.Client/PDA/PdaMenu.xaml.cs`
+- `Content.Client/_NF/Shipyard/BUI/ShipyardConsoleBoundUserInterface.cs`
+- `Content.Client/_NF/Shipyard/UI/ShipyardConsoleMenu.xaml`
+- `Content.Client/_NF/Shipyard/UI/ShipyardConsoleMenu.xaml.cs`
 - `Content.Client/Lobby/LobbyState.cs`
 - `Content.Client/RoundEnd/RoundEndSummaryWindow.cs`
+- `Content.Server/Access/Systems/IdCardConsoleSystem.cs`
 - `Content.Server/PDA/PdaSystem.cs`
 - `Content.Server/_NF/Bank/BankSystem.cs`
 - `Content.Server/_NF/Bank/ATMSystem.cs`
 - `Content.Server/Cargo/Systems/CargoSystem.Orders.cs`
+- `Content.Server/_NF/ShuttleRecords/ShuttleRecordsSystem.Console.cs`
 - `Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs`
 - `Content.Server/_NF/Shipyard/Systems/ShipyardSystem.cs`
+- `Content.Shared/_NF/ShuttleRecords/ShuttleRecord.cs`
 - `Content.Shared/PDA/PdaComponent.cs`
 - `Content.Shared/PDA/PdaMessagesUi.cs`
 - `Content.Shared/PDA/PdaUpdateState.cs`
+- `Content.Shared/_NF/Shipyard/BUI/ShipyardConsoleInterfaceState.cs`
+- `Content.Shared/_NF/Shipyard/Components/ShuttleDeedComponent.cs`
+- `Content.Shared/_NF/Shipyard/Events/ShipyardConsoleParkMessage.cs`
+- `Content.Shared/_NF/Shipyard/Events/ShipyardConsolePurchaseMessage.cs`
 - `Resources/Locale/en-US/_NF/shipyard/shipyard-console-component.ftl`
 - `Resources/Locale/ru-RU/_NF/shipyard/shipyard-console-component.ftl`
 
@@ -88,11 +175,15 @@ LuaM file groups that must be in the release/package snapshot:
 - `Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs`
 - `Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.cs`
 - `Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.Designer.cs`
+- `Content.Server.Database/Migrations/Postgres/20260720164309_LuaMShipPayloadRevision.cs`
+- `Content.Server.Database/Migrations/Postgres/20260720164309_LuaMShipPayloadRevision.Designer.cs`
 - `Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs`
 - `Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs`
 - `Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs`
 - `Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.cs`
 - `Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.Designer.cs`
+- `Content.Server.Database/Migrations/Sqlite/20260720164259_LuaMShipPayloadRevision.cs`
+- `Content.Server.Database/Migrations/Sqlite/20260720164259_LuaMShipPayloadRevision.Designer.cs`
 - `Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs`
 - `Content.Shared/_LuaM/Sector/LuaMAiTtsAudioEvent.cs`
 - `Content.Server/Nutrition/EntitySystems/AnimalHusbandrySystem.cs`
@@ -155,7 +246,7 @@ LuaM file groups that must be in the release/package snapshot:
 - `Resources/Locale/en-US/_Mono/gamerules/gamemodes.ftl`
 - `Resources/Locale/ru-RU/_Mono/gamerules/gamemodes.ftl`
 - `Resources/Maps/_Mono/Shuttles/triage.yml`
-- LuaM-linked admin tab, Bounty Contracts, Bank/Payroll locale, LateJoin, cartridge, research, role-time, pinpointer, synthetic-control, clothing/underwear slot, rogue AI, character profile, and test-harness files listed in `Tools\check_luam_release_ready.ps1`.
+- LuaM-linked admin tab, Bounty Contracts, Bank/Payroll locale, LateJoin, cartridge, research, role-time, pinpointer, synthetic-control, clothing/underwear slot, rogue AI, character profile, and test-harness files declared by `Tools\luam_release_policy.json` or retained in the historical baseline payload.
 - `Tools/luam_ai_gateway.py`
 - `Tools/luam_openai_mcp_server.py`
 - `Tools/summarize_luam_ai_audit.py`
@@ -176,6 +267,8 @@ LuaM file groups that must be in the release/package snapshot:
 - `Tools/build_luam_release_package.ps1`
 - `Tools/build_luam_server_release.ps1`
 - `Tools/verify_luam_release_package.ps1`
+- `Tools/luam_release_contract.ps1`
+- `Tools/test_luam_release_contract.ps1`
 - `Tools/start_local_stack.ps1`
 - `Tools/stop_local_stack.ps1`
 - `Tools/test_local_stack.ps1`
@@ -186,69 +279,57 @@ LuaM file groups that must be in the release/package snapshot:
 - `Tools/luam_expedition_worldgen_design.md`
 - Current LuaM changelog fragments under `Resources/Changelog/Parts/**` when present.
 
-Approved pre-existing work outside the LuaM source package:
+No current runtime map dependency is approved outside the LuaM source package. The former NF vessel allowlist has been removed; changed shuttle maps and shipyard prototypes must be in the payload or the scope audit fails.
 
-- `Resources/Maps/_NF/Shuttles/barge.yml`
-- `Resources/Maps/_NF/Shuttles/caladrius.yml`
-- `Resources/Maps/_NF/Shuttles/Expedition/pathfinder.yml`
-- `Resources/Maps/_NF/Shuttles/hammer.yml`
-- `Resources/Maps/_NF/Shuttles/Nfsd/hospitaller.yml`
-- `Resources/Maps/_NF/Shuttles/stasis.yml`
-- `Resources/Prototypes/_NF/Shipyard/barge.yml`
-- `Resources/Prototypes/_NF/Shipyard/caladrius.yml`
-- `Resources/Prototypes/_NF/Shipyard/Expedition/pathfinder.yml`
-- `Resources/Prototypes/_NF/Shipyard/hammer.yml`
-- `Resources/Prototypes/_NF/Shipyard/Nfsd/hospitaller.yml`
-- `Resources/Prototypes/_NF/Shipyard/stasis.yml`
-
-These six prototype/map pairs are deliberately excluded from the LuaM source package, not ignored: they are preserved as existing NF vessel work, recorded by the package scope audit as allowed outside-package changes, included by the full server `Resources` build, and still covered by the final release-surface audit.
-
-Before any release, confirm the exact untracked list with:
+Before any release, inspect all three working-tree surfaces. The package builder uses the same union and excludes only `test_results/` as local evidence:
 
 ```powershell
-git ls-files --others --exclude-standard Content.Client/_LuaM Content.Server/_LuaM Content.Shared/_LuaM Content.Server/Database/ServerDbBase.cs Content.Server/Database/ServerDbManager.cs Content.Server.Database/Model.cs Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.cs Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.cs Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.Designer.cs Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.cs Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.Designer.cs Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs Content.Server/StationEvents/Events/VentCrittersRule.cs Content.IntegrationTests/Tests/_LuaM Content.IntegrationTests/Tests/_NF/BountyContracts Content.Tests/Client/_LuaM Content.Tests/Server/_LuaM Content.Tests/Shared/_NF/BountyContracts Resources/Changelog/Parts Resources/ConfigPresets/_LuaM Resources/Locale/en-US/_LuaM Resources/Locale/ru-RU/_LuaM Resources/Prototypes/_LuaM Resources/Prototypes/_Mono/Entities/Markers/Spawners/shuttles.yml Resources/ServerInfo/_LuaM Resources/Textures/_LuaM Tools
+git diff --name-only
+git diff --cached --name-only
+git ls-files --others --exclude-standard
 ```
 
 For a real git-based release gate, run it without `-AllowUntracked`. It must pass before deployment:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File Tools\check_luam_release_ready.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\check_luam_release_ready.ps1 -RunTests -RunLocalSmoke
 ```
 
 To build a local zip package without touching the remote server:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File Tools\build_luam_release_package.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\build_luam_release_package.ps1 -RunTests -RunLocalSmoke
 ```
 
-The package is written under `DeploymentPackages\LuaM` and includes a `PACKAGE_MANIFEST.json` with SHA256 hashes.
+The package is written under `DeploymentPackages\LuaM` and includes a schema-v2 `PACKAGE_MANIFEST.json`. It binds the complete payload record digest to the readiness worktree digest, Git HEAD, and exact policy SHA256; it contains no absolute source-root path.
 It also includes the generated admin-rank SQL/markdown artifacts under `DeploymentPackages\LuaM`.
 The package also includes LuaM-owned resources: config presets, locales, prototypes, guidebook XML, textures, server intro text, and key linked code/resources outside `_LuaM` that are required by the validator.
 
 ## Build live server release
 
-For live deployment, build a Release server without Hybrid ACZ and inject immutable external client metadata:
+First verify the source package with an independently recorded whole-archive hash. Then build a Release server from that exact verified source receipt and inject immutable external client metadata:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File Tools\build_luam_server_release.ps1 -ExternalClientBaseUrl http://188.127.225.57:1213 -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\verify_luam_release_package.ps1 -PackagePath DeploymentPackages\LuaM\<package>.zip -ExpectedSha256 <source-sha256> -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\build_luam_server_release.ps1 -ExternalClientBaseUrl http://188.127.225.57:1213 -SourcePackagePath DeploymentPackages\LuaM\<package>.zip -ExpectedSourcePackageSha256 <source-sha256> -ReleaseReceiptPath release\luam-binary-release-receipt.json -Json
 ```
 
-This writes `release\SS14.Client.zip` and a small `release\SS14.Server_linux-x64.zip`, verifies that the server package does not contain `Content.Client.zip`, injects `build.json` with the client SHA256 and immutable URL, and runs `Tools\audit_release_surface.ps1 -ReleaseDir release`. Publish the client first with `Tools\provision_monolith_client_static.ps1`; `-HybridAcz` is emergency fallback only.
+This writes `release\SS14.Client.zip`, `release\SS14.Server_linux-x64.zip`, and a hash-pinned binary release receipt. The receipt binds both artifact hashes and sizes, delivery metadata, the passing two-sided canary audit, the verified source payload digest, worktree digest, Git HEAD, and policy hash. `-SkipPackageBuild` and `-SkipAudit` are accepted only with `-LocalOnly` and cannot produce a production receipt.
 `PACKAGE_MANIFEST.json` also records a `scopeAudit` block. The verifier fails if changed files outside the package are not explicitly allowlisted.
 
 To verify a built package:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File Tools\verify_luam_release_package.ps1 -PackagePath DeploymentPackages\LuaM\<package>.zip
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\verify_luam_release_package.ps1 -PackagePath DeploymentPackages\LuaM\<package>.zip -ExpectedSha256 <sha256>
 ```
 
-The verifier checks manifest/file-list parity, payload hashes, local junk paths, generated admin-rank artifacts, recorded readiness evidence, and the package `scopeAudit`.
-It also checks strict UTF-8 for packaged text files and requires key LuaM resource/code artifacts to be present.
+The verifier requires the independently recorded whole-package SHA256, rejects unsafe, non-canonical, oversized, duplicate, or case-colliding ZIP paths, checks exact manifest/file-list/payload set parity, recomputes the complete payload digest, and verifies recorded readiness/worktree evidence and `scopeAudit`.
+It also checks strict UTF-8, every policy-required payload file, the embedded policy SHA256, and passed evidence for every production-required test and smoke check. `-AllowUntracked`, any nonzero untracked receipt, or a package built without `-RunTests -RunLocalSmoke` is local evidence only and always fails production verification.
 
 To audit the actual public client/server release zips before upload:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File Tools\audit_release_surface.ps1 -ReleaseDir release
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\audit_release_surface.ps1 -PackagePath release\SS14.Client.zip,release\SS14.Server_linux-x64.zip
 ```
 
 This fails if `release\*.zip` contains `.pdb`, source files, project/solution files, local secret/config names, logs, caches, or common local build directories.
@@ -256,22 +337,30 @@ This fails if `release\*.zip` contains `.pdb`, source files, project/solution fi
 To deploy a verified server release zip to the VPS, use the guarded deploy helper instead of hand-running `scp`/`unzip`:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File Tools\deploy_luam_server_release.ps1 -PackagePath release\SS14.Server_linux-x64.zip -ExpectedSha256 <sha256> -Tag <tag> -ConfigSourcePath server_config.remote.toml -RemoteConfigPath <live-server_config.toml> -RequireDataBackup -RemoteDataDir <live-data-dir>
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools\deploy_luam_server_release.ps1 -PackagePath release\SS14.Server_linux-x64.zip -ExpectedSha256 <server-sha256> -ReleaseReceiptPath release\luam-binary-release-receipt.json -ExpectedReleaseReceiptSha256 <receipt-sha256> -Tag <tag> -ConfigSourcePath server_config.remote.toml -RemoteConfigPath <live-server_config.toml> -RequireDataBackup -RemoteDataDir <live-data-dir>
 ```
 
-The helper checks `Tools\luam_release_policy.json` first and refuses a real upload while the current freeze policy is active. `-DryRun` remains available for inspecting the deploy plan without contacting the remote server.
-For real deployment, the helper requires `-ExpectedSha256`, verifies `Robust.Server` plus either external `build.json` metadata or emergency Hybrid ACZ, checks the live player count, uploads the package and optional approved config, verifies both SHA256 values, stages into `/opt/monolith-ds/deploy-staging`, creates server/config/data backups, starts `monolith-ds.service`, and rolls back if start verification fails. `-ConfigSourcePath` removes silent config drift by atomically deploying the reviewed TOML. Use `-AllowClientZipRestore` only for an intentional emergency rollback.
+The helper validates the strict JSON policy, receipt hash, policy/source/artifact bindings, delivery metadata, canonical ZIP surface, and server-only canary before even producing a dry-run plan. A real upload additionally requires a non-expired `deploymentAuthorization` that explicitly allows `server-release`; `remoteDeployFrozen=true` always blocks it.
+Do not merely flip the freeze boolean. An authorized policy needs `deploymentAuthorization.state=authorized`, approval identity/timestamps/expiry, explicit allowed mutations, and `pendingLocalIntegrationBatch.state=deployment-authorized`. Because the policy hash is part of every source and binary receipt, rerun strict readiness and rebuild/reverify all receipts under that exact authorized policy before mutation. The contract test accepts both internally consistent frozen and authorized states, so this sequence has no gate deadlock.
 
 ## Current Release Slice (Deployed)
 
-The verified 2026-07-13 expedition/persistence foundations and the durable-transfer, animal-control, and sector-interception gameplay update were included in the production release. The explicitly incomplete later stages below remain future work.
+The verified 2026-07-13 expedition/persistence foundations, durable-transfer, animal-control, and sector-interception update, and the reviewed 2026-07-14 radar/commerce/persistence/physical-AI integration batch were included in production rollout `20260716-aibolit-217e3ad5ff3c`.
 
-- The expedition planner is server-only and testable without creating ECS entities. Streaming terrain, POI materialization, persistence deltas/snapshots, and `ExpeditionDirector` remain later stages.
+- The deployed expedition planner remains server-only and does not create ECS entities. The deployed batch adds durable shadow deltas/snapshots/checkpoints, but streaming terrain, POI materialization, and `ExpeditionDirector` remain later stages.
 - Profile deletion now preserves the database row through `is_archived`/`archived_at` and releases the active slot through `NULL`. A normal replacement receives a new `Profile.Id`; an archived identity returns only through the explicit, ownership-checked, idempotent `RestoreArchivedCharacterAsync` path.
-- The pure progression foundation resolves exact seven-day campaign shifts and enforces the documented XP/shift level gates and award identity shape; persistence tables, ledger transactions, participation tracking, and gameplay integration remain future work.
-- The deployed release passed the strict tracked-scope gate. `-AllowUntracked` remains available only for local development validation and is not a production-release bypass.
+- The deployed batch adds provider-matched progression shadow tables and transactional APIs for shifts/runs, participation, careers, awards/reversals, and sealing. Gameplay award integration remains future work, so this does not make the shadow ledger authoritative for live progression by itself.
+- The deployed release passed the strict tracked-scope gate. `-AllowUntracked` remains available only for local development validation and is not a production-release bypass; the post-rollout follow-up must establish fresh evidence.
 
 ## Verification Records
+
+### 2026-07-14 — local integration package preparation
+
+- Package modeling is provisional while the parallel bank-durability stream is still changing the working tree. `Content.Server/_NF/Commands/BankCommand.cs` is selected through an exact fail-closed scope; final dirty/selected/payload counts will be recorded only after that stream is ready.
+- All runtime dependencies declared by the pending policy were present in the modeled package, staged-only selection remained covered, and the runtime outside-package allowlist was empty.
+- The package script parsed with zero PowerShell errors. Every changed/new JSON file parsed successfully, and every state declared by changed/new RSI metadata had a matching PNG.
+- Both staged and unstaged `git diff --check` passed. The changelog YAML parsed successfully, and `Directory.Packages.props` parsed as XML with one Veldrid entry at version 4.9.0.
+- `Content.YAMLLinter` built with zero errors, and the complete YAML/prototype pass reported `No errors found`. No package build, staging operation, deployment, upload, or restart was performed; `remoteDeployFrozen` remained `true`.
 
 ### 2026-07-13 — deployed release slice
 
@@ -331,6 +420,20 @@ Expected existing warnings:
 - The independently verified source package and production rollout are recorded below; `remoteDeployFrozen` is `true` again after successful post-deploy checks.
 
 ## Production Rollout History
+
+### 2026-07-16 — deep-cryo persistence rollout
+
+- Checks and artifacts: the strict production gate passed all 588 integration tests and all remaining release checks. The independently verified 1154-file source package `luam-local-release-20260716-115932.zip` has SHA256 `bf6469322ba5830cf9456f5b5655281912b2388b8d2fbb49e1fb187568e621cd`; client SHA256/build version is `338ab621a94499d4185b8dfead3aadc50b5dd5b02e7ce833759520b85bf94790`; server SHA256 is `1b50b699c41159c1ec7a10852a48e5e2cb1299b631938954f9b9dfef5b6574de`.
+- Live result: the authorized forced rollout completed while two players were online. The service is `active/running`; round 126 is running with two players, `run_level=1`, and the exact title `Мёртвый космос НУЖНЫ ТСФ СРОЧНО! 🙏`. The immutable client URL returned HTTP 200 with the expected 333752213-byte archive.
+- Deep cryo and database: live SQLite contains migration `20260716101408_LuaMDeepCryoPersistence`, all three deep-cryo persistence tables, and the lifecycle revision column; `PRAGMA integrity_check` returned `ok`. Characters entering either supported cryo implementation after this deployment are stored for guarded restoration in the next round. Pre-deployment cryo deletions cannot be reconstructed retroactively.
+- Backups and freeze: data backup `/opt/monolith-ds/backups/data-SS14.Server_linux-x64.tar.gz` has SHA256 `dc3d8ec65dbfdc295619ee886017bb44013cd51464c73b77379aa31e4d10cd35` and passed `gzip -t`; server and prior-config backups are retained beside it. Post-deployment verification passed and remote deployment was frozen again.
+
+### 2026-07-16 — `20260716-aibolit-217e3ad5ff3c`
+
+- Identity and authorization: the production-eligible source package was built from Git HEAD `0efe0838ed808b7cc24c3931290ca9f90c282638` with worktree digest `217e3ad5ff3c9a1aa84c565dede0de2a10ac680089d49f21f97c04d909675e2a` under authorized policy SHA256 `093ef7f422b612f4de2bab5fb3d9b9fc560acdb32c6e6ce2f660d7ac365deee6`. Approval `codex-20260715-remote-update` covered only `server-release` and `client-static` from `2026-07-15T20:03:18Z` through `2026-07-16T00:03:18Z`.
+- Checks and artifacts: `PACKAGE_MANIFEST.json` recorded `productionEligible=true`, zero readiness issues or warnings, and zero untracked files. Source package `luam-local-release-20260715-213854.zip` has SHA256 `d3f4dd2a106b23f6929623b742b0f3a446f6ca3a473e9d9e0093a2f86bf93879`. Binary receipt SHA256 is `a3dbfdf6f1df6140b89d87d2ef3145c83c5471eb53acd0614acfced7bbeda358`; server SHA256 is `dadff07a1ddf8461aa16ddfb077881745a7dce7b24265c420c491275d031a0ec` (44738011 bytes), and client SHA256 is `c9f8ef3b896752f74e8d84c5c743949c364ddbfd394508ff525bb50fe1db4793` (333751769 bytes).
+- Delivery: immutable client URL `http://188.127.225.57:1213/20260716-aibolit-217e3ad5ff3c/SS14.Client.zip` is bound into the receipt generated at `2026-07-15T21:49:41.6326254Z`.
+- Live result and freeze: the rollout completed and passed post-deployment verification. Remote deployment was frozen again and the active batch returned to local-only follow-up work. The retained binary receipt remains historical evidence bound to the authorized policy revision; it is intentionally not reusable under a later frozen policy hash.
 
 ### 2026-07-13 — `20260713-durable-bank-animal-sector-277.2.1`
 
@@ -446,9 +549,10 @@ Policy guardrails:
 
 ## Pre-Release Checklist
 
-- Confirm server freeze is lifted.
-- Confirm every file group above is tracked or explicitly packaged.
-- Re-run the LuaM validator and both LuaM test filters.
+- Confirm a non-expired explicit deployment authorization exists for each intended mutation; never lift only the boolean freeze.
+- Confirm strict readiness, source verification, binary receipt, and canary audit were regenerated after the final authorization/policy change.
+- Confirm every policy-required file is tracked and packaged.
+- Run `Tools\test_luam_release_contract.ps1`, then re-run the policy-owned production tests and smoke checks through strict readiness.
 - Confirm `admin-rank-ladder` passes in `Tools\check_luam_release_ready.ps1`.
 - Run local stack smoke test.
 - Check that PDA no longer exposes a free-form AI message input.

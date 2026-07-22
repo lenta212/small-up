@@ -5,21 +5,58 @@ param(
     [string]$ExternalClientBaseUrl = "",
     [string]$ForkId = "dsmonolith",
     [string]$BuildVersion = "",
+    [string]$SourcePackagePath = "",
+    [string]$ExpectedSourcePackageSha256 = "",
+    [string]$ReleaseReceiptPath = "release\luam-binary-release-receipt.json",
     [switch]$SkipPackageBuild,
     [switch]$SkipAudit,
+    [switch]$LocalOnly,
     [switch]$Json
 )
 
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "luam_release_contract.ps1")
+$releasePolicy = Read-LuaMReleasePolicy -Root $root
+$releasePolicyPath = Join-Path $root "Tools\luam_release_policy.json"
+$releasePolicySha256 = (Get-FileHash -LiteralPath $releasePolicyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$policyExcludedLocalArtifacts = @(Get-LuaMReleaseExcludedLocalArtifacts -Policy $releasePolicy)
 $packagingOut = Join-Path $root ".packaging-run"
 $releaseDir = Join-Path $root "release"
 $serverPackage = Join-Path $releaseDir "SS14.Server_$Platform.zip"
 $clientPackage = Join-Path $releaseDir "SS14.Client.zip"
+$resolvedReceiptOutputPath = [IO.Path]::GetFullPath(
+    $(if ([IO.Path]::IsPathRooted($ReleaseReceiptPath)) { $ReleaseReceiptPath } else { Join-Path $root $ReleaseReceiptPath }))
+$releaseDirFull = [IO.Path]::GetFullPath($releaseDir).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+if (-not $resolvedReceiptOutputPath.StartsWith($releaseDirFull + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+    -not $resolvedReceiptOutputPath.EndsWith('.json', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "ReleaseReceiptPath must be a JSON file beneath the local release directory."
+}
+if (Test-Path -LiteralPath $resolvedReceiptOutputPath) {
+    $receiptOutputItem = Get-Item -LiteralPath $resolvedReceiptOutputPath -Force
+    if (($receiptOutputItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "ReleaseReceiptPath cannot target a reparse point."
+    }
+}
 
 if ($Configuration -cne "Release") {
     throw "Production server packages must use Configuration=Release. Got '$Configuration'."
+}
+
+if (-not $LocalOnly) {
+    if ($SkipPackageBuild) {
+        throw "-SkipPackageBuild is local-only and cannot produce a production binary receipt."
+    }
+    if ($SkipAudit) {
+        throw "-SkipAudit is local-only and cannot produce a production binary receipt."
+    }
+    if ([string]::IsNullOrWhiteSpace($SourcePackagePath) -or [string]::IsNullOrWhiteSpace($ExpectedSourcePackageSha256)) {
+        throw "Production binary builds require -SourcePackagePath and -ExpectedSourcePackageSha256."
+    }
+    if (-not $HybridAcz -and [string]::IsNullOrWhiteSpace($ExternalClientBaseUrl)) {
+        throw "Production binary builds require a complete client delivery mode: -HybridAcz or -ExternalClientBaseUrl."
+    }
 }
 
 if ($HybridAcz -and -not [string]::IsNullOrWhiteSpace($ExternalClientBaseUrl)) {
@@ -217,8 +254,45 @@ function Remove-ZipEntry {
     }
 }
 
+function Invoke-SourcePackageVerification {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256
+    )
+
+    $output = @(& powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "Tools\verify_luam_release_package.ps1" "-PackagePath" $Path "-ExpectedSha256" $ExpectedSha256 "-Json")
+    if ($LASTEXITCODE -ne 0) {
+        throw "Source package verification failed with exit code $LASTEXITCODE."
+    }
+    try {
+        return ($output -join "`n") | ConvertFrom-Json
+    }
+    catch {
+        throw "Source package verifier returned invalid JSON: $($_.Exception.Message)"
+    }
+}
+
 Push-Location $root
 try {
+    $sourceVerification = $null
+    $initialWorktreeReceipt = Get-LuaMWorktreeReceipt -Root $root -ExcludedArtifacts $policyExcludedLocalArtifacts
+    if (-not $LocalOnly) {
+        $sourceVerification = Invoke-SourcePackageVerification -Path $SourcePackagePath -ExpectedSha256 $ExpectedSourcePackageSha256
+        if ($sourceVerification.ok -ne $true -or $sourceVerification.productionEligible -ne $true) {
+            throw "Source package is not production-eligible."
+        }
+        if (-not ([string]$sourceVerification.policySha256).Equals($releasePolicySha256, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Source package policy SHA256 does not match the policy used for the binary build."
+        }
+        if (-not ([string]$sourceVerification.worktreeDigestSha256).Equals([string]$initialWorktreeReceipt.digestSha256, [System.StringComparison]::OrdinalIgnoreCase) -or
+            -not ([string]$sourceVerification.gitHead).Equals([string]$initialWorktreeReceipt.gitHead, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Source package receipt does not match the current binary-build worktree."
+        }
+        if (-not $initialWorktreeReceipt.trackedForProduction -or [int64]$initialWorktreeReceipt.untrackedFileCount -ne 0) {
+            throw "Production binary builds require a fully tracked worktree."
+        }
+    }
+
     if (-not $SkipPackageBuild) {
         Invoke-CheckedNative dotnet "publish" "Content.Packaging" "-c" $Configuration "-o" $packagingOut
         if ($HybridAcz) {
@@ -293,16 +367,96 @@ try {
     $serverSha = (Get-FileHash -LiteralPath $serverPackage -Algorithm SHA256).Hash.ToLowerInvariant()
     $hasBuildJson = Test-ZipEntry -ArchivePath $serverPackage -EntryName "build.json"
 
+    $surfaceAudit = $null
     if (-not $SkipAudit) {
-        if ($Json) {
-            & powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "Tools\audit_release_surface.ps1" "-ReleaseDir" "release" "-Json" | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                throw "Tools\audit_release_surface.ps1 failed with exit code $LASTEXITCODE"
+        $auditOutput = @(& (Join-Path $PSScriptRoot "audit_release_surface.ps1") -PackagePath @($clientPackage, $serverPackage) -Json)
+        if ($LASTEXITCODE -ne 0) {
+            throw "Tools\audit_release_surface.ps1 failed with exit code $LASTEXITCODE"
+        }
+        try {
+            $surfaceAudit = ($auditOutput -join "`n") | ConvertFrom-Json
+        }
+        catch {
+            throw "Release surface audit returned invalid JSON: $($_.Exception.Message)"
+        }
+        if ($surfaceAudit.ok -ne $true -or [int64]$surfaceAudit.violationCount -ne 0 -or
+            [int64]$surfaceAudit.clientPackageCount -ne 1 -or [int64]$surfaceAudit.serverPackageCount -ne 1) {
+            throw "Release surface audit did not prove an exact clean client/server pair."
+        }
+        $postAuditClientSha = (Get-FileHash -LiteralPath $clientPackage -Algorithm SHA256).Hash.ToLowerInvariant()
+        $postAuditServerSha = (Get-FileHash -LiteralPath $serverPackage -Algorithm SHA256).Hash.ToLowerInvariant()
+        if (-not $clientSha.Equals($postAuditClientSha, [StringComparison]::OrdinalIgnoreCase) -or
+            -not $serverSha.Equals($postAuditServerSha, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Client or server artifact changed while the release surface audit was running."
+        }
+    }
+
+    $finalWorktreeReceipt = Get-LuaMWorktreeReceipt -Root $root -ExcludedArtifacts $policyExcludedLocalArtifacts
+    $finalPolicySha256 = (Get-FileHash -LiteralPath $releasePolicyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (-not ([string]$initialWorktreeReceipt.digestSha256).Equals([string]$finalWorktreeReceipt.digestSha256, [System.StringComparison]::OrdinalIgnoreCase) -or
+        -not ([string]$initialWorktreeReceipt.gitHead).Equals([string]$finalWorktreeReceipt.gitHead, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Release worktree changed during binary package construction."
+    }
+    if (-not $releasePolicySha256.Equals($finalPolicySha256, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Release policy changed during binary package construction."
+    }
+
+    $receiptPath = $null
+    $receiptSha256 = $null
+    if (-not $LocalOnly) {
+        $serverAudit = @($surfaceAudit.packages | Where-Object { $_.kind -eq 'server' }) | Select-Object -First 1
+        $clientAudit = @($surfaceAudit.packages | Where-Object { $_.kind -eq 'client' }) | Select-Object -First 1
+        if ($null -eq $serverAudit -or $serverAudit.serverOnlyCanaryPresent -ne $true -or
+            $null -eq $clientAudit -or $clientAudit.clientServerOnlyAbsent -ne $true) {
+            throw "Release surface audit did not prove both directions of the server-only canary contract."
+        }
+
+        $deliveryMode = if ($HybridAcz) { 'hybrid-acz' } else { 'external-zip' }
+        $receipt = [pscustomobject]@{
+            schemaVersion = 1
+            generatedAtUtc = [DateTime]::UtcNow.ToString('o')
+            policySha256 = $releasePolicySha256
+            sourcePackage = [pscustomobject]@{
+                fileName = [IO.Path]::GetFileName([string]$sourceVerification.package)
+                sha256 = ([string]$sourceVerification.sha256).ToLowerInvariant()
+                payloadDigestSha256 = ([string]$sourceVerification.payloadDigestSha256).ToLowerInvariant()
+                worktreeDigestSha256 = ([string]$sourceVerification.worktreeDigestSha256).ToLowerInvariant()
+                gitHead = ([string]$sourceVerification.gitHead).ToLowerInvariant()
+            }
+            buildWorktree = [pscustomobject]@{
+                digestSha256 = ([string]$finalWorktreeReceipt.digestSha256).ToLowerInvariant()
+                gitHead = ([string]$finalWorktreeReceipt.gitHead).ToLowerInvariant()
+                untrackedFileCount = [int64]$finalWorktreeReceipt.untrackedFileCount
+            }
+            client = [pscustomobject]@{
+                fileName = [IO.Path]::GetFileName($clientPackage)
+                sha256 = $clientSha
+                bytes = [int64](Get-Item -LiteralPath $clientPackage).Length
+            }
+            server = [pscustomobject]@{
+                fileName = [IO.Path]::GetFileName($serverPackage)
+                sha256 = $serverSha
+                bytes = [int64](Get-Item -LiteralPath $serverPackage).Length
+            }
+            delivery = [pscustomobject]@{
+                mode = $deliveryMode
+                clientDownloadUrl = if ($deliveryMode -eq 'external-zip') { $clientDownloadUrl } else { $null }
+            }
+            surfaceAudit = [pscustomobject]@{
+                passed = $true
+                serverOnlyCanaryPresent = $true
+                clientServerOnlyAbsent = $true
+                violationCount = 0
             }
         }
-        else {
-            Invoke-CheckedNative powershell "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "Tools\audit_release_surface.ps1" "-ReleaseDir" "release"
+        Assert-LuaMBinaryReleaseReceipt -Receipt $receipt
+        $receiptPath = $resolvedReceiptOutputPath
+        $receiptDirectory = Split-Path -Parent $receiptPath
+        if (-not [string]::IsNullOrWhiteSpace($receiptDirectory)) {
+            New-Item -ItemType Directory -Force -Path $receiptDirectory | Out-Null
         }
+        $receipt | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $receiptPath -Encoding UTF8
+        $receiptSha256 = (Get-FileHash -LiteralPath $receiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
 
     $result = [pscustomobject]@{
@@ -322,6 +476,12 @@ try {
         cdnPublishRequired = -not [bool]$HybridAcz -and [string]::IsNullOrWhiteSpace($clientDownloadUrl)
         packageBuildSkipped = [bool]$SkipPackageBuild
         audited = -not $SkipAudit
+        localOnly = [bool]$LocalOnly
+        sourcePackageVerified = $null -ne $sourceVerification
+        sourcePayloadDigestSha256 = if ($null -ne $sourceVerification) { [string]$sourceVerification.payloadDigestSha256 } else { $null }
+        worktreeDigestSha256 = [string]$finalWorktreeReceipt.digestSha256
+        releaseReceipt = $receiptPath
+        releaseReceiptSha256 = $receiptSha256
     }
 
     if ($Json) {

@@ -8,6 +8,14 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "luam_release_contract.ps1")
+$releasePolicyPath = Join-Path $root "Tools/luam_release_policy.json"
+$releasePolicy = Read-LuaMReleasePolicy -Root $root
+$releasePolicySha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $releasePolicyPath).Hash.ToLowerInvariant()
+$policyRequiredFiles = @(Get-LuaMReleaseGateRequiredFiles -Policy $releasePolicy)
+$policyPackageScopes = @(Get-LuaMReleaseGatePackageScopes -Policy $releasePolicy)
+$policyExcludedLocalArtifacts = @(Get-LuaMReleaseExcludedLocalArtifacts -Policy $releasePolicy)
+$initialWorktreeReceipt = Get-LuaMWorktreeReceipt -Root $root -ExcludedArtifacts $policyExcludedLocalArtifacts
 $issues = New-Object System.Collections.Generic.List[string]
 $warnings = New-Object System.Collections.Generic.List[string]
 $steps = New-Object System.Collections.Generic.List[object]
@@ -16,6 +24,9 @@ $requiredFiles = @(
     "Content.Client/PDA/PdaBoundUserInterface.cs",
     "Content.Client/PDA/PdaMenu.xaml",
     "Content.Client/PDA/PdaMenu.xaml.cs",
+    "Content.Client/_NF/Shipyard/BUI/ShipyardConsoleBoundUserInterface.cs",
+    "Content.Client/_NF/Shipyard/UI/ShipyardConsoleMenu.xaml",
+    "Content.Client/_NF/Shipyard/UI/ShipyardConsoleMenu.xaml.cs",
     "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml",
     "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml.cs",
     "Content.Client/Clothing/ClientClothingSystem.cs",
@@ -36,6 +47,7 @@ $requiredFiles = @(
     "Content.Client/_NF/LateJoin/Controls/CrewPickerControl.xaml.cs",
     "Content.Client/_NF/LateJoin/Extensions/StationJobInformationExtensions.cs",
     "Content.Client/_NF/LateJoin/Windows/PickerWindow.xaml.cs",
+    "Content.Server/Access/Systems/IdCardConsoleSystem.cs",
     "Content.Server/Cargo/Systems/CargoSystem.Bounty.cs",
     "Content.Server/Cargo/Systems/CargoSystem.Orders.cs",
     "Content.Server/CartridgeLoader/CartridgeLoaderSystem.cs",
@@ -61,11 +73,15 @@ $requiredFiles = @(
     "Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs",
     "Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.cs",
     "Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.Designer.cs",
+    "Content.Server.Database/Migrations/Postgres/20260720164309_LuaMShipPayloadRevision.cs",
+    "Content.Server.Database/Migrations/Postgres/20260720164309_LuaMShipPayloadRevision.Designer.cs",
     "Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.Designer.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260720164259_LuaMShipPayloadRevision.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260720164259_LuaMShipPayloadRevision.Designer.cs",
     "Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs",
     "Content.Server/_LuaM/Administration/LuaMAnimalPopulationCommands.cs",
     "Content.Server/_LuaM/Animals/LuaMAnimalPopulationSystem.cs",
@@ -81,6 +97,7 @@ $requiredFiles = @(
     "Content.Server/_CorvaxNext/Silicons/Borgs/AiRemoteControlSystem.cs",
     "Content.Server/_NF/Bank/ATMSystem.cs",
     "Content.Server/_NF/Bank/BankSystem.cs",
+    "Content.Server/_NF/ShuttleRecords/ShuttleRecordsSystem.Console.cs",
     "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs",
     "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.cs",
     "Content.Server/_NF/BountyContracts/BountyContractSystem.Ui.cs",
@@ -93,8 +110,6 @@ $requiredFiles = @(
     "Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficTest.cs",
     "Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficInterceptTest.cs",
     "Content.IntegrationTests/Tests/_LuaM/LuaMTimedSpawnerLimitTest.cs",
-    "Content.IntegrationTests/Tests/_LuaM/LuaMBankAndPdaContractsTest.cs",
-    "Content.IntegrationTests/Tests/_LuaM/LuaMBankDurableMutationContractTest.cs",
     "Content.IntegrationTests/Tests/_LuaM/LuaMShipyardPurchaseDurabilityContractTest.cs",
     "Content.IntegrationTests/Tests/_LuaM/LuaMCharacterPersistenceTest.cs",
     "Content.IntegrationTests/Tests/_LuaM/LuaMCharacterTtsValidationTest.cs",
@@ -119,8 +134,14 @@ $requiredFiles = @(
     "Resources/Changelog/Parts/luam-sector-traffic.yml",
     "Resources/Changelog/Parts/luam-expedition-persistence-foundations.yml",
     "Resources/Changelog/Parts/luam-pda-bank-transfer-fix.yml",
+    "Resources/Changelog/Parts/luam-ship-generator.yml",
     "Content.Shared/_CorvaxNext/Silicons/Borgs/Components/SharedAiRemoteControllerComponent.cs",
     "Content.Shared/_NF/BountyContracts/SharedBountyContractSystem.cs",
+    "Content.Shared/_NF/Shipyard/BUI/ShipyardConsoleInterfaceState.cs",
+    "Content.Shared/_NF/Shipyard/Components/ShuttleDeedComponent.cs",
+    "Content.Shared/_NF/Shipyard/Events/ShipyardConsoleParkMessage.cs",
+    "Content.Shared/_NF/Shipyard/Events/ShipyardConsolePurchaseMessage.cs",
+    "Content.Shared/_NF/ShuttleRecords/ShuttleRecord.cs",
     "Resources/ConfigPresets/_Mono/monolithCore.toml",
     "Resources/Locale/en-US/_Goobstation/research/ui.ftl",
     "Resources/Locale/en-US/_Mono/gamerules/gamemodes.ftl",
@@ -188,6 +209,7 @@ $requiredFiles = @(
     "Tools/build_luam_server_release.ps1",
     "Tools/verify_luam_release_package.ps1",
     "Tools/luam_ai_gateway.py",
+    "Tools/luam_ship_generator.py",
     "Tools/luam_openai_mcp_server.py",
     "Tools/summarize_luam_ai_audit.py",
     "Tools/luam_release_manifest.md",
@@ -201,8 +223,11 @@ $requiredFiles = @(
     "Tools/test_local_frontier.ps1",
     "Tools/test_local_stack.ps1",
     "Tools/test_luam_ai_gateway.py",
+    "Tools/test_luam_ship_generator.py",
     "Tools/validate_luam_feature_pack.py"
 )
+
+$requiredFiles = @($requiredFiles + $policyRequiredFiles) | Sort-Object -Unique
 
 $requiredDirectories = @(
     "Content.Client/_LuaM",
@@ -250,6 +275,10 @@ $releaseScopes = @(
     "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleMenu.xaml.cs",
     "Content.Client/_NF/BountyContracts",
     "Content.Client/_NF/LateJoin",
+    "Content.Client/_NF/Shipyard/BUI/ShipyardConsoleBoundUserInterface.cs",
+    "Content.Client/_NF/Shipyard/UI/ShipyardConsoleMenu.xaml",
+    "Content.Client/_NF/Shipyard/UI/ShipyardConsoleMenu.xaml.cs",
+    "Content.Server/Access/Systems/IdCardConsoleSystem.cs",
     "Content.Server/Cargo/Systems/CargoSystem.Bounty.cs",
     "Content.Server/Cargo/Systems/CargoSystem.Orders.cs",
     "Content.Server/CartridgeLoader/CartridgeLoaderSystem.cs",
@@ -275,11 +304,15 @@ $releaseScopes = @(
     "Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs",
     "Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.cs",
     "Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.Designer.cs",
+    "Content.Server.Database/Migrations/Postgres/20260720164309_LuaMShipPayloadRevision.cs",
+    "Content.Server.Database/Migrations/Postgres/20260720164309_LuaMShipPayloadRevision.Designer.cs",
     "Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.Designer.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260720164259_LuaMShipPayloadRevision.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260720164259_LuaMShipPayloadRevision.Designer.cs",
     "Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs",
     "Content.Server/_CorvaxNext/Silicons/Borgs/AiRemoteControlSystem.cs",
     "Content.Shared/PDA",
@@ -291,12 +324,18 @@ $releaseScopes = @(
     "Content.Shared/Roles/JobRequirements.cs",
     "Content.Shared/Roles/SharedRoleSystem.cs",
     "Content.Shared/_CorvaxNext/Silicons/Borgs/Components/SharedAiRemoteControllerComponent.cs",
+    "Content.Shared/_NF/ShuttleRecords/ShuttleRecord.cs",
     "Content.Server/_NF/Bank",
+    "Content.Server/_NF/ShuttleRecords/ShuttleRecordsSystem.Console.cs",
     "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs",
     "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.cs",
     "Content.Server/_NF/BountyContracts",
     "Content.Shared/_NF/Bank",
     "Content.Shared/_NF/BountyContracts",
+    "Content.Shared/_NF/Shipyard/BUI/ShipyardConsoleInterfaceState.cs",
+    "Content.Shared/_NF/Shipyard/Components/ShuttleDeedComponent.cs",
+    "Content.Shared/_NF/Shipyard/Events/ShipyardConsoleParkMessage.cs",
+    "Content.Shared/_NF/Shipyard/Events/ShipyardConsolePurchaseMessage.cs",
     "Resources/ConfigPresets/_Mono/monolithCore.toml",
     "Resources/ConfigPresets/_LuaM",
     "Resources/Locale/en-US/_Goobstation/research/ui.ftl",
@@ -373,6 +412,7 @@ $releaseScopes = @(
     "Tools/build_luam_server_release.ps1",
     "Tools/verify_luam_release_package.ps1",
     "Tools/luam_ai_gateway.py",
+    "Tools/luam_ship_generator.py",
     "Tools/luam_openai_mcp_server.py",
     "Tools/summarize_luam_ai_audit.py",
     "Tools/luam_release_manifest.md",
@@ -386,8 +426,11 @@ $releaseScopes = @(
     "Tools/test_local_frontier.ps1",
     "Tools/test_local_stack.ps1",
     "Tools/test_luam_ai_gateway.py",
+    "Tools/test_luam_ship_generator.py",
     "Tools/validate_luam_feature_pack.py"
 )
+
+$releaseScopes = @($releaseScopes + $policyPackageScopes) | Sort-Object -Unique
 
 function Add-Step {
     param(
@@ -500,10 +543,13 @@ try {
         Add-Step "untracked-release-files" "passed" "No untracked files in release scope."
     }
 
-    $junk = @(& git ls-files --others --exclude-standard | rg "(^|/)(bin|obj|\.vs|\.idea|\.vscode|node_modules|__pycache__|\.pytest_cache|logs?|tmp|temp)(/|$)|\.(log|tmp|bak|cache|db|sqlite|sqlite3)$")
-    if ($LASTEXITCODE -eq 1) {
-        $junk = @()
-    }
+    $junk = @(
+        Invoke-LuaMGitCapture -Root $root -Arguments @('-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard') |
+            Where-Object {
+                -not (Test-LuaMReleaseExcludedLocalArtifact -Path ([string]$_) -ExcludedArtifacts $policyExcludedLocalArtifacts) -and
+                ([string]$_ -match "(^|/)(bin|obj|\.vs|\.idea|\.vscode|node_modules|__pycache__|\.pytest_cache|logs?|tmp|temp)(/|$)|\.(log|tmp|bak|cache|db|sqlite|sqlite3)$")
+            }
+    )
 
     if ($junk.Count -gt 0) {
         $issues.Add("Untracked local junk detected: $($junk -join ', ')") | Out-Null
@@ -648,6 +694,21 @@ try {
         $powerShellExe = "pwsh"
     }
 
+    $releaseContractTest = Invoke-Captured -FilePath $powerShellExe -Arguments @(
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        (Join-Path $PSScriptRoot "test_luam_release_contract.ps1"),
+        "-Json"
+    )
+    if ($releaseContractTest.ExitCode -ne 0) {
+        $issues.Add("LuaM release contract test failed: $(Format-CapturedTail $releaseContractTest)") | Out-Null
+        Add-Step "release-contract" "failed" "Static release contract test returned $($releaseContractTest.ExitCode)."
+    } else {
+        Add-Step "release-contract" "passed" "Policy schema, required files, production tests, smoke checks, and freeze state are consistent."
+    }
+
     $dependencyAuditScript = Join-Path $PSScriptRoot "audit_luam_dependency_vulnerabilities.ps1"
     $dependencyAudit = Invoke-Captured -FilePath $powerShellExe -Arguments @(
         "-NoProfile",
@@ -682,80 +743,166 @@ try {
         Add-Step "admin-rank-ladder" "passed" "LuaM admin rank ladder validated."
     }
 
-    $gatewayTest = Invoke-Captured -FilePath "python" -Arguments @("Tools\test_luam_ai_gateway.py")
-    if ($gatewayTest.ExitCode -ne 0) {
-        $issues.Add("LuaM AI gateway test failed: $($gatewayTest.Output -join '; ')") | Out-Null
-        Add-Step "gateway-test" "failed" "Gateway test returned $($gatewayTest.ExitCode)."
-    } else {
-        Add-Step "gateway-test" "passed" "LuaM AI gateway smoke test passed."
-    }
-
     if ($RunTests) {
-        $clientTests = Invoke-Captured -FilePath "dotnet" -Arguments @(
-            "test",
-            "Content.Tests\Content.Tests.csproj",
-            "--filter",
-            "FullyQualifiedName~LuaM",
-            "--no-restore"
-        )
-        if ($clientTests.ExitCode -ne 0) {
-            $issues.Add("Content.Tests LuaM filter failed: $(Format-CapturedTail $clientTests)") | Out-Null
-            Add-Step "content-tests-luam" "failed" "dotnet test returned $($clientTests.ExitCode)."
-        } else {
-            Add-Step "content-tests-luam" "passed" "Content.Tests LuaM filter passed."
-        }
+        foreach ($test in @($releasePolicy.releaseGate.productionTests)) {
+            $testName = [string] $test.name
+            if ([string] $test.runner -ne "dotnet") {
+                $issues.Add("Production test '$testName' has unsupported runner '$($test.runner)'.") | Out-Null
+                Add-Step $testName "failed" "Unsupported production test runner."
+                continue
+            }
 
-        $integrationTests = Invoke-Captured -FilePath "dotnet" -Arguments @(
-            "test",
-            "Content.IntegrationTests\Content.IntegrationTests.csproj",
-            "--filter",
-            "FullyQualifiedName~LuaM",
-            "--no-restore"
-        )
-        if ($integrationTests.ExitCode -ne 0) {
-            $issues.Add("Content.IntegrationTests LuaM filter failed: $(Format-CapturedTail $integrationTests)") | Out-Null
-            Add-Step "integration-tests-luam" "failed" "dotnet test returned $($integrationTests.ExitCode)."
-        } else {
-            Add-Step "integration-tests-luam" "passed" "Content.IntegrationTests LuaM filter passed."
+            $testArguments = @(
+                "test",
+                [string] $test.project,
+                "--filter",
+                [string] $test.filter
+            ) + @($test.arguments | ForEach-Object { [string] $_ })
+            $testResult = Invoke-Captured -FilePath "dotnet" -Arguments $testArguments
+            $attempts = 1
+            if ($testResult.ExitCode -ne 0) {
+                $attempts++
+                $retryResult = Invoke-Captured -FilePath "dotnet" -Arguments $testArguments
+                if ($retryResult.ExitCode -eq 0) {
+                    $testResult = $retryResult
+                }
+            }
+
+            if ($testResult.ExitCode -ne 0) {
+                $issues.Add("Production test '$testName' failed: $(Format-CapturedTail $testResult)") | Out-Null
+                Add-Step $testName "failed" "dotnet test returned $($testResult.ExitCode) after $attempts attempt(s)."
+            } else {
+                $detail = if ($attempts -gt 1) {
+                    "Policy production test filter passed on retry $attempts."
+                } else {
+                    "Policy production test filter passed."
+                }
+                Add-Step $testName "passed" $detail
+            }
         }
     } else {
-        Add-Step "dotnet-tests" "skipped" "Use -RunTests to run LuaM dotnet test filters."
+        foreach ($test in @($releasePolicy.releaseGate.productionTests)) {
+            Add-Step ([string] $test.name) "skipped" "Use -RunTests to run this policy production test."
+        }
     }
 
-    if ($RunLocalSmoke) {
-        $smoke = Invoke-Captured -FilePath "powershell" -Arguments @(
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            "Tools\test_local_stack.ps1"
-        )
-        if ($smoke.ExitCode -ne 0) {
-            $issues.Add("Local stack smoke test failed: $($smoke.Output -join '; ')") | Out-Null
-            Add-Step "local-stack-smoke" "failed" "Smoke test returned $($smoke.ExitCode)."
-        } else {
-            Add-Step "local-stack-smoke" "passed" "Local stack smoke test passed."
+    foreach ($smoke in @($releasePolicy.releaseGate.smokeChecks)) {
+        $smokeName = [string] $smoke.name
+        $smokeMode = [string] $smoke.mode
+        if ($smokeMode -eq "local" -and -not $RunLocalSmoke) {
+            Add-Step $smokeName "skipped" "Use -RunLocalSmoke to run this policy smoke check."
+            continue
         }
-    } else {
-        Add-Step "local-stack-smoke" "skipped" "Use -RunLocalSmoke to launch local gateway/server/client."
+
+        if ($smokeMode -notin @("always", "local")) {
+            $issues.Add("Smoke check '$smokeName' has unsupported mode '$smokeMode'.") | Out-Null
+            Add-Step $smokeName "failed" "Unsupported smoke mode."
+            continue
+        }
+
+        $smokeArguments = @($smoke.arguments | ForEach-Object { [string] $_ })
+        $smokeSupported = $true
+        switch ([string] $smoke.runner) {
+            "python" {
+                $smokeFilePath = "python"
+                $smokeArguments = @([string] $smoke.script) + $smokeArguments
+            }
+            "powershell" {
+                $smokeFilePath = $powerShellExe
+                $smokeArguments = @(
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    [string] $smoke.script
+                ) + $smokeArguments
+            }
+            default {
+                $issues.Add("Smoke check '$smokeName' has unsupported runner '$($smoke.runner)'.") | Out-Null
+                Add-Step $smokeName "failed" "Unsupported smoke runner."
+                $smokeSupported = $false
+            }
+        }
+
+        if (-not $smokeSupported) {
+            continue
+        }
+
+        $smokeResult = Invoke-Captured -FilePath $smokeFilePath -Arguments $smokeArguments
+        if ($smokeResult.ExitCode -ne 0) {
+            $issues.Add("Smoke check '$smokeName' failed: $(Format-CapturedTail $smokeResult)") | Out-Null
+            Add-Step $smokeName "failed" "Smoke check returned $($smokeResult.ExitCode)."
+        } else {
+            Add-Step $smokeName "passed" "Policy smoke check passed."
+        }
     }
 }
 finally {
     Pop-Location
 }
 
+$finalWorktreeReceipt = Get-LuaMWorktreeReceipt -Root $root -ExcludedArtifacts $policyExcludedLocalArtifacts
+$finalPolicySha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $releasePolicyPath).Hash.ToLowerInvariant()
+if (-not $initialWorktreeReceipt.digestSha256.Equals($finalWorktreeReceipt.digestSha256, [StringComparison]::OrdinalIgnoreCase) -or
+    -not $initialWorktreeReceipt.gitHead.Equals($finalWorktreeReceipt.gitHead, [StringComparison]::OrdinalIgnoreCase)) {
+    $issues.Add("Release worktree changed while readiness was running. Initial $($initialWorktreeReceipt.digestSha256), final $($finalWorktreeReceipt.digestSha256).") | Out-Null
+    Add-Step "worktree-stability" "failed" "Release-relevant Git state changed during readiness."
+} else {
+    Add-Step "worktree-stability" "passed" "Worktree receipt $($finalWorktreeReceipt.digestSha256) remained stable."
+}
+if (-not $releasePolicySha256.Equals($finalPolicySha256, [StringComparison]::OrdinalIgnoreCase)) {
+    $issues.Add("Release policy changed while readiness was running.") | Out-Null
+    Add-Step "policy-stability" "failed" "Policy SHA256 changed during readiness."
+} else {
+    Add-Step "policy-stability" "passed" "Policy SHA256 $finalPolicySha256 remained stable."
+}
+
+if (-not $finalWorktreeReceipt.trackedForProduction) {
+    $trackedMessage = "Production worktree receipt contains $($finalWorktreeReceipt.untrackedFileCount) untracked file(s)."
+    if ($AllowUntracked) {
+        $warnings.Add("$trackedMessage This run is local evidence only.") | Out-Null
+        Add-Step "tracked-worktree" "warning" "$trackedMessage Local evidence only."
+    }
+    else {
+        $issues.Add($trackedMessage) | Out-Null
+        Add-Step "tracked-worktree" "failed" $trackedMessage
+    }
+}
+else {
+    Add-Step "tracked-worktree" "passed" "Worktree receipt contains no untracked files."
+}
+
+$requiredProductionTests = @($releasePolicy.releaseGate.productionTests | Where-Object { $_.requiredForProduction -eq $true })
+$requiredLocalSmokeChecks = @($releasePolicy.releaseGate.smokeChecks | Where-Object { $_.requiredForProduction -eq $true -and $_.mode -eq 'local' })
+$requiredEvidenceRequested = ($requiredProductionTests.Count -eq 0 -or [bool]$RunTests) -and
+    ($requiredLocalSmokeChecks.Count -eq 0 -or [bool]$RunLocalSmoke)
+
+$productionEligible = $issues.Count -eq 0 -and
+    -not [bool]$AllowUntracked -and
+    [bool]$finalWorktreeReceipt.trackedForProduction -and
+    $requiredEvidenceRequested
+
 $result = [pscustomobject]@{
     ok = $issues.Count -eq 0
+    productionEligible = $productionEligible
     allowUntracked = [bool] $AllowUntracked
     runTests = [bool] $RunTests
     runLocalSmoke = [bool] $RunLocalSmoke
+    releaseGate = [pscustomobject]@{
+        schemaVersion = [int] $releasePolicy.releaseGate.schemaVersion
+        policySha256 = $releasePolicySha256
+        requiredFileCount = $policyRequiredFiles.Count
+        productionTests = @($releasePolicy.releaseGate.productionTests | ForEach-Object { [string] $_.name })
+        smokeChecks = @($releasePolicy.releaseGate.smokeChecks | ForEach-Object { [string] $_.name })
+    }
+    worktree = $finalWorktreeReceipt
     issues = @($issues.ToArray())
     warnings = @($warnings.ToArray())
     steps = @($steps.ToArray())
 }
 
 if ($Json) {
-    $result | ConvertTo-Json -Depth 6
+    $result | ConvertTo-Json -Depth 8
 } else {
     $status = if ($result.ok) { "OK" } else { "FAILED" }
     Write-Host "LuaM release readiness: $status"

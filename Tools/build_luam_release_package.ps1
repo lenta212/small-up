@@ -10,6 +10,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "luam_release_contract.ps1")
+$releasePolicy = Read-LuaMReleasePolicy -Root $root
+$releasePolicyPath = Join-Path $root "Tools\luam_release_policy.json"
+$releasePolicySha256 = (Get-FileHash -LiteralPath $releasePolicyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$policyRequiredFiles = @(Get-LuaMReleaseGateRequiredFiles -Policy $releasePolicy)
+$policyPackageScopes = @(Get-LuaMReleaseGatePackageScopes -Policy $releasePolicy)
+$policyExcludedLocalArtifacts = @(Get-LuaMReleaseExcludedLocalArtifacts -Policy $releasePolicy)
 $releaseName = "luam-local-release-" + [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
 $outputRoot = if ([System.IO.Path]::IsPathRooted($OutputDir)) {
     $OutputDir
@@ -29,6 +36,7 @@ $releaseDirectories = @(
     "Resources/ConfigPresets/_LuaM",
     "Resources/Locale/en-US/_LuaM",
     "Resources/Locale/ru-RU/_LuaM",
+    "Resources/Maps/_LuaM",
     "Resources/Prototypes/_LuaM",
     "Resources/ServerInfo/_LuaM",
     "Resources/Textures/_LuaM"
@@ -38,6 +46,9 @@ $releaseFiles = @(
     "Content.Client/PDA/PdaBoundUserInterface.cs",
     "Content.Client/PDA/PdaMenu.xaml",
     "Content.Client/PDA/PdaMenu.xaml.cs",
+    "Content.Client/_NF/Shipyard/BUI/ShipyardConsoleBoundUserInterface.cs",
+    "Content.Client/_NF/Shipyard/UI/ShipyardConsoleMenu.xaml",
+    "Content.Client/_NF/Shipyard/UI/ShipyardConsoleMenu.xaml.cs",
     "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml",
     "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml.cs",
     "Content.Client/Clothing/ClientClothingSystem.cs",
@@ -58,6 +69,7 @@ $releaseFiles = @(
     "Content.Client/_NF/LateJoin/Controls/CrewPickerControl.xaml.cs",
     "Content.Client/_NF/LateJoin/Extensions/StationJobInformationExtensions.cs",
     "Content.Client/_NF/LateJoin/Windows/PickerWindow.xaml.cs",
+    "Content.Server/Access/Systems/IdCardConsoleSystem.cs",
     "Content.Server/Cargo/Systems/CargoSystem.Bounty.cs",
     "Content.Server/Cargo/Systems/CargoSystem.Orders.cs",
     "Content.Server/CartridgeLoader/CartridgeLoaderSystem.cs",
@@ -83,11 +95,15 @@ $releaseFiles = @(
     "Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs",
     "Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.cs",
     "Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.Designer.cs",
+    "Content.Server.Database/Migrations/Postgres/20260720164309_LuaMShipPayloadRevision.cs",
+    "Content.Server.Database/Migrations/Postgres/20260720164309_LuaMShipPayloadRevision.Designer.cs",
     "Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.Designer.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260720164259_LuaMShipPayloadRevision.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260720164259_LuaMShipPayloadRevision.Designer.cs",
     "Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs",
     "Content.Server/_LuaM/Expeditions/LuaMExpeditionPlan.cs",
     "Content.Server/_LuaM/Expeditions/LuaMExpeditionPlanCommand.cs",
@@ -101,6 +117,7 @@ $releaseFiles = @(
     "Content.Server/_CorvaxNext/Silicons/Borgs/AiRemoteControlSystem.cs",
     "Content.Server/_NF/Bank/ATMSystem.cs",
     "Content.Server/_NF/Bank/BankSystem.cs",
+    "Content.Server/_NF/ShuttleRecords/ShuttleRecordsSystem.Console.cs",
     "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs",
     "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.cs",
     "Content.Server/_NF/BountyContracts/BountyContractSystem.Ui.cs",
@@ -113,8 +130,6 @@ $releaseFiles = @(
     "Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficTest.cs",
     "Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficInterceptTest.cs",
     "Content.IntegrationTests/Tests/_LuaM/LuaMTimedSpawnerLimitTest.cs",
-    "Content.IntegrationTests/Tests/_LuaM/LuaMBankAndPdaContractsTest.cs",
-    "Content.IntegrationTests/Tests/_LuaM/LuaMBankDurableMutationContractTest.cs",
     "Content.IntegrationTests/Tests/_LuaM/LuaMShipyardPurchaseDurabilityContractTest.cs",
     "Content.IntegrationTests/Tests/_LuaM/LuaMCharacterPersistenceTest.cs",
     "Content.IntegrationTests/Tests/_LuaM/LuaMCharacterTtsValidationTest.cs",
@@ -137,10 +152,16 @@ $releaseFiles = @(
     "Content.Shared/_LuaM/Sector/LuaMAiTtsAudioEvent.cs",
     "Content.Shared/_CorvaxNext/Silicons/Borgs/Components/SharedAiRemoteControllerComponent.cs",
     "Content.Shared/_NF/BountyContracts/SharedBountyContractSystem.cs",
+    "Content.Shared/_NF/Shipyard/BUI/ShipyardConsoleInterfaceState.cs",
+    "Content.Shared/_NF/Shipyard/Components/ShuttleDeedComponent.cs",
+    "Content.Shared/_NF/Shipyard/Events/ShipyardConsoleParkMessage.cs",
+    "Content.Shared/_NF/Shipyard/Events/ShipyardConsolePurchaseMessage.cs",
+    "Content.Shared/_NF/ShuttleRecords/ShuttleRecord.cs",
     "Resources/Changelog/Parts/luam-animal-population-cap.yml",
     "Resources/Changelog/Parts/luam-sector-traffic.yml",
     "Resources/Changelog/Parts/luam-expedition-persistence-foundations.yml",
     "Resources/Changelog/Parts/luam-pda-bank-transfer-fix.yml",
+    "Resources/Changelog/Parts/luam-ship-generator.yml",
     "Resources/ConfigPresets/_Mono/monolithCore.toml",
     "Resources/Locale/en-US/_Goobstation/research/ui.ftl",
     "Resources/Locale/en-US/_Mono/gamerules/gamemodes.ftl",
@@ -182,6 +203,24 @@ $releaseFiles = @(
     "Resources/Prototypes/_Mono/lobbyscreens.yml",
     "Resources/Maps/_Mono/Shuttles/triage.yml",
     "Resources/Maps/_NF/Shuttles/Scrap/bison.yml",
+    "Resources/Maps/_NF/Shuttles/barge.yml",
+    "Resources/Maps/_NF/Shuttles/caladrius.yml",
+    "Resources/Maps/_NF/Shuttles/Expedition/pathfinder.yml",
+    "Resources/Maps/_NF/Shuttles/hammer.yml",
+    "Resources/Maps/_NF/Shuttles/Nfsd/hospitaller.yml",
+    "Resources/Maps/_NF/Shuttles/stasis.yml",
+    "Resources/Maps/_NF/Shuttles/spirit.yml",
+    "Resources/Maps/_NF/Shuttles/tyne.yml",
+    "Resources/Prototypes/_NF/Shipyard/barge.yml",
+    "Resources/Prototypes/_NF/Shipyard/caladrius.yml",
+    "Resources/Prototypes/_NF/Shipyard/Expedition/pathfinder.yml",
+    "Resources/Prototypes/_NF/Shipyard/hammer.yml",
+    "Resources/Prototypes/_NF/Shipyard/Nfsd/hospitaller.yml",
+    "Resources/Prototypes/_NF/Shipyard/stasis.yml",
+    "Resources/Prototypes/_NF/Shipyard/spirit.yml",
+    "Resources/Prototypes/_NF/Shipyard/tyne.yml",
+    "Resources/ServerInfo/_NF/Guidebook/PreflightChecklist.xml",
+    "Resources/ServerInfo/_NF/Guidebook/Shipyard/Spirit.xml",
     "Resources/Prototypes/holidays.yml",
     "Resources/manifest.yml",
     "Resources/ServerInfo/Intro.txt",
@@ -209,6 +248,7 @@ $releaseFiles = @(
     "Tools/generate_luam_admin_rank_sql.py",
     "Tools/audit_luam_dependency_vulnerabilities.ps1",
     "Tools/luam_ai_gateway.py",
+    "Tools/luam_ship_generator.py",
     "Tools/luam_openai_mcp_server.py",
     "Tools/summarize_luam_ai_audit.py",
     "Tools/luam_release_manifest.md",
@@ -222,16 +262,41 @@ $releaseFiles = @(
     "Tools/test_local_frontier.ps1",
     "Tools/test_local_stack.ps1",
     "Tools/test_luam_ai_gateway.py",
+    "Tools/test_luam_ship_generator.py",
     "Tools/validate_luam_feature_pack.py",
     "DeploymentPackages/LuaM/luam-admin-ranks.sqlite.sql",
     "DeploymentPackages/LuaM/luam-admin-ranks.postgres.sql",
     "DeploymentPackages/LuaM/luam-admin-ranks.md"
 )
 
+$releaseFiles = @($releaseFiles + $policyRequiredFiles) | Sort-Object -Unique
+
 $releaseScopes = @(
     "Content.Client/_LuaM",
+    "Content.Client/_Mono/FireControl",
+    "Content.Client/_Mono/Radar",
+    "Content.Client/Shuttles/UI/ShuttleNavControl.xaml.cs",
+    "Content.Client/_NF/Storage/Visualizers/ContainerCountVisualizerSystem.cs",
     "Content.Server/_LuaM",
+    "Content.Server/_Mono/Projectiles/TargetSeeking",
+    "Content.Server/_Mono/Radar",
+    "Content.Server/Mech/Systems/MechSystem.cs",
+    "Content.Server/PowerCell/PowerCellSystem.cs",
+    "Content.Server/_NF/Fluids",
+    "Content.Server/_NF/Mech",
+    "Content.Server/_NF/Power",
+    "Content.Server/_NF/Storage/EntitySystems/ContainerCountVisualizerSystem.cs",
     "Content.Shared/_LuaM",
+    "Content.Shared/Fluids/SharedDrainSystem.cs",
+    "Content.Shared/Mech/Components/MechComponent.cs",
+    "Content.Shared/Mech/EntitySystems/SharedMechSystem.cs",
+    "Content.Shared/_Mono/Radar",
+    "Content.Shared/_NF/Cargo",
+    "Content.Shared/_NF/Fluids",
+    "Content.Shared/_NF/Mech",
+    "Content.Shared/_NF/Species",
+    "Content.Shared/_NF/Storage/Components/ContainerCountVisualizerComponent.cs",
+    "Content.Shared/_NF/Whitelist",
     "Content.IntegrationTests/Tests/_LuaM",
     "Content.IntegrationTests/Tests/_NF/BountyContracts",
     "Content.IntegrationTests/Pair/TestPair.cs",
@@ -257,6 +322,10 @@ $releaseScopes = @(
     "Content.Client/_Goobstation/Research/UI/FancyResearchConsoleMenu.xaml.cs",
     "Content.Client/_NF/BountyContracts",
     "Content.Client/_NF/LateJoin",
+    "Content.Client/_NF/Shipyard/BUI/ShipyardConsoleBoundUserInterface.cs",
+    "Content.Client/_NF/Shipyard/UI/ShipyardConsoleMenu.xaml",
+    "Content.Client/_NF/Shipyard/UI/ShipyardConsoleMenu.xaml.cs",
+    "Content.Server/Access/Systems/IdCardConsoleSystem.cs",
     "Content.Server/Cargo/Systems/CargoSystem.Bounty.cs",
     "Content.Server/Cargo/Systems/CargoSystem.Orders.cs",
     "Content.Server/CartridgeLoader/CartridgeLoaderSystem.cs",
@@ -282,11 +351,15 @@ $releaseScopes = @(
     "Content.Server.Database/Migrations/Postgres/20260713070624_PreserveCharacterProfiles.Designer.cs",
     "Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.cs",
     "Content.Server.Database/Migrations/Postgres/20260713162540_DurablePdaBankTransfers.Designer.cs",
+    "Content.Server.Database/Migrations/Postgres/20260720164309_LuaMShipPayloadRevision.cs",
+    "Content.Server.Database/Migrations/Postgres/20260720164309_LuaMShipPayloadRevision.Designer.cs",
     "Content.Server.Database/Migrations/Postgres/PostgresServerDbContextModelSnapshot.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713070603_PreserveCharacterProfiles.Designer.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.cs",
     "Content.Server.Database/Migrations/Sqlite/20260713162532_DurablePdaBankTransfers.Designer.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260720164259_LuaMShipPayloadRevision.cs",
+    "Content.Server.Database/Migrations/Sqlite/20260720164259_LuaMShipPayloadRevision.Designer.cs",
     "Content.Server.Database/Migrations/Sqlite/SqliteServerDbContextModelSnapshot.cs",
     "Content.Server/_CorvaxNext/Silicons/Borgs/AiRemoteControlSystem.cs",
     "Content.Shared/PDA",
@@ -298,17 +371,26 @@ $releaseScopes = @(
     "Content.Shared/Roles/JobRequirements.cs",
     "Content.Shared/Roles/SharedRoleSystem.cs",
     "Content.Shared/_CorvaxNext/Silicons/Borgs/Components/SharedAiRemoteControllerComponent.cs",
+    "Content.Shared/_NF/ShuttleRecords/ShuttleRecord.cs",
     "Content.Server/_NF/Bank",
+    "Content.Server/_NF/Commands/BankCommand.cs",
+    "Content.Server/_NF/ShuttleRecords/ShuttleRecordsSystem.Console.cs",
     "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs",
     "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.cs",
     "Content.Server/_NF/BountyContracts",
     "Content.Shared/_NF/Bank",
     "Content.Shared/_NF/BountyContracts",
+    "Content.Shared/_NF/Shipyard/BUI/ShipyardConsoleInterfaceState.cs",
+    "Content.Shared/_NF/Shipyard/Components/ShuttleDeedComponent.cs",
+    "Content.Shared/_NF/Shipyard/Events/ShipyardConsoleParkMessage.cs",
+    "Content.Shared/_NF/Shipyard/Events/ShipyardConsolePurchaseMessage.cs",
     "Resources/ConfigPresets/_Mono/monolithCore.toml",
     "Resources/ConfigPresets/_LuaM",
+    "Resources/Audio/_NF/Mecha",
     "Resources/Locale/en-US/_Goobstation/research/ui.ftl",
     "Resources/Locale/en-US/_LuaM",
     "Resources/Locale/en-US/_Mono/gamerules/gamemodes.ftl",
+    "Resources/Locale/en-US/_NF",
     "Resources/Locale/en-US/_NF/bank/bank-ATM-component.ftl",
     "Resources/Locale/en-US/_NF/bounty-contracts/bounty-contracts.ftl",
     "Resources/Locale/en-US/_NF/cartridge-loader/cartridges.ftl",
@@ -320,6 +402,7 @@ $releaseScopes = @(
     "Resources/Locale/ru-RU/_Goobstation/research/ui.ftl",
     "Resources/Locale/ru-RU/_LuaM",
     "Resources/Locale/ru-RU/_Mono/gamerules/gamemodes.ftl",
+    "Resources/Locale/ru-RU/_NF",
     "Resources/Locale/ru-RU/_NF/bank/bank-ATM-component.ftl",
     "Resources/Locale/ru-RU/_NF/bounty-contracts/bounty-contracts.ftl",
     "Resources/Locale/ru-RU/_NF/cartridge-loader/cartridges.ftl",
@@ -328,6 +411,10 @@ $releaseScopes = @(
     "Resources/Locale/ru-RU/administration/ui/tabs/admin-tab/player-actions-window.ftl",
     "Resources/Locale/ru-RU/cargo/cargo-bounty-console.ftl",
     "Resources/Locale/ru-RU/holiday/greet/holiday-greet.ftl",
+    "Resources/Locale/ru-RU/launcher/launcher-connecting.ftl",
+    "Resources/Locale/ru-RU/ss14-ru/prototypes/_LuaM",
+    "Resources/Locale/ru-RU/ss14-ru/prototypes/_nf/entities/objects/misc/paper.ftl",
+    "Resources/Locale/ru-RU/ss14-ru/prototypes/catalog/fills/crates/engineering.ftl",
     "Resources/Prototypes/Entities/Mobs/Species/arachnid.yml",
     "Resources/Prototypes/Entities/Mobs/Species/base.yml",
     "Resources/Prototypes/Entities/Markers/Spawners/Conditional/timed.yml",
@@ -336,6 +423,14 @@ $releaseScopes = @(
     "Resources/Prototypes/InventoryTemplates/corpse_inventory_template.yml",
     "Resources/Prototypes/InventoryTemplates/human_inventory_template.yml",
     "Resources/Prototypes/_LuaM",
+    "Resources/Prototypes/_Mono",
+    "Resources/Prototypes/_NF",
+    "Resources/Prototypes/Catalog/Fills",
+    "Resources/Prototypes/Entities/Objects/Specific/chemistry-bottles.yml",
+    "Resources/Prototypes/Entities/Objects/Weapons/Guns/Shotguns/shotguns.yml",
+    "Resources/Prototypes/Entities/Structures/Doors/Airlocks",
+    "Resources/Prototypes/Entities/Structures/Storage/Closets/base_structureclosets.yml",
+    "Resources/Prototypes/tags.yml",
     "Resources/Prototypes/_NF/Entities/Mobs/NPCs/mob_hostile_rogue_ai.yml",
     "Resources/Prototypes/_NF/Loadouts",
     "Resources/Prototypes/_NF/PointsOfInterest",
@@ -348,6 +443,8 @@ $releaseScopes = @(
     "Resources/Prototypes/_Mono/game_presets.yml",
     "Resources/Prototypes/_Mono/lobbyscreens.yml",
     "Resources/Maps/_Mono/Shuttles/triage.yml",
+    "Resources/Maps/_LuaM",
+    "Resources/Maps/_NF/Shuttles",
     "Resources/Maps/_NF/Shuttles/Scrap/bison.yml",
     "Resources/Changelog/Parts/luam-animal-population-cap.yml",
     "Resources/Changelog/Parts/luam-sector-traffic.yml",
@@ -355,8 +452,13 @@ $releaseScopes = @(
     "Resources/Prototypes/holidays.yml",
     "Resources/ServerInfo/Intro.txt",
     "Resources/ServerInfo/_LuaM",
+    "Resources/ServerInfo/_NF/Guidebook",
     "Resources/Textures/_LuaM",
+    "Resources/Textures/_NF",
+    "Resources/Textures/Structures/Doors/Airlocks/Glass/salvage.rsi",
+    "Resources/Textures/Structures/Machines/holopad.rsi",
     "Resources/manifest.yml",
+    "Directory.Packages.props",
     "server_config.remote.toml",
     "Content.Packaging/ClientPackaging.cs",
     "Content.Packaging/ServerPackaging.cs",
@@ -381,6 +483,7 @@ $releaseScopes = @(
     "Tools/generate_luam_admin_rank_sql.py",
     "Tools/audit_luam_dependency_vulnerabilities.ps1",
     "Tools/luam_ai_gateway.py",
+    "Tools/luam_ship_generator.py",
     "Tools/luam_openai_mcp_server.py",
     "Tools/summarize_luam_ai_audit.py",
     "Tools/luam_release_manifest.md",
@@ -394,38 +497,13 @@ $releaseScopes = @(
     "Tools/test_local_frontier.ps1",
     "Tools/test_local_stack.ps1",
     "Tools/test_luam_ai_gateway.py",
+    "Tools/test_luam_ship_generator.py",
     "Tools/validate_luam_feature_pack.py"
 )
 
-$allowedOutOfScopeChangedFiles = @(
-    ".gitignore",
-    "Content.Server/Movement/Systems/PullController.cs",
-    "Content.Server/Nyanotrasen/Kitchen/EntitySystems/DeepFryerSystem.cs",
-    "Content.Server/_Mono/Cleanup/CleanupHelperSystem.cs",
-    "Resources/Maps/_NF/POI/bahama.yml",
-    "Resources/Maps/_NF/POI/courthouse.yml",
-    "Resources/Maps/_NF/POI/tinnia.yml",
-    "Resources/Prototypes/Entities/Structures/Piping/Disposal/units.yml",
-    "Resources/Prototypes/_Mono/Outpost/colossus.yml",
-    "Resources/migration.yml",
-    "RobustToolbox",
-    "Tools/monolith-restart-when-empty.ps1",
+$releaseScopes = @($releaseScopes + $policyPackageScopes) | Sort-Object -Unique
 
-    # Pre-existing paired NF ship content is intentionally outside the LuaM source package.
-    # It remains part of the full server Resources build and is recorded in the release policy/manifest.
-    "Resources/Maps/_NF/Shuttles/barge.yml",
-    "Resources/Maps/_NF/Shuttles/caladrius.yml",
-    "Resources/Maps/_NF/Shuttles/Expedition/pathfinder.yml",
-    "Resources/Maps/_NF/Shuttles/hammer.yml",
-    "Resources/Maps/_NF/Shuttles/Nfsd/hospitaller.yml",
-    "Resources/Maps/_NF/Shuttles/stasis.yml",
-    "Resources/Prototypes/_NF/Shipyard/barge.yml",
-    "Resources/Prototypes/_NF/Shipyard/caladrius.yml",
-    "Resources/Prototypes/_NF/Shipyard/Expedition/pathfinder.yml",
-    "Resources/Prototypes/_NF/Shipyard/hammer.yml",
-    "Resources/Prototypes/_NF/Shipyard/Nfsd/hospitaller.yml",
-    "Resources/Prototypes/_NF/Shipyard/stasis.yml"
-)
+$allowedOutOfScopeChangedFiles = @(Get-LuaMReleaseApprovedOutsidePackageFiles -Policy $releasePolicy)
 
 function Convert-ToRepoPath {
     param([string]$Path)
@@ -451,7 +529,8 @@ function Add-File {
     )
 
     $repoPath = Convert-ToRepoPath $Path
-    if ($repoPath -match "(^|/)(bin|obj|\.vs|\.idea|\.vscode|node_modules|__pycache__|\.pytest_cache|logs?|tmp|temp)(/|$)|\.(log|tmp|bak|cache|db|sqlite|sqlite3)$") {
+    if ((Test-LuaMReleaseExcludedLocalArtifact -Path $repoPath -ExcludedArtifacts $policyExcludedLocalArtifacts) -or
+        $repoPath -match "(^|/)(bin|obj|\.vs|\.idea|\.vscode|node_modules|__pycache__|\.pytest_cache|logs?|tmp|temp)(/|$)|\.(log|tmp|bak|cache|db|sqlite|sqlite3)$") {
         return
     }
 
@@ -504,25 +583,45 @@ function Invoke-AdminRankSqlGeneration {
 
 function Get-ChangedFiles {
     $changed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($file in @(& git diff --name-only) + @(& git diff --cached --name-only) + @(& git ls-files --others --exclude-standard)) {
+    $gitOutputs = @(
+        @(Invoke-LuaMGitCapture -Root $root -Arguments @('-c', 'core.quotepath=false', 'diff', '--name-only', '--no-ext-diff'))
+        @(Invoke-LuaMGitCapture -Root $root -Arguments @('-c', 'core.quotepath=false', 'diff', '--cached', '--name-only', '--no-ext-diff'))
+        @(Invoke-LuaMGitCapture -Root $root -Arguments @('-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard'))
+    )
+    foreach ($file in $gitOutputs) {
         if ([string]::IsNullOrWhiteSpace($file)) {
             continue
         }
 
-        $changed.Add((Convert-ToRepoPath $file)) | Out-Null
+        $repoPath = Convert-ToRepoPath $file
+        if (Test-LuaMReleaseExcludedLocalArtifact -Path $repoPath -ExcludedArtifacts $policyExcludedLocalArtifacts) {
+            continue
+        }
+
+        $changed.Add($repoPath) | Out-Null
     }
 
     return @($changed) | Sort-Object
 }
 
+$staging = $null
 Push-Location $root
 try {
+    # Generate policy-owned deterministic artifacts before taking the readiness/worktree receipt.
+    Invoke-AdminRankSqlGeneration | Out-Null
+
     $readiness = $null
     if (-not $SkipReadiness) {
         $readiness = Invoke-Readiness
     }
-
-    Invoke-AdminRankSqlGeneration | Out-Null
+    $sourceReceipt = if ($null -ne $readiness) {
+        if ($null -eq $readiness.worktree) {
+            throw "Readiness output is missing its worktree receipt."
+        }
+        $readiness.worktree
+    } else {
+        Get-LuaMWorktreeReceipt -Root $root -ExcludedArtifacts $policyExcludedLocalArtifacts
+    }
 
     $files = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
@@ -541,7 +640,11 @@ try {
         Add-File -Set $files -Path $file
     }
 
-    $changedInScope = @(& git ls-files --modified --others --exclude-standard -- @releaseScopes)
+    $changedInScope = @(
+        @(Invoke-LuaMGitCapture -Root $root -Arguments (@('-c', 'core.quotepath=false', 'diff', '--name-only', '--no-ext-diff', '--') + $releaseScopes))
+        @(Invoke-LuaMGitCapture -Root $root -Arguments (@('-c', 'core.quotepath=false', 'diff', '--cached', '--name-only', '--no-ext-diff', '--') + $releaseScopes))
+        @(Invoke-LuaMGitCapture -Root $root -Arguments (@('-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard', '--') + $releaseScopes))
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique
     foreach ($file in $changedInScope) {
         Add-File -Set $files -Path $file
     }
@@ -560,27 +663,46 @@ try {
     foreach ($relative in $orderedFiles) {
         $source = Join-Path $root ($relative.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
         $destination = Join-Path $staging ($relative.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+        $sourceItem = Get-Item -LiteralPath $source -Force
+        if (($sourceItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Release package refuses a reparse-point source file: $relative"
+        }
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
         Copy-Item -LiteralPath $source -Destination $destination -Force
 
-        $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $source
+        $destinationItem = Get-Item -LiteralPath $destination -Force
+        if (($destinationItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Release package staging unexpectedly contains a reparse point: $relative"
+        }
+        $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $destination
         $fileHashes.Add([pscustomobject]@{
             path = $relative
             sha256 = $hash.Hash.ToLowerInvariant()
-            bytes = (Get-Item -LiteralPath $source).Length
+            bytes = [int64]$destinationItem.Length
         }) | Out-Null
     }
 
-    $gitHead = (& git rev-parse HEAD).Trim()
-    $gitBranch = (& git rev-parse --abbrev-ref HEAD).Trim()
-    $untracked = @(& git ls-files --others --exclude-standard -- @releaseScopes)
+    $finalWorktreeReceipt = Get-LuaMWorktreeReceipt -Root $root -ExcludedArtifacts $policyExcludedLocalArtifacts
+    if (-not ([string]$sourceReceipt.digestSha256).Equals([string]$finalWorktreeReceipt.digestSha256, [System.StringComparison]::OrdinalIgnoreCase) -or
+        -not ([string]$sourceReceipt.gitHead).Equals([string]$finalWorktreeReceipt.gitHead, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Release worktree changed after readiness and before package manifest creation."
+    }
+    $finalPolicySha256 = (Get-FileHash -LiteralPath $releasePolicyPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if (-not $releasePolicySha256.Equals($finalPolicySha256, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Release policy changed during source package creation."
+    }
+
+    $gitHead = [string]$finalWorktreeReceipt.gitHead
+    $gitBranch = [string]$finalWorktreeReceipt.gitBranch
+    $untracked = @(Invoke-LuaMGitCapture -Root $root -Arguments (@('-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard', '--') + $releaseScopes))
     $fileHashArray = @($fileHashes | ForEach-Object { $_ })
+    $payloadDigestSha256 = Get-LuaMFileRecordDigest -Files $fileHashArray
     $changedFiles = @(Get-ChangedFiles)
     $packagedChangedFiles = @($changedFiles | Where-Object { $files.Contains($_) })
     $changedFilesOutsidePackage = @($changedFiles | Where-Object { -not $files.Contains($_) })
     $allowedOutOfScope = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($file in $allowedOutOfScopeChangedFiles) {
-        $allowedOutOfScope.Add((Convert-ToRepoPath $file)) | Out-Null
+        $allowedOutOfScope.Add($file) | Out-Null
     }
     $unexpectedChangedFilesOutsidePackage = @(
         $changedFilesOutsidePackage |
@@ -596,9 +718,13 @@ try {
     )
 
     $packageManifest = [pscustomobject]@{
+        schemaVersion = 2
         name = $releaseName
         generatedAtUtc = [DateTime]::UtcNow.ToString("o")
-        sourceRoot = $root
+        policySha256 = $releasePolicySha256
+        payloadDigestSha256 = $payloadDigestSha256
+        sourceReceipt = $finalWorktreeReceipt
+        productionEligible = ($null -ne $readiness -and [bool]$readiness.productionEligible -and -not [bool]$AllowUntracked)
         git = [pscustomobject]@{
             branch = $gitBranch
             head = $gitHead
@@ -622,7 +748,36 @@ try {
     $orderedFiles | Set-Content -LiteralPath $fileListPath -Encoding UTF8
 
     $zipPath = Join-Path $outputRoot ($releaseName + ".zip")
-    Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $zipPath -Force
+    if (Test-Path -LiteralPath $zipPath) {
+        Remove-Item -LiteralPath $zipPath -Force
+    }
+
+    # ZIP entry names are always slash-delimited, regardless of the host OS.
+    # Compress-Archive preserves Windows path separators, which makes an archive
+    # fail the same verifier on Linux and even our own exact-entry checks.
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::Open(
+        $zipPath,
+        [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $stagingPrefix = $staging.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+        $stagedFiles = Get-ChildItem -LiteralPath $staging -Recurse -File |
+            Sort-Object @{ Expression = {
+                $_.FullName.Substring($stagingPrefix.Length).Replace('\', '/')
+            } }
+        foreach ($stagedFile in $stagedFiles) {
+            $entryName = $stagedFile.FullName.Substring($stagingPrefix.Length).Replace('\', '/')
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive,
+                $stagedFile.FullName,
+                $entryName,
+                [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
     $zipHash = Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath
 
     Remove-Item -LiteralPath $staging -Recurse -Force
@@ -631,6 +786,11 @@ try {
         ok = $true
         package = $zipPath
         sha256 = $zipHash.Hash.ToLowerInvariant()
+        policySha256 = $releasePolicySha256
+        payloadDigestSha256 = $payloadDigestSha256
+        worktreeDigestSha256 = [string]$finalWorktreeReceipt.digestSha256
+        gitHead = [string]$finalWorktreeReceipt.gitHead
+        productionEligible = [bool]$packageManifest.productionEligible
         fileCount = $orderedFiles.Count
         untrackedReleaseFiles = $untracked.Count
         scopeAudit = [pscustomobject]@{
@@ -656,5 +816,8 @@ try {
     }
 }
 finally {
+    if ($null -ne $staging -and (Test-Path -LiteralPath $staging)) {
+        Remove-Item -LiteralPath $staging -Recurse -Force
+    }
     Pop-Location
 }

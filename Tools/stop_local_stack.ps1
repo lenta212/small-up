@@ -35,6 +35,7 @@ function Remove-LocalStackArtifacts {
         "client-err.txt",
         "local-stack-pids.json",
         "luam_ai_gateway.py",
+        "luam_ship_generator.py",
         "server_config_local.toml"
     )
 

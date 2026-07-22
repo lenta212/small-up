@@ -10,6 +10,14 @@ namespace Content.Packaging;
 
 public static class ClientPackaging
 {
+    private static readonly IReadOnlySet<string> ClientOnlyIgnoredResources = new HashSet<string>(
+        StringComparer.OrdinalIgnoreCase)
+    {
+        // Authoritative progression, expedition generation, examinations, and
+        // other server-private data must never be shipped in SS14.Client.zip.
+        "ServerOnly",
+    };
+
     /// <summary>
     /// Be advised this can be called from server packaging during a HybridACZ build.
     /// </summary>
@@ -58,6 +66,8 @@ public static class ClientPackaging
         IPackageLogger logger,
         CancellationToken cancel)
     {
+        ValidateServerOnlyDirectoryCasing(contentDir);
+
         var graph = new RobustClientAssetGraph();
         pass.Dependencies.Add(new AssetPassDependency(graph.Output.Name));
 
@@ -84,8 +94,28 @@ public static class ClientPackaging
             new[] { "Content.Client", "Content.Shared", "Content.Shared.Database" },
             cancel: cancel);
 
-        await RobustClientPackaging.WriteClientResources(contentDir, inputPass, cancel);
+        await RobustClientPackaging.WriteClientResources(
+            contentDir,
+            inputPass,
+            ClientOnlyIgnoredResources,
+            cancel);
 
         inputPass.InjectFinished();
+    }
+
+    private static void ValidateServerOnlyDirectoryCasing(string contentDir)
+    {
+        var resources = Path.Combine(contentDir, "Resources");
+        var matches = Directory
+            .EnumerateFileSystemEntries(resources)
+            .Where(path => Path.GetFileName(path).Equals("ServerOnly", StringComparison.OrdinalIgnoreCase))
+            .Select(Path.GetFileName)
+            .ToArray();
+
+        if (matches.Length != 1 || !string.Equals(matches[0], "ServerOnly", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Resources must contain exactly one canonically-cased ServerOnly directory before client packaging.");
+        }
     }
 }

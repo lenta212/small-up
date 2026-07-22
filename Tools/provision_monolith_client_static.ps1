@@ -6,6 +6,10 @@ param(
     [string]$ExpectedSha256,
     [Parameter(Mandatory = $true)]
     [string]$Version,
+    [Parameter(Mandatory = $true)]
+    [string]$ReleaseReceiptPath,
+    [Parameter(Mandatory = $true)]
+    [string]$ExpectedReleaseReceiptSha256,
     [string]$SshTarget = "monolith-new",
     [string]$BaseDir = "/opt/monolith-ds",
     [string]$PublicHost = "188.127.225.57",
@@ -14,6 +18,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "luam_release_contract.ps1")
+$releasePolicy = Read-LuaMReleasePolicy -Root $root
+$releasePolicySha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot "luam_release_policy.json") -Algorithm SHA256).Hash.ToLowerInvariant()
 
 function Invoke-CheckedNative {
     param(
@@ -107,6 +115,33 @@ $clientRoot = "/var/www/monolith-client"
 $publicHostForUrl = if ($hostKind -eq [UriHostNameType]::IPv6) { "[$PublicHost]" } else { $PublicHost }
 $downloadUrl = "http://${publicHostForUrl}:$Port/$Version/SS14.Client.zip"
 $packageBytes = (Get-Item -LiteralPath $resolvedPackage).Length
+$releaseReceipt = Read-LuaMBinaryReleaseReceipt -Path $ReleaseReceiptPath -ExpectedSha256 $ExpectedReleaseReceiptSha256
+if (-not ([string]$releaseReceipt.policySha256).Equals($releasePolicySha256, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Binary release receipt policy SHA256 does not match the active local policy."
+}
+if (-not ([string]$releaseReceipt.client.fileName).Equals([IO.Path]::GetFileName($resolvedPackage), [StringComparison]::Ordinal) -or
+    -not ([string]$releaseReceipt.client.sha256).Equals($actualSha, [StringComparison]::OrdinalIgnoreCase) -or
+    [int64]$releaseReceipt.client.bytes -ne [int64]$packageBytes) {
+    throw "Client package name/hash/size does not match the binary release receipt."
+}
+if ($releaseReceipt.delivery.mode -ne 'external-zip' -or
+    -not ([string]$releaseReceipt.delivery.clientDownloadUrl).Equals($downloadUrl, [StringComparison]::Ordinal)) {
+    throw "Static client URL does not match the receipt-bound external client delivery URL."
+}
+
+# A successful child PowerShell script does not necessarily initialize the
+# native-process exit code under Windows PowerShell strict mode.
+$global:LASTEXITCODE = 0
+$auditOutput = @(& (Join-Path $PSScriptRoot "audit_release_surface.ps1") -PackagePath $resolvedPackage -ExpectedPackageKind client -AllowPartial -Json)
+if ($global:LASTEXITCODE -ne 0) {
+    throw "Client release surface audit failed before static provisioning."
+}
+$clientSurfaceAudit = ($auditOutput -join "`n") | ConvertFrom-Json
+$clientAudit = @($clientSurfaceAudit.packages | Where-Object { $_.kind -eq 'client' }) | Select-Object -First 1
+if ($clientSurfaceAudit.ok -ne $true -or [int64]$clientSurfaceAudit.violationCount -ne 0 -or
+    $null -eq $clientAudit -or $clientAudit.clientServerOnlyAbsent -ne $true) {
+    throw "Client package lacks fresh passing privacy/surface-audit evidence."
+}
 
 $plan = [ordered]@{
     client_package = $resolvedPackage
@@ -118,12 +153,29 @@ $plan = [ordered]@{
     client_root = $clientRoot
     download_url = $downloadUrl
     nginx_port = $Port
+    release_receipt = (Resolve-Path -LiteralPath $ReleaseReceiptPath).Path
+    release_receipt_sha256 = $ExpectedReleaseReceiptSha256.Trim().ToLowerInvariant()
+    source_payload_digest_sha256 = [string]$releaseReceipt.sourcePackage.payloadDigestSha256
+    surface_audit_passed = [bool]$clientSurfaceAudit.ok
+    server_only_absent = [bool]$clientAudit.clientServerOnlyAbsent
+    freeze_policy = [pscustomobject]@{
+        active = [bool]$releasePolicy.remoteDeployFrozen
+        detail = [string]$releasePolicy.reason
+        authorization = $releasePolicy.deploymentAuthorization
+    }
 }
 
 if ($DryRun) {
     $plan | ConvertTo-Json -Depth 4
     exit 0
 }
+
+$mutationPolicy = Read-LuaMReleasePolicy -Root $root
+$mutationPolicySha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot "luam_release_policy.json") -Algorithm SHA256).Hash.ToLowerInvariant()
+if (-not $releasePolicySha256.Equals($mutationPolicySha256, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Release policy changed after receipt validation; refusing remote mutation."
+}
+Assert-LuaMRemoteMutationAllowed -Policy $mutationPolicy -Mutation 'client-static'
 
 Invoke-RemoteBash @"
 set -euo pipefail

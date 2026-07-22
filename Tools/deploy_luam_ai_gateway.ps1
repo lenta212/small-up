@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$SourcePath = "Tools\luam_ai_gateway.py",
+    [string]$GeneratorSourcePath = "Tools\luam_ship_generator.py",
     [Parameter(Mandatory = $true)]
     [string]$ExpectedSha256,
     [string]$Tag = "",
@@ -12,6 +13,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "luam_release_contract.ps1")
+$releasePolicy = Read-LuaMReleasePolicy -Root $root
+$releasePolicySha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot "luam_release_policy.json") -Algorithm SHA256).Hash.ToLowerInvariant()
 
 function Invoke-CheckedNative {
     param(
@@ -44,6 +49,9 @@ function Invoke-RemoteBash {
 if (-not (Test-Path -LiteralPath $SourcePath -PathType Leaf)) {
     throw "Gateway source not found: $SourcePath"
 }
+if (-not (Test-Path -LiteralPath $GeneratorSourcePath -PathType Leaf)) {
+    throw "Ship generator source not found: $GeneratorSourcePath"
+}
 
 if ($SshTarget -notmatch '^[A-Za-z0-9_.@-]+$' -or $SshTarget.StartsWith('-')) {
     throw "SshTarget contains unsupported characters: $SshTarget"
@@ -58,7 +66,9 @@ if ($PiperCacheSize -lt 1 -or $PiperCacheSize -gt 16) {
 }
 
 $resolvedSource = (Resolve-Path -LiteralPath $SourcePath).Path
+$resolvedGeneratorSource = (Resolve-Path -LiteralPath $GeneratorSourcePath).Path
 $actualSha = (Get-FileHash -LiteralPath $resolvedSource -Algorithm SHA256).Hash.ToLowerInvariant()
+$actualGeneratorSha = (Get-FileHash -LiteralPath $resolvedGeneratorSource -Algorithm SHA256).Hash.ToLowerInvariant()
 $expectedSha = $ExpectedSha256.Trim().ToLowerInvariant()
 if ($actualSha -ne $expectedSha) {
     throw "Gateway SHA256 mismatch. Expected $expectedSha, got $actualSha"
@@ -85,18 +95,29 @@ if ($baseDirNormalized -notmatch '^/[A-Za-z0-9._/-]+$' -or
 
 $remoteStageDir = "$baseDirNormalized/deploy-staging"
 $remoteStage = "$remoteStageDir/luam_ai_gateway-$Tag.py"
+$remoteGeneratorStage = "$remoteStageDir/luam_ship_generator-$Tag.py"
 $remoteGateway = "$baseDirNormalized/ai-gateway/luam_ai_gateway.py"
+$remoteGenerator = "$baseDirNormalized/ai-gateway/luam_ship_generator.py"
 $remoteEnv = "/etc/monolith-ds/ai-gateway.env"
 
 $plan = [ordered]@{
     source = $resolvedSource
     sha256 = $actualSha
+    generator_source = $resolvedGeneratorSource
+    generator_sha256 = $actualGeneratorSha
     ssh_target = $SshTarget
     remote_gateway = $remoteGateway
+    remote_generator = $remoteGenerator
     remote_env = $remoteEnv
     service = $ServiceName
     piper_cache_size = $PiperCacheSize
     tag = $Tag
+    release_policy_sha256 = $releasePolicySha256
+    freeze_policy = [pscustomobject]@{
+        active = [bool]$releasePolicy.remoteDeployFrozen
+        detail = [string]$releasePolicy.reason
+        authorization = $releasePolicy.deploymentAuthorization
+    }
 }
 
 if ($DryRun) {
@@ -104,26 +125,38 @@ if ($DryRun) {
     exit 0
 }
 
+$mutationPolicy = Read-LuaMReleasePolicy -Root $root
+$mutationPolicySha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot "luam_release_policy.json") -Algorithm SHA256).Hash.ToLowerInvariant()
+if (-not $releasePolicySha256.Equals($mutationPolicySha256, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Release policy changed after plan validation; refusing remote mutation."
+}
+Assert-LuaMRemoteMutationAllowed -Policy $mutationPolicy -Mutation 'ai-gateway'
+
 Invoke-RemoteBash @"
 set -euo pipefail
 umask 077
 mkdir -p -- $(ConvertTo-ShellSingleQuoted $remoteStageDir)
 "@
 Invoke-CheckedNative scp $resolvedSource "${SshTarget}:$remoteStage"
+Invoke-CheckedNative scp $resolvedGeneratorSource "${SshTarget}:$remoteGeneratorStage"
 
 Invoke-RemoteBash @"
 set -euo pipefail
 stage=$(ConvertTo-ShellSingleQuoted $remoteStage)
+generator_stage=$(ConvertTo-ShellSingleQuoted $remoteGeneratorStage)
 gateway=$(ConvertTo-ShellSingleQuoted $remoteGateway)
+generator=$(ConvertTo-ShellSingleQuoted $remoteGenerator)
 env_file=$(ConvertTo-ShellSingleQuoted $remoteEnv)
 service=$(ConvertTo-ShellSingleQuoted $ServiceName)
 expected_sha=$(ConvertTo-ShellSingleQuoted $actualSha)
+expected_generator_sha=$(ConvertTo-ShellSingleQuoted $actualGeneratorSha)
 tag=$(ConvertTo-ShellSingleQuoted $Tag)
 cache_size=$(ConvertTo-ShellSingleQuoted ([string]$PiperCacheSize))
 python_bin=$(ConvertTo-ShellSingleQuoted "$baseDirNormalized/ai-gateway/piper-venv/bin/python")
 backup_base=$(ConvertTo-ShellSingleQuoted "$baseDirNormalized/backups/ai-gateway-$Tag")
 
 test -f "`$stage"
+test -f "`$generator_stage"
 test -f "`$gateway"
 test -f "`$env_file"
 actual_sha=`$(sha256sum "`$stage" | awk '{print `$1}')
@@ -131,9 +164,14 @@ if [ "`$actual_sha" != "`$expected_sha" ]; then
   echo "Remote gateway SHA256 mismatch. Expected `$expected_sha, got `$actual_sha" >&2
   exit 41
 fi
+actual_generator_sha=`$(sha256sum "`$generator_stage" | awk '{print `$1}')
+if [ "`$actual_generator_sha" != "`$expected_generator_sha" ]; then
+  echo "Remote ship generator SHA256 mismatch. Expected `$expected_generator_sha, got `$actual_generator_sha" >&2
+  exit 44
+fi
 
 test -x "`$python_bin"
-"`$python_bin" -m py_compile "`$stage"
+"`$python_bin" -m py_compile "`$stage" "`$generator_stage"
 
 if ! sudo systemctl is-active --quiet "`$service" ||
    ! curl -fsS http://127.0.0.1:8787/health >/dev/null; then
@@ -151,6 +189,11 @@ done
 sudo install -d -m 0700 "`$backup_dir"
 sudo install -m 0600 "`$gateway" "`$backup_dir/luam_ai_gateway.py"
 sudo install -m 0600 "`$env_file" "`$backup_dir/ai-gateway.env"
+generator_preexisting=0
+if sudo test -f "`$generator"; then
+  sudo install -m 0600 "`$generator" "`$backup_dir/luam_ship_generator.py"
+  generator_preexisting=1
+fi
 
 rollback_needed=0
 rollback() {
@@ -161,6 +204,11 @@ rollback() {
     echo "Gateway deployment failed; rolling back from `$backup_dir" >&2
     recovery_failed=0
     sudo install -o monolith -g monolith -m 0644 "`$backup_dir/luam_ai_gateway.py" "`$gateway" || recovery_failed=1
+    if [ "`$generator_preexisting" -eq 1 ]; then
+      sudo install -o monolith -g monolith -m 0644 "`$backup_dir/luam_ship_generator.py" "`$generator" || recovery_failed=1
+    else
+      sudo rm -f -- "`$generator" || recovery_failed=1
+    fi
     sudo install -m 0600 "`$backup_dir/ai-gateway.env" "`$env_file" || recovery_failed=1
     sudo systemctl restart "`$service" || recovery_failed=1
 
@@ -190,6 +238,7 @@ rollback() {
 trap 'rollback `$?' ERR
 
 rollback_needed=1
+sudo install -o monolith -g monolith -m 0644 "`$generator_stage" "`$generator"
 sudo install -o monolith -g monolith -m 0644 "`$stage" "`$gateway"
 sudo python3 - "`$env_file" "`$cache_size" <<'PY'
 import os
@@ -244,9 +293,10 @@ fi
 
 rollback_needed=0
 trap - ERR
-rm -f -- "`$stage" || true
+rm -f -- "`$stage" "`$generator_stage" || true
 echo "gateway_backup=`$backup_dir"
 echo "gateway_sha256=`$actual_sha"
+echo "ship_generator_sha256=`$actual_generator_sha"
 echo "gateway_cache_size=`$cache_size"
 "@
 
@@ -254,6 +304,8 @@ echo "gateway_cache_size=`$cache_size"
     ok = $true
     source = $resolvedSource
     sha256 = $actualSha
+    generator_source = $resolvedGeneratorSource
+    generator_sha256 = $actualGeneratorSha
     service = $ServiceName
     piper_cache_size = $PiperCacheSize
     tag = $Tag

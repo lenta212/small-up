@@ -3,6 +3,8 @@ param(
     [string]$TempRoot = "C:\MonolithTemp",
     [string]$GatewayPort = "8787",
     [string]$ServerPort = "1213",
+    [int]$ServerReadyTimeoutSeconds = 120,
+    [int]$ClientConnectTimeoutSeconds = 420,
     [switch]$OfficialOpenAI,
     [string]$OpenAIModel = "gpt-5.5",
     [switch]$PiperTts,
@@ -22,8 +24,10 @@ $serverConfig = Join-Path $TempRoot ("server_config_local-" + [DateTime]::UtcNow
 $serverData = Join-Path $TempRoot "server-data"
 $serverLogDir = Join-Path $TempRoot ("server-logs-" + [DateTime]::UtcNow.ToString("yyyyMMddHHmmssfff"))
 $gatewaySource = Join-Path $Root "Tools\luam_ai_gateway.py"
+$shipGeneratorSource = Join-Path $Root "Tools\luam_ship_generator.py"
 $mcpServerSource = Join-Path $Root "Tools\luam_openai_mcp_server.py"
 $gatewayCopy = Join-Path $TempRoot ("luam_ai_gateway-" + [DateTime]::UtcNow.ToString("yyyyMMddHHmmssfff") + ".py")
+$shipGeneratorCopy = Join-Path $TempRoot "luam_ship_generator.py"
 $gatewayOut = Join-Path $TempRoot "gw-out.txt"
 $gatewayErr = Join-Path $TempRoot "gw-err.txt"
 $gatewayAudit = Join-Path $TempRoot "gw-audit.jsonl"
@@ -37,6 +41,17 @@ New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $serverData | Out-Null
 New-Item -ItemType Directory -Force -Path $serverLogDir | Out-Null
 Copy-Item $gatewaySource $gatewayCopy -Force
+Copy-Item $shipGeneratorSource $shipGeneratorCopy -Force
+$gatewaySourceSha256 = (Get-FileHash -LiteralPath $gatewaySource -Algorithm SHA256).Hash
+$gatewayCopySha256 = (Get-FileHash -LiteralPath $gatewayCopy -Algorithm SHA256).Hash
+$shipGeneratorSourceSha256 = (Get-FileHash -LiteralPath $shipGeneratorSource -Algorithm SHA256).Hash
+$shipGeneratorCopySha256 = (Get-FileHash -LiteralPath $shipGeneratorCopy -Algorithm SHA256).Hash
+if ($gatewaySourceSha256 -ne $gatewayCopySha256) {
+    throw "Local gateway copy SHA256 mismatch."
+}
+if ($shipGeneratorSourceSha256 -ne $shipGeneratorCopySha256) {
+    throw "Local ship generator copy SHA256 mismatch."
+}
 Copy-Item (Join-Path $Root "server_config_local.toml") $serverConfig -Force
 
 $serverConfigText = Get-Content $serverConfig -Raw
@@ -252,14 +267,14 @@ try {
 
     $serverCmd = "cd /d `"$serverDir`" && `"`"Content.Server.exe`"`" --config-file `"$serverConfig`" --data-dir `"$serverData`""
     $server = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $serverCmd -WindowStyle Hidden -PassThru -RedirectStandardOutput $serverOut -RedirectStandardError $serverErr
-    if (-not (Wait-FilePattern -Path $serverOut -Pattern 'Server Version .* -> Ready' -TimeoutSeconds 45)) {
+    if (-not (Wait-FilePattern -Path $serverOut -Pattern 'Server Version .* -> Ready' -TimeoutSeconds $ServerReadyTimeoutSeconds)) {
         throw "Server did not report Ready. See $serverOut / $serverErr"
     }
 
     if (-not $SkipClient) {
         $clientCmd = "cd /d `"$clientDir`" && `"`"Content.Client.exe`"`" --connect --connect-address 127.0.0.1:$ServerPort --self-contained"
         $client = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $clientCmd -WindowStyle Hidden -PassThru -RedirectStandardOutput $clientOut -RedirectStandardError $clientErr
-        if (-not (Wait-FilePattern -Path $clientOut -Pattern 'Runlevel changed to: InGame|Runlevel changed to: Connected' -TimeoutSeconds 120)) {
+        if (-not (Wait-FilePattern -Path $clientOut -Pattern 'Runlevel changed to: InGame|Runlevel changed to: Connected' -TimeoutSeconds $ClientConnectTimeoutSeconds)) {
             throw "Client did not reach Connected/InGame. See $clientOut / $clientErr"
         }
     }
@@ -307,6 +322,8 @@ try {
         server = $server.Id
         client = if ($client) { $client.Id } else { $null }
         gateway_copy = $gatewayCopy
+        ship_generator_copy = $shipGeneratorCopy
+        ship_generator_sha256 = $shipGeneratorCopySha256.ToLowerInvariant()
         gateway_audit = $gatewayAudit
         server_port = $ServerPort
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $pidFile -Encoding UTF8

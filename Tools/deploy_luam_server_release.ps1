@@ -6,6 +6,8 @@ param(
     [string]$BaseDir = "/opt/monolith-ds",
     [string]$ServiceName = "monolith-ds.service",
     [string]$ExpectedSha256 = "",
+    [string]$ReleaseReceiptPath = "",
+    [string]$ExpectedReleaseReceiptSha256 = "",
     [string]$Tag = "",
     [int]$PollSeconds = 60,
     [switch]$Wait,
@@ -22,6 +24,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "luam_release_contract.ps1")
+$root = Split-Path -Parent $PSScriptRoot
+$releasePolicy = Read-LuaMReleasePolicy -Root $root
+$releasePolicySha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot "luam_release_policy.json") -Algorithm SHA256).Hash.ToLowerInvariant()
 
 function ConvertTo-ShellSingleQuoted {
     param([string]$Value)
@@ -162,6 +168,12 @@ function Get-RemoteFreezePolicy {
     if (Test-Path -LiteralPath $policyPath -PathType Leaf) {
         try {
             $policy = Get-Content -LiteralPath $policyPath -Raw | ConvertFrom-Json -ErrorAction Stop
+            Assert-LuaMReleasePolicy -Policy $policy
+            if ($policy.PSObject.Properties.Name -notcontains "remoteDeployFrozen" -or
+                $policy.remoteDeployFrozen -isnot [bool]) {
+                throw "remoteDeployFrozen must be present as a JSON boolean."
+            }
+
             $active = [bool]$policy.remoteDeployFrozen
             $reason = if ([string]::IsNullOrWhiteSpace($policy.reason)) {
                 if ($active) {
@@ -181,6 +193,7 @@ function Get-RemoteFreezePolicy {
                 detail = $reason
                 last_reviewed = $policy.lastReviewed
                 required_checks = @($policy.requiredChecksBeforeDeploy)
+                authorization = $policy.deploymentAuthorization
             }
         }
         catch {
@@ -194,30 +207,12 @@ function Get-RemoteFreezePolicy {
         }
     }
 
-    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        return [pscustomobject]@{
-            active = $true
-            source = "manifest"
-            policy = $policyPath
-            manifest = $manifestPath
-            detail = "LuaM release manifest is missing; refusing remote deploy."
-        }
-    }
-
-    $manifestText = Get-Content -LiteralPath $manifestPath -Raw
-    $active = $manifestText -match "(?i)Current policy:\s*do not upload, restart, or update the remote server until the server freeze is lifted"
-    $detail = if ($active) {
-        "Current manifest policy forbids upload, restart, or remote update until the server freeze is lifted."
-    } else {
-        "No active remote freeze policy found in the manifest."
-    }
-
     return [pscustomobject]@{
-        active = $active
-        source = "manifest"
+        active = $true
+        source = "json"
         policy = $policyPath
         manifest = $manifestPath
-        detail = $detail
+        detail = "LuaM release policy is missing; refusing remote deploy."
     }
 }
 
@@ -282,12 +277,41 @@ function Get-ZipEntryText {
     }
 }
 
+function Get-ZipEntrySha256 {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArchivePath,
+        [Parameter(Mandatory = $true)][string]$EntryName
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $entries = @($archive.Entries | Where-Object { $_.FullName -ceq $EntryName })
+        if ($entries.Count -ne 1) {
+            throw "Required unique ZIP entry '$EntryName' was not found in $ArchivePath"
+        }
+        $stream = $entries[0].Open()
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+        }
+        finally {
+            $sha.Dispose()
+            $stream.Dispose()
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 function Assert-SafeZipEntries {
     param(
         [Parameter(Mandatory = $true)]
         [string]$ArchivePath,
-        [int]$MaxEntries = 250000,
-        [int64]$MaxUncompressedBytes = 5GB
+        [int]$MaxEntries = 100000,
+        [int64]$MaxUncompressedBytes = 2GB,
+        [int64]$MaxEntryBytes = 512MB
     )
 
     Add-Type -AssemblyName System.IO.Compression
@@ -297,30 +321,39 @@ function Assert-SafeZipEntries {
     try {
         $entryCount = 0
         $totalBytes = [int64]0
-        $seenPaths = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $seenPaths = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $filePaths = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $directoryPaths = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
         foreach ($entry in $archive.Entries) {
-            if ([string]::IsNullOrWhiteSpace($entry.FullName) -or $entry.FullName.EndsWith("/")) {
-                continue
-            }
-
             $entryCount += 1
             if ($entryCount -gt $MaxEntries) {
                 throw "Package has too many entries: $entryCount > $MaxEntries"
             }
 
+            if ($entry.Length -lt 0 -or $entry.Length -gt $MaxEntryBytes) {
+                throw "Package entry exceeds the per-entry limit of $MaxEntryBytes bytes: $($entry.FullName)"
+            }
             $totalBytes += [int64]$entry.Length
             if ($totalBytes -gt $MaxUncompressedBytes) {
                 throw "Package uncompressed size exceeds limit: $totalBytes > $MaxUncompressedBytes"
             }
 
             $normalized = ($entry.FullName -replace "\\", "/")
+            $isDirectory = $normalized.EndsWith('/')
+            if ($isDirectory) { $normalized = $normalized.Substring(0, $normalized.Length - 1) }
+            if ($normalized -cne $normalized.Normalize([Text.NormalizationForm]::FormC)) {
+                throw "Package entry is not Unicode NFC canonical: $($entry.FullName)"
+            }
             if ($normalized.StartsWith("/") -or $normalized -match "^[A-Za-z]:") {
                 throw "Package contains an absolute path entry: $($entry.FullName)"
             }
 
             $parts = $normalized.Split([char]'/', [System.StringSplitOptions]::None)
             foreach ($part in $parts) {
-                if ($part -eq "" -or $part -eq "." -or $part -eq ".." -or $part.Contains(":")) {
+                $deviceBase = [IO.Path]::GetFileNameWithoutExtension($part)
+                if ($part -eq "" -or $part -eq "." -or $part -eq ".." -or $part.Contains(":") -or
+                    $part -match '[\x00-\x1F]' -or $part -ne $part.Trim() -or $part.EndsWith('.') -or
+                    $deviceBase -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$') {
                     throw "Package contains an unsafe path entry: $($entry.FullName)"
                 }
             }
@@ -328,6 +361,20 @@ function Assert-SafeZipEntries {
             $canonicalPath = $parts -join "/"
             if (-not $seenPaths.Add($canonicalPath)) {
                 throw "Package contains a duplicate path entry: $($entry.FullName)"
+            }
+            $pathParts = $canonicalPath.Split('/')
+            for ($index = 1; $index -lt $pathParts.Length; $index += 1) {
+                $ancestor = $pathParts[0..($index - 1)] -join '/'
+                if ($filePaths.Contains($ancestor)) { throw "Package treats file '$ancestor' as a directory prefix." }
+                $directoryPaths.Add($ancestor) | Out-Null
+            }
+            if ($isDirectory) {
+                if ($filePaths.Contains($canonicalPath)) { throw "Package contains a file/directory collision: $canonicalPath" }
+                $directoryPaths.Add($canonicalPath) | Out-Null
+            }
+            else {
+                if ($directoryPaths.Contains($canonicalPath)) { throw "Package contains a directory/file collision: $canonicalPath" }
+                $filePaths.Add($canonicalPath) | Out-Null
             }
         }
     }
@@ -338,6 +385,19 @@ function Assert-SafeZipEntries {
 
 if (-not (Test-Path -LiteralPath $PackagePath -PathType Leaf)) {
     throw "Package not found: $PackagePath"
+}
+
+if ([string]::IsNullOrWhiteSpace($ExpectedSha256) -or $ExpectedSha256.Trim() -notmatch "^[0-9A-Fa-f]{64}$") {
+    throw "ExpectedSha256 is required and must contain exactly 64 hexadecimal characters."
+}
+if ([string]::IsNullOrWhiteSpace($ReleaseReceiptPath) -or [string]::IsNullOrWhiteSpace($ExpectedReleaseReceiptSha256)) {
+    throw "ReleaseReceiptPath and ExpectedReleaseReceiptSha256 are required for server deployment."
+}
+if ($AllowClientZipRestore) {
+    throw "AllowClientZipRestore cannot be used for a receipt-bound production deployment."
+}
+if ($SkipPostVerify) {
+    throw "SkipPostVerify cannot be used for a receipt-bound production deployment."
 }
 
 if ($SshTarget -notmatch "^[A-Za-z0-9][A-Za-z0-9_.@:-]*$") {
@@ -356,10 +416,6 @@ if (-not (Test-AbsoluteHttpUrl -Value $StatusUrl) -or
     -not (Test-LoopbackHttpUrl -Value $RemoteStatusUrl) -or
     -not (Test-LoopbackHttpUrl -Value $RemoteInfoUrl)) {
     throw "StatusUrl must be HTTP(S); RemoteStatusUrl and RemoteInfoUrl must be loopback HTTP(S) URLs without credentials."
-}
-
-if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256) -and $ExpectedSha256.Trim() -notmatch "^[0-9A-Fa-f]{64}$") {
-    throw "ExpectedSha256 must contain exactly 64 hexadecimal characters."
 }
 
 $resolvedPackage = (Resolve-Path -LiteralPath $PackagePath).Path
@@ -414,9 +470,50 @@ if (-not $hasClientZip -and $hasBuildJson -and -not $hasCdnBuildMetadata) {
 $deliveryMode = if ($hasClientZip) { "hybrid-acz" } elseif ($hasCdnBuildMetadata -and $hasZipDelivery) { "external-zip" } elseif ($hasCdnBuildMetadata) { "external-manifest" } else { "restore-existing-client" }
 
 $localHash = (Get-FileHash -LiteralPath $resolvedPackage -Algorithm SHA256).Hash.ToLowerInvariant()
-if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256) -and
-    $localHash -ne $ExpectedSha256.Trim().ToLowerInvariant()) {
+if ($localHash -ne $ExpectedSha256.Trim().ToLowerInvariant()) {
     throw "Local package SHA256 mismatch. Expected $ExpectedSha256, got $localHash"
+}
+
+$releaseReceipt = Read-LuaMBinaryReleaseReceipt -Path $ReleaseReceiptPath -ExpectedSha256 $ExpectedReleaseReceiptSha256
+if (-not ([string]$releaseReceipt.policySha256).Equals($releasePolicySha256, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Binary release receipt policy SHA256 does not match the active local policy."
+}
+if (-not ([string]$releaseReceipt.server.fileName).Equals($packageName, [StringComparison]::Ordinal) -or
+    -not ([string]$releaseReceipt.server.sha256).Equals($localHash, [StringComparison]::OrdinalIgnoreCase) -or
+    [int64]$releaseReceipt.server.bytes -ne [int64](Get-Item -LiteralPath $resolvedPackage).Length) {
+    throw "Server package name/hash/size does not match the binary release receipt."
+}
+if (-not ([string]$releaseReceipt.delivery.mode).Equals($deliveryMode, [StringComparison]::Ordinal)) {
+    throw "Server package delivery mode '$deliveryMode' does not match receipt mode '$($releaseReceipt.delivery.mode)'."
+}
+if ($deliveryMode -eq 'hybrid-acz') {
+    $embeddedClientHash = Get-ZipEntrySha256 -ArchivePath $resolvedPackage -EntryName 'Content.Client.zip'
+    if (-not $embeddedClientHash.Equals([string]$releaseReceipt.client.sha256, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Embedded client hash does not match the receipt-bound client artifact."
+    }
+}
+elseif ($deliveryMode -eq 'external-zip') {
+    if (-not ([string]$buildMetadata.hash).Equals([string]$releaseReceipt.client.sha256, [StringComparison]::OrdinalIgnoreCase) -or
+        -not ([string]$buildMetadata.download).Equals([string]$releaseReceipt.delivery.clientDownloadUrl, [StringComparison]::Ordinal)) {
+        throw "External client hash/URL metadata does not match the binary release receipt."
+    }
+}
+else {
+    throw "Receipt-bound deployment currently supports only hybrid-acz or external-zip delivery."
+}
+
+# A successful child PowerShell script does not necessarily initialize the
+# native-process exit code under Windows PowerShell strict mode.
+$global:LASTEXITCODE = 0
+$auditOutput = @(& (Join-Path $PSScriptRoot "audit_release_surface.ps1") -PackagePath $resolvedPackage -ExpectedPackageKind server -AllowPartial -Json)
+if ($global:LASTEXITCODE -ne 0) {
+    throw "Server release surface audit failed before deployment."
+}
+$deploySurfaceAudit = ($auditOutput -join "`n") | ConvertFrom-Json
+$serverAudit = @($deploySurfaceAudit.packages | Where-Object { $_.kind -eq 'server' }) | Select-Object -First 1
+if ($deploySurfaceAudit.ok -ne $true -or [int64]$deploySurfaceAudit.violationCount -ne 0 -or
+    $null -eq $serverAudit -or $serverAudit.serverOnlyCanaryPresent -ne $true) {
+    throw "Server package lacks fresh passing surface-audit/canary evidence."
 }
 
 if ([string]::IsNullOrWhiteSpace($Tag)) {
@@ -492,6 +589,12 @@ $plan = [ordered]@{
     package_has_build_json = $hasBuildJson
     package_has_cdn_metadata = $hasCdnBuildMetadata
     delivery_mode = $deliveryMode
+    release_receipt = (Resolve-Path -LiteralPath $ReleaseReceiptPath).Path
+    release_receipt_sha256 = $ExpectedReleaseReceiptSha256.Trim().ToLowerInvariant()
+    source_payload_digest_sha256 = [string]$releaseReceipt.sourcePackage.payloadDigestSha256
+    source_worktree_digest_sha256 = [string]$releaseReceipt.sourcePackage.worktreeDigestSha256
+    surface_audit_passed = [bool]$deploySurfaceAudit.ok
+    server_only_canary_present = [bool]$serverAudit.serverOnlyCanaryPresent
     freeze_policy = $freezePolicy
     ssh_target = $SshTarget
     remote_zip = $remoteZip
@@ -513,13 +616,12 @@ if ($DryRun) {
     exit 0
 }
 
-if ($freezePolicy.active) {
-    throw $freezePolicy.detail
+$mutationPolicy = Read-LuaMReleasePolicy -Root $root
+$mutationPolicySha256 = (Get-FileHash -LiteralPath (Join-Path $PSScriptRoot "luam_release_policy.json") -Algorithm SHA256).Hash.ToLowerInvariant()
+if (-not $releasePolicySha256.Equals($mutationPolicySha256, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Release policy changed after receipt validation; refusing remote mutation."
 }
-
-if ([string]::IsNullOrWhiteSpace($ExpectedSha256)) {
-    throw "ExpectedSha256 is required for remote deployment. Re-run with the verified server package SHA256."
-}
+Assert-LuaMRemoteMutationAllowed -Policy $mutationPolicy -Mutation 'server-release'
 
 if ($hasZipDelivery) {
     $externalDownloadUrl = [string]$buildMetadata.download
@@ -692,8 +794,9 @@ import zipfile
 zip_path = sys.argv[1]
 stage_dir = pathlib.Path(sys.argv[2])
 stage_root = stage_dir.resolve()
-max_entries = 250000
-max_uncompressed_bytes = 5 * 1024 * 1024 * 1024
+max_entries = 100000
+max_uncompressed_bytes = 2 * 1024 * 1024 * 1024
+max_entry_bytes = 512 * 1024 * 1024
 
 def safe_target_path(raw_name):
     name = raw_name.replace('\\', '/')
@@ -727,6 +830,8 @@ with zipfile.ZipFile(zip_path) as archive:
         if entry_count > max_entries:
             raise SystemExit(f"Package has too many entries: {entry_count} > {max_entries}")
 
+        if info.file_size < 0 or info.file_size > max_entry_bytes:
+            raise SystemExit(f"Package entry exceeds per-entry limit: {info.filename!r}")
         total_bytes += info.file_size
         if total_bytes > max_uncompressed_bytes:
             raise SystemExit(f"Package uncompressed size exceeds limit: {total_bytes} > {max_uncompressed_bytes}")
