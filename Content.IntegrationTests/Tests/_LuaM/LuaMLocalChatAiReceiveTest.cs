@@ -82,6 +82,20 @@ public sealed class LuaMLocalChatAiReceiveTest
 
             await server.WaitAssertion(() =>
             {
+                Assert.That(GetPrivateList(director, "_pendingPersonalPressures"), Has.Count.EqualTo(0));
+            });
+
+            await server.WaitPost(() =>
+            {
+                method!.Invoke(
+                    director,
+                    new object[] { new MessageCreatedEvent(new LocalChatCreatedEvent(speaker, "/luam mission", 10f)) });
+            });
+
+            await pair.RunTicksSync(2);
+
+            await server.WaitAssertion(() =>
+            {
                 Assert.That(GetPrivateList(director, "_pendingPersonalPressures"), Has.Count.EqualTo(1));
             });
         }

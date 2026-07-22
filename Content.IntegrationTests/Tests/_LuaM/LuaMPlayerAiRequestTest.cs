@@ -80,13 +80,13 @@ public sealed class LuaMPlayerAiRequestTest
             var reply = director.HandlePlayerAiRequest(serverSession, "обычный текст без триггера", "integration");
 
             Assert.That(reply, Does.Contain("Сообщение принято, но задание не создано"));
-            Assert.That(reply, Does.Contain("ИИ, дайджест"));
-            Assert.That(reply, Does.Contain("ИИ, брифинг"));
-            Assert.That(reply, Does.Contain("ИИ, совет"));
-            Assert.That(reply, Does.Contain("ИИ, статус"));
-            Assert.That(reply, Does.Contain("ИИ, маршрут"));
-            Assert.That(reply, Does.Contain("ИИ, задание"));
-            Assert.That(reply, Does.Contain("/luam"));
+            Assert.That(reply, Does.Contain("/luam дайджест"));
+            Assert.That(reply, Does.Contain("/luam брифинг"));
+            Assert.That(reply, Does.Contain("/luam совет"));
+            Assert.That(reply, Does.Contain("/luam статус"));
+            Assert.That(reply, Does.Contain("/luam маршрут"));
+            Assert.That(reply, Does.Contain("/luam задание"));
+            Assert.That(reply, Does.Contain("Обычное слово «ИИ» в чате не вызывает автоответ"));
             Assert.That(reply, Does.Contain("КПК показывает сводку"));
         }
         finally

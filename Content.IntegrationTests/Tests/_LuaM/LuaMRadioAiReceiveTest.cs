@@ -321,7 +321,7 @@ public sealed class LuaMRadioAiReceiveTest
             {
                 localMethod!.Invoke(
                     director,
-                    new object[] { new MessageCreatedEvent(new LocalChatCreatedEvent(speaker, "AI, mission", 10f)) });
+                    new object[] { new MessageCreatedEvent(new LocalChatCreatedEvent(speaker, "/luam mission", 10f)) });
 
                 Assert.That(cooldowns.TryGetValue(serverSession.UserId, out firstNextAllowed), Is.True);
                 statusReply = director.HandlePlayerAiRequest(serverSession, "status", "integration cooldown read-only");
@@ -333,7 +333,7 @@ public sealed class LuaMRadioAiReceiveTest
             var radioChannel = proto.Index<RadioChannelPrototype>(SharedChatSystem.CommonChannel);
             var language = SharedLanguageSystem.Universal;
             var component = new ActiveRadioComponent();
-            var message = new ChatMessage(ChatChannel.Radio, "AI, danger", "AI, danger", NetEntity.Invalid, null);
+            var message = new ChatMessage(ChatChannel.Radio, "/luam danger", "/luam danger", NetEntity.Invalid, null);
             var eventArgs = new RadioReceiveEvent(speaker, radioChannel, message, message, language, speaker, []);
 
             await server.WaitPost(() =>
