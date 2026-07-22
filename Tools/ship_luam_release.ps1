@@ -22,6 +22,7 @@ function Invoke-JsonScript {
         [Parameter(Mandatory = $true)]
         [string]$Name,
         [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
         [string[]]$Arguments
     )
 
@@ -52,6 +53,7 @@ function Invoke-PlainScript {
         [Parameter(Mandatory = $true)]
         [string]$Name,
         [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
         [string[]]$Arguments
     )
 

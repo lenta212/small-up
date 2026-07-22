@@ -276,6 +276,8 @@ Assert-Contract ($deployText.Contains('Legacy ship-save bootstrap refused: playe
 Assert-Contract ($deployText.Contains('select count(*) from luam_ship_snapshot where status in (1, 2)')) "Legacy bootstrap does not reject Active or Restoring ship rows."
 Assert-Contract ($deployText.Contains('select count(*) from luam_ship_presence_lease')) "Legacy bootstrap does not reject ship presence leases."
 Assert-Contract ($deployText.Contains('tables != expected_tables')) "Legacy bootstrap does not fail closed on a partial persistence schema."
+Assert-Contract ($deployText.Contains('$encoded | & $sshCommand $SshTarget "base64 --decode --ignore-garbage | bash"')) "Server deploy does not stream remote scripts over SSH stdin."
+Assert-Contract (-not $deployText.Contains('"printf %s $encoded | base64 -d | bash"')) "Server deploy still passes remote scripts through the Windows command line."
 
 $shipSaveValidatorStart = $deployText.IndexOf('# LUAM_SHIP_SAVE_RECEIPT_VALIDATOR_BEGIN', [StringComparison]::Ordinal)
 $shipSaveValidatorEnd = $deployText.IndexOf('# LUAM_SHIP_SAVE_RECEIPT_VALIDATOR_END', [StringComparison]::Ordinal)
@@ -287,6 +289,7 @@ $shipPipelineText = Get-Content -LiteralPath (Join-Path $root "Tools/ship_luam_r
 Assert-Contract ($shipPipelineText.Contains('[switch]$LegacyShipSaveBootstrap')) "Ship release orchestrator does not expose the legacy ship-save bootstrap switch."
 Assert-Contract ($shipPipelineText.Contains('$serverDeployArgs += "-LegacyShipSaveBootstrap"')) "Ship release orchestrator does not pass the legacy bootstrap guard to server deploy/dry-run arguments."
 Assert-Contract ($shipPipelineText.Contains('legacy_ship_save_bootstrap = [bool]$LegacyShipSaveBootstrap')) "Ship release summary does not record the legacy bootstrap mode."
+Assert-Contract ([regex]::Matches($shipPipelineText, '\[AllowEmptyString\(\)\]\s*\[string\[\]\]\$Arguments').Count -eq 2) "Ship release orchestrator cannot forward an intentionally empty config-source argument."
 
 # Execute the exact Python validator embedded into the remote deploy script.
 $validatorMatch = [regex]::Match(

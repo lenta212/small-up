@@ -18,6 +18,45 @@ Never record secrets, credentials, raw environment files, private player data, o
 - Latest damaged-AI shuttle audit: at `2026-07-21T23:44Z`, a read-only production check confirmed that the Apocalypse damaged-AI scheduler repeatedly creates persistent unknown vessels at low population because its `StationEvent` entries omit `minimumPlayers`; no live game state was changed.
 - Scope correction prepared at `2026-07-22T01:40Z`: the user's current `Безымянный` report concerns docking/restoration of saved ships, not the Apocalypse random-shuttle scheduler. The release candidate fixes legacy runtime-UID identity by assigning a stable saved-ship GUID and rebinding deeds, grids, locks, and consoles after restore. The older Apocalypse audit remains historical evidence only; no Apocalypse scheduler/cleanup change is included in this release.
 - Latest guarded-release preflight: at `2026-07-22T02:06Z`, production had zero players in round 149, both services active, the old ship-save endpoint returned 404, SQLite passed `quick_check` with zero active/restoring ship snapshots and zero leases, and about 14.76 GB was free. Because no admin API token existed, a protected root-only systemd environment override was staged without restarting the game; it will be loaded by the guarded deployment restart.
+- Latest accumulated-release attempt: at `2026-07-22T03:31Z`, immutable client version `3087b48b0001df0e17d1f9f373a70739b9f0597ebb6eec31b9c0145a5792e9a1` was published and verified with HTTP 200, but the server remained on `a611cba7804203b3c71d1c6d2e6c95280dd2ed6cd124e598a813a6065a350af6`. The guarded server command failed locally before SSH because its encoded preflight exceeded the Windows command-line limit; no server, service, configuration, database, data, or round mutation occurred. A stdin-based transport repair is validated locally and awaits a new HEAD-bound release receipt.
+
+## 2026-07-22T03:35Z -- accumulated client published; server deploy failed closed before SSH
+
+- Scope: complete the explicitly authorized accumulated interface, saved-ship/docking, gameplay, persistence, and AI release while preserving the live config and enforcing the one-time ship-save bootstrap. No player identity, private database row, raw environment, or credential was read or recorded.
+- The current-HEAD source gate passed production tests and local smoke, produced `luam-local-release-20260722-031025.zip` SHA256 `6b285a6297e61783fb755a1dbc04cf11789e222bc510bf6bacbcaffe6cd3e313`, payload digest `23f3ec3c15a46ec206d31a4febe8072f945806f92af0c1a6442e8b2fb54d2646`, and bound it to Git HEAD `96dd9162d374c26a5afe60726b3fe0c116bd95bd`. Source verification, fresh client/server construction, the binary surface audit with zero violations, and client-static dry-run all passed. The outer orchestration then failed before its server dry-run because a mandatory `[string[]]` wrapper rejected the intentionally empty config-source value. A direct invocation of the exact server dry-run exited 0 and confirmed receipt, audit, live-config preservation, required data backup, and all three legacy bootstrap conditions.
+- Binary evidence from that clean HEAD: client/version SHA256 `3087b48b0001df0e17d1f9f373a70739b9f0597ebb6eec31b9c0145a5792e9a1`; server SHA256 `8f4777954feea784b49c3756a06fc4f386e45215ce1c5cc53e15a55e1ff951be`; receipt SHA256 `bf01ccdb49bc7f340319d56367393b1f0c1bb4b52c8d25d96cf3ff7f949614f9`. Those values are historical evidence only after the transport repair changes HEAD; a new receipt is required before the server retry.
+- Immediate production preflight at `2026-07-22T03:30:13Z` passed: both services were active with `NRestarts=0` and `ExecMainStatus=0`; round 149 had zero players; the old maintenance endpoint returned 404; `preferences.db` passed `quick_check`; the ship snapshot and lease tables existed with zero Active/Restoring rows and zero leases; the protected token environment/drop-in retained `root:root` modes `0600`/`0644`; the installed journal matched; and 14,807,007,232 bytes were available.
+- The immutable client was installed at `/var/www/monolith-client/3087b48b0001df0e17d1f9f373a70739b9f0597ebb6eec31b9c0145a5792e9a1/SS14.Client.zip`. Its SHA256 and 333,944,736-byte size matched locally and remotely, nginx validation passed, and the public URL returned HTTP 200.
+- The subsequent guarded server command confirmed zero players, then failed on the local Windows host before starting `ssh.exe`: its base64-encoded remote preflight exceeded the process command-line length. Consequently it did not create server/config/data backups, upload the server archive, invoke the legacy ship-save bootstrap, stop or restart the service, load the staged token, change data, or advertise the new client. Follow-up verification found both services active, round 149 still at zero players, the old build still advertised, the new immutable client reachable, and 14,427,881,472 bytes available.
+- Local release-tool repair now streams the encoded Bash program over SSH stdin instead of embedding it in the Windows command line, permits PowerShell's transport CRLF during remote base64 decoding, and lets the orchestrator forward an intentionally empty config-source argument. Parser checks and the policy release contract passed. A harmless 121,200-byte remote stdin probe returned `remote-stdin-ok`. The first probe reached the host but failed decoding because GNU base64 rejected PowerShell's CR; after enabling transport garbage tolerance, the next probe transported successfully but its local assertion expected a newline rather than the intentionally printed literal `\\n`; the corrected `echo` probe passed. None of these probes mutated production state.
+- The required updated journal mirror was installed byte-identically as `root:root` mode `0644`. Post-install verification found both services active and round 149 still at zero players.
+- Recovery: no server rollback is needed because the server deployment never reached SSH. The unadvertised immutable client can safely remain for the upcoming retry; if the release is abandoned, only its exact version directory above is eligible for deliberate removal after re-verifying that `/info` does not advertise it. The old advertised server/client pair remains intact.
+
+Commands and outcomes:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -SkipLocalFast -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/deploy_luam_server_release.ps1 <receipt-bound arguments> -ConfigSourcePath ([string]::Empty) -RequireDataBackup -LegacyShipSaveBootstrap -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/deploy_luam_ai_gateway.ps1 -ExpectedSha256 1871684c3078a6070049625651fd611d3733d62fba9946852b0c3d53183d3a31 -Tag luam-20260722-accumulated-gateway -DryRun
+ssh monolith-new "<bounded journal/service/status/info/endpoint/SQLite/token-metadata/storage preflight>"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/provision_monolith_client_static.ps1 <receipt-bound arguments>
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/deploy_luam_server_release.ps1 <receipt-bound arguments> -ConfigSourcePath ([string]::Empty) -RequireDataBackup -LegacyShipSaveBootstrap
+ssh monolith-new "<bounded post-failure service/status/info/client/storage verification>"
+Invoke-RemoteBash <121200-byte harmless stdin transport probe>
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/test_luam_release_contract.ps1 -Json
+scp Tools/AI_SERVER_JOURNAL.md monolith-new:/tmp/AI_SERVER_JOURNAL.20260722T0335Z.md
+ssh monolith-new "<install journal root:root 0644 and verify hash/services/status>"
+```
+
+Result: the source, binary, audit, direct dry-run, gateway dry-run, and immutable-client stages passed. Both orchestration defects failed closed before a server mutation. The release transport repair is locally green, but the server and gateway are not yet updated and no production completion is claimed.
+
+Next action: install this journal mirror, commit the transport/orchestration repair with both journals, produce a new clean-HEAD receipt, then repeat the zero-player guarded server deployment without `-Force`:
+
+```powershell
+git add -- Tools/deploy_luam_server_release.ps1 Tools/ship_luam_release.ps1 Tools/test_luam_release_contract.ps1 Tools/AI_SERVER_JOURNAL.md .agents/ITERATION_LOG.md
+git commit -m "fix(release): stream guarded deploy scripts over ssh"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -SkipLocalFast -Json
+```
 
 ## 2026-07-22T02:06Z -- release preflight passed and protected admin token staged
 

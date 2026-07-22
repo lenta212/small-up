@@ -102,7 +102,23 @@ function Invoke-RemoteBash {
     $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
     $normalizedScript = $Script -replace "`r`n", "`n" -replace "`r", "`n"
     $encoded = [Convert]::ToBase64String($utf8NoBom.GetBytes($normalizedScript))
-    Invoke-CheckedNative ssh $SshTarget "printf %s $encoded | base64 -d | bash"
+    $sshCommand = (Get-Command ssh -CommandType Application -ErrorAction Stop).Source
+    $previousErrorActionPreference = $ErrorActionPreference
+    $previousOutputEncoding = $OutputEncoding
+    try {
+        $ErrorActionPreference = "Continue"
+        $OutputEncoding = $utf8NoBom
+        $encoded | & $sshCommand $SshTarget "base64 --decode --ignore-garbage | bash"
+        $exit = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+    }
+    finally {
+        $OutputEncoding = $previousOutputEncoding
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($exit -ne 0) {
+        throw "ssh failed with exit code $exit"
+    }
 }
 
 function Normalize-RemoteAbsolutePath {

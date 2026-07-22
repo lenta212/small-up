@@ -1,6 +1,6 @@
 ﻿# Monolith-DS iteration journal
 
-Updated: 2026-07-22 06:09 MSK
+Updated: 2026-07-22 06:35 MSK
 
 ## 2026-07-22 -- accumulated release split and docking scope corrected
 
@@ -18,6 +18,10 @@ Updated: 2026-07-22 06:09 MSK
 - The first policy-bound `ship_luam_release.ps1` gate ran for 645.8 seconds but failed before creating the source-package step because `prepare_luam_hotfix.ps1` evaluated `.Count` on the scalar/null result of `Get-ChangedRepoFiles` under inherited strict mode. No artifact was accepted and no remote mutation occurred. `changedFiles` is now explicitly array-wrapped; a focused `-Scope Policy -Json` regression passed with `ok=true`, one changed file, and the release-policy contract green.
 - The second policy-bound gate ran for 2,154.9 seconds. Its clean local-fast stage passed, the production source-package tests and local smoke passed, source verification passed, and fresh client/server archives plus a binary receipt were physically produced. The outer orchestrator nevertheless rejected the binary-build step before accepting it because `build_luam_server_release.ps1 -Json` streamed normal MSBuild text before its JSON result. The release state therefore ended in `failed` at `2026-07-22T02:56:55Z`; none of those artifacts is approved for deployment, and no production mutation occurred.
 - `Invoke-CheckedNative` in the binary builder now captures native stdout/stderr while `-Json` is active and emits no successful native output; on failure it retains only the final 80 diagnostic lines in the exception. The wrapper temporarily uses `ErrorActionPreference=Continue` only around native capture and restores the prior strict behavior in `finally`, so benign stderr cannot bypass the explicit exit-code check. PowerShell parsing passed. An extracted-function regression proved that successful stdout/stderr is suppressed and a nonzero exit preserves its code and diagnostic tail. A fast whole-script `-LocalOnly -SkipPackageBuild -SkipAudit -Json` invocation parsed as one JSON document with `ok=true`. The first extracted-function test command itself failed only because its nested PowerShell string lost quotes; the corrected `cmd.exe` harness passed. A read-only independent audit confirmed the observed mixed-stdout fix and identified the now-hardened benign-stderr edge. A previously started full local regression lost its tracked execution cell during context compaction and has no usable result; it is explicitly not counted as green. The next production gate must rebuild and re-receipt the current HEAD rather than reuse the rejected archives.
+- The third gate ran for 1,023 seconds with `-SkipLocalFast`. Production tests/local smoke, source packaging and verification, the corrected binary JSON step, fresh client/server construction, zero-violation surface audit, and client dry-run all passed for HEAD `96dd9162d374c26a5afe60726b3fe0c116bd95bd`. It then failed closed before server dry-run because the orchestrator's mandatory `[string[]]` parameter rejected the intentional empty config-source element. Direct server dry-run and gateway dry-run passed with the exact receipt.
+- A fresh production preflight at `2026-07-22T03:30:13Z` again proved zero players in round 149, active healthy services, old endpoint HTTP 404, SQLite `quick_check=ok`, zero Active/Restoring ship rows and leases, protected token files, matching server-journal mirror, and about 14.81 GB available. Immutable client version `3087b48b0001df0e17d1f9f373a70739b9f0597ebb6eec31b9c0145a5792e9a1` was then published successfully and returned HTTP 200.
+- The guarded server command confirmed zero players but failed locally before starting SSH or making a server mutation because its large base64 preflight exceeded the Windows process command-line limit. Follow-up proved the old server/client pair remained advertised, both services stayed active, and the new immutable client remained available. `Invoke-RemoteBash` now streams the encoded script through UTF-8 stdin and permits the expected PowerShell CRLF during GNU base64 decoding; the orchestrator explicitly permits empty argument elements. Parser checks, the release contract, an extracted empty-argument invocation, and a harmless 121,200-byte real SSH stdin probe passed. The first probe failed decoding on the CR transport byte; the next transported successfully but its local assertion intentionally disagreed with a literal `\\n`; the corrected `echo` probe passed. No probe mutated production.
+- The updated production journal mirror was installed byte-identically as `root:root` mode `0644`; both services remained active and round 149 remained at zero players.
 
 Commands and outcomes:
 
@@ -45,15 +49,24 @@ Invoke-CheckedNative powershell.exe <nested stdout/stderr test; failed because t
 Invoke-CheckedNative cmd.exe <successful stdout/stderr suppression and exit-7 tail test>
 powershell -NoProfile -ExecutionPolicy Bypass -File Tools/build_luam_server_release.ps1 -LocalOnly -SkipPackageBuild -SkipAudit -Json
 powershell -NoProfile -ExecutionPolicy Bypass -File Tools/test_luam_release_contract.ps1 -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -SkipLocalFast -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/deploy_luam_server_release.ps1 <receipt-bound arguments> -ConfigSourcePath ([string]::Empty) -RequireDataBackup -LegacyShipSaveBootstrap -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/deploy_luam_ai_gateway.ps1 -ExpectedSha256 1871684c3078a6070049625651fd611d3733d62fba9946852b0c3d53183d3a31 -Tag luam-20260722-accumulated-gateway -DryRun
+ssh monolith-new "<bounded zero-player, service, endpoint, SQLite, token-metadata, journal, and storage preflight>"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/provision_monolith_client_static.ps1 <receipt-bound arguments>
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/deploy_luam_server_release.ps1 <receipt-bound arguments> -ConfigSourcePath ([string]::Empty) -RequireDataBackup -LegacyShipSaveBootstrap
+Invoke-RemoteBash <121200-byte harmless SSH stdin probes>
+scp Tools/AI_SERVER_JOURNAL.md monolith-new:/tmp/AI_SERVER_JOURNAL.20260722T0335Z.md
+ssh monolith-new "<install journal root:root 0644 and verify hash/services/status>"
 ```
 
-Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. Both artifact-gate attempts failed closed locally and have not authorized deployment: the first exposed clean-worktree scalar handling, while the second exposed mixed native/JSON output only after all expensive build checks passed. The hardened binary-builder JSON isolation and strict benign-stderr regressions are green, the fast whole-script output parsed successfully, and the policy release contract remains green. A new current-HEAD artifact gate is still required. No production deploy has yet been claimed.
+Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. Three artifact-gate attempts failed closed and exposed clean-worktree scalar handling, mixed binary stdout/JSON, and empty-argument forwarding respectively; the third otherwise completed all expensive package/binary/audit checks. The immutable client is published, but the server and gateway are still on their prior versions. The server attempt did not reach SSH. The transport and forwarding regressions are now green, but their commit changes HEAD, so a new receipt is required before retrying server deployment.
 
-Next action: commit the binary-builder JSON isolation and this handoff, require a clean tree, then repeat the policy-bound source/client/server artifact gate with the already-completed local-fast stage skipped but all production package tests, smoke checks, verification, binary construction, audit, and deployment dry-runs retained:
+Next action: install the updated server-journal mirror, commit the stdin transport/empty-argument repair with both journals, require a clean tree, then produce a new policy-bound receipt before retrying the guarded server deployment:
 
 ```powershell
-git add -- Tools/build_luam_server_release.ps1 .agents/ITERATION_LOG.md
-git commit -m "fix(release): keep binary build JSON machine-readable"
+git add -- Tools/deploy_luam_server_release.ps1 Tools/ship_luam_release.ps1 Tools/test_luam_release_contract.ps1 Tools/AI_SERVER_JOURNAL.md .agents/ITERATION_LOG.md
+git commit -m "fix(release): stream guarded deploy scripts over ssh"
 powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -SkipLocalFast -Json
 ```
 
