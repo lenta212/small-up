@@ -138,9 +138,12 @@ public sealed partial class LatheMenu : FancyWindow
 
         foreach (var prototype in sortedRecipesToShow)
         {
-            var canProduce = _lathe.CanProduce(Entity, prototype, quantity, component: lathe);
+            // Recipes in this list came from the server for this lathe. Keep
+            // them queueable even when their materials are not available yet;
+            // the server validates the recipe and the machine waits for stock.
+            var canQueue = quantity <= Math.Max(1, lathe?.MaxQueuedItems ?? LatheComponent.DefaultMaxQueuedItems);
 
-            var control = new RecipeControl(_lathe, prototype, () => GenerateTooltipText(prototype), canProduce, GetRecipeDisplayControl(prototype));
+            var control = new RecipeControl(_lathe, prototype, () => GenerateTooltipText(prototype), canQueue, GetRecipeDisplayControl(prototype));
             control.OnButtonPressed += s =>
             {
                 if (!int.TryParse(AmountLineEdit.Text, out var amount) || amount <= 0)

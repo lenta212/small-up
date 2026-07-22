@@ -226,7 +226,7 @@ namespace Content.Server.Lathe
         }
 
         public bool TryAddToQueue(EntityUid uid, LatheRecipePrototype recipe, int quantity, LatheComponent? component = null, // Frontier: add quantity
-                                   EntityUid? actor = null, bool canDebt = false) // Mono
+                                   EntityUid? actor = null) // Mono
         {
             if (!Resolve(uid, ref component))
                 return false;
@@ -236,16 +236,40 @@ namespace Content.Server.Lathe
                 return false;
             // Frontier: argument check
 
-            // Mono - debt
-            if (!canDebt && !CanProduceEnd((uid, component), recipe, quantity)) // Frontier: 1<quantity
+            // Queue entries may wait for materials, but the server must still
+            // authoritatively reject recipes this lathe has not unlocked.
+            if (!HasRecipe(uid, recipe, component))
                 return false;
 
+            long queuedItems = 0;
+            foreach (var batch in component.Queue)
+            {
+                var remaining = (long) batch.ItemsRequested - batch.ItemsPrinted;
+                if (remaining < 0)
+                    return false;
+
+                queuedItems += remaining;
+            }
+
+            var maxQueuedItems = Math.Max(1, component.MaxQueuedItems);
+            if (queuedItems + quantity > maxQueuedItems)
+                return false;
+
+            var netActor = GetNetEntity(actor);
+
             // Frontier: queue up a batch
-            if (component.Queue.Count > 0 && component.Queue[^1].Recipe.ID == recipe.ID)
+            if (component.Queue.Count > 0 &&
+                component.Queue[^1].Recipe.ID == recipe.ID &&
+                component.Queue[^1].Actor == netActor)
+            {
+                if (component.Queue[^1].ItemsRequested > int.MaxValue - quantity)
+                    return false;
+
                 component.Queue[^1].ItemsRequested += quantity;
+            }
             else
                 component.Queue.Add(new LatheRecipeBatch(recipe, 0, quantity,
-                GetNetEntity(actor))); // Mono: Adds actor
+                netActor)); // Mono: Adds actor
             // End Frontier
             // component.Queue.Add(recipe); // Frontier
 
@@ -366,7 +390,7 @@ namespace Content.Server.Lathe
                 // <Mono>
                 // Add the actor that previously queued to looped items
                 if (comp.Loop)
-                    TryAddToQueue(uid, comp.CurrentRecipe, 1, comp, prodComp.Actor, true);
+                    TryAddToQueue(uid, comp.CurrentRecipe, 1, comp, prodComp.Actor);
 
                 _deviceLink.SendSignal(uid, comp.ProducedPort, true);
                 // </Mono>
@@ -388,9 +412,7 @@ namespace Content.Server.Lathe
             if (!Resolve(uid, ref component))
                 return;
 
-            var producing = component.CurrentRecipe ?? component.Queue.FirstOrDefault()?.Recipe; // Frontier: add ?.Recipe
-
-            var state = new LatheUpdateState(GetAvailableRecipes(uid, component), component.Queue, producing, component.Loop, component.SkipBad); // Mono
+            var state = new LatheUpdateState(GetAvailableRecipes(uid, component), component.Queue, component.CurrentRecipe, component.Loop, component.SkipBad); // Mono
             _uiSys.SetUiState(uid, LatheUiKey.Key, state);
         }
 

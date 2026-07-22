@@ -30,6 +30,15 @@ namespace Content.Shared.Lathe
         public List<LatheRecipeBatch> Queue = new(); // Frontier: LatheRecipePrototype<LatheRecipeBatch
 
         /// <summary>
+        /// Maximum number of not-yet-started products that may be queued.
+        /// The product currently being fabricated is not included.
+        /// </summary>
+        [DataField, AutoNetworkedField]
+        public int MaxQueuedItems = DefaultMaxQueuedItems;
+
+        public const int DefaultMaxQueuedItems = 1000;
+
+        /// <summary>
         /// The sound that plays when the lathe is producing an item, if any
         /// </summary>
         [DataField]
@@ -178,24 +187,38 @@ namespace Content.Shared.Lathe
     }
 
     // Frontier: batch lathe recipes
-    [Serializable]
+    [Serializable, DataDefinition]
     public sealed partial class LatheRecipeBatch
     {
         private static int NextIndex = 0; // Mono
         public int Index; // Mono - for de-queuing recipes to work properly
+
+        [DataField(required: true)]
         public LatheRecipePrototype Recipe;
+
+        // Actor is transient attribution for the current server session. It
+        // must not retain an entity reference across a full-grid restore.
         public NetEntity? Actor; // Mono - Log the person who queued the recipe.
+
+        [DataField]
         public int ItemsPrinted;
+
+        [DataField]
         public int ItemsRequested;
 
+        public LatheRecipeBatch()
+        {
+            Recipe = default!;
+            Index = NextIndex++; // Mono
+        }
+
         public LatheRecipeBatch(LatheRecipePrototype recipe, int itemsPrinted, int itemsRequested,
-            NetEntity? actor) // Mono
+            NetEntity? actor) : this() // Mono
         {
             Recipe = recipe;
             ItemsPrinted = itemsPrinted;
             ItemsRequested = itemsRequested;
             Actor = actor; // Mono
-            Index = NextIndex++; // Mono
         }
     }
     // End Frontier
