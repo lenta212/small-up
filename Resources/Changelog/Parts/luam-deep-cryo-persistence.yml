@@ -1,0 +1,9 @@
+author: LuaM
+category: Add
+changes:
+  - type: Add
+    message: Characters entering cryosleep are now stored against their durable database profile and can be restored in a later round.
+  - type: Fix
+    message: Cryosleep restoration now uses atomic claims and an operation journal so concurrent or retried wake requests cannot duplicate a body or its inventory.
+  - type: Tweak
+    message: Cross-round cryosleep restores the body and nested inventory while discarding temporary round state such as jobs, access, mind roles, objectives, and old world coordinates.

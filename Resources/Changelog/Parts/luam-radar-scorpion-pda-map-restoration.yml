@@ -1,0 +1,13 @@
+author: LuaM
+category: Add
+changes:
+  - type: Add
+    message: Ship radar and fire-control displays now show missile seeker vectors and provide separate IFF and dock visibility toggles.
+  - type: Add
+    message: The PDV Scorpion now has a dedicated LuaM voucher, shipyard definition, and canonical Tier 1 runtime map without conflicting Mono prototype IDs.
+  - type: Add
+    message: Restored Caladrius shuttle content now includes its Spirit and Tyne support craft, required machinery and assets, and a linked preflight guide.
+  - type: Fix
+    message: PDA bank transfer completions are generation- and profile-guarded so stale asynchronous results cannot affect a replacement character.
+  - type: Tweak
+    message: Client rendering support has been updated to Veldrid 4.9.0 for the integrated radar and shuttle UI changes.

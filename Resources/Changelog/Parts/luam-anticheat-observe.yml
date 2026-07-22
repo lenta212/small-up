@@ -1,0 +1,9 @@
+author: LuaM
+category: Add
+changes:
+  - type: Add
+    message: Added observe-first server anti-cheat scoring and administrator alerts for suspicious UI, shooting, and predicted-hit traffic.
+  - type: Fix
+    message: Bound UI actions are now range-checked for every server request and abusive UI or predicted-hit bursts are rate-limited.
+  - type: Tweak
+    message: Client shooting requests now require finite authoritative coordinates and plausible same-map targets; automatic bans remain disabled.

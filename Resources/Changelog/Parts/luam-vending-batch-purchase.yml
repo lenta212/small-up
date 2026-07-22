@@ -1,0 +1,5 @@
+author: LuaM
+category: Add
+changes:
+  - type: Add
+    message: Vending machines now let you choose an exact quantity, see the full batch price, and buy the whole batch with one click.

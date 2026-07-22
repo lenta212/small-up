@@ -217,6 +217,202 @@ def assert_not_contains(container: Any, value: Any, label: str) -> None:
         raise AssertionError(f"{label}: unexpected {value!r}")
 
 
+BANK_SYSTEM_REQUIRED_MARKERS = (
+    "private readonly record struct BankProfileIdentity(NetUserId UserId, int ProfileId);",
+    "_prefsManager.TryAcquireProfileMutation(mutationUserIds, out var profileMutationLease)",
+    "private async Task PersistBankBalanceAsync(",
+    "var result = await _db.UpdateCharacterBankBalanceAsync(",
+    "throw new ExactBalanceUpdateRejectedException(",
+    "? _prefsManager.TryApplyPersistedBankBalance(userId, slot, identity.ProfileId, balance)",
+    "private bool IsCurrentMobFinalizerContext(",
+    "private bool IsCurrentProfileMutationContext(",
+    "private bool IsCurrentProfileFinalizerContext(",
+    "public Task<bool> TryBankWithdrawAsync(",
+    "public async Task<bool> TryBankWithdrawProfileAsync(",
+    "public Task<bool> TryBankDepositAsync(",
+    "public async Task<CharacterBankTransferResult> TryBankTransferPersistedAsync(",
+    "int expectedSenderProfileId,",
+    "int expectedRecipientProfileId,",
+    "public async Task<bool> TryBankWithdrawOffline(",
+    "public async Task<bool> TryBankDepositOffline(",
+    "ResolveInitialProfileSaveFailureAsync(",
+    "BlockBalanceMutationProfile(",
+    "CharacterBankTransferStatus.UnknownOutcome",
+    "PayrollIntervalSeconds = 3600f",
+    "PayrollMinimumHourly = 75000",
+)
+
+BANK_SYSTEM_FORBIDDEN_MARKERS = (
+    "SaveCharacterSlotAsync",
+)
+
+
+def text_section(source: str, start: str, end: str, label: str) -> str:
+    start_index = source.find(start)
+    if start_index < 0:
+        raise AssertionError(f"{label}: missing section start {start!r}")
+
+    end_index = source.find(end, start_index + len(start))
+    if end_index < 0:
+        raise AssertionError(f"{label}: missing section end {end!r}")
+
+    return source[start_index:end_index]
+
+
+def validate_bank_system_contract(bank_system: str) -> None:
+    label = "BankSystem DB-first exact-profile contract"
+    for required_marker in BANK_SYSTEM_REQUIRED_MARKERS:
+        assert_contains(bank_system, required_marker, label)
+    for forbidden_marker in BANK_SYSTEM_FORBIDDEN_MARKERS:
+        assert_not_contains(bank_system, forbidden_marker, label)
+
+    persist_section = text_section(
+        bank_system,
+        "private async Task PersistBankBalanceAsync(",
+        "private bool TryProjectBankBalance(",
+        label,
+    )
+    compact_persist_section = " ".join(persist_section.split())
+    assert_contains(
+        compact_persist_section,
+        "var result = await _db.UpdateCharacterBankBalanceAsync( userId, identity.ProfileId, "
+        "slot, expectedBalance, newBalance, cancel);",
+        label,
+    )
+    durable_persist_section = persist_section[persist_section.index(
+        "var result = await _db.UpdateCharacterBankBalanceAsync("
+    ):]
+    assert_order(
+        durable_persist_section,
+        "var result = await _db.UpdateCharacterBankBalanceAsync(",
+        "if (!result.Success)",
+        label,
+    )
+    assert_order(
+        durable_persist_section,
+        "if (!result.Success)",
+        "if (!TryProjectBankBalance(",
+        label,
+    )
+
+    withdraw_section = text_section(
+        bank_system,
+        "private async Task<bool> TryBankWithdrawCoreAsync(",
+        "public async Task<bool> TryBankWithdrawProfileAsync(",
+        label,
+    )
+    assert_order(
+        withdraw_section,
+        "await PersistBankBalanceAsync(",
+        "finalized = finalizeAfterCommit();",
+        "BankSystem withdrawal DB-first finalizer order",
+    )
+
+    profile_withdraw_section = text_section(
+        bank_system,
+        "public async Task<bool> TryBankWithdrawProfileAsync(",
+        "public Task<bool> TryBankDepositAsync(",
+        label,
+    )
+    assert_order(
+        profile_withdraw_section,
+        "await PersistBankBalanceAsync(",
+        "finalized = finalizeAfterCommit();",
+        "BankSystem exact-profile withdrawal finalizer order",
+    )
+
+    deposit_section = text_section(
+        bank_system,
+        "private async Task<bool> TryBankDepositCoreAsync(",
+        "public bool TryBankWithdraw(EntityUid mobUid, int amount)",
+        label,
+    )
+    assert_order(
+        deposit_section,
+        "await PersistBankBalanceAsync(",
+        "finalized = finalizeAfterCommit();",
+        "BankSystem deposit DB-first finalizer order",
+    )
+
+    transfer_section = text_section(
+        bank_system,
+        "public async Task<CharacterBankTransferResult> TryBankTransferPersistedAsync(",
+        "private async Task<CharacterBankTransferResult> RefreshUnknownTransferOutcomeAsync(",
+        label,
+    )
+    assert_order(
+        transfer_section,
+        "var result = await _db.TransferCharacterBankBalanceAsync(",
+        "_prefsManager.TryApplyPersistedBankBalance(",
+        "BankSystem atomic transfer DB-first projection order",
+    )
+
+
+def assert_bank_contract_rejected(source: str, label: str) -> None:
+    try:
+        validate_bank_system_contract(source)
+    except AssertionError:
+        return
+    raise AssertionError(f"BankSystem validator self-test did not reject {label}")
+
+
+def run_bank_system_contract_self_test() -> None:
+    bank_path = ROOT / "Content.Server/_NF/Bank/BankSystem.cs"
+    bank_system = bank_path.read_text(encoding="utf-8")
+    validate_bank_system_contract(bank_system)
+
+    for index, marker in enumerate(BANK_SYSTEM_REQUIRED_MARKERS):
+        tampered = bank_system.replace(marker, f"__REMOVED_BANK_CONTRACT_MARKER_{index}__")
+        assert_bank_contract_rejected(tampered, f"missing marker {marker!r}")
+
+    for marker in BANK_SYSTEM_FORBIDDEN_MARKERS:
+        assert_bank_contract_rejected(
+            f"{bank_system}\n{marker}\n",
+            f"forbidden legacy marker {marker!r}",
+        )
+
+    withdraw_section = text_section(
+        bank_system,
+        "private async Task<bool> TryBankWithdrawCoreAsync(",
+        "public async Task<bool> TryBankWithdrawProfileAsync(",
+        "BankSystem validator self-test",
+    )
+    persist_marker = "await PersistBankBalanceAsync("
+    finalizer_marker = "finalized = finalizeAfterCommit();"
+    persist_index = withdraw_section.find(persist_marker)
+    finalizer_index = withdraw_section.find(finalizer_marker)
+    if persist_index < 0 or finalizer_index < 0 or persist_index >= finalizer_index:
+        raise AssertionError("BankSystem validator self-test fixture has invalid DB-first ordering")
+    reordered_section = (
+        withdraw_section[:persist_index]
+        + finalizer_marker
+        + withdraw_section[persist_index + len(persist_marker):finalizer_index]
+        + persist_marker
+        + withdraw_section[finalizer_index + len(finalizer_marker):]
+    )
+    assert_bank_contract_rejected(
+        bank_system.replace(withdraw_section, reordered_section, 1),
+        "world finalizer reordered before durable debit",
+    )
+
+    exact_call = (
+        "var result = await _db.UpdateCharacterBankBalanceAsync(\n"
+        "            userId,\n"
+        "            identity.ProfileId,"
+    )
+    slot_only_call = (
+        "var result = await _db.UpdateCharacterBankBalanceAsync(\n"
+        "            userId,\n"
+        "            slot,"
+    )
+    if exact_call not in bank_system:
+        raise AssertionError("BankSystem validator self-test could not find the exact-profile update call")
+    assert_bank_contract_rejected(
+        bank_system.replace(exact_call, slot_only_call, 1),
+        "slot-only bank update without exact ProfileId",
+    )
+
+
 def assert_has_cyrillic(value: Any, label: str) -> None:
     if not isinstance(value, str) or not any("\u0400" <= char <= "\u04FF" for char in value):
         raise AssertionError(f"{label}: expected Russian text, got {value!r}")
@@ -272,7 +468,15 @@ def load_rsi_state_names(sprite_path: str) -> set[str]:
     }
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = [] if argv is None else argv
+    if args == ["--self-test"]:
+        run_bank_system_contract_self_test()
+        print("LuaM BankSystem validator self-test passed.")
+        return 0
+    if args:
+        raise AssertionError("usage: validate_luam_feature_pack.py [--self-test]")
+
     required_paths = [
         "Resources/Prototypes/_NF/bounty_contract_collections.yml",
         "Resources/Prototypes/_LuaM/Guidebook/dead_space.yml",
@@ -351,8 +555,12 @@ def main() -> int:
         "Content.Server/_LuaM/Administration/LuaMAiDirectorEui.cs",
         "Content.Server/_LuaM/Donation/LuaMDonationShopCommand.cs",
         "Content.Server/_LuaM/Donation/LuaMDonationShopSystem.cs",
+        "Content.Shared/_LuaM/NPC/LuaMNpcActivityContracts.cs",
+        "Content.Server/_LuaM/NPC/LuaMNpcActivityComponent.cs",
+        "Content.Server/_LuaM/NPC/LuaMNpcActivityLifecycleSystem.cs",
         "Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs",
         "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs",
+        "Content.Server/_LuaM/Rescue/LuaMRescueNavigationSystem.cs",
         "Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs",
         "Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs",
         "Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs",
@@ -373,11 +581,15 @@ def main() -> int:
         "Content.Client/_LuaM/Administration/LuaMAiDirectorOpenSystem.cs",
         "Content.Client/_LuaM/Administration/LuaMAiDirectorWindow.xaml",
         "Content.Client/_LuaM/Administration/LuaMAiDirectorWindow.xaml.cs",
+        "Content.Client/UserInterface/Controls/ConfirmButton.cs",
         "Content.IntegrationTests/Tests/_LuaM/LuaMAiDirectorAdminChatTest.cs",
+        "Content.IntegrationTests/Tests/_LuaM/LuaMAiDirectorAuthorizationTest.cs",
         "Content.IntegrationTests/Tests/_LuaM/LuaMGatewayShipCommandTest.cs",
         "Content.IntegrationTests/Tests/_LuaM/LuaMGatewayShipPresetTest.cs",
         "Content.IntegrationTests/Tests/_LuaM/LuaMDonationShopTest.cs",
         "Content.IntegrationTests/Tests/_LuaM/LuaMDynamicEventDebrisTest.cs",
+        "Content.IntegrationTests/Tests/_LuaM/LuaMNpcActivityLifecycleRuntimeTest.cs",
+        "Content.Tests/Server/_LuaM/LuaMNpcActivityLifecycleTest.cs",
         "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml",
         "Content.Client/Administration/UI/Tabs/AdminTab/AdminTab.xaml.cs",
         "Content.Client/Clothing/ClientClothingSystem.cs",
@@ -398,6 +610,7 @@ def main() -> int:
         "Resources/Prototypes/_Mono/Shipyard/triage.yml",
         "Resources/Maps/_Mono/Shuttles/triage.yml",
         "Resources/Prototypes/_LuaM/Entities/Mobs/rescue_agent.yml",
+        "Resources/Prototypes/_LuaM/NPCs/activity_roles.yml",
         "Resources/Prototypes/_LuaM/NPCs/rescue.yml",
     ]
 
@@ -632,7 +845,7 @@ def main() -> int:
     assert_contains(status_ui, "luam-sector-status-briefing", "LuaMSectorStatusUiFragment")
     assert_contains(status_ui, "luam-sector-status-quests", "LuaMSectorStatusUiFragment")
     assert_contains(status_ui, "luam-sector-status-quest-step-action", "LuaMSectorStatusUiFragment")
-    assert_contains(status_ui, "\"AngleRect\"", "LuaMSectorStatusUiFragment")
+    assert_contains(status_ui, "\"UiSurfaceCard\"", "LuaMSectorStatusUiFragment")
     assert_contains(status_ui, "luam-sector-status-conditions", "LuaMSectorStatusUiFragment")
     assert_contains(status_ui, "luam-sector-status-automation", "LuaMSectorStatusUiFragment")
     assert_contains(status_ui, "luam-sector-status-dispatch-profile", "LuaMSectorStatusUiFragment")
@@ -782,21 +995,7 @@ def main() -> int:
             assert_contains(migration, required_migration_marker, migration_path)
 
     bank_system = (ROOT / "Content.Server/_NF/Bank/BankSystem.cs").read_text(encoding="utf-8")
-    for required_api in [
-        "TryBankTransferPersistedAsync",
-        "TransferCharacterBankBalanceAsync",
-        "CharacterBankTransferStatus.UnknownOutcome",
-        "TryBankWithdrawAsync",
-        "TryBankDepositAsync",
-        "ResolveInitialProfileSaveFailureAsync",
-        "BlockBalanceMutation",
-        "TryBankWithdrawOffline",
-        "TryBankDepositOffline",
-        "SaveCharacterSlotAsync",
-        "PayrollIntervalSeconds = 3600f",
-        "PayrollMinimumHourly = 75000",
-    ]:
-        assert_contains(bank_system, required_api, "BankSystem transfer/payroll contract")
+    validate_bank_system_contract(bank_system)
 
     bank_contracts_test = (ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMBankAndPdaContractsTest.cs").read_text(encoding="utf-8")
     for required_test_marker in [
@@ -1177,6 +1376,14 @@ def main() -> int:
         "luam_ai_synthetic_control",
     ]:
         assert_not_contains(ai_director, manual_only_ai_command, "LuaMSectorAiDirectorSystem raw AI admin command allowlist")
+    for required_safety_marker in [
+        'if (ContainsAny(message, "personal_pressure"))',
+        'commandId = "personal_pressure";',
+        'commandId = "spawn_emergency_beacon";',
+        'commandId = "spawn_anomaly_scanner";',
+        "An explicit target must fail closed",
+    ]:
+        assert_contains(ai_director, required_safety_marker, "LuaMSectorAiDirectorSystem admin target/action safety")
 
     ai_admin_state = (ROOT / "Content.Shared/_LuaM/Administration/LuaMAiDirectorEuiState.cs").read_text(encoding="utf-8")
     for required_api in [
@@ -1413,6 +1620,13 @@ def main() -> int:
     assert_contains(ai_admin_eui, "_director.SpawnShipNearAdminAsync", "LuaMAiDirectorEui")
     assert_contains(ai_admin_eui, "quick_action={action}", "LuaMAiDirectorEui")
     assert_contains(ai_admin_eui, "vessel={TrimForLog(preset.GameMap)}", "LuaMAiDirectorEui")
+    assert_contains(ai_admin_eui, "RejectMissingTarget", "LuaMAiDirectorEui explicit target gate")
+    assert_contains(ai_admin_eui, "reason=missing_explicit_target", "LuaMAiDirectorEui explicit target audit")
+    assert_contains(
+        ai_admin_eui,
+        "_ = ChatAsync(chat, allowServerActions: false);",
+        "LuaMAiDirectorEui advisory free-chat policy",
+    )
     assert_contains(ai_director, "BuildAdminCapabilitiesResult", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "IsAdminAiCapabilityRequest", "LuaMSectorAiDirectorSystem")
     assert_contains(ai_director, "allowServerActions", "LuaMSectorAiDirectorSystem")
@@ -1494,7 +1708,7 @@ def main() -> int:
     for required_test_marker in [
         "AdminChatCapabilitiesAndStatusDoNotRequireGateway",
         "AdminChatCanDisableServerActionsForEui",
-        "AdminChatGameMasterModeBypassesEuiServerActionBlockForGameplay",
+        "AdminChatGameMasterModeDoesNotGrantServerActionPermission",
         "AdminChatRefusesUnsafeRequestsBeforeGateway",
         "allowServerActions: false",
         "LuaMAiDirectorGameMasterMode",
@@ -1552,6 +1766,10 @@ def main() -> int:
         "GatewayBlockReasonCountersExplainUnsafeInputBlocks",
         "ConfirmationPreviewExplainsImpactAndWithholdsTargetIdentifiers",
         "ActionHistoryEntrySummarizesConfirmCancelAndStaysBounded",
+        "LocalQuickActionTokensKeepTargetPressureDistinctFromNearbyEvents",
+        "ExplicitUnknownTargetFailsClosedInsteadOfSelectingAnotherPlayer",
+        "spawn_emergency_beacon",
+        "spawn_anomaly_scanner",
         "InvokePrivateStatic",
         "AI action preview",
         "AI action history",
@@ -1590,6 +1808,16 @@ def main() -> int:
         "Запрос не отправлен во внешний API",
     ]:
         assert_contains(ai_admin_chat_test, required_test_marker, "LuaMAiDirectorAdminChatTest")
+
+    ai_admin_authorization_test = (ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMAiDirectorAuthorizationTest.cs").read_text(encoding="utf-8")
+    for required_authorization_marker in [
+        "GameMasterModeBypassesConfirmationButNeverGrantsServerFlag",
+        "missingQuickTarget",
+        "missingGenerateTarget",
+        "subspace_rift near selected player",
+        "advisoryChat.HasPendingConfirmation",
+    ]:
+        assert_contains(ai_admin_authorization_test, required_authorization_marker, "LuaMAiDirectorAuthorizationTest")
 
     ai_synthetic_control_test = (ROOT / "Content.IntegrationTests/Tests/_LuaM/LuaMSyntheticControlTest.cs").read_text(encoding="utf-8")
     for required_test_marker in [
@@ -1990,6 +2218,19 @@ def main() -> int:
         "luam-ai-director-privacy-last-shape",
         "luam-ai-director-privacy-rag-shape",
         "luam-ai-director-privacy-block-reasons",
+        "HasSelectedTarget",
+        "luam-ai-director-target-none",
+        "ResetContextualConfirmations",
+        "GameMasterWarningPanel.Visible",
+        "CancelActionButton.Disabled = !state.HasPendingConfirmation",
+        "ToggleAutoAi",
+        "_gameMasterEnableArmed",
+        'ToggleButton.AddStyleClass("ButtonColorRed")',
+        "luam-ai-director-tab-overview",
+        "luam-ai-director-tab-advisor",
+        "luam-ai-director-tab-operations",
+        "luam-ai-director-tab-base",
+        "luam-ai-director-tab-audit",
     ]:
         assert_contains(ai_admin_client, required_api, "LuaMAiDirectorWindow")
 
@@ -1997,6 +2238,18 @@ def main() -> int:
     assert_contains(ai_admin_client_eui, "GatewayShipGameMapId = request.GatewayShipGameMapId", "LuaMAiDirectorEui client bridge")
 
     ai_admin_xaml = (ROOT / "Content.Client/_LuaM/Administration/LuaMAiDirectorWindow.xaml").read_text(encoding="utf-8")
+    for required_shell_marker in [
+        'SetSize="1040 720"',
+        'MinSize="860 560"',
+        'Name="LoadingLabel"',
+        'Name="GameMasterWarningPanel"',
+        'Name="DirectorTabs"',
+        'Name="AiBaseStatusLabel"',
+        '<controls:ConfirmButton',
+        'StyleClasses="ButtonColorRed"',
+        'MaxHeight="180"',
+    ]:
+        assert_contains(ai_admin_xaml, required_shell_marker, "LuaMAiDirectorWindow.xaml readable safety shell")
     assert_contains(ai_admin_xaml, "QuickGatewayShipButton", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "luam-ai-director-quick-gateway-ship", "LuaMAiDirectorWindow.xaml")
     assert_contains(ai_admin_xaml, "QuickAiBaseDiagnosticsButton", "LuaMAiDirectorWindow.xaml")
@@ -2069,6 +2322,12 @@ def main() -> int:
         "luam-ai-director-quick-gateway-ship-tokarev",
     ]:
         assert_contains(ai_admin_xaml, required_gateway_ship_xaml, "LuaMAiDirectorWindow.xaml")
+
+    confirm_button = (ROOT / "Content.Client/UserInterface/Controls/ConfirmButton.cs").read_text(encoding="utf-8")
+    assert_contains(confirm_button, "public void ResetConfirmation()", "ConfirmButton external state safety")
+    assert_contains(confirm_button, "DrawModeChanged();", "ConfirmButton confirmation rendering")
+    assert_not_contains(confirm_button, "Disabled = true;", "ConfirmButton external disabled ownership")
+    assert_not_contains(confirm_button, "Disabled = false;", "ConfirmButton external disabled ownership")
 
     ai_admin_window_test = (ROOT / "Content.Tests/Client/_LuaM/LuaMAiDirectorWindowTest.cs").read_text(encoding="utf-8")
     for required_test_marker in [
@@ -2914,15 +3173,14 @@ def main() -> int:
         assert_not_contains(sector_terminal_window, hardcoded_label, "LuaMSectorTerminalWindow")
 
     sector_status_fragment = (ROOT / "Content.Client/_LuaM/Sector/LuaMSectorStatusUiFragment.cs").read_text(encoding="utf-8")
-    assert_contains(sector_status_fragment, "var scroll = new ScrollContainer", "LuaMSectorStatusUiFragment")
-    assert_contains(sector_status_fragment, "scroll.AddChild(body)", "LuaMSectorStatusUiFragment")
-    assert_contains(sector_status_fragment, "body.AddChild(MakeSection(Loc.GetString(\"luam-sector-status-quests\")))", "LuaMSectorStatusUiFragment")
+    assert_contains(sector_status_fragment, "var (overviewPage, overviewBody) = MakeTabPage();", "LuaMSectorStatusUiFragment")
+    assert_contains(sector_status_fragment, "page.AddChild(body);", "LuaMSectorStatusUiFragment")
+    assert_contains(sector_status_fragment, "AddSection(tasksBody, Loc.GetString(\"luam-sector-status-quests\"), _questTasks);", "LuaMSectorStatusUiFragment")
     assert_contains(sector_status_fragment, "luam-sector-status-quest-step-action", "LuaMSectorStatusUiFragment")
-    assert_contains(sector_status_fragment, "\"AngleRect\"", "LuaMSectorStatusUiFragment")
-    assert_contains(sector_status_fragment, "body.AddChild(MakeSection(Loc.GetString(\"luam-sector-status-automation\")))", "LuaMSectorStatusUiFragment")
-    assert_contains(sector_status_fragment, "body.AddChild(MakeSection(Loc.GetString(\"luam-sector-status-history\")))", "LuaMSectorStatusUiFragment")
-    assert_contains(sector_status_fragment, "body.AddChild(_history)", "LuaMSectorStatusUiFragment")
-    assert_not_contains(sector_status_fragment, "scroll.AddChild(_hazards)", "LuaMSectorStatusUiFragment")
+    assert_contains(sector_status_fragment, "\"UiSurfaceCard\"", "LuaMSectorStatusUiFragment")
+    assert_contains(sector_status_fragment, "AddSection(overviewBody, Loc.GetString(\"luam-sector-status-automation\"), _automation);", "LuaMSectorStatusUiFragment")
+    assert_contains(sector_status_fragment, "AddSection(journalBody, Loc.GetString(\"luam-sector-status-history\"), _history);", "LuaMSectorStatusUiFragment")
+    assert_contains(sector_status_fragment, "AddSection(sectorBody, Loc.GetString(\"luam-sector-status-hazards\"), _hazards);", "LuaMSectorStatusUiFragment")
 
     sector_dynamic_events = (ROOT / "Content.Server/_LuaM/Sector/LuaMSectorDynamicEventSystem.cs").read_text(encoding="utf-8")
     assert_contains(sector_dynamic_events, "BuildAutomationUiEntry", "LuaMSectorDynamicEventSystem")
@@ -3588,6 +3846,7 @@ def main() -> int:
         "LuaMSectorStoryPreferredCourierRoute",
         "LuaMSectorStoryGhostStationLedger",
         "LuaMSectorStoryPriorityRescueLane",
+        "LuaMSectorServiceWorkerLifecycle",
     }
 
     missing_ids = sorted(required_ids - prototypes.keys())
@@ -4045,6 +4304,7 @@ def main() -> int:
     assert_equal(remote_config["luam"]["sector_traffic"]["contacts"], 2, "remote luam.sector_traffic.contacts")
 
     rescue_agent_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs").read_text(encoding="utf-8")
+    rescue_navigation_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueNavigationSystem.cs").read_text(encoding="utf-8")
     assert_contains(rescue_agent_system, 'Command => "luam_rescue_agent"', "LuaMRescueAgentCommand")
     assert_contains(rescue_agent_system, 'Command => "luam_rescue_action"', "LuaMRescueActionCommand")
     assert_contains(rescue_agent_system, 'Command => "luam_rescue_order"', "LuaMRescueOrderCommand")
@@ -4195,11 +4455,28 @@ def main() -> int:
     assert_contains(rescue_agent_system, "TryStartPull", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryStopPull", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "BuckleSystem", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "PathfindingSystem", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "LuaMRescueNavigationSystem _rescueNavigation", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "_rescueNavigation.ProbeRoute", "LuaMRescueAgentSystem")
+    assert_contains(rescue_navigation_system, "PathfindingSystem", "LuaMRescueNavigationSystem")
+    assert_contains(rescue_navigation_system, "_pathfinding.GetPath", "LuaMRescueNavigationSystem")
     assert_contains(rescue_agent_system, "TryGetNavigationSelectionPenalty", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "GetPoly", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "navPenalty", "LuaMRescueAgentSystem")
     rescue_agent_component = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs").read_text(encoding="utf-8")
+    rescue_activity_coordinator = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueActivityCoordinatorSystem.cs").read_text(encoding="utf-8")
+    rescue_activity_contracts = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueActivity.cs").read_text(encoding="utf-8")
+    npc_activity_contracts = (ROOT / "Content.Shared/_LuaM/NPC/LuaMNpcActivityContracts.cs").read_text(encoding="utf-8")
+    npc_activity_component = (ROOT / "Content.Server/_LuaM/NPC/LuaMNpcActivityComponent.cs").read_text(encoding="utf-8")
+    npc_activity_lifecycle = (ROOT / "Content.Server/_LuaM/NPC/LuaMNpcActivityLifecycleSystem.cs").read_text(encoding="utf-8")
+    npc_activity_roles = (ROOT / "Resources/Prototypes/_LuaM/NPCs/activity_roles.yml").read_text(encoding="utf-8")
+    assert_contains(npc_activity_contracts, "ILuaMNpcRoleActivityPolicy", "LuaMNpcActivityContracts")
+    assert_contains(npc_activity_contracts, "LuaMNpcRoleActivityPrototype", "LuaMNpcActivityContracts")
+    assert_contains(npc_activity_component, "LuaMNpcActivityState Context", "LuaMNpcActivityComponent")
+    assert_contains(npc_activity_lifecycle, "BeginOrReplaceIntent", "LuaMNpcActivityLifecycleSystem")
+    assert_contains(npc_activity_lifecycle, "TryRecoverBlockedIntent", "LuaMNpcActivityLifecycleSystem")
+    assert_contains(npc_activity_lifecycle, "policy.IsTransitionAllowed(state.Activity, activity)", "LuaMNpcActivityLifecycleSystem")
+    assert_contains(npc_activity_roles, "id: LuaMSectorServiceWorkerLifecycle", "activity_roles.yml")
+    assert_contains(rescue_activity_coordinator, "LuaMNpcActivityLifecycleSystem _npcLifecycle", "LuaMRescueActivityCoordinatorSystem")
+    assert_contains(rescue_activity_coordinator, "new RescueActivityPolicyAdapter", "LuaMRescueActivityCoordinatorSystem")
     assert_contains(rescue_agent_component, "LuaMRescueTaskStage", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "TaskPatientTarget", "LuaMRescueAgentComponent")
     assert_contains(rescue_agent_component, "TaskSupplyTarget", "LuaMRescueAgentComponent")
@@ -4235,15 +4512,17 @@ def main() -> int:
     assert_contains(rescue_agent_system, "status=forward", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, r"\u041f\u0435\u0440\u0435\u043d\u0430\u0437\u043d\u0430\u0447\u0430\u044e\u0441\u044c \u043a {Name(pendingTarget)}", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "bool allowAutoReturn = true", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "if (allowAutoReturn)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "var onboard = IsOnAssignedShuttle(uid, rescue)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "if (allowAutoReturn && onboard)", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "ReportShuttleReturnHold", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "BuildShuttleReturnHoldMessage", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "return-route hold: {reason}; repair/manual shuttle help needed", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "shuttle-return-hold:", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "autopilot console unavailable", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "return target unavailable", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "autopilot console component unavailable", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "autopilot HTN unavailable", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "LuaMRescueShuttleRouteRequestEvent", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "RaiseLocalEvent(shuttle, ref routeRequest)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "ReportShuttleReturnHold(uid, rescue, routeRequest.Status)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "lifecycle.RetryCount < lifecycle.EffectiveMaxRetries", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "rescue.LastAutoEvacuationStatus = status", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "return-route home: target={FormatEntityRef(returnTarget)}", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, r"\u0428\u0430\u0442\u0442\u043b \u043d\u0435 \u0433\u043e\u0442\u043e\u0432 \u043a \u0432\u043e\u0437\u0432\u0440\u0430\u0442\u0443", "LuaMRescueAgentSystem")
@@ -4314,22 +4593,43 @@ def main() -> int:
     assert_contains(rescue_agent_system, "treating onboard", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "needs onboard treatment", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "HasPendingOnboardCareOrRelease", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "onboard care pending before return", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "redispatch deferred: onboard-care first", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "onboard care before redispatch or return", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "onboard care continues during return", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "redispatch deferred: home-handoff first", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "onboard care during return; release only after confirmed home dock", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "redispatch-deferred-onboard:", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "allowAutoReturn: !hasPendingRescueTarget && !onboardCarePending", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "allowAutoReturn: homeHandoffConfigured || !hasPendingRescueTarget && !onboardCarePending", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "ReportLivingPatientOnboardStatus(uid, rescue, target, onboardMobState, hasPendingRescueTarget && !onboardCarePending)", "LuaMRescueAgentSystem")
-    assert_order(
+    rescue_agent_update = text_section(
         rescue_agent_system,
+        "private void UpdateAssignedTarget(",
+        "private bool TryContinueOnboardCare(",
+        "LuaMRescueAgentSystem coordinator loop",
+    )
+    assert_order(
+        rescue_agent_update,
+        "rescue.AssignedTarget is { Valid: true } assigned",
+        "if (TryResumeRememberedPatientTask(uid, rescue, htn, medibot))",
+        "LuaMRescueAgentSystem explicit intent before remembered intent",
+    )
+    assert_order(
+        rescue_agent_update,
+        "if (TryResumeRememberedPatientTask(uid, rescue, htn, medibot))",
         "if (TryContinueOnboardCare(uid, rescue, htn))",
-        "if (!TryComp<MedibotComponent>(uid, out var medibot))",
-        "LuaMRescueAgentSystem",
+        "LuaMRescueAgentSystem remembered intent before onboard scan",
+    )
+    assert_order(
+        rescue_agent_update,
+        "if (TryContinueOnboardCare(uid, rescue, htn))",
+        "if (TryFindBestPatientTarget(uid, rescue.SearchRange, rescue, medibot, out var target))",
+        "LuaMRescueAgentSystem onboard care before generic scan",
     )
     assert_contains(rescue_agent_system, "CompleteReleasedPatientCare", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "released stabilized {FormatEntityRef(patient)}; ready for next rescue", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "holding shuttle forward after release of {FormatEntityRef(patient)}; pending rescue target detected", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget && !onboardCarePending)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "holding {FormatEntityRef(patient)} buckled until confirmed home handoff", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "lifecycle.RouteActivity == LuaMRescueActivity.Returning", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "lifecycle.State == LuaMRescueShuttleRouteState.Docked", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "lifecycle.SafeExitConfirmed", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "IsShuttleDockedToGrid(shuttle, grid)", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TrySayOnboardAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TrySayRescueAction", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "onboard-action:{step}:{patient}", "LuaMRescueAgentSystem")
@@ -4379,9 +4679,15 @@ def main() -> int:
     assert_contains(rescue_agent_system, "unsafe-evacuation", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "onsite-treatment", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "IsDeadPatientRecoveryTarget", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "return IsDeadPatientRecoveryTarget(target, rescue, mobState);", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "return IsDeadPatientRecoveryTarget(uid, target, rescue, mobState);", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "rescue.AssignedTarget == target", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "HasComp<ActorComponent>(target)", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "_activity.IsEligibleRescuePatient(", "LuaMRescueAgentSystem")
+    assert_contains(rescue_agent_system, "LuaMRescuePatientRequestKind.AutomaticEvacuation", "LuaMRescueAgentSystem")
+    assert_contains(rescue_activity_coordinator, "IsRecoverableDeadPatient", "LuaMRescueActivityCoordinatorSystem")
+    assert_contains(rescue_activity_coordinator, "MindContainerComponent", "LuaMRescueActivityCoordinatorSystem")
+    assert_contains(rescue_activity_coordinator, "TargetHasNoMind", "LuaMRescueActivityCoordinatorSystem")
+    assert_contains(rescue_activity_coordinator, "HasComp<UnrevivableComponent>(candidate)", "LuaMRescueActivityCoordinatorSystem")
+    assert_contains(rescue_activity_coordinator, "_rotting.IsRotten(candidate)", "LuaMRescueActivityCoordinatorSystem")
     assert_contains(rescue_agent_system, "score += 1500f", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "holding dead onboard patient", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "SetFollowDeliveryStrap", "LuaMRescueAgentSystem")
@@ -4419,8 +4725,6 @@ def main() -> int:
     assert_contains(rescue_agent_system, "HealOnBuckleComponent", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "StrapComponent", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "BuckleComponent", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "ShuttleConsoleComponent", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "AutopilotTargetKey", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "ShuttleReturnRouted = true", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "ShuttleRoutedTarget = target", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "IsRescueCandidate", "LuaMRescueAgentSystem")
@@ -4452,7 +4756,8 @@ def main() -> int:
     assert_contains(rescue_team_system, "plan return-to-shuttle: handoff recorded", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "identities=withheld", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "coordinates=withheld", "LuaMRescueTeamSystem")
-    assert_contains(rescue_team_system, "observerFaction.Factions.Any(faction => _factions.IsFactionHostile(faction, (candidate, candidateFaction)))", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "_factions.IsEntityHostile((observer, observerFaction), (candidate, candidateFaction))", "LuaMRescueTeamSystem")
+    assert_not_contains(rescue_team_system, 'IsFactionHostile("NanoTrasen"', "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "TriageCoverConfirmCooldownSeconds", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "TryConfirmTriageCover", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "rescue.TriageReportedTarget != patientUid", "LuaMRescueTeamSystem")
@@ -4911,9 +5216,15 @@ def main() -> int:
     assert_contains(rescue_team_system, "GetThreatScreenFollowTarget", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "IsThreatWithinRescueLeash", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "TryGetThreatLeashAnchor", "LuaMRescueTeamSystem")
-    assert_contains(rescue_team_system, "IsWithinRange(anchor, threat, EscortThreatLeashRange)", "LuaMRescueTeamSystem")
+    assert_contains(rescue_activity_contracts, "PursuitLeashRange = escort ? 8.5f : 0f", "LuaMRescueActivity")
+    assert_contains(rescue_team_system, "if (!policy.EngageHostiles || policy.PursuitLeashRange <= 0f)", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "IsWithinRange(anchor, threat, policy.PursuitLeashRange)", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "threat-screen leash holding rescue perimeter", "LuaMRescueTeamSystem")
-    assert_contains(rescue_team_system, "return sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle;", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "GetLivingFormationEntity(escort.SceneAnchor)", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "GetLivingFormationEntity(escort.Leader)", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "GetLivingFormationEntity(escort.Patient)", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "ValidOrNull(escort.ShuttleAnchor)", "LuaMRescueTeamSystem")
+    assert_contains(rescue_team_system, "ValidOrNull(escort.Shuttle)", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "IsHostileToObserver(uid, threatUid)", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "threat-screen engaging hostile", "LuaMRescueTeamSystem")
     assert_contains(rescue_team_system, "threat-screen screening armed pressure", "LuaMRescueTeamSystem")
@@ -5033,6 +5344,7 @@ def main() -> int:
     assert_contains(rescue_agent_system, "BuildPatientTreatmentResult", "LuaMRescueAgentSystem")
 
     rescue_shuttle_system = (ROOT / "Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs").read_text(encoding="utf-8")
+    assert_contains(rescue_shuttle_system, "htn.PauseWhenNoPlayersInRange = false", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, 'DefaultVessel = "Triage"', "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, 'Command => "luam_rescue_shuttle"', "LuaMRescueShuttleCommand")
     assert_contains(rescue_shuttle_system, "TryPurchaseShuttle", "LuaMRescueShuttleSystem")
@@ -5050,23 +5362,24 @@ def main() -> int:
     assert_contains(rescue_shuttle_system, "_automaticDeathSignalCooldowns", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "_automaticCriticalSignalCooldowns", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "PruneAutomaticCriticalSignalCooldowns", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "TryResolveAutomaticDeathSignalStation", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "TryResolveAutomaticCriticalSignalStation", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "TryResolveAutomaticMedicalSignalStation", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "TryFindActiveRescueForTarget", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "TryFindActiveRescueForTarget(target, out _, out _)", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "TryFindActiveRescueForTarget(target, out var activeAgent, out var activeRescue)", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "rescueComp.AssignedTarget == target", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "rescueComp.EvacuatingTarget == target", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "rescueComp.OnboardCareTarget == target", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "TryDispatchOrQueueAutomaticSignal(target, LuaMRescueMedicalSignalKind.Death", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "TryDispatchOrQueueAutomaticSignal(target, LuaMRescueMedicalSignalKind.Critical", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "TryFindLivingActiveRescueAgent(out var activeAgent, out var activeRescue)", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "IsRescueAssignedToTarget(activeRescue, target)", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "_pendingDispatches.TryGetValue(target, out var existing)", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "rescue.AssignedTarget == target", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "rescue.EvacuatingTarget == target", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "rescue.OnboardCareTarget == target", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "spawnTeam: true", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "deathSignal: true", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "deathSignal: false", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "deathSignal: kind == LuaMRescueMedicalSignalKind.Death", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "VesselPrototype", "LuaMRescueShuttleCommand")
     assert_contains(rescue_shuttle_system, "ShuttleConsoleComponent", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "HTNComponent", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "TrySetAutopilotTarget", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "TryFindAutopilotConsole", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "autopilot console with HTN controller was not found on the shuttle", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "SetRouteState(shuttle, lifecycle, LuaMRescueShuttleRouteState.Failed, status)", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "TryFindStationReturnTarget", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "GetLargestGrid", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "AutopilotTargetKey", "LuaMRescueShuttleSystem")
@@ -5085,12 +5398,13 @@ def main() -> int:
     assert_contains(rescue_shuttle_system, "rescue.AssignedShuttleAnchor = anchor", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "rescue.AssignedShuttleConsole = autopilotConsole", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "rescue.AssignedReturnTarget = returnTarget", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "rescue.DeathSignalTarget = deathSignalTarget", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "ApplySignalToAgent", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "rescue.DeathSignalTarget = target", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "deathSignal &&", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "SpawnEscortTeam", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "RadioSystem", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "SendDispatchRadio", "LuaMRescueShuttleSystem")
-    assert_contains(rescue_shuttle_system, "SendDispatchRadio(agent.Value, dispatchTarget);", "LuaMRescueShuttleSystem")
+    assert_contains(rescue_shuttle_system, "SendDispatchRadio(agent, target);", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "SendCriticalDispatchRadio(agentUid, target)", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "Медсигнал смерти принят", "LuaMRescueShuttleSystem")
     assert_contains(rescue_shuttle_system, "\u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 {targetName}", "LuaMRescueShuttleSystem")
@@ -5139,7 +5453,7 @@ def main() -> int:
     assert_equal(medibot["treatments"]["Alive"]["reagent"], "Tricordrazine", "LuaMRescueAgent.medibot.alive.reagent")
     assert_equal(medibot["treatments"]["Critical"]["reagent"], "Inaprovaline", "LuaMRescueAgent.medibot.critical.reagent")
     htn = component(rescue_agent, "HTN")
-    assert_equal(htn["rootTask"]["task"], "LuaMRescueCompound", "LuaMRescueAgent.htn.rootTask")
+    assert_equal(htn["rootTask"]["task"], "LuaMRescueAgentCompound", "LuaMRescueAgent.htn.rootTask")
     assert_equal(htn["blackboard"]["NavInteract"], True, "LuaMRescueAgent.htn.NavInteract")
     assert_contains(htn["blackboard"], "MedibotInjectRange", "LuaMRescueAgent.htn.blackboard")
 
@@ -5151,19 +5465,31 @@ def main() -> int:
     component(rescue_escort, "InputMover")
     component(rescue_escort, "MobMover")
     escort_htn = component(rescue_escort, "HTN")
-    assert_equal(escort_htn["rootTask"]["task"], "LuaMRescueCompound", "LuaMRescueEscort.htn.rootTask")
+    assert_equal(escort_htn["rootTask"]["task"], "LuaMRescueEscortCompound", "LuaMRescueEscort.htn.rootTask")
     assert_equal(escort_htn["blackboard"]["NavInteract"], True, "LuaMRescueEscort.htn.NavInteract")
 
-    rescue_compound = prototypes["LuaMRescueCompound"]
-    assert_equal(rescue_compound["type"], "htnCompound", "LuaMRescueCompound.type")
-    rescue_branches = rescue_compound["branches"]
-    assert_equal(len(rescue_branches), 5, "LuaMRescueCompound.branchCount")
-    assert_equal(rescue_branches[0]["tasks"][0]["task"], "RangedCombatCompound", "LuaMRescueCompound.rangedCombatBranch")
-    assert_equal(rescue_branches[1]["tasks"][0]["task"], "MeleeCombatCompound", "LuaMRescueCompound.meleeCombatBranch")
-    assert_equal(rescue_branches[2]["tasks"][0]["task"], "InjectNearbyCompound", "LuaMRescueCompound.injectBranch")
-    assert_equal(rescue_branches[3]["preconditions"][0]["key"], "FollowTarget", "LuaMRescueCompound.followPrecondition")
-    assert_equal(rescue_branches[3]["tasks"][0]["task"], "FollowCompound", "LuaMRescueCompound.followBranch")
-    assert_equal(rescue_branches[4]["tasks"][0]["task"], "IdleCompound", "LuaMRescueCompound.idleBranch")
+    rescue_agent_compound = prototypes["LuaMRescueAgentCompound"]
+    assert_equal(rescue_agent_compound["type"], "htnCompound", "LuaMRescueAgentCompound.type")
+    agent_branches = rescue_agent_compound["branches"]
+    assert_equal(len(agent_branches), 2, "LuaMRescueAgentCompound.branchCount")
+    assert_equal(agent_branches[0]["preconditions"][0]["key"], "FollowTarget", "LuaMRescueAgentCompound.followPrecondition")
+    assert_equal(agent_branches[0]["tasks"][0]["task"], "FollowCompound", "LuaMRescueAgentCompound.followBranch")
+    assert_equal(agent_branches[1]["tasks"][0]["task"], "IdleCompound", "LuaMRescueAgentCompound.idleBranch")
+
+    rescue_escort_compound = prototypes["LuaMRescueEscortCompound"]
+    assert_equal(rescue_escort_compound["type"], "htnCompound", "LuaMRescueEscortCompound.type")
+    escort_branches = rescue_escort_compound["branches"]
+    assert_equal(len(escort_branches), 4, "LuaMRescueEscortCompound.branchCount")
+    assert_equal(escort_branches[0]["preconditions"][0]["key"], "CurrentOrderedTarget", "LuaMRescueEscortCompound.rangedPrecondition")
+    assert_equal(escort_branches[0]["tasks"][1]["task"], "LuaMRescueOrderedGunCombatCompound", "LuaMRescueEscortCompound.rangedBranch")
+    assert_equal(escort_branches[1]["preconditions"][0]["key"], "CurrentOrderedTarget", "LuaMRescueEscortCompound.meleePrecondition")
+    assert_equal(escort_branches[1]["tasks"][1]["task"], "MeleeAttackOrderedTargetCompound", "LuaMRescueEscortCompound.meleeBranch")
+    assert_equal(escort_branches[2]["preconditions"][0]["key"], "FollowTarget", "LuaMRescueEscortCompound.followPrecondition")
+    assert_equal(escort_branches[2]["tasks"][0]["task"], "FollowCompound", "LuaMRescueEscortCompound.followBranch")
+    assert_equal(escort_branches[3]["tasks"][0]["task"], "IdleCompound", "LuaMRescueEscortCompound.idleBranch")
+
+    ordered_gun_compound = prototypes["LuaMRescueOrderedGunCombatCompound"]
+    assert_equal(ordered_gun_compound["type"], "htnCompound", "LuaMRescueOrderedGunCombatCompound.type")
 
     rescue_agent_gear = prototypes["LuaMRescueAgentGear"]
     assert_equal(rescue_agent_gear["equipment"]["outerClothing"], "ClothingOuterArmorBasicSlim", "LuaMRescueAgentGear.outerClothing")
@@ -5640,7 +5966,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     try:
-        raise SystemExit(main())
+        raise SystemExit(main(sys.argv[1:]))
     except AssertionError as exc:
         print(f"LuaM feature pack validation failed: {exc}", file=sys.stderr)
         raise SystemExit(1)
