@@ -22,8 +22,8 @@ public sealed partial class UserDbDataManager : IPostInjectInit
 
     private readonly Dictionary<NetUserId, UserData> _users = new();
     private readonly List<OnLoadPlayer> _onLoadPlayer = [];
-    private readonly List<OnFinishLoad> _onFinishLoad = [];
-    private readonly List<OnPlayerDisconnect> _onPlayerDisconnect = [];
+    private readonly List<OnFinishLoadAsync> _onFinishLoad = [];
+    private readonly List<OnPlayerDisconnectAsync> _onPlayerDisconnect = [];
 
     private ISawmill _sawmill = default!;
 
@@ -51,10 +51,7 @@ public sealed partial class UserDbDataManager : IPostInjectInit
         data.Cancel.Cancel();
         data.Cancel.Dispose();
 
-        foreach (var onDisconnect in _onPlayerDisconnect)
-        {
-            onDisconnect(session);
-        }
+        ObserveDisconnectCallbacks(session);
     }
 
     private async Task Load(ICommonSession session, CancellationToken cancel)
@@ -75,9 +72,7 @@ public sealed partial class UserDbDataManager : IPostInjectInit
             cancel.ThrowIfCancellationRequested();
 
             foreach (var action in _onFinishLoad)
-            {
-                action(session);
-            }
+                await action(session);
 
             _sawmill.Verbose($"Load complete for user {session}");
         }
@@ -135,12 +130,56 @@ public sealed partial class UserDbDataManager : IPostInjectInit
 
     public void AddOnFinishLoad(OnFinishLoad action)
     {
+        _onFinishLoad.Add(session =>
+        {
+            action(session);
+            return Task.CompletedTask;
+        });
+    }
+
+    public void AddOnFinishLoadAsync(OnFinishLoadAsync action)
+    {
         _onFinishLoad.Add(action);
     }
 
     public void AddOnPlayerDisconnect(OnPlayerDisconnect action)
     {
+        _onPlayerDisconnect.Add(session =>
+        {
+            action(session);
+            return Task.CompletedTask;
+        });
+    }
+
+    public void AddOnPlayerDisconnectAsync(OnPlayerDisconnectAsync action)
+    {
         _onPlayerDisconnect.Add(action);
+    }
+
+    private async void ObserveDisconnectCallbacks(ICommonSession session)
+    {
+        try
+        {
+            // Start every callback before awaiting so synchronous teardown owned by
+            // unrelated managers is not delayed behind an asynchronous callback.
+            var tasks = new List<Task>(_onPlayerDisconnect.Count);
+            foreach (var action in _onPlayerDisconnect)
+            {
+                try
+                {
+                    tasks.Add(action(session));
+                }
+                catch (Exception exception)
+                {
+                    tasks.Add(Task.FromException(exception));
+                }
+            }
+            await Task.WhenAll(tasks);
+        }
+        catch (Exception exception)
+        {
+            _sawmill.Error($"Player disconnect cleanup failed for {session}: {exception}");
+        }
     }
 
     void IPostInjectInit.PostInject()
@@ -154,5 +193,9 @@ public sealed partial class UserDbDataManager : IPostInjectInit
 
     public delegate void OnFinishLoad(ICommonSession player);
 
+    public delegate Task OnFinishLoadAsync(ICommonSession player);
+
     public delegate void OnPlayerDisconnect(ICommonSession player);
+
+    public delegate Task OnPlayerDisconnectAsync(ICommonSession player);
 }

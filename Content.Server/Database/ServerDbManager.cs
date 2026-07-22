@@ -75,6 +75,22 @@ namespace Content.Server.Database
         string CharacterName,
         string LastUserName);
 
+    public enum PdaBankAccountRegistrationStatus
+    {
+        Success,
+        InvalidRequest,
+        ProfileMissing,
+        CandidatesExhausted,
+        Contention,
+    }
+
+    public readonly record struct PdaBankAccountRegistrationResult(
+        PdaBankAccountRegistrationStatus Status,
+        PdaBankAccountRecord? Account = null)
+    {
+        public bool Success => Status == PdaBankAccountRegistrationStatus.Success && Account != null;
+    }
+
     public readonly record struct CharacterBankTransferJournalRecord(
         Guid OperationId,
         int SenderProfileId,
@@ -87,7 +103,52 @@ namespace Content.Server.Database
         DateTime CreatedAt,
         DateTime? AcknowledgedAt);
 
-    public interface IServerDbManager
+    public sealed record PlayerPreferencesSnapshot(
+        PlayerPreferences Preferences,
+        IReadOnlyDictionary<int, int> ProfileIdsBySlot);
+
+    public enum CharacterBankBalanceUpdateStatus
+    {
+        Success,
+        ProfileMissing,
+        BalanceConflict,
+        InvalidBalance,
+    }
+
+    public readonly record struct CharacterBankBalanceUpdateResult(
+        CharacterBankBalanceUpdateStatus Status,
+        int? CurrentBalance = null)
+    {
+        public bool Success => Status == CharacterBankBalanceUpdateStatus.Success;
+    }
+
+    public enum MonoCoinsBalanceUpdateStatus
+    {
+        Success,
+        AccountMissing,
+        BalanceConflict,
+        InvalidBalance,
+        ConfirmedNoChange,
+        UnknownOutcome,
+        Blocked,
+    }
+
+    public readonly record struct MonoCoinsBalanceUpdateResult(
+        MonoCoinsBalanceUpdateStatus Status,
+        long? CurrentBalance = null,
+        Exception? Failure = null)
+    {
+        public bool Success => Status == MonoCoinsBalanceUpdateStatus.Success;
+
+        public bool DefinitelyNotCommitted => Status is
+            MonoCoinsBalanceUpdateStatus.AccountMissing or
+            MonoCoinsBalanceUpdateStatus.BalanceConflict or
+            MonoCoinsBalanceUpdateStatus.InvalidBalance or
+            MonoCoinsBalanceUpdateStatus.ConfirmedNoChange or
+            MonoCoinsBalanceUpdateStatus.Blocked;
+    }
+
+    public partial interface IServerDbManager
     {
         void Init();
 
@@ -106,6 +167,36 @@ namespace Content.Server.Database
             ICharacterProfile? profile,
             int slot,
             bool preserveBankBalance = false);
+
+        /// <summary>
+        /// Loads preferences and the stable profile id for every active slot from
+        /// one coherent database snapshot.
+        /// </summary>
+        Task<PlayerPreferencesSnapshot?> GetPlayerPreferencesSnapshotAsync(
+            NetUserId userId,
+            CancellationToken cancel = default);
+
+        /// <summary>
+        /// Gets the balance for an exact active profile identity.
+        /// </summary>
+        Task<int?> GetCharacterBankBalanceAsync(
+            NetUserId userId,
+            int profileId,
+            int slot,
+            CancellationToken cancel = default);
+
+        /// <summary>
+        /// Conditionally replaces the balance for an exact active profile identity.
+        /// The write succeeds only when the durable balance still equals
+        /// <paramref name="expectedBalance"/>.
+        /// </summary>
+        Task<CharacterBankBalanceUpdateResult> UpdateCharacterBankBalanceAsync(
+            NetUserId userId,
+            int profileId,
+            int slot,
+            int expectedBalance,
+            int newBalance,
+            CancellationToken cancel = default);
 
         /// <summary>
         /// Atomically transfers bank balance between two active character profiles.
@@ -135,7 +226,7 @@ namespace Content.Server.Database
         /// Assigns the first available candidate id to the durable profile. If the
         /// profile already owns an id, that stable id is returned instead.
         /// </summary>
-        Task<PdaBankAccountRecord?> RegisterPdaBankAccountAsync(
+        Task<PdaBankAccountRegistrationResult> RegisterPdaBankAccountAsync(
             NetUserId userId,
             int slot,
             string expectedCharacterName,
@@ -171,6 +262,52 @@ namespace Content.Server.Database
             int slot,
             CancellationToken cancel = default);
 
+        #region LuaM durable expedition and progression
+        Task<LuaMExpeditionWriteResult> CreateOrGetLuaMExpeditionAsync(
+            LuaMExpeditionCreateRequest request,
+            CancellationToken cancel = default);
+
+        Task<LuaMExpeditionStateRecord?> LoadLuaMExpeditionAsync(
+            string campaignId,
+            string expeditionId,
+            CancellationToken cancel = default);
+
+        Task<LuaMExpeditionWriteResult> AppendLuaMExpeditionMutationAsync(
+            LuaMExpeditionMutationRequest request,
+            CancellationToken cancel = default);
+
+        Task<LuaMExpeditionWriteResult> ArchiveLuaMExpeditionAsync(
+            long manifestId,
+            long expectedRevision,
+            DateTime archivedAtUtc,
+            CancellationToken cancel = default);
+
+        Task<LuaMExpeditionWriteResult> QuarantineLuaMExpeditionAsync(
+            long manifestId,
+            long expectedRevision,
+            string reason,
+            DateTime quarantinedAtUtc,
+            CancellationToken cancel = default);
+
+        Task<LuaMProgressionWriteResult> CreateOrGetLuaMCampaignShiftAsync(
+            LuaMCampaignShiftCreateRequest request,
+            CancellationToken cancel = default);
+
+        Task<LuaMProgressionWriteResult> RecordLuaMCareerAwardAsync(
+            LuaMCareerAwardRequest request,
+            CancellationToken cancel = default);
+
+        Task<LuaMProgressionWriteResult> SealLuaMCampaignShiftAsync(
+            long shiftPeriodId,
+            long expectedRevision,
+            DateTime sealedAtUtc,
+            CancellationToken cancel = default);
+
+        Task<LuaMCareerStateRecord?> GetLuaMCareerStateAsync(
+            int profileId,
+            CancellationToken cancel = default);
+        #endregion
+
         Task SaveAdminOOCColorAsync(NetUserId userId, Color color);
 
         // Single method for two operations for transaction.
@@ -180,6 +317,12 @@ namespace Content.Server.Database
 
         #region MonoCoins
         Task<long> GetMonoCoinsAsync(NetUserId userId, CancellationToken cancel = default);
+        Task<long?> GetMonoCoinsOrNullAsync(NetUserId userId, CancellationToken cancel = default);
+        Task<MonoCoinsBalanceUpdateResult> UpdateMonoCoinsBalanceAsync(
+            NetUserId userId,
+            long expectedBalance,
+            long newBalance,
+            CancellationToken cancel = default);
         Task SetMonoCoinsAsync(NetUserId userId, long balance, CancellationToken cancel = default);
         Task<long> AddMonoCoinsAsync(NetUserId userId, long amount, CancellationToken cancel = default);
         #endregion
@@ -632,6 +775,42 @@ namespace Content.Server.Database
             return RunDbCommand(() => _db.SaveCharacterSlotAsync(userId, profile, slot, preserveBankBalance));
         }
 
+        public Task<PlayerPreferencesSnapshot?> GetPlayerPreferencesSnapshotAsync(
+            NetUserId userId,
+            CancellationToken cancel = default)
+        {
+            DbReadOpsMetric.Inc();
+            return RunDbCommand(() => _db.GetPlayerPreferencesSnapshotAsync(userId, cancel));
+        }
+
+        public Task<int?> GetCharacterBankBalanceAsync(
+            NetUserId userId,
+            int profileId,
+            int slot,
+            CancellationToken cancel = default)
+        {
+            DbReadOpsMetric.Inc();
+            return RunDbCommand(() => _db.GetCharacterBankBalanceAsync(userId, profileId, slot, cancel));
+        }
+
+        public Task<CharacterBankBalanceUpdateResult> UpdateCharacterBankBalanceAsync(
+            NetUserId userId,
+            int profileId,
+            int slot,
+            int expectedBalance,
+            int newBalance,
+            CancellationToken cancel = default)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.UpdateCharacterBankBalanceAsync(
+                userId,
+                profileId,
+                slot,
+                expectedBalance,
+                newBalance,
+                cancel));
+        }
+
         public Task<CharacterBankTransferResult> TransferCharacterBankBalanceAsync(
             NetUserId senderUserId,
             int senderProfileId,
@@ -668,7 +847,7 @@ namespace Content.Server.Database
             return RunDbCommand(() => _db.GetPdaBankAccountByProfileIdAsync(profileId, cancel));
         }
 
-        public Task<PdaBankAccountRecord?> RegisterPdaBankAccountAsync(
+        public Task<PdaBankAccountRegistrationResult> RegisterPdaBankAccountAsync(
             NetUserId userId,
             int slot,
             string expectedCharacterName,
@@ -753,6 +932,26 @@ namespace Content.Server.Database
         {
             DbReadOpsMetric.Inc();
             return RunDbCommand(() => _db.GetMonoCoinsAsync(userId, cancel));
+        }
+
+        public Task<long?> GetMonoCoinsOrNullAsync(NetUserId userId, CancellationToken cancel = default)
+        {
+            DbReadOpsMetric.Inc();
+            return RunDbCommand(() => _db.GetMonoCoinsOrNullAsync(userId, cancel));
+        }
+
+        public Task<MonoCoinsBalanceUpdateResult> UpdateMonoCoinsBalanceAsync(
+            NetUserId userId,
+            long expectedBalance,
+            long newBalance,
+            CancellationToken cancel = default)
+        {
+            DbWriteOpsMetric.Inc();
+            return RunDbCommand(() => _db.UpdateMonoCoinsBalanceAsync(
+                userId,
+                expectedBalance,
+                newBalance,
+                cancel));
         }
 
         public Task SetMonoCoinsAsync(NetUserId userId, long balance, CancellationToken cancel = default)

@@ -3,6 +3,7 @@ using System;
 using Content.Server.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Content.Server.Database.Migrations.Sqlite
 {
     [DbContext(typeof(SqliteServerDbContext))]
-    partial class SqliteServerDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260716101408_LuaMDeepCryoPersistence")]
+    partial class LuaMDeepCryoPersistence
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.0");
@@ -1942,235 +1945,6 @@ namespace Content.Server.Database.Migrations.Sqlite
                         });
                 });
 
-            modelBuilder.Entity("Content.Server.Database.LuaMShipPresenceLease", b =>
-                {
-                    b.Property<Guid>("ShipId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("ship_id");
-
-                    b.Property<DateTime>("AcquiredAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("acquired_at_utc");
-
-                    b.Property<DateTime>("ExpiresAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("expires_at_utc");
-
-                    b.Property<Guid>("LeaseId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("lease_id");
-
-                    b.Property<DateTime>("RenewedAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("renewed_at_utc");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("revision");
-
-                    b.Property<int>("RoundId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("round_id");
-
-                    b.Property<string>("ServerInstanceId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("server_instance_id");
-
-                    b.HasKey("ShipId")
-                        .HasName("PK_luam_ship_presence_lease");
-
-                    b.HasIndex(new[] { "ExpiresAtUtc" }, "IX_luam_ship_lease_expires");
-
-                    b.HasIndex(new[] { "LeaseId" }, "UX_luam_ship_lease_token")
-                        .IsUnique();
-
-                    b.ToTable("luam_ship_presence_lease", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_luam_ship_lease_dates", "acquired_at_utc <= renewed_at_utc AND renewed_at_utc < expires_at_utc");
-
-                            t.HasCheckConstraint("CK_luam_ship_lease_revision", "revision >= 0");
-
-                            t.HasCheckConstraint("CK_luam_ship_lease_round", "round_id >= 0");
-                        });
-                });
-
-            modelBuilder.Entity("Content.Server.Database.LuaMShipSnapshot", b =>
-                {
-                    b.Property<Guid>("ShipId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("ship_id");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("created_at_utc");
-
-                    b.Property<int>("EntityCount")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("entity_count");
-
-                    b.Property<int>("FormatVersion")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("format_version");
-
-                    b.Property<int?>("LastRestoreRoundId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("last_restore_round_id");
-
-                    b.Property<DateTime?>("LastRestoredAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("last_restored_at_utc");
-
-                    b.Property<int>("OwnerPreferenceId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("owner_preference_id");
-
-                    b.Property<Guid>("OwnerUserId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("owner_user_id");
-
-                    b.Property<byte[]>("Payload")
-                        .IsRequired()
-                        .HasColumnType("BLOB")
-                        .HasColumnName("payload");
-
-                    b.Property<string>("PayloadHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("payload_hash");
-
-                    b.Property<long?>("PayloadRevision")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("payload_revision");
-
-                    b.Property<int>("PayloadSizeBytes")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("payload_size_bytes");
-
-                    b.Property<string>("PrototypeManifestHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("prototype_manifest_hash");
-
-                    b.Property<int>("PurchasePrice")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("purchase_price");
-
-                    b.Property<bool>("PurchasedWithVoucher")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("purchased_with_voucher");
-
-                    b.Property<string>("QuarantineReason")
-                        .HasMaxLength(512)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("quarantine_reason");
-
-                    b.Property<DateTime?>("QuarantinedAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("quarantined_at_utc");
-
-                    b.Property<DateTime?>("RetiredAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("retired_at_utc");
-
-                    b.Property<Guid?>("RetirementOperationId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("retirement_operation_id");
-
-                    b.Property<string>("RetirementReason")
-                        .HasMaxLength(512)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("retirement_reason");
-
-                    b.Property<long>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("revision");
-
-                    b.Property<int>("SchemaVersion")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("schema_version");
-
-                    b.Property<string>("ShipName")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("ship_name");
-
-                    b.Property<string>("ShipNameSuffix")
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("ship_name_suffix");
-
-                    b.Property<string>("SourceBuildVersion")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("source_build_version");
-
-                    b.Property<int>("SourceRoundId")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("source_round_id");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("INTEGER")
-                        .HasColumnName("status");
-
-                    b.Property<DateTime>("StoredAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("stored_at_utc");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("updated_at_utc");
-
-                    b.Property<string>("VesselPrototypeId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("TEXT")
-                        .HasColumnName("vessel_prototype_id");
-
-                    b.HasKey("ShipId")
-                        .HasName("PK_luam_ship_snapshot");
-
-                    b.HasIndex("OwnerPreferenceId");
-
-                    b.HasIndex(new[] { "OwnerUserId", "Status" }, "IX_luam_ship_snapshot_owner_status");
-
-                    b.HasIndex(new[] { "UpdatedAtUtc" }, "IX_luam_ship_snapshot_updated");
-
-                    b.HasIndex(new[] { "RetirementOperationId" }, "UX_luam_ship_retirement_operation")
-                        .IsUnique()
-                        .HasFilter("retirement_operation_id IS NOT NULL");
-
-                    b.ToTable("luam_ship_snapshot", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_luam_ship_snapshot_dates", "created_at_utc <= stored_at_utc AND stored_at_utc <= updated_at_utc");
-
-                            t.HasCheckConstraint("CK_luam_ship_snapshot_hashes", "length(payload_hash) = 64 AND length(prototype_manifest_hash) = 64");
-
-                            t.HasCheckConstraint("CK_luam_ship_snapshot_owner", "owner_preference_id > 0");
-
-                            t.HasCheckConstraint("CK_luam_ship_snapshot_payload", "payload_size_bytes > 0 AND entity_count > 0 AND length(payload) = payload_size_bytes");
-
-                            t.HasCheckConstraint("CK_luam_ship_snapshot_purchase", "purchase_price >= 0");
-
-                            t.HasCheckConstraint("CK_luam_ship_snapshot_quarantine", "(status = 3 AND quarantined_at_utc IS NOT NULL AND quarantine_reason IS NOT NULL) OR (status <> 3 AND quarantined_at_utc IS NULL AND quarantine_reason IS NULL)");
-
-                            t.HasCheckConstraint("CK_luam_ship_snapshot_retirement", "(status = 4 AND retired_at_utc IS NOT NULL AND retirement_reason IS NOT NULL AND retirement_operation_id IS NOT NULL) OR (status <> 4 AND retired_at_utc IS NULL AND retirement_reason IS NULL AND retirement_operation_id IS NULL)");
-
-                            t.HasCheckConstraint("CK_luam_ship_snapshot_revision", "revision >= 0");
-
-                            t.HasCheckConstraint("CK_luam_ship_snapshot_status", "status >= 0 AND status <= 4");
-
-                            t.HasCheckConstraint("CK_luam_ship_snapshot_versions", "schema_version > 0 AND format_version > 0 AND source_round_id >= 0");
-                        });
-                });
-
             modelBuilder.Entity("Content.Server.Database.MonoCoinsTransferJournal", b =>
                 {
                     b.Property<Guid>("OperationId")
@@ -3489,26 +3263,6 @@ namespace Content.Server.Database.Migrations.Sqlite
                         .HasForeignKey("SiteRowId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_luam_expedition_tombstone_luam_expedition_site_lua_m_expedition_site_id");
-                });
-
-            modelBuilder.Entity("Content.Server.Database.LuaMShipPresenceLease", b =>
-                {
-                    b.HasOne("Content.Server.Database.LuaMShipSnapshot", null)
-                        .WithOne()
-                        .HasForeignKey("Content.Server.Database.LuaMShipPresenceLease", "ShipId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_luam_ship_presence_lease_luam_ship_snapshot_lua_m_ship_snapshot_ship_id");
-                });
-
-            modelBuilder.Entity("Content.Server.Database.LuaMShipSnapshot", b =>
-                {
-                    b.HasOne("Content.Server.Database.Preference", null)
-                        .WithMany()
-                        .HasForeignKey("OwnerPreferenceId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("FK_luam_ship_snapshot_preference_preference_id");
                 });
 
             modelBuilder.Entity("Content.Server.Database.PdaBankAccount", b =>

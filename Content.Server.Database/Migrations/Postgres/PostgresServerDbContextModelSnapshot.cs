@@ -778,6 +778,1525 @@ namespace Content.Server.Database.Migrations.Postgres
                     b.ToTable("job", (string)null);
                 });
 
+            modelBuilder.Entity("Content.Server.Database.LuaMCampaignShift", b =>
+                {
+                    b.Property<long>("ShiftPeriodId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("shift_period_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<DateTime>("EndsAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ends_at_utc");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<DateTime?>("SealedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sealed_at_utc");
+
+                    b.Property<DateTime>("StartsAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("starts_at_utc");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.HasKey("ShiftPeriodId")
+                        .HasName("PK_luam_campaign_shift");
+
+                    b.HasIndex(new[] { "StartsAtUtc" }, "UX_luam_shift_start")
+                        .IsUnique();
+
+                    b.ToTable("luam_campaign_shift", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_shift_dates", "starts_at_utc < ends_at_utc");
+
+                            t.HasCheckConstraint("CK_luam_shift_revision", "revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_shift_status", "status >= 0 AND status <= 3");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCampaignShiftRun", b =>
+                {
+                    b.Property<long>("ShiftPeriodId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("shift_period_id");
+
+                    b.Property<int>("RoundId")
+                        .HasColumnType("integer")
+                        .HasColumnName("round_id");
+
+                    b.Property<DateTime>("AttachedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("attached_at_utc");
+
+                    b.HasKey("ShiftPeriodId", "RoundId")
+                        .HasName("PK_luam_campaign_shift_run");
+
+                    b.HasIndex(new[] { "RoundId" }, "UX_luam_shift_run_round")
+                        .IsUnique();
+
+                    b.ToTable("luam_campaign_shift_run", (string)null);
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCareerShiftParticipation", b =>
+                {
+                    b.Property<long>("ShiftPeriodId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("shift_period_id");
+
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("profile_id");
+
+                    b.Property<int>("ActiveMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("active_minutes");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("DistinctResultCategories")
+                        .HasColumnType("integer")
+                        .HasColumnName("distinct_result_categories");
+
+                    b.Property<int>("FinalCareerXp")
+                        .HasColumnType("integer")
+                        .HasColumnName("final_career_xp");
+
+                    b.Property<bool>("IsCareerFocus")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_career_focus");
+
+                    b.Property<bool>("IsCredited")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_credited");
+
+                    b.Property<bool>("IsEligible")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_eligible");
+
+                    b.Property<int>("PreferenceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("preference_id");
+
+                    b.Property<int>("PreliminaryCareerXp")
+                        .HasColumnType("integer")
+                        .HasColumnName("preliminary_career_xp");
+
+                    b.Property<int>("ResultCareerXp")
+                        .HasColumnType("integer")
+                        .HasColumnName("result_career_xp");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<DateTime?>("SealedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sealed_at_utc");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("ShiftPeriodId", "ProfileId")
+                        .HasName("PK_luam_career_shift_participation");
+
+                    b.HasIndex("PreferenceId");
+
+                    b.HasIndex(new[] { "ShiftPeriodId", "IsEligible" }, "IX_luam_participation_eligible");
+
+                    b.HasIndex(new[] { "ProfileId", "ShiftPeriodId" }, "IX_luam_participation_profile");
+
+                    b.HasIndex(new[] { "ShiftPeriodId", "PreferenceId" }, "UX_luam_participation_focus")
+                        .IsUnique()
+                        .HasFilter("is_career_focus = TRUE");
+
+                    b.ToTable("luam_career_shift_participation", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_participation_credit", "NOT is_credited OR is_eligible");
+
+                            t.HasCheckConstraint("CK_luam_participation_final", "final_career_xp >= 0 AND final_career_xp <= 100");
+
+                            t.HasCheckConstraint("CK_luam_participation_revision", "revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_participation_values", "preliminary_career_xp >= 0 AND result_career_xp >= 0 AND active_minutes >= 0 AND distinct_result_categories >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCareerXpLedger", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_career_xp_ledger_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("Amount")
+                        .HasColumnType("integer")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("AwardCode")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("award_code");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("Currency")
+                        .HasColumnType("integer")
+                        .HasColumnName("currency");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("OperationIdentityKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("operation_identity_key");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("payload_json");
+
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("profile_id");
+
+                    b.Property<long?>("ReversesLedgerId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reverses_ledger_id");
+
+                    b.Property<int?>("RoundId")
+                        .HasColumnType("integer")
+                        .HasColumnName("round_id");
+
+                    b.Property<int>("RulesetVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("ruleset_version");
+
+                    b.Property<long>("ShiftPeriodId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("shift_period_id");
+
+                    b.Property<string>("SourceInstanceId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("source_instance_id");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("source_type");
+
+                    b.Property<string>("TargetId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("target_id");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_career_xp_ledger");
+
+                    b.HasIndex(new[] { "ProfileId", "CreatedAtUtc" }, "IX_luam_ledger_profile_created");
+
+                    b.HasIndex(new[] { "ShiftPeriodId", "ProfileId", "Currency" }, "IX_luam_ledger_shift_profile_currency");
+
+                    b.HasIndex(new[] { "IdempotencyKey" }, "UX_luam_ledger_idempotency")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "ReversesLedgerId" }, "UX_luam_ledger_reversal")
+                        .IsUnique();
+
+                    b.ToTable("luam_career_xp_ledger", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_ledger_amount", "amount <> 0");
+
+                            t.HasCheckConstraint("CK_luam_ledger_currency", "currency >= 0 AND currency <= 2");
+
+                            t.HasCheckConstraint("CK_luam_ledger_key", "length(idempotency_key) = 64");
+
+                            t.HasCheckConstraint("CK_luam_ledger_operation_identity", "length(operation_identity_key) = 64");
+
+                            t.HasCheckConstraint("CK_luam_ledger_reversal", "reverses_ledger_id IS NULL OR reverses_ledger_id <> lua_m_career_xp_ledger_id");
+
+                            t.HasCheckConstraint("CK_luam_ledger_ruleset", "ruleset_version > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCharacterCareer", b =>
+                {
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("profile_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("CreditedShiftCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("credited_shift_count");
+
+                    b.Property<int>("Level")
+                        .HasColumnType("integer")
+                        .HasColumnName("level");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<long>("TotalCareerXp")
+                        .HasColumnType("bigint")
+                        .HasColumnName("total_career_xp");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("ProfileId")
+                        .HasName("PK_luam_character_career");
+
+                    b.ToTable("luam_character_career", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_career_level", "level >= 0 AND level <= 10");
+
+                            t.HasCheckConstraint("CK_luam_career_revision", "revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_career_status", "status >= 0 AND status <= 6");
+
+                            t.HasCheckConstraint("CK_luam_career_totals", "total_career_xp >= 0 AND credited_shift_count >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCharacterPresenceLease", b =>
+                {
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("profile_id");
+
+                    b.Property<DateTime>("AcquiredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("acquired_at_utc");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at_utc");
+
+                    b.Property<Guid>("LeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_id");
+
+                    b.Property<DateTime>("RenewedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("renewed_at_utc");
+
+                    b.Property<int>("RestoreRoundId")
+                        .HasColumnType("integer")
+                        .HasColumnName("restore_round_id");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<string>("ServerInstanceId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("server_instance_id");
+
+                    b.Property<long>("SnapshotId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("snapshot_id");
+
+                    b.HasKey("ProfileId")
+                        .HasName("PK_luam_character_presence_lease");
+
+                    b.HasIndex("SnapshotId", "ProfileId");
+
+                    b.HasIndex(new[] { "ExpiresAtUtc" }, "IX_luam_cryo_lease_expires");
+
+                    b.HasIndex(new[] { "SnapshotId" }, "UX_luam_cryo_lease_snapshot")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "LeaseId" }, "UX_luam_cryo_lease_token")
+                        .IsUnique();
+
+                    b.ToTable("luam_character_presence_lease", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_cryo_lease_dates", "acquired_at_utc <= renewed_at_utc AND renewed_at_utc < expires_at_utc");
+
+                            t.HasCheckConstraint("CK_luam_cryo_lease_revision", "revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_cryo_lease_round", "restore_round_id >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMDeepCryoOperation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_deep_cryo_operations_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_id");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<string>("OperationIdentityKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("operation_identity_key");
+
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("profile_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<long>("ResultRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("result_revision");
+
+                    b.Property<int>("ResultStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("result_status");
+
+                    b.Property<int?>("RoundId")
+                        .HasColumnType("integer")
+                        .HasColumnName("round_id");
+
+                    b.Property<long>("SnapshotId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("snapshot_id");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_deep_cryo_operation");
+
+                    b.HasIndex("SnapshotId", "ProfileId");
+
+                    b.HasIndex(new[] { "ProfileId", "CreatedAtUtc" }, "IX_luam_cryo_operation_profile_created");
+
+                    b.HasIndex(new[] { "SnapshotId", "CreatedAtUtc" }, "IX_luam_cryo_operation_snapshot_created");
+
+                    b.HasIndex(new[] { "LeaseId" }, "UX_luam_cryo_operation_claim_lease")
+                        .IsUnique()
+                        .HasFilter("kind = 1");
+
+                    b.HasIndex(new[] { "OperationId" }, "UX_luam_cryo_operation_id")
+                        .IsUnique();
+
+                    b.ToTable("luam_deep_cryo_operation", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_cryo_operation_identity", "length(operation_identity_key) = 64");
+
+                            t.HasCheckConstraint("CK_luam_cryo_operation_kind", "kind >= 0 AND kind <= 6");
+
+                            t.HasCheckConstraint("CK_luam_cryo_operation_revision", "result_revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_cryo_operation_round", "round_id IS NULL OR round_id >= 0");
+
+                            t.HasCheckConstraint("CK_luam_cryo_operation_status", "result_status >= 0 AND result_status <= 3");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMDeepCryoSnapshot", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_deep_cryo_snapshots_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("ConsumedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consumed_at_utc");
+
+                    b.Property<int>("EntityCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("entity_count");
+
+                    b.Property<int>("FormatVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("format_version");
+
+                    b.Property<int?>("LastRestoreRoundId")
+                        .HasColumnType("integer")
+                        .HasColumnName("last_restore_round_id");
+
+                    b.Property<byte[]>("Payload")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<int>("PayloadSizeBytes")
+                        .HasColumnType("integer")
+                        .HasColumnName("payload_size_bytes");
+
+                    b.Property<Guid>("PlayerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("player_user_id");
+
+                    b.Property<int>("PreferenceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("preference_id");
+
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("profile_id");
+
+                    b.Property<string>("PrototypeManifestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("prototype_manifest_hash");
+
+                    b.Property<string>("QuarantineReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("quarantine_reason");
+
+                    b.Property<DateTime?>("QuarantinedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("quarantined_at_utc");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<int>("Slot")
+                        .HasColumnType("integer")
+                        .HasColumnName("slot");
+
+                    b.Property<string>("SourceBuildVersion")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("source_build_version");
+
+                    b.Property<int>("SourceRoundId")
+                        .HasColumnType("integer")
+                        .HasColumnName("source_round_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("StoredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("stored_at_utc");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_deep_cryo_snapshot");
+
+                    b.HasAlternateKey("Id", "ProfileId")
+                        .HasName("ak_luam_deep_cryo_snapshot_lua_m_deep_cryo_snapshots_id_profil~");
+
+                    b.HasIndex("PreferenceId");
+
+                    b.HasIndex(new[] { "PlayerUserId", "Slot", "Status" }, "IX_luam_cryo_snapshot_player_slot_status");
+
+                    b.HasIndex(new[] { "ProfileId", "StoredAtUtc" }, "IX_luam_cryo_snapshot_profile_stored");
+
+                    b.HasIndex(new[] { "ProfileId" }, "UX_luam_cryo_snapshot_active_profile")
+                        .IsUnique()
+                        .HasFilter("status <> 2");
+
+                    b.ToTable("luam_deep_cryo_snapshot", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_cryo_snapshot_dates", "stored_at_utc <= updated_at_utc");
+
+                            t.HasCheckConstraint("CK_luam_cryo_snapshot_format", "format_version > 0");
+
+                            t.HasCheckConstraint("CK_luam_cryo_snapshot_hashes", "length(payload_hash) = 64 AND length(prototype_manifest_hash) = 64");
+
+                            t.HasCheckConstraint("CK_luam_cryo_snapshot_identity", "slot >= 0 AND source_round_id >= 0");
+
+                            t.HasCheckConstraint("CK_luam_cryo_snapshot_payload", "payload_size_bytes > 0 AND entity_count > 0 AND length(payload) = payload_size_bytes");
+
+                            t.HasCheckConstraint("CK_luam_cryo_snapshot_revision", "revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_cryo_snapshot_status", "status >= 0 AND status <= 3");
+
+                            t.HasCheckConstraint("CK_luam_cryo_snapshot_terminal", "(status = 2 AND consumed_at_utc IS NOT NULL AND quarantined_at_utc IS NULL AND quarantine_reason IS NULL) OR (status = 3 AND consumed_at_utc IS NULL AND quarantined_at_utc IS NOT NULL AND quarantine_reason IS NOT NULL) OR (status IN (0, 1) AND consumed_at_utc IS NULL AND quarantined_at_utc IS NULL AND quarantine_reason IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionCheckpoint", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_expedition_checkpoints_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("CommittedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("committed_at_utc");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("FormatVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("format_version");
+
+                    b.Property<long>("ManifestId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("manifest_id");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<string>("OperationIdentityKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("operation_identity_key");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<string>("QuarantineReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("quarantine_reason");
+
+                    b.Property<byte[]>("StatePayload")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("state_payload");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_expedition_checkpoint");
+
+                    b.HasIndex(new[] { "ManifestId", "CommittedAtUtc" }, "IX_luam_exp_checkpoint_committed");
+
+                    b.HasIndex(new[] { "OperationId" }, "UX_luam_exp_checkpoint_operation")
+                        .IsUnique();
+
+                    b.ToTable("luam_expedition_checkpoint", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_exp_checkpoint_identity", "length(operation_identity_key) = 64");
+
+                            t.HasCheckConstraint("CK_luam_exp_checkpoint_status", "status >= 0 AND status <= 1");
+
+                            t.HasCheckConstraint("CK_luam_exp_checkpoint_version", "format_version > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionDelta", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_expedition_deltas_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("ActorProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("actor_profile_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("FormatVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("format_version");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<byte[]>("Payload")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<long>("RegionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("region_id");
+
+                    b.Property<long>("RegionRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("region_revision");
+
+                    b.Property<string>("SourceInstanceId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("source_instance_id");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_expedition_delta");
+
+                    b.HasIndex("ActorProfileId");
+
+                    b.HasIndex(new[] { "RegionId", "RegionRevision" }, "UX_luam_exp_delta_revision")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "RegionId", "SourceInstanceId" }, "UX_luam_exp_delta_source")
+                        .IsUnique();
+
+                    b.ToTable("luam_expedition_delta", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_exp_delta_revision", "region_revision > 0");
+
+                            t.HasCheckConstraint("CK_luam_exp_delta_version", "format_version > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionEntitySnapshot", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_expedition_entity_snapshots_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("ActorProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("actor_profile_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("FormatVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("format_version");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<byte[]>("Payload")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<string>("QuarantineReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("quarantine_reason");
+
+                    b.Property<long>("RegionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("region_id");
+
+                    b.Property<long>("RegionRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("region_revision");
+
+                    b.Property<string>("SourceInstanceId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("source_instance_id");
+
+                    b.Property<string>("StableEntityId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("stable_entity_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_expedition_entity_snapshot");
+
+                    b.HasIndex("ActorProfileId");
+
+                    b.HasIndex(new[] { "RegionId", "StableEntityId" }, "UX_luam_exp_snapshot_entity")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "IdempotencyKey" }, "UX_luam_exp_snapshot_idempotency")
+                        .IsUnique();
+
+                    b.ToTable("luam_expedition_entity_snapshot", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_exp_snapshot_key", "length(idempotency_key) = 64");
+
+                            t.HasCheckConstraint("CK_luam_exp_snapshot_revision", "region_revision > 0");
+
+                            t.HasCheckConstraint("CK_luam_exp_snapshot_status", "status >= 0 AND status <= 1");
+
+                            t.HasCheckConstraint("CK_luam_exp_snapshot_version", "format_version > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionManifest", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_expedition_manifests_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("ArchivedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_at_utc");
+
+                    b.Property<string>("CampaignId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("ExpeditionId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("expedition_id");
+
+                    b.Property<int>("GeneratorVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("generator_version");
+
+                    b.Property<int>("MaxX")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_x");
+
+                    b.Property<int>("MaxY")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_y");
+
+                    b.Property<int>("MinX")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_x");
+
+                    b.Property<int>("MinY")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_y");
+
+                    b.Property<string>("PlanHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("plan_hash");
+
+                    b.Property<int>("PreservationPolicy")
+                        .HasColumnType("integer")
+                        .HasColumnName("preservation_policy");
+
+                    b.Property<string>("QuarantineReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("quarantine_reason");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<long>("SeedBits")
+                        .HasColumnType("bigint")
+                        .HasColumnName("seed_bits");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_expedition_manifest");
+
+                    b.HasIndex(new[] { "Status", "UpdatedAtUtc" }, "IX_luam_exp_manifest_status_updated");
+
+                    b.HasIndex(new[] { "CampaignId", "ExpeditionId" }, "UX_luam_exp_manifest_identity")
+                        .IsUnique();
+
+                    b.ToTable("luam_expedition_manifest", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_exp_manifest_bounds", "min_x <= max_x AND min_y <= max_y");
+
+                            t.HasCheckConstraint("CK_luam_exp_manifest_policy", "preservation_policy >= 0 AND preservation_policy <= 2");
+
+                            t.HasCheckConstraint("CK_luam_exp_manifest_revision", "revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_exp_manifest_status", "status >= 0 AND status <= 6");
+
+                            t.HasCheckConstraint("CK_luam_exp_manifest_version", "generator_version > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionRegion", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_expedition_regions_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Biome")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("biome");
+
+                    b.Property<int>("DangerBudget")
+                        .HasColumnType("integer")
+                        .HasColumnName("danger_budget");
+
+                    b.Property<DateTime?>("DiscoveredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("discovered_at_utc");
+
+                    b.Property<int>("EdgeFormatVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("edge_format_version");
+
+                    b.Property<byte[]>("EdgePayload")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("edge_payload");
+
+                    b.Property<string>("EdgePayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("edge_payload_hash");
+
+                    b.Property<bool>("IsDepleted")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_depleted");
+
+                    b.Property<long>("ManifestId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("manifest_id");
+
+                    b.Property<int>("MaxX")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_x");
+
+                    b.Property<int>("MaxY")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_y");
+
+                    b.Property<int>("MinX")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_x");
+
+                    b.Property<int>("MinY")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_y");
+
+                    b.Property<string>("QuarantineReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("quarantine_reason");
+
+                    b.Property<DateTime?>("QuarantinedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("quarantined_at_utc");
+
+                    b.Property<int>("RegionX")
+                        .HasColumnType("integer")
+                        .HasColumnName("region_x");
+
+                    b.Property<int>("RegionY")
+                        .HasColumnType("integer")
+                        .HasColumnName("region_y");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<string>("ScenarioTag")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("scenario_tag");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_expedition_region");
+
+                    b.HasIndex(new[] { "ManifestId", "DiscoveredAtUtc" }, "IX_luam_exp_region_discovered");
+
+                    b.HasIndex(new[] { "ManifestId", "Revision" }, "IX_luam_exp_region_revision");
+
+                    b.HasIndex(new[] { "ManifestId", "RegionX", "RegionY" }, "UX_luam_exp_region_coordinates")
+                        .IsUnique();
+
+                    b.ToTable("luam_expedition_region", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_exp_region_bounds", "min_x <= max_x AND min_y <= max_y");
+
+                            t.HasCheckConstraint("CK_luam_exp_region_revision", "revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_exp_region_version", "edge_format_version > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionSite", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_expedition_sites_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at_utc");
+
+                    b.Property<DateTime?>("DiscoveredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("discovered_at_utc");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<long>("ManifestId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("manifest_id");
+
+                    b.Property<int>("MaxX")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_x");
+
+                    b.Property<int>("MaxY")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_y");
+
+                    b.Property<int>("MinX")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_x");
+
+                    b.Property<int>("MinY")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_y");
+
+                    b.Property<int>("PositionX")
+                        .HasColumnType("integer")
+                        .HasColumnName("position_x");
+
+                    b.Property<int>("PositionY")
+                        .HasColumnType("integer")
+                        .HasColumnName("position_y");
+
+                    b.Property<string>("PrototypeId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("prototype_id");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<string>("SiteId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("site_id");
+
+                    b.Property<int>("StateFormatVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("state_format_version");
+
+                    b.Property<byte[]>("StatePayload")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("state_payload");
+
+                    b.Property<string>("StatePayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("state_payload_hash");
+
+                    b.Property<string>("UniqueScope")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("unique_scope");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_expedition_site");
+
+                    b.HasIndex(new[] { "ManifestId", "Kind" }, "IX_luam_exp_site_kind");
+
+                    b.HasIndex(new[] { "ManifestId", "SiteId" }, "UX_luam_exp_site_identity")
+                        .IsUnique();
+
+                    b.HasIndex(new[] { "ManifestId", "UniqueScope", "PrototypeId" }, "UX_luam_exp_site_scope_proto")
+                        .IsUnique();
+
+                    b.ToTable("luam_expedition_site", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_exp_site_bounds", "min_x <= max_x AND min_y <= max_y");
+
+                            t.HasCheckConstraint("CK_luam_exp_site_revision", "revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_exp_site_version", "state_format_version > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionTombstone", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_expedition_tombstones_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int?>("ActorProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("actor_profile_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<long>("RegionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("region_id");
+
+                    b.Property<long>("RegionRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("region_revision");
+
+                    b.Property<long?>("SiteRowId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("site_row_id");
+
+                    b.Property<string>("SourceInstanceId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("source_instance_id");
+
+                    b.Property<string>("StableObjectId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("stable_object_id");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_expedition_tombstone");
+
+                    b.HasIndex("ActorProfileId");
+
+                    b.HasIndex("SiteRowId");
+
+                    b.HasIndex(new[] { "RegionId", "SourceInstanceId" }, "IX_luam_exp_tombstone_source");
+
+                    b.HasIndex(new[] { "RegionId", "StableObjectId" }, "UX_luam_exp_tombstone_object")
+                        .IsUnique();
+
+                    b.ToTable("luam_expedition_tombstone", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_exp_tombstone_revision", "region_revision > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMShipPresenceLease", b =>
+                {
+                    b.Property<Guid>("ShipId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ship_id");
+
+                    b.Property<DateTime>("AcquiredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("acquired_at_utc");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at_utc");
+
+                    b.Property<Guid>("LeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_id");
+
+                    b.Property<DateTime>("RenewedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("renewed_at_utc");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<int>("RoundId")
+                        .HasColumnType("integer")
+                        .HasColumnName("round_id");
+
+                    b.Property<string>("ServerInstanceId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("server_instance_id");
+
+                    b.HasKey("ShipId")
+                        .HasName("PK_luam_ship_presence_lease");
+
+                    b.HasIndex(new[] { "ExpiresAtUtc" }, "IX_luam_ship_lease_expires");
+
+                    b.HasIndex(new[] { "LeaseId" }, "UX_luam_ship_lease_token")
+                        .IsUnique();
+
+                    b.ToTable("luam_ship_presence_lease", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_ship_lease_dates", "acquired_at_utc <= renewed_at_utc AND renewed_at_utc < expires_at_utc");
+
+                            t.HasCheckConstraint("CK_luam_ship_lease_revision", "revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_ship_lease_round", "round_id >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMShipSnapshot", b =>
+                {
+                    b.Property<Guid>("ShipId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ship_id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("EntityCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("entity_count");
+
+                    b.Property<int>("FormatVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("format_version");
+
+                    b.Property<int?>("LastRestoreRoundId")
+                        .HasColumnType("integer")
+                        .HasColumnName("last_restore_round_id");
+
+                    b.Property<DateTime?>("LastRestoredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_restored_at_utc");
+
+                    b.Property<int>("OwnerPreferenceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("owner_preference_id");
+
+                    b.Property<Guid>("OwnerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_user_id");
+
+                    b.Property<byte[]>("Payload")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<long?>("PayloadRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("payload_revision");
+
+                    b.Property<int>("PayloadSizeBytes")
+                        .HasColumnType("integer")
+                        .HasColumnName("payload_size_bytes");
+
+                    b.Property<string>("PrototypeManifestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("prototype_manifest_hash");
+
+                    b.Property<int>("PurchasePrice")
+                        .HasColumnType("integer")
+                        .HasColumnName("purchase_price");
+
+                    b.Property<bool>("PurchasedWithVoucher")
+                        .HasColumnType("boolean")
+                        .HasColumnName("purchased_with_voucher");
+
+                    b.Property<string>("QuarantineReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("quarantine_reason");
+
+                    b.Property<DateTime?>("QuarantinedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("quarantined_at_utc");
+
+                    b.Property<DateTime?>("RetiredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("retired_at_utc");
+
+                    b.Property<Guid?>("RetirementOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("retirement_operation_id");
+
+                    b.Property<string>("RetirementReason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("retirement_reason");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<int>("SchemaVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("schema_version");
+
+                    b.Property<string>("ShipName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)")
+                        .HasColumnName("ship_name");
+
+                    b.Property<string>("ShipNameSuffix")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("ship_name_suffix");
+
+                    b.Property<string>("SourceBuildVersion")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("source_build_version");
+
+                    b.Property<int>("SourceRoundId")
+                        .HasColumnType("integer")
+                        .HasColumnName("source_round_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("StoredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("stored_at_utc");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<string>("VesselPrototypeId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("vessel_prototype_id");
+
+                    b.HasKey("ShipId")
+                        .HasName("PK_luam_ship_snapshot");
+
+                    b.HasIndex("OwnerPreferenceId");
+
+                    b.HasIndex(new[] { "OwnerUserId", "Status" }, "IX_luam_ship_snapshot_owner_status");
+
+                    b.HasIndex(new[] { "UpdatedAtUtc" }, "IX_luam_ship_snapshot_updated");
+
+                    b.HasIndex(new[] { "RetirementOperationId" }, "UX_luam_ship_retirement_operation")
+                        .IsUnique()
+                        .HasFilter("retirement_operation_id IS NOT NULL");
+
+                    b.ToTable("luam_ship_snapshot", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_ship_snapshot_dates", "created_at_utc <= stored_at_utc AND stored_at_utc <= updated_at_utc");
+
+                            t.HasCheckConstraint("CK_luam_ship_snapshot_hashes", "length(payload_hash) = 64 AND length(prototype_manifest_hash) = 64");
+
+                            t.HasCheckConstraint("CK_luam_ship_snapshot_owner", "owner_preference_id > 0");
+
+                            t.HasCheckConstraint("CK_luam_ship_snapshot_payload", "payload_size_bytes > 0 AND entity_count > 0 AND length(payload) = payload_size_bytes");
+
+                            t.HasCheckConstraint("CK_luam_ship_snapshot_purchase", "purchase_price >= 0");
+
+                            t.HasCheckConstraint("CK_luam_ship_snapshot_quarantine", "(status = 3 AND quarantined_at_utc IS NOT NULL AND quarantine_reason IS NOT NULL) OR (status <> 3 AND quarantined_at_utc IS NULL AND quarantine_reason IS NULL)");
+
+                            t.HasCheckConstraint("CK_luam_ship_snapshot_retirement", "(status = 4 AND retired_at_utc IS NOT NULL AND retirement_reason IS NOT NULL AND retirement_operation_id IS NOT NULL) OR (status <> 4 AND retired_at_utc IS NULL AND retirement_reason IS NULL AND retirement_operation_id IS NULL)");
+
+                            t.HasCheckConstraint("CK_luam_ship_snapshot_revision", "revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_ship_snapshot_status", "status >= 0 AND status <= 4");
+
+                            t.HasCheckConstraint("CK_luam_ship_snapshot_versions", "schema_version > 0 AND format_version > 0 AND source_round_id >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.MonoCoinsTransferJournal", b =>
+                {
+                    b.Property<Guid>("OperationId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<DateTime?>("AcknowledgedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("acknowledged_at");
+
+                    b.Property<long>("Amount")
+                        .HasColumnType("bigint")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<long>("RecipientBalanceAfter")
+                        .HasColumnType("bigint")
+                        .HasColumnName("recipient_balance_after");
+
+                    b.Property<long>("RecipientBalanceBefore")
+                        .HasColumnType("bigint")
+                        .HasColumnName("recipient_balance_before");
+
+                    b.Property<Guid>("RecipientUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recipient_user_id");
+
+                    b.Property<long>("SenderBalanceAfter")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sender_balance_after");
+
+                    b.Property<long>("SenderBalanceBefore")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sender_balance_before");
+
+                    b.Property<Guid>("SenderUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sender_user_id");
+
+                    b.HasKey("OperationId")
+                        .HasName("PK_monocoins_transfer_journal");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("IX_monocoins_transfer_journal_created_at");
+
+                    b.HasIndex("RecipientUserId")
+                        .HasDatabaseName("IX_monocoins_transfer_journal_recipient_user_id");
+
+                    b.HasIndex("SenderUserId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_monocoins_transfer_journal_sender_user_id")
+                        .HasFilter("acknowledged_at IS NULL");
+
+                    b.ToTable("monocoins_transfer_journal", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_monocoins_transfer_journal_amount", "amount > 0");
+
+                            t.HasCheckConstraint("CK_monocoins_transfer_journal_balances", "sender_balance_before >= 0 AND sender_balance_after >= 0 AND recipient_balance_before >= 0 AND recipient_balance_after >= 0");
+
+                            t.HasCheckConstraint("CK_monocoins_transfer_journal_conservation", "sender_balance_before - sender_balance_after = amount AND recipient_balance_after - recipient_balance_before = amount");
+
+                            t.HasCheckConstraint("CK_monocoins_transfer_journal_distinct_accounts", "sender_user_id <> recipient_user_id");
+                        });
+                });
+
             modelBuilder.Entity("Content.Server.Database.PdaBankAccount", b =>
                 {
                     b.Property<string>("BankId")
@@ -999,6 +2518,11 @@ namespace Content.Server.Database.Migrations.Postgres
                         .IsConcurrencyToken()
                         .HasColumnType("boolean")
                         .HasColumnName("is_archived");
+
+                    b.Property<long>("LifecycleRevision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lifecycle_revision");
 
                     b.Property<JsonDocument>("Markings")
                         .HasColumnType("jsonb")
@@ -1864,6 +3388,223 @@ namespace Content.Server.Database.Migrations.Postgres
                         .HasConstraintName("FK_job_profile_profile_id");
 
                     b.Navigation("Profile");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCampaignShiftRun", b =>
+                {
+                    b.HasOne("Content.Server.Database.LuaMCampaignShift", null)
+                        .WithMany()
+                        .HasForeignKey("ShiftPeriodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_campaign_shift_run_luam_campaign_shift_shift_period_id");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCareerShiftParticipation", b =>
+                {
+                    b.HasOne("Content.Server.Database.Preference", null)
+                        .WithMany()
+                        .HasForeignKey("PreferenceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_career_shift_participation_preference_preference_id");
+
+                    b.HasOne("Content.Server.Database.LuaMCharacterCareer", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_career_shift_participation_luam_character_career_profi~");
+
+                    b.HasOne("Content.Server.Database.LuaMCampaignShift", null)
+                        .WithMany()
+                        .HasForeignKey("ShiftPeriodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_career_shift_participation_luam_campaign_shift_shift_p~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCareerXpLedger", b =>
+                {
+                    b.HasOne("Content.Server.Database.LuaMCareerXpLedger", null)
+                        .WithMany()
+                        .HasForeignKey("ReversesLedgerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_luam_career_xp_ledger_luam_career_xp_ledger_lua_m_career_xp~");
+
+                    b.HasOne("Content.Server.Database.LuaMCareerShiftParticipation", null)
+                        .WithMany()
+                        .HasForeignKey("ShiftPeriodId", "ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_career_xp_ledger_luam_career_shift_participation_lua_m~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCharacterCareer", b =>
+                {
+                    b.HasOne("Content.Server.Database.Profile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_character_career_profile_profile_id1");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCharacterPresenceLease", b =>
+                {
+                    b.HasOne("Content.Server.Database.Profile", null)
+                        .WithOne()
+                        .HasForeignKey("Content.Server.Database.LuaMCharacterPresenceLease", "ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_character_presence_lease_profile_profile_id1");
+
+                    b.HasOne("Content.Server.Database.LuaMDeepCryoSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("SnapshotId", "ProfileId")
+                        .HasPrincipalKey("Id", "ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_character_presence_lease_luam_deep_cryo_snapshot_lua_m~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMDeepCryoOperation", b =>
+                {
+                    b.HasOne("Content.Server.Database.Profile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_deep_cryo_operation_profile_profile_id");
+
+                    b.HasOne("Content.Server.Database.LuaMDeepCryoSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("SnapshotId", "ProfileId")
+                        .HasPrincipalKey("Id", "ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_deep_cryo_operation_luam_deep_cryo_snapshot_lua_m_deep~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMDeepCryoSnapshot", b =>
+                {
+                    b.HasOne("Content.Server.Database.Preference", null)
+                        .WithMany()
+                        .HasForeignKey("PreferenceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_deep_cryo_snapshot_preference_preference_id");
+
+                    b.HasOne("Content.Server.Database.Profile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_deep_cryo_snapshot_profile_profile_id");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionCheckpoint", b =>
+                {
+                    b.HasOne("Content.Server.Database.LuaMExpeditionManifest", null)
+                        .WithMany()
+                        .HasForeignKey("ManifestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_expedition_checkpoint_luam_expedition_manifest_lua_m_e~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionDelta", b =>
+                {
+                    b.HasOne("Content.Server.Database.Profile", null)
+                        .WithMany()
+                        .HasForeignKey("ActorProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_luam_expedition_delta_profile_profile_id");
+
+                    b.HasOne("Content.Server.Database.LuaMExpeditionRegion", null)
+                        .WithMany()
+                        .HasForeignKey("RegionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_expedition_delta_luam_expedition_region_lua_m_expediti~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionEntitySnapshot", b =>
+                {
+                    b.HasOne("Content.Server.Database.Profile", null)
+                        .WithMany()
+                        .HasForeignKey("ActorProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_luam_expedition_entity_snapshot_profile_profile_id");
+
+                    b.HasOne("Content.Server.Database.LuaMExpeditionRegion", null)
+                        .WithMany()
+                        .HasForeignKey("RegionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_expedition_entity_snapshot_luam_expedition_region_lua_~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionRegion", b =>
+                {
+                    b.HasOne("Content.Server.Database.LuaMExpeditionManifest", null)
+                        .WithMany()
+                        .HasForeignKey("ManifestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_expedition_region_luam_expedition_manifest_lua_m_exped~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionSite", b =>
+                {
+                    b.HasOne("Content.Server.Database.LuaMExpeditionManifest", null)
+                        .WithMany()
+                        .HasForeignKey("ManifestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_expedition_site_luam_expedition_manifest_lua_m_expedit~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMExpeditionTombstone", b =>
+                {
+                    b.HasOne("Content.Server.Database.Profile", null)
+                        .WithMany()
+                        .HasForeignKey("ActorProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_luam_expedition_tombstone_profile_profile_id");
+
+                    b.HasOne("Content.Server.Database.LuaMExpeditionRegion", null)
+                        .WithMany()
+                        .HasForeignKey("RegionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_expedition_tombstone_luam_expedition_region_lua_m_expe~");
+
+                    b.HasOne("Content.Server.Database.LuaMExpeditionSite", null)
+                        .WithMany()
+                        .HasForeignKey("SiteRowId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_luam_expedition_tombstone_luam_expedition_site_lua_m_expedi~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMShipPresenceLease", b =>
+                {
+                    b.HasOne("Content.Server.Database.LuaMShipSnapshot", null)
+                        .WithOne()
+                        .HasForeignKey("Content.Server.Database.LuaMShipPresenceLease", "ShipId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_ship_presence_lease_luam_ship_snapshot_lua_m_ship_snap~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMShipSnapshot", b =>
+                {
+                    b.HasOne("Content.Server.Database.Preference", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerPreferenceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_ship_snapshot_preference_preference_id");
                 });
 
             modelBuilder.Entity("Content.Server.Database.PdaBankAccount", b =>

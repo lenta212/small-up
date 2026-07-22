@@ -28,7 +28,7 @@ using Robust.Shared.Utility;
 
 namespace Content.Server.Database
 {
-    public abstract class ServerDbBase
+    public abstract partial class ServerDbBase
     {
         private readonly ISawmill _opsLog;
 
@@ -42,6 +42,14 @@ namespace Content.Server.Database
 
         #region Preferences
         public async Task<PlayerPreferences?> GetPlayerPreferencesAsync(
+            NetUserId userId,
+            CancellationToken cancel = default)
+        {
+            var snapshot = await GetPlayerPreferencesSnapshotAsync(userId, cancel);
+            return snapshot?.Preferences;
+        }
+
+        public async Task<PlayerPreferencesSnapshot?> GetPlayerPreferencesSnapshotAsync(
             NetUserId userId,
             CancellationToken cancel = default)
         {
@@ -59,7 +67,7 @@ namespace Content.Server.Database
                     .ThenInclude(h => h.Loadouts)
                     .ThenInclude(l => l.Groups)
                     .ThenInclude(group => group.Loadouts)
-                .AsSplitQuery()
+                .AsSingleQuery()
                 .SingleOrDefaultAsync(p => p.UserId == userId.UserId, cancel);
 
             if (prefs is null)
@@ -69,15 +77,86 @@ namespace Content.Server.Database
                 .Where(profile => !profile.IsArchived && profile.Slot.HasValue)
                 .ToArray();
             var profiles = new Dictionary<int, ICharacterProfile>(activeProfiles.Length);
+            var profileIdsBySlot = new Dictionary<int, int>(activeProfiles.Length);
             foreach (var profile in activeProfiles)
             {
-                profiles[profile.Slot!.Value] = ConvertProfiles(profile);
+                var slot = profile.Slot!.Value;
+                profiles[slot] = ConvertProfiles(profile);
+                profileIdsBySlot[slot] = profile.Id;
             }
 
             var selectedSlot = profiles.ContainsKey(prefs.SelectedCharacterSlot)
                 ? prefs.SelectedCharacterSlot
                 : profiles.Keys.FirstOrDefault();
-            return new PlayerPreferences(profiles, selectedSlot, Color.FromHex(prefs.AdminOOCColor));
+            var preferences = new PlayerPreferences(profiles, selectedSlot, Color.FromHex(prefs.AdminOOCColor));
+            return new PlayerPreferencesSnapshot(preferences, profileIdsBySlot);
+        }
+
+        public async Task<int?> GetCharacterBankBalanceAsync(
+            NetUserId userId,
+            int profileId,
+            int slot,
+            CancellationToken cancel = default)
+        {
+            await using var db = await GetDb(cancel);
+
+            return await db.DbContext.Profile
+                .AsNoTracking()
+                .Where(profile =>
+                    profile.Id == profileId &&
+                    profile.Preference.UserId == userId.UserId &&
+                    !profile.IsArchived &&
+                    profile.Slot == slot)
+                .Select(profile => (int?) profile.BankBalance)
+                .SingleOrDefaultAsync(cancel);
+        }
+
+        public async Task<CharacterBankBalanceUpdateResult> UpdateCharacterBankBalanceAsync(
+            NetUserId userId,
+            int profileId,
+            int slot,
+            int expectedBalance,
+            int newBalance,
+            CancellationToken cancel = default)
+        {
+            if (expectedBalance < 0 || newBalance < 0)
+                return new CharacterBankBalanceUpdateResult(CharacterBankBalanceUpdateStatus.InvalidBalance);
+
+            await using var db = await GetDb(cancel);
+
+            var updated = await db.DbContext.Profile
+                .Where(profile =>
+                    profile.Id == profileId &&
+                    profile.Preference.UserId == userId.UserId &&
+                    !profile.IsArchived &&
+                    profile.Slot == slot &&
+                    profile.BankBalance == expectedBalance)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(profile => profile.BankBalance, newBalance),
+                    cancel);
+
+            if (updated == 1)
+            {
+                return new CharacterBankBalanceUpdateResult(
+                    CharacterBankBalanceUpdateStatus.Success,
+                    newBalance);
+            }
+
+            var currentBalance = await db.DbContext.Profile
+                .AsNoTracking()
+                .Where(profile =>
+                    profile.Id == profileId &&
+                    profile.Preference.UserId == userId.UserId &&
+                    !profile.IsArchived &&
+                    profile.Slot == slot)
+                .Select(profile => (int?) profile.BankBalance)
+                .SingleOrDefaultAsync(cancel);
+
+            return currentBalance == null
+                ? new CharacterBankBalanceUpdateResult(CharacterBankBalanceUpdateStatus.ProfileMissing)
+                : new CharacterBankBalanceUpdateResult(
+                    CharacterBankBalanceUpdateStatus.BalanceConflict,
+                    currentBalance);
         }
 
         public async Task SaveSelectedCharacterIndexAsync(NetUserId userId, int index)
@@ -100,7 +179,16 @@ namespace Content.Server.Database
             if (profile is null)
             {
                 await DeleteCharacterSlot(db.DbContext, userId, slot);
-                await db.DbContext.SaveChangesAsync();
+                try
+                {
+                    await db.DbContext.SaveChangesAsync();
+                }
+                catch (DbUpdateConcurrencyException e)
+                {
+                    throw new InvalidOperationException(
+                        "The character lifecycle changed while the slot was being archived; retry the operation.",
+                        e);
+                }
                 return;
             }
 
@@ -571,7 +659,7 @@ namespace Content.Server.Database
                     account.LastUserName);
         }
 
-        public async Task<PdaBankAccountRecord?> RegisterPdaBankAccountAsync(
+        public async Task<PdaBankAccountRegistrationResult> RegisterPdaBankAccountAsync(
             NetUserId userId,
             int slot,
             string expectedCharacterName,
@@ -580,14 +668,14 @@ namespace Content.Server.Database
             CancellationToken cancel = default)
         {
             if (slot < 0 || string.IsNullOrWhiteSpace(expectedCharacterName) || candidateBankIds.Count == 0)
-                return null;
+                return new(PdaBankAccountRegistrationStatus.InvalidRequest);
 
             var candidates = candidateBankIds
                 .Where(candidate => !string.IsNullOrWhiteSpace(candidate) && candidate.Length <= 7)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             if (candidates.Length == 0)
-                return null;
+                return new(PdaBankAccountRegistrationStatus.InvalidRequest);
 
             // Unique constraints on both bank_id and profile_id arbitrate concurrent
             // registrations. A loser retries and observes the winner's stable id.
@@ -613,7 +701,7 @@ namespace Content.Server.Database
                         })
                         .SingleOrDefaultAsync(cancel);
                     if (profile == null)
-                        return null;
+                        return new(PdaBankAccountRegistrationStatus.ProfileMissing);
 
                     var existing = await db.DbContext.PdaBankAccounts
                         .SingleOrDefaultAsync(mapping => mapping.ProfileId == profile.Id, cancel);
@@ -623,13 +711,15 @@ namespace Content.Server.Database
                         existing.UpdatedAt = DateTime.UtcNow;
                         await db.DbContext.SaveChangesAsync(cancel);
                         await transaction.CommitAsync(cancel);
-                        return new PdaBankAccountRecord(
-                            existing.BankId,
-                            userId,
-                            profile.Id,
-                            profile.Slot!.Value,
-                            profile.CharacterName,
-                            existing.LastUserName);
+                        return new(
+                            PdaBankAccountRegistrationStatus.Success,
+                            new PdaBankAccountRecord(
+                                existing.BankId,
+                                userId,
+                                profile.Id,
+                                profile.Slot!.Value,
+                                profile.CharacterName,
+                                existing.LastUserName));
                     }
 
                     var occupied = await db.DbContext.PdaBankAccounts
@@ -640,7 +730,7 @@ namespace Content.Server.Database
                     var occupiedSet = occupied.ToHashSet(StringComparer.OrdinalIgnoreCase);
                     var selected = candidates.FirstOrDefault(candidate => !occupiedSet.Contains(candidate));
                     if (selected == null)
-                        return null;
+                        return new(PdaBankAccountRegistrationStatus.CandidatesExhausted);
 
                     var mapping = new PdaBankAccount
                     {
@@ -652,13 +742,15 @@ namespace Content.Server.Database
                     db.DbContext.PdaBankAccounts.Add(mapping);
                     await db.DbContext.SaveChangesAsync(cancel);
                     await transaction.CommitAsync(cancel);
-                    return new PdaBankAccountRecord(
-                        mapping.BankId,
-                        userId,
-                        profile.Id,
-                        profile.Slot!.Value,
-                        profile.CharacterName,
-                        mapping.LastUserName);
+                    return new(
+                        PdaBankAccountRegistrationStatus.Success,
+                        new PdaBankAccountRecord(
+                            mapping.BankId,
+                            userId,
+                            profile.Id,
+                            profile.Slot!.Value,
+                            profile.CharacterName,
+                            mapping.LastUserName));
                 }
                 catch (DbUpdateException) when (attempt < 2)
                 {
@@ -668,9 +760,17 @@ namespace Content.Server.Database
                 {
                     // SQLite can surface a concurrent writer as a provider error.
                 }
+                catch (DbUpdateException)
+                {
+                    return new(PdaBankAccountRegistrationStatus.Contention);
+                }
+                catch (DbException)
+                {
+                    return new(PdaBankAccountRegistrationStatus.Contention);
+                }
             }
 
-            return null;
+            return new(PdaBankAccountRegistrationStatus.Contention);
         }
 
         public async Task<CharacterBankTransferJournalRecord?> GetUnacknowledgedCharacterBankTransferAsync(
@@ -790,9 +890,25 @@ namespace Content.Server.Database
             if (profile == null)
                 return false;
 
+            var hasActiveCryoState = await db.DbContext.LuaMDeepCryoSnapshots.AsNoTracking().AnyAsync(value =>
+                    value.ProfileId == profileId && value.Status != DbLuaMDeepCryoSnapshotStatus.Consumed,
+                cancel) ||
+                await db.DbContext.LuaMCharacterPresenceLeases.AsNoTracking()
+                    .AnyAsync(value => value.ProfileId == profileId, cancel);
+            if (hasActiveCryoState)
+                return false;
+
+            var career = await db.DbContext.LuaMCharacterCareers
+                .SingleOrDefaultAsync(value => value.ProfileId == profileId, cancel);
+
             // Make retries idempotent without allowing an active character to move.
             if (!profile.IsArchived)
-                return profile.Slot == slot;
+                return profile.Slot == slot && career?.Status == DbLuaMCharacterCareerStatus.Playable;
+
+            if (career != null && career.Status != DbLuaMCharacterCareerStatus.Archived)
+                return false;
+            if (profile.LifecycleRevision == long.MaxValue || career?.Revision == long.MaxValue)
+                return false;
 
             var slotOccupied = await db.DbContext.Profile.AnyAsync(p =>
                 p.PreferenceId == profile.PreferenceId &&
@@ -806,6 +922,24 @@ namespace Content.Server.Database
             profile.Slot = slot;
             profile.IsArchived = false;
             profile.ArchivedAt = null;
+            profile.LifecycleRevision++;
+            var restoredAt = DateTime.UtcNow;
+            if (career == null)
+            {
+                db.DbContext.LuaMCharacterCareers.Add(new LuaMCharacterCareer
+                {
+                    ProfileId = profileId,
+                    Status = DbLuaMCharacterCareerStatus.Playable,
+                    CreatedAtUtc = restoredAt,
+                    UpdatedAtUtc = restoredAt,
+                });
+            }
+            else
+            {
+                career.Status = DbLuaMCharacterCareerStatus.Playable;
+                career.Revision++;
+                career.UpdatedAtUtc = restoredAt;
+            }
             try
             {
                 await db.DbContext.SaveChangesAsync(cancel);
@@ -833,11 +967,49 @@ namespace Content.Server.Database
                 return;
             }
 
+            var activeCryoSnapshot = await db.LuaMDeepCryoSnapshots.AsNoTracking().AnyAsync(value =>
+                value.ProfileId == profile.Id && value.Status != DbLuaMDeepCryoSnapshotStatus.Consumed);
+            var activePresenceLease = await db.LuaMCharacterPresenceLeases.AsNoTracking()
+                .AnyAsync(value => value.ProfileId == profile.Id);
+            if (activeCryoSnapshot || activePresenceLease)
+            {
+                throw new InvalidOperationException(
+                    "A character with an active or quarantined deep-cryo snapshot cannot be archived.");
+            }
+
+            var career = await db.LuaMCharacterCareers
+                .SingleOrDefaultAsync(value => value.ProfileId == profile.Id);
+            if (career != null && career.Status != DbLuaMCharacterCareerStatus.Playable)
+            {
+                throw new InvalidOperationException(
+                    $"A character in lifecycle state {career.Status} cannot be archived.");
+            }
+            if (profile.LifecycleRevision == long.MaxValue || career?.Revision == long.MaxValue)
+                throw new InvalidOperationException("The character lifecycle revision is exhausted.");
+
             // Character rows are never physically deleted. Keeping the row preserves
             // the stable Profile.Id used by long-lived progression and audit records.
+            var archivedAt = DateTime.UtcNow;
             profile.Slot = null;
             profile.IsArchived = true;
-            profile.ArchivedAt = DateTime.UtcNow;
+            profile.ArchivedAt = archivedAt;
+            profile.LifecycleRevision++;
+            if (career == null)
+            {
+                db.LuaMCharacterCareers.Add(new LuaMCharacterCareer
+                {
+                    ProfileId = profile.Id,
+                    Status = DbLuaMCharacterCareerStatus.Archived,
+                    CreatedAtUtc = archivedAt,
+                    UpdatedAtUtc = archivedAt,
+                });
+            }
+            else
+            {
+                career.Status = DbLuaMCharacterCareerStatus.Archived;
+                career.Revision++;
+                career.UpdatedAtUtc = archivedAt;
+            }
         }
 
         public async Task<PlayerPreferences> InitPrefsAsync(NetUserId userId, ICharacterProfile defaultProfile)
@@ -1099,44 +1271,121 @@ namespace Content.Server.Database
 
         public async Task<long> GetMonoCoinsAsync(NetUserId userId, CancellationToken cancel = default)
         {
+            return await GetMonoCoinsOrNullAsync(userId, cancel) ?? 0L;
+        }
+
+        public async Task<long?> GetMonoCoinsOrNullAsync(NetUserId userId, CancellationToken cancel = default)
+        {
             await using var db = await GetDb(cancel);
 
-            var prefs = await db.DbContext.Preference
-                .SingleOrDefaultAsync(p => p.UserId == userId.UserId, cancel);
+            return await db.DbContext.Preference
+                .AsNoTracking()
+                .Where(prefs => prefs.UserId == userId.UserId)
+                .Select(prefs => (long?) prefs.MonoCoins)
+                .SingleOrDefaultAsync(cancel);
+        }
 
-            return prefs?.MonoCoins ?? 0l;
+        public async Task<MonoCoinsBalanceUpdateResult> UpdateMonoCoinsBalanceAsync(
+            NetUserId userId,
+            long expectedBalance,
+            long newBalance,
+            CancellationToken cancel = default)
+        {
+            if (expectedBalance < 0L || newBalance < 0L)
+                return new MonoCoinsBalanceUpdateResult(MonoCoinsBalanceUpdateStatus.InvalidBalance);
+
+            await using var db = await GetDb(cancel);
+
+            var updated = await db.DbContext.Preference
+                .Where(prefs =>
+                    prefs.UserId == userId.UserId &&
+                    prefs.MonoCoins == expectedBalance)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(prefs => prefs.MonoCoins, newBalance),
+                    cancel);
+
+            if (updated == 1)
+            {
+                return new MonoCoinsBalanceUpdateResult(
+                    MonoCoinsBalanceUpdateStatus.Success,
+                    newBalance);
+            }
+
+            var currentBalance = await db.DbContext.Preference
+                .AsNoTracking()
+                .Where(prefs => prefs.UserId == userId.UserId)
+                .Select(prefs => (long?) prefs.MonoCoins)
+                .SingleOrDefaultAsync(cancel);
+
+            return currentBalance == null
+                ? new MonoCoinsBalanceUpdateResult(MonoCoinsBalanceUpdateStatus.AccountMissing)
+                : new MonoCoinsBalanceUpdateResult(
+                    MonoCoinsBalanceUpdateStatus.BalanceConflict,
+                    currentBalance);
         }
 
         public async Task SetMonoCoinsAsync(NetUserId userId, long balance, CancellationToken cancel = default)
         {
-            await using var db = await GetDb(cancel);
+            if (balance < 0L)
+                throw new ArgumentOutOfRangeException(nameof(balance), "MonoCoins balance cannot be negative.");
 
-            var prefs = await db.DbContext.Preference
-                .SingleOrDefaultAsync(p => p.UserId == userId.UserId, cancel);
-
-            if (prefs != null)
+            var expected = await GetMonoCoinsOrNullAsync(userId, cancel) ??
+                           throw new InvalidOperationException($"MonoCoins account does not exist for {userId}.");
+            for (var attempt = 0; attempt < 8; attempt++)
             {
-                prefs.MonoCoins = Math.Max(0l, balance); // Ensure balance is never negative
-                await db.DbContext.SaveChangesAsync(cancel);
+                var result = await UpdateMonoCoinsBalanceAsync(userId, expected, balance, cancel);
+                if (result.Success)
+                    return;
+
+                if (result.Status != MonoCoinsBalanceUpdateStatus.BalanceConflict ||
+                    result.CurrentBalance is not { } current)
+                {
+                    throw new InvalidOperationException(
+                        $"MonoCoins set was rejected for {userId}: {result.Status}.");
+                }
+
+                expected = current;
             }
+
+            throw new InvalidOperationException($"MonoCoins set remained contended for {userId}.");
         }
 
         public async Task<long> AddMonoCoinsAsync(NetUserId userId, long amount, CancellationToken cancel = default)
         {
-            await using var db = await GetDb(cancel);
-
-            var prefs = await db.DbContext.Preference
-                .SingleOrDefaultAsync(p => p.UserId == userId.UserId, cancel);
-
-            if (prefs != null)
+            var expected = await GetMonoCoinsOrNullAsync(userId, cancel) ??
+                           throw new InvalidOperationException($"MonoCoins account does not exist for {userId}.");
+            for (var attempt = 0; attempt < 8; attempt++)
             {
-                prefs.MonoCoins += amount;
-                prefs.MonoCoins = Math.Max(0l, prefs.MonoCoins); // Ensure balance is never negative
-                await db.DbContext.SaveChangesAsync(cancel);
-                return prefs.MonoCoins;
+                long newBalance;
+                try
+                {
+                    newBalance = checked(expected + amount);
+                }
+                catch (OverflowException exception)
+                {
+                    throw new OverflowException(
+                        $"MonoCoins addition would overflow for {userId}.",
+                        exception);
+                }
+
+                if (newBalance < 0L)
+                    throw new InvalidOperationException($"MonoCoins debit would overdraw {userId}.");
+
+                var result = await UpdateMonoCoinsBalanceAsync(userId, expected, newBalance, cancel);
+                if (result.Success)
+                    return newBalance;
+
+                if (result.Status != MonoCoinsBalanceUpdateStatus.BalanceConflict ||
+                    result.CurrentBalance is not { } current)
+                {
+                    throw new InvalidOperationException(
+                        $"MonoCoins addition was rejected for {userId}: {result.Status}.");
+                }
+
+                expected = current;
             }
 
-            return 0;
+            throw new InvalidOperationException($"MonoCoins addition remained contended for {userId}.");
         }
 
         #endregion

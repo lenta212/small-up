@@ -49,9 +49,32 @@ namespace Content.Server.Database
         public DbSet<CompanyMember> CompanyMembers { get; set; } = null!;
         public DbSet<PdaBankAccount> PdaBankAccounts { get; set; } = null!;
         public DbSet<CharacterBankTransferJournal> CharacterBankTransferJournal { get; set; } = null!;
+        public DbSet<MonoCoinsTransferJournal> MonoCoinsTransferJournal { get; set; } = null!;
+        public DbSet<LuaMExpeditionManifest> LuaMExpeditionManifests { get; set; } = null!;
+        public DbSet<LuaMExpeditionRegion> LuaMExpeditionRegions { get; set; } = null!;
+        public DbSet<LuaMExpeditionSite> LuaMExpeditionSites { get; set; } = null!;
+        public DbSet<LuaMExpeditionDelta> LuaMExpeditionDeltas { get; set; } = null!;
+        public DbSet<LuaMExpeditionEntitySnapshot> LuaMExpeditionEntitySnapshots { get; set; } = null!;
+        public DbSet<LuaMExpeditionTombstone> LuaMExpeditionTombstones { get; set; } = null!;
+        public DbSet<LuaMExpeditionCheckpoint> LuaMExpeditionCheckpoints { get; set; } = null!;
+        public DbSet<LuaMCampaignShift> LuaMCampaignShifts { get; set; } = null!;
+        public DbSet<LuaMCampaignShiftRun> LuaMCampaignShiftRuns { get; set; } = null!;
+        public DbSet<LuaMCharacterCareer> LuaMCharacterCareers { get; set; } = null!;
+        public DbSet<LuaMCareerShiftParticipation> LuaMCareerShiftParticipations { get; set; } = null!;
+        public DbSet<LuaMCareerXpLedger> LuaMCareerXpLedger { get; set; } = null!;
+        public DbSet<LuaMDeepCryoSnapshot> LuaMDeepCryoSnapshots { get; set; } = null!;
+        public DbSet<LuaMCharacterPresenceLease> LuaMCharacterPresenceLeases { get; set; } = null!;
+        public DbSet<LuaMDeepCryoOperation> LuaMDeepCryoOperations { get; set; } = null!;
+        public DbSet<LuaMShipSnapshot> LuaMShipSnapshots { get; set; } = null!;
+        public DbSet<LuaMShipPresenceLease> LuaMShipPresenceLeases { get; set; } = null!;
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            LuaMExpeditionModelConfiguration.Configure(modelBuilder);
+            LuaMProgressionModelConfiguration.Configure(modelBuilder);
+            LuaMDeepCryoModelConfiguration.Configure(modelBuilder);
+            LuaMShipPersistenceModelConfiguration.Configure(modelBuilder);
+
             modelBuilder.Entity<Preference>()
                 .HasIndex(p => p.UserId)
                 .IsUnique();
@@ -68,10 +91,17 @@ namespace Content.Server.Database
                 .IsConcurrencyToken();
 
             modelBuilder.Entity<Profile>()
-                .ToTable("profile", table => table.HasCheckConstraint(
-                    "CK_profile_archive_state",
-                    "(is_archived = TRUE AND slot IS NULL AND archived_at IS NOT NULL) OR " +
-                    "(is_archived = FALSE AND slot IS NOT NULL AND archived_at IS NULL)"));
+                .Property(p => p.LifecycleRevision)
+                .IsConcurrencyToken();
+
+            modelBuilder.Entity<Profile>()
+                .ToTable("profile", table =>
+                {
+                    table.HasCheckConstraint(
+                        "CK_profile_archive_state",
+                        "(is_archived = TRUE AND slot IS NULL AND archived_at IS NOT NULL) OR " +
+                        "(is_archived = FALSE AND slot IS NOT NULL AND archived_at IS NULL)");
+                });
 
             modelBuilder.Entity<PdaBankAccount>()
                 .HasKey(account => account.BankId);
@@ -101,6 +131,39 @@ namespace Content.Server.Database
 
             modelBuilder.Entity<CharacterBankTransferJournal>()
                 .HasIndex(transfer => transfer.CreatedAt);
+
+            modelBuilder.Entity<MonoCoinsTransferJournal>()
+                .HasKey(transfer => transfer.OperationId);
+
+            modelBuilder.Entity<MonoCoinsTransferJournal>()
+                .HasIndex(transfer => transfer.SenderUserId)
+                .IsUnique()
+                .HasFilter("acknowledged_at IS NULL");
+
+            modelBuilder.Entity<MonoCoinsTransferJournal>()
+                .HasIndex(transfer => transfer.RecipientUserId);
+
+            modelBuilder.Entity<MonoCoinsTransferJournal>()
+                .HasIndex(transfer => transfer.CreatedAt);
+
+            modelBuilder.Entity<MonoCoinsTransferJournal>()
+                .ToTable("monocoins_transfer_journal", table =>
+                {
+                    table.HasCheckConstraint(
+                        "CK_monocoins_transfer_journal_amount",
+                        "amount > 0");
+                    table.HasCheckConstraint(
+                        "CK_monocoins_transfer_journal_balances",
+                        "sender_balance_before >= 0 AND sender_balance_after >= 0 AND " +
+                        "recipient_balance_before >= 0 AND recipient_balance_after >= 0");
+                    table.HasCheckConstraint(
+                        "CK_monocoins_transfer_journal_conservation",
+                        "sender_balance_before - sender_balance_after = amount AND " +
+                        "recipient_balance_after - recipient_balance_before = amount");
+                    table.HasCheckConstraint(
+                        "CK_monocoins_transfer_journal_distinct_accounts",
+                        "sender_user_id <> recipient_user_id");
+                });
 
             modelBuilder.Entity<Antag>()
                 .HasIndex(p => new {HumanoidProfileId = p.ProfileId, p.AntagName})
@@ -463,6 +526,11 @@ namespace Content.Server.Database
         /// </summary>
         public bool IsArchived { get; set; }
         public DateTime? ArchivedAt { get; set; }
+        /// <summary>
+        /// Optimistic concurrency fence shared by profile archive/restore and
+        /// durable deep-cryo lifecycle mutations.
+        /// </summary>
+        public long LifecycleRevision { get; set; }
         [Column("char_name")] public string CharacterName { get; set; } = null!;
         public string FlavorText { get; set; } = null!;
         public int Age { get; set; }
