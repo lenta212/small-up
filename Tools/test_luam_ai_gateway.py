@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import importlib.util
 import json
 import os
@@ -1296,6 +1297,92 @@ def run_piper_lru_cache_test() -> dict[str, object]:
             os.environ["LUAM_TTS_PIPER_CACHE_SIZE"] = previous_cache_size
 
 
+def run_gateway_validation_regression_test() -> dict[str, object]:
+    spec = importlib.util.spec_from_file_location("luam_ai_gateway_validation_test", GW_PATH)
+    assert spec is not None and spec.loader is not None
+    gateway = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gateway)
+
+    provider_context = gateway.build_provider_context(
+        {
+            "version": 1,
+            "language": "en-US",
+            "adminModeEnabled": "false",
+            "allowedActions": ["status"],
+            "sector": {"hasOpenRuntimeLead": "false"},
+        },
+        "chat",
+    )
+    command = gateway.validate_command_response(
+        {"allowedActions": ["status"]},
+        {
+            "reply": "Принял.",
+            "action": "status",
+            "ignoreOpenLead": "false",
+        },
+    )
+
+    assert provider_context["adminModeEnabled"] is False
+    assert provider_context["sector"]["hasOpenRuntimeLead"] is False
+    assert command["ignoreOpenLead"] is False
+    assert gateway.provider_bool("true") is True
+    assert gateway.provider_bool("false") is False
+    assert gateway.provider_bool(object()) is False
+
+    invalid_body, invalid_status, invalid_audit = gateway.build_ship_generation_http_response({})
+    assert invalid_status == gateway.HTTPStatus.BAD_REQUEST
+    assert "error" in invalid_body
+    assert invalid_audit
+
+    prototype_counts = {"ComputerShuttle": 1, "ThrusterNfsd": 2}
+    saved_ship_body, saved_ship_status, saved_ship_audit = (
+        gateway.build_saved_ship_analysis_http_response(
+            {
+                "schemaVersion": 1,
+                "snapshotFormatVersion": 1,
+                "entityCount": 3,
+                "payloadSizeBytes": 1024,
+                "prototypeManifestHash": hashlib.sha256(
+                    "".join(
+                        f"{prototype}\t{prototype_counts[prototype]}\n"
+                        for prototype in sorted(prototype_counts)
+                    ).encode("utf-8")
+                ).hexdigest(),
+                "prototypes": [
+                    {"id": prototype, "count": count}
+                    for prototype, count in prototype_counts.items()
+                ],
+            }
+        )
+    )
+    assert saved_ship_status == gateway.HTTPStatus.OK
+    assert saved_ship_audit == ""
+    assert saved_ship_body["capabilities"]["navigation"] == 1
+    assert saved_ship_body["capabilities"]["propulsion"] == 2
+
+    original_generate = gateway.generate_ship_request
+    try:
+        def fail_unexpectedly(_context: dict[str, object]) -> dict[str, object]:
+            raise ZeroDivisionError("internal generator detail")
+
+        gateway.generate_ship_request = fail_unexpectedly
+        failed_body, failed_status, failed_audit = gateway.build_ship_generation_http_response({})
+    finally:
+        gateway.generate_ship_request = original_generate
+
+    assert failed_status == gateway.HTTPStatus.INTERNAL_SERVER_ERROR
+    assert failed_body == {"error": "ship generation failed"}
+    assert "internal generator detail" not in json.dumps(failed_body)
+    assert "internal generator detail" in failed_audit
+
+    return {
+        "stringFalse": gateway.provider_bool("false"),
+        "invalidShipStatus": int(invalid_status),
+        "unexpectedShipStatus": int(failed_status),
+        "savedShipStatus": int(saved_ship_status),
+    }
+
+
 def run_bounded_outbound_response_test() -> dict[str, object]:
     spec = importlib.util.spec_from_file_location("luam_ai_gateway_bounded_response_test", GW_PATH)
     assert spec is not None and spec.loader is not None
@@ -1458,6 +1545,138 @@ def run_bounded_outbound_response_test() -> dict[str, object]:
                 os.environ[name] = value
 
 
+def run_ollama_native_provider_test() -> dict[str, object]:
+    spec = importlib.util.spec_from_file_location("luam_ai_gateway_ollama_test", GW_PATH)
+    assert spec is not None and spec.loader is not None
+    gateway = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gateway)
+
+    payload = {
+        "reply": "Локальный контур отвечает.",
+        "action": "none",
+        "templateId": "",
+        "instruction": "",
+        "ignoreOpenLead": False,
+        "conditionId": "",
+        "conditionTitle": "",
+        "conditionSeverity": 1,
+        "conditionSummary": "",
+        "resolutionNote": "",
+        "entityPrototypeId": "",
+        "entityCount": 1,
+        "sectorCommandId": "",
+        "adminCommand": "",
+        "sectorMessage": "",
+    }
+    response_payload = json.dumps(
+        {
+            "message": {"role": "assistant", "content": json.dumps(payload, ensure_ascii=False)},
+            "done": True,
+            "prompt_eval_count": 120,
+            "eval_count": 24,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+    class FakeResponse:
+        status = 200
+
+        def __init__(self, data: bytes):
+            self.data = data
+            self.offset = 0
+
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, size: int = -1) -> bytes:
+            if self.offset >= len(self.data):
+                return b""
+            end = len(self.data) if size < 0 else min(len(self.data), self.offset + size)
+            chunk = self.data[self.offset:end]
+            self.offset = end
+            return chunk
+
+    captured: dict[str, object] = {}
+    original_urlopen = gateway.urllib.request.urlopen
+    previous_env = {
+        name: os.environ.get(name)
+        for name in (
+            "LUAM_AI_PROVIDER",
+            "LUAM_OLLAMA_BASE_URL",
+            "LUAM_OLLAMA_MODEL",
+            "LUAM_OLLAMA_THINK",
+            "LUAM_OLLAMA_KEEP_ALIVE",
+            "LUAM_OLLAMA_MAX_OUTPUT_TOKENS",
+            "LUAM_OLLAMA_CONTEXT_TOKENS",
+        )
+    }
+
+    def fake_urlopen(request: urllib.request.Request, timeout: float) -> FakeResponse:
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        captured["headers"] = {key.lower(): value for key, value in request.header_items()}
+        captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
+        return FakeResponse(response_payload)
+
+    try:
+        os.environ["LUAM_AI_PROVIDER"] = "ollama"
+        os.environ["LUAM_OLLAMA_BASE_URL"] = "http://127.0.0.1:11434"
+        os.environ["LUAM_OLLAMA_MODEL"] = "huihui_ai/qwen3.5-abliterated:9b"
+        os.environ["LUAM_OLLAMA_THINK"] = "false"
+        os.environ["LUAM_OLLAMA_KEEP_ALIVE"] = "30m"
+        os.environ["LUAM_OLLAMA_MAX_OUTPUT_TOKENS"] = "321"
+        os.environ["LUAM_OLLAMA_CONTEXT_TOKENS"] = "8192"
+        gateway.urllib.request.urlopen = fake_urlopen
+
+        context = {
+            "message": "проверка локального контура",
+            "allowedActions": ["none"],
+            "allowedAdminCommandNames": [],
+            "allowedTemplateIds": [],
+            "sector": {"activePlayers": 1},
+        }
+        result = gateway.call_ai_command_provider(context)
+        body = captured["body"]
+        headers = captured["headers"]
+        assert isinstance(body, dict)
+        assert isinstance(headers, dict)
+        assert gateway.get_provider() == "ollama"
+        assert gateway.get_api_protocol(gateway.get_api_mode()) == "ollama-native"
+        assert gateway.get_model() == "huihui_ai/qwen3.5-abliterated:9b"
+        assert gateway.get_base_url() == "http://127.0.0.1:11434"
+        assert gateway.has_provider_api_key() is True
+        assert captured["url"] == "http://127.0.0.1:11434/api/chat"
+        assert "authorization" not in headers
+        assert body["model"] == "huihui_ai/qwen3.5-abliterated:9b"
+        assert "Reply naturally in character as the sector dispatcher or Aibolit" in body["messages"][0]["content"]
+        assert body["stream"] is False
+        assert body["think"] is False
+        assert body["format"] == gateway.COMMAND_SCHEMA
+        assert body["keep_alive"] == "30m"
+        assert body["options"]["num_predict"] == 321
+        assert body["options"]["num_ctx"] == 8192
+        assert result["reply"] == "Локальный контур отвечает."
+        assert result["action"] == "none"
+
+        return {
+            "provider": gateway.get_provider(),
+            "api": gateway.get_api_protocol(gateway.get_api_mode()),
+            "model": gateway.get_model(),
+            "think": body["think"],
+            "action": result["action"],
+        }
+    finally:
+        gateway.urllib.request.urlopen = original_urlopen
+        for name, value in previous_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def main() -> int:
     result = {
         "fallback": run_no_key_fallback_test(),
@@ -1465,7 +1684,9 @@ def main() -> int:
         "anthropicMock": run_anthropic_mock_test(),
         "ttsMock": run_tts_mock_test(),
         "piperLruCache": run_piper_lru_cache_test(),
+        "ollamaNative": run_ollama_native_provider_test(),
         "boundedOutboundResponses": run_bounded_outbound_response_test(),
+        "validationRegression": run_gateway_validation_regression_test(),
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
