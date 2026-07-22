@@ -1,14 +1,15 @@
 ﻿# Monolith-DS iteration journal
 
-Updated: 2026-07-22 04:40 MSK
+Updated: 2026-07-22 05:04 MSK
 
 ## 2026-07-22 -- accumulated release split and docking scope corrected
 
 - Objective: preserve the accumulated interface, persistence, ship, AI, gameplay, and content work as reviewable commits, verify it, and prepare the explicitly authorized immediate production release.
 - Clarified the reported `Безымянный` problem as stored-ship docking/identity behavior. The relevant fix is the saved-ship migration from a runtime `EntityUid` string to a stable GUID plus restore-time rebinding, together with exact reciprocal docking protection. The earlier Apocalypse damaged-AI scheduler diagnosis is a separate observation and is not part of this release; no scheduler or cleanup change was added.
-- Protected the original mixed worktree with `refs/codex/backups/20260722-commit-split-index` and `refs/codex/backups/20260722-commit-split-full`, then split the accumulated tree into 17 commits from `bf98870452` through `f0667bd217`. The final groups cover guarded release tooling, durable database schemas, docking/radar/lathe behavior, complete ship persistence and generation, exact-gate shipyard operations, rescue/sector AI, the pre-stop ship-save barrier, player persistence/economy, PDA and guidebook UI, localization repair, frontier gameplay/content, the Ollama/ship-analysis gateway, and release-news contracts.
+- Protected the original mixed worktree with `refs/codex/backups/20260722-commit-split-index` and `refs/codex/backups/20260722-commit-split-full`, then split the accumulated tree into 20 commits from `bf98870452` through `4aa1ea20e4`. The final groups cover guarded release tooling, durable database schemas, docking/radar/lathe behavior, complete ship persistence and generation, exact-gate shipyard operations, rescue/sector AI, the pre-stop ship-save barrier, player persistence/economy, PDA and guidebook UI, localization repair, frontier gameplay/content, the Ollama/ship-analysis gateway, release-news contracts, generated-name data repair, and explicit `/luam` chat contracts.
 - The pre-stop maintenance endpoint is authenticated, refuses connected players, freezes and drains persistent-ship lifecycle work, saves active ships sequentially, and returns a privacy-bounded schema-v1 receipt. Deployment refuses to stop the service unless that receipt is fresh and complete. The one-time `-LegacyShipSaveBootstrap` path is restricted to an old server returning 404, zero players, and a database proof of absent ship tables or zero active/restoring ships and leases; it cannot be bypassed by `-Force`.
-- Completed checks before the final release gate: AI/rescue/sector/pathfinding integration selection passed 394/394; ship persistence/shipyard/docking/radar/lathe and generator selections passed; maintenance-barrier tests passed 5/5; PowerShell release-contract tests passed; integration compilation passed. A corrupted Russian RCD label was found outside the normal validator and repaired as `пласталевая стена`. A localization contract also exposed the pre-existing `NamesAI` count of 109 with only 108 localized entries; the prototype count now matches the real bilingual dataset.
+- Completed checks before the final release gate: AI/rescue/sector/pathfinding integration selection passed 394/394; ship persistence/shipyard/docking/radar/lathe and generator selections passed; maintenance-barrier tests passed 5/5; PowerShell release-contract tests passed; integration compilation passed. A corrupted Russian RCD label was found outside the normal validator and repaired as `пласталевая стена`. A full localized-dataset audit repaired the pre-existing `NamesAI`, arachnid, golem, and military contracts and removed one unused xenoborg dataset that had no localized values or references; ServerNews entry `2026072201` records the player-visible name-generation repair.
+- The first full `FullyQualifiedName~LuaM` run passed 721/724 and exposed three stale chat-test phrases from before plain `ИИ`/`AI` stopped auto-triggering. Runtime behavior was already correct: only explicit `luam`/`/luam` markers route a request. The three tests now prove the intended contract and shared cooldown using `/luam`; their combined class selection passed 19/19. The final clean full run then passed 724/724 in 6 minutes 14 seconds. The expanded ServerNews/language/localized-dataset selection passed 3/3, the feature validator passed, and Python gateway/generator tests plus the release contract passed.
 - Production has not yet been read or mutated during this commit-splitting iteration. The release authorization in `.agents/RELEASE_POLICY.json` is active for the accumulated server, client-static, and AI-gateway batch.
 
 Commands and outcomes:
@@ -16,18 +17,24 @@ Commands and outcomes:
 ```powershell
 git status --short --untracked-files=all
 git diff --cached --check
-git commit -m <17 bounded thematic messages>
+git commit -m <20 bounded thematic messages>
 dotnet test Content.IntegrationTests/Content.IntegrationTests.csproj --no-build --no-restore -m:1 --filter <AI/rescue/sector/pathfinding selection> -- NUnit.NumberOfTestWorkers=1
 dotnet test Content.IntegrationTests/Content.IntegrationTests.csproj --no-build --no-restore -m:1 --filter <maintenance ship-save selection> -- NUnit.NumberOfTestWorkers=1
+dotnet test Content.IntegrationTests/Content.IntegrationTests.csproj --no-build --no-restore -m:1 --filter "FullyQualifiedName~LuaM" -- NUnit.NumberOfTestWorkers=1
+dotnet test Content.IntegrationTests/Content.IntegrationTests.csproj --no-build --no-restore -m:1 --filter "FullyQualifiedName~LuaMServerNewsChangelogTest|FullyQualifiedName~LanguageLocalizationTest|FullyQualifiedName~LocalizedDatasetPrototypeTest" -- NUnit.NumberOfTestWorkers=1
+python Tools/validate_luam_feature_pack.py
+python Tools/test_luam_ai_gateway.py
+python Tools/test_luam_ship_generator.py
 powershell -NoProfile -ExecutionPolicy Bypass -File Tools/test_luam_release_contract.ps1 -Json
 ```
 
-Result: commit splitting and the targeted safety checks completed successfully. One earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. No production deploy has yet been claimed.
+Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. No production deploy has yet been claimed.
 
-Next action: run the final feature, full LuaM, local-smoke, package, and deployment gates from a clean worktree:
+Next action: reread both operational journals, compare the installed mirror, and perform a bounded zero-player/token/legacy-ship-state production preflight before building the policy-bound artifacts:
 
 ```powershell
-python Tools/validate_luam_feature_pack.py
+Get-Content -Raw .agents/ITERATION_LOG.md | Out-Null
+Get-Content -Raw Tools/AI_SERVER_JOURNAL.md | Out-Null
 ```
 
 ## 2026-07-22 -- damaged-AI unknown-shuttle accumulation diagnosis
