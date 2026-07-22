@@ -13,7 +13,7 @@ shipyard-console-no-idcard = Отсутствует ID-карта.
 shipyard-console-already-deeded = Уже имеется привязанный шаттл.
 shipyard-console-invalid-station = Неправильная станция.
 shipyard-console-no-bank = Отсутствует банковский аккаунт.
-shipyard-console-no-deed = Отсутствует шаттл для продажи.
+shipyard-console-no-deed = К ID-карте не привязан шаттл.
 shipyard-console-sale-reqs = Весь экипаж должен покинуть пристыкованный шаттл.
 shipyard-console-sale-not-docked = Шаттл должен быть пристыкован.
 shipyard-console-sale-organic-aboard = Экипаж должен покинуть шаттл. { $name } всё еще на шаттле.
@@ -94,6 +94,91 @@ shipyard-console-registered-none = Нет
 shipyard-console-rename-button = Переименовать
 shipyard-console-rename-placeholder = Название
 shipyard-console-confirm-unassign = Вы уверены?
+
+# Операционный терминал фронтирной верфи
+shipyard-console-terminal-kicker = ФРОНТИРНАЯ БИРЖА КОРПУСОВ // ВАКУУМНЫЕ ОПЕРАЦИИ
+shipyard-console-terminal-title = УПРАВЛЕНИЕ ВЕРФЬЮ
+shipyard-console-terminal-name = { $shipyard } // УПРАВЛЕНИЕ ВЕРФЬЮ
+shipyard-console-tab-catalog = Каталог
+shipyard-console-tab-owned = Мои корабли
+shipyard-console-frontier-footer = ФРОНТИР: за внешним шлюзом каждый корпус — ваша ответственность.
+
+shipyard-console-credential-processing = КАРТА ЗАБЛОКИРОВАНА // реестр фиксирует операцию с кораблём
+shipyard-console-credential-missing = НЕТ ДОКУМЕНТА // вставьте личную ID-карту или корабельный ваучер
+shipyard-console-credential-denied = ДОСТУП ЗАПРЕЩЁН // полномочий для этой верфи недостаточно
+shipyard-console-credential-foreign = ЧУЖОЙ АКТ // корабль принадлежит другой учётной записи
+shipyard-console-credential-ready = ДОКУМЕНТ ПОДТВЕРЖДЁН // канал владельца защищён
+shipyard-console-gate-summary = ВОРОТА: { $available }/{ $total } ГОТОВЫ
+
+shipyard-console-procurement-ready-title = КАНАЛ ЗАКУПКИ ГОТОВ
+shipyard-console-procurement-locked-title = КАНАЛ ЗАКУПКИ ЗАБЛОКИРОВАН
+shipyard-console-purchase-ready = Готово: выбранные ворота свободны, корпус можно заказать.
+shipyard-console-purchase-blocked-processing = Блокировка: реестр ещё фиксирует другую операцию с актом или счётом. Дождитесь завершения.
+shipyard-console-purchase-blocked-no-id = Блокировка: вставьте личную ID-карту или действующий корабельный ваучер.
+shipyard-console-purchase-blocked-access = Блокировка: вашего доступа недостаточно для покупки на этой верфи.
+shipyard-console-purchase-blocked-existing-deed = Блокировка: на вставленной ID-карте уже есть корабельный акт. Сохраните или отвяжите этот корпус.
+shipyard-console-purchase-blocked-no-link = Блокировка: терминал не подтвердил связь с гридом станции.
+shipyard-console-purchase-blocked-no-gate = Блокировка: все ворота развёртывания заняты. Освободите шлюз перед заказом корпуса.
+shipyard-console-purchase-blocked-selected-gate = Блокировка: выбранные ворота заняты. Выберите шлюз с меткой [+].
+shipyard-console-purchase-blocked-listing = Закрытый корпус: ID-карта или ваучер не дают доступа к этой позиции.
+shipyard-console-purchase-action-hint = Требуется двойное подтверждение. Средства спишутся только после проверки сервером.
+shipyard-console-confirm-purchase-generic = Подтвердить покупку?
+shipyard-console-confirm-purchase = Купить «{ $ship }»?
+
+shipyard-console-deployment-gate-title = ВЕКТОР РАЗВЁРТЫВАНИЯ
+shipyard-console-deployment-gate-hint = Купленный корпус будет доставлен к выбранным воротам. Занятый шлюз использовать нельзя.
+shipyard-console-filter-reset = Сбросить фильтры
+shipyard-console-result-count = { $count ->
+    [one] Найден { $count } корпус
+    [few] Найдено { $count } корпуса
+   *[many] Найдено { $count } корпусов
+}
+shipyard-console-catalog-warning = Корпуса поставляются как есть. Изучите документацию до старта.
+shipyard-console-catalog-empty-title = ПОД ФИЛЬТР НЕТ КОРПУСОВ
+shipyard-console-catalog-empty-hint = Очистите поиск или сбросьте размер, класс и тип питания.
+shipyard-console-vessel-meta = РАЗМЕР { $size }  //  КЛАСС { $classes }  //  ПИТАНИЕ { $power }
+
+shipyard-console-active-deed-title = АКТИВНЫЙ АКТ
+shipyard-console-active-deed-hint = Эта ID-карта управляет указанным корпусом. Переименование и хранение требуют права постоянного владельца.
+shipyard-console-stored-fleet-title = ХРАНИЛИЩЕ ФЛОТА
+shipyard-console-stored-fleet-hint = Сохранённые корпуса находятся вне сектора, пока вы не вызовете их через свободные ворота.
+shipyard-console-stored-fleet-empty = На вашей учётной записи нет кораблей, доступных для вызова.
+shipyard-console-status-processing-title = ОПЕРАЦИЯ ВЫПОЛНЯЕТСЯ
+shipyard-console-status-processing-hint = Не извлекайте ID-карту. Реестр фиксирует текущую операцию.
+shipyard-console-status-no-card-title = НЕТ КАНАЛА ВЛАДЕЛЬЦА
+shipyard-console-status-no-card-hint = Вставьте личную ID-карту для управления активными и сохранёнными кораблями.
+shipyard-console-status-foreign-title = ВЛАДЕЛЕЦ НЕ СОВПАДАЕТ
+shipyard-console-status-foreign-hint = Акт на вставленной карте зарегистрирован на другую постоянную учётную запись. Управление заблокировано.
+shipyard-console-status-stored-title = КОРПУС В ХРАНИЛИЩЕ
+shipyard-console-status-stored-hint = Акт указывает на корабль вне сектора. Его можно вызвать, когда освободятся ворота.
+shipyard-console-status-active-title = КОРПУС АКТИВЕН В СЕКТОРЕ
+shipyard-console-status-active-hint = Перед хранением или продажей пристыкуйте корабль к этой станции.
+shipyard-console-status-fleet-title = ЕСТЬ КОРПУСА В ХРАНИЛИЩЕ
+shipyard-console-status-fleet-hint = На вашу учётную запись записано кораблей: { $count }. Выберите нужный ниже.
+shipyard-console-status-empty-title = НЕТ ЗАРЕГИСТРИРОВАННЫХ КОРПУСОВ
+shipyard-console-status-empty-hint = Купите корабль в каталоге или вставьте ID-карту с актом принадлежащего вам корпуса.
+
+shipyard-console-park-action-hint = Убрать пристыкованный постоянный корабль из сектора. Оставшийся экипаж сначала эвакуируют.
+shipyard-console-park-disabled-hint = Для хранения ваш активный корабль должен быть пристыкован к этой станции.
+shipyard-console-call-action-hint = Открыть карту станции и выбрать свободные ворота с меткой [+].
+shipyard-console-call-disabled-no-id = Вставьте личную ID-карту перед вызовом сохранённого корабля.
+shipyard-console-call-disabled-no-ships = На вашей учётной записи нет кораблей, доступных для вызова.
+shipyard-console-call-disabled-no-link = Терминал не подтвердил связь с гридом станции.
+shipyard-console-call-disabled-no-gate = Все ворота прибытия заняты. Освободите шлюз перед вызовом корабля.
+shipyard-console-call-disabled-active-deed = Сохраните корабль или отвяжите активный акт от ID-карты перед вызовом другого корпуса.
+
+shipyard-console-danger-zone-title = НЕОБРАТИМЫЕ ОПЕРАЦИИ
+shipyard-console-danger-zone-hint = Продажа списывает корпус, а отвязка удаляет акт с этой ID-карты. Проверьте цель перед подтверждением.
+shipyard-console-danger-zone-ship-hint = Цель: «{ $ship }». Продажа спишет этот корпус; отвязка удалит его акт с ID-карты.
+shipyard-console-confirm-sell-generic = Продать этот корабль навсегда?
+shipyard-console-confirm-sell = Продать «{ $ship }» навсегда?
+shipyard-console-confirm-unassign-generic = Удалить акт с ID-карты?
+shipyard-console-confirm-unassign-ship = Отвязать «{ $ship }» от ID?
+
+shipyard-console-call-map-hint = Выберите шлюз на схеме станции. Если ворота успеют занять, реестр отклонит вызов.
+shipyard-console-gate-legend-available = [+] СВОБОДНЫ
+shipyard-console-gate-legend-occupied = [×] ЗАНЯТЫ
+shipyard-console-gate-legend-selected = [◎] ВЫБРАНЫ
 
 shipyard-console-contraband-onboard = На борту обнаружена контрабанда.
 shipyard-console-station-resources = На борту обнаружены жизненно важные ресурсы станции.

@@ -220,7 +220,9 @@ public sealed partial class IdCardConsoleSystem : SharedIdCardConsoleSystem
             return;
         else
         {
-            if (Deleted(shuttleDeed!.ShuttleUid))
+            if (Deleted(shuttleDeed!.ShuttleUid) &&
+                (!Guid.TryParse(shuttleDeed.PersistentShipId, out var persistentShipId) ||
+                 persistentShipId == Guid.Empty))
             {
                 RemComp<ShuttleDeedComponent>(targetId);
                 return;

@@ -14,7 +14,8 @@ public class ShuttleRecord(
     NetEntity entityUid,
     bool purchasedWithVoucher,
     uint purchasePrice,
-    TimeSpan? timeOfPurchase = null
+    TimeSpan? timeOfPurchase = null,
+    string? persistentShipId = null
 )
 {
     [ViewVariables]
@@ -42,4 +43,11 @@ public class ShuttleRecord(
 
     [ViewVariables]
     public bool PurchasedWithVoucher { get; set; } = purchasedWithVoucher;
+
+    /// <summary>
+    /// Stable LuaM persistence identity for deed copies. Older records may not
+    /// have this value and are canonicalized from their live grid when copied.
+    /// </summary>
+    [ViewVariables]
+    public string? PersistentShipId { get; set; } = persistentShipId;
 }

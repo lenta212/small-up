@@ -17,13 +17,16 @@ using Content.Shared.Ghost;
 using Robust.Server.GameObjects;
 using Robust.Shared.Containers;
 using Robust.Shared.Prototypes;
+using Robust.Shared.Network;
 using Content.Shared.Radio;
 using System.Linq;
 using Content.Server.Administration.Logs;
+using Content.Server.Database;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Mobs.Systems;
 using Content.Shared.Maps;
 using Content.Shared.StationRecords;
+using Content.Shared.Station.Components;
 using Content.Server.Chat.Systems;
 using Content.Server.Mind;
 using Content.Server.Preferences.Managers;
@@ -34,6 +37,7 @@ using Content.Shared.Preferences;
 using static Content.Shared._NF.Shipyard.Components.ShuttleDeedComponent;
 using Content.Server.Shuttles.Components;
 using Content.Server._NF.Station.Components;
+using Content.Server._LuaM.ShipPersistence;
 using System.Text.RegularExpressions;
 using Content.Server._Mono.Shipyard;
 using Content.Server.Shuttles.Systems;
@@ -52,6 +56,7 @@ using Content.Shared._Mono.Ships.Components;
 using Content.Shared._Mono.Shipyard;
 using Content.Shared.Tag;
 using Robust.Shared.Timing;
+using Robust.Shared.Map;
 using System.Threading.Tasks;
 
 namespace Content.Server._NF.Shipyard.Systems;
@@ -79,6 +84,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     [Dependency] private ShuttleConsoleLockSystem _shuttleConsoleLock = default!;
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private TagSystem _tagSystem = default!;
+    [Dependency] private IServerDbManager _serverDb = default!;
 
     private static readonly ProtoId<TagPrototype> CrewedShuttleTag = "CrewedShuttle";
     private static readonly Regex DeedRegex = new(@"\s*\([^()]*\)");
@@ -153,7 +159,11 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
         var targetId = initialContext.TargetId;
         var userId = playerSession.UserId;
-        if (!TryReserveShuttlePurchase(userId, targetId, out var recoveryRequired))
+        if (!TryReserveShuttlePurchase(
+                userId,
+                targetId,
+                out var recoveryRequired,
+                out var purchaseReservationId))
         {
             ShowShuttlePurchaseFailure(
                 shipyardConsoleUid,
@@ -198,18 +208,34 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                         player,
                         args,
                         finalContext,
+                        purchaseReservationId,
                         ref stagedShuttleUid,
                         ref targetDeedPublished,
                         out finalizationFailure);
                     if (!finalized && stagedShuttleUid != null)
                     {
-                        // A clean failure must not retain a staged grid. Treat
-                        // any such result as ambiguous and keep the debit.
+                        if (TryCleanupFailedShuttlePurchase(targetId, stagedShuttleUid, creationAttempted))
+                        {
+                            stagedShuttleUid = null;
+                            return false;
+                        }
+
+                        // Cleanup could not prove that the staged grid and deed
+                        // were removed, so keep the debit for reconciliation.
                         finalizationRecoveryRequired = true;
                         return true;
                     }
 
                     return finalized;
+                }
+                catch (ShuttlePurchaseRecoveryRequiredException exception)
+                {
+                    _sawmill.Error(
+                        $"CRITICAL: shuttle purchase requires reconciliation for user {userId}, target {targetId}, " +
+                        $"shuttle {stagedShuttleUid}: {exception}");
+                    finalizationFailure = exception.Message;
+                    finalizationRecoveryRequired = true;
+                    return true;
                 }
                 catch (Exception exception)
                 {
@@ -258,7 +284,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             if (finalizationRecoveryRequired || stagedShuttleUid == null)
             {
                 releaseReservation = false;
-                BlockShuttlePurchase(userId, targetId);
+                BlockShuttlePurchase(userId, targetId, purchaseReservationId);
                 ShowShuttlePurchaseFailure(
                     shipyardConsoleUid,
                     player,
@@ -270,27 +296,8 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             // Refresh once more with the confirmed durable balance.
             try
             {
-                if (TryComp<BankAccountComponent>(player, out var bank) &&
-                    TryComp<ShipyardConsoleComponent>(shipyardConsoleUid, out var currentComponent))
-                {
-                    var deedName = TryComp<ShuttleDeedComponent>(targetId, out var deed)
-                        ? GetFullName(deed)
-                        : null;
-                    var sellValue = initialContext.Quote.VoucherUsed
-                        ? 0
-                        : CalculateShipResaleValue(
-                            (shipyardConsoleUid, currentComponent),
-                            (int) _pricing.AppraiseGrid(stagedShuttleUid.Value, LacksPreserveOnSaleComp));
-                    RefreshState(
-                        shipyardConsoleUid,
-                        bank.Balance,
-                        true,
-                        deedName,
-                        sellValue,
-                        targetId,
-                        (ShipyardConsoleUiKey) args.UiKey,
-                        initialContext.Quote.VoucherUsed);
-                }
+                if (TryComp<ShipyardConsoleComponent>(shipyardConsoleUid, out var currentComponent))
+                    RefreshOpenStates(shipyardConsoleUid, currentComponent, (ShipyardConsoleUiKey)args.UiKey);
             }
             catch (Exception exception)
             {
@@ -301,7 +308,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         catch (BankMutationRollbackException exception)
         {
             releaseReservation = false;
-            BlockShuttlePurchase(userId, targetId);
+            BlockShuttlePurchase(userId, targetId, purchaseReservationId);
             _sawmill.Error(
                 $"CRITICAL: keeping purchase reservation for user {userId}, target {targetId} after bank ambiguity: {exception}");
             ShowShuttlePurchaseFailure(
@@ -315,7 +322,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             // the debit or world finalizer failed. Fail closed instead of making
             // an automatic retry possible.
             releaseReservation = false;
-            BlockShuttlePurchase(userId, targetId);
+            BlockShuttlePurchase(userId, targetId, purchaseReservationId);
             _sawmill.Error(
                 $"CRITICAL: shuttle purchase outcome is unknown for user {userId}, target {targetId}: {exception}");
             ShowShuttlePurchaseFailure(
@@ -326,7 +333,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         finally
         {
             if (releaseReservation)
-                ReleaseShuttlePurchase(userId, targetId);
+                ReleaseShuttlePurchase(userId, targetId, purchaseReservationId);
         }
     }
 
@@ -406,6 +413,19 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return false;
         }
 
+        var targetGrid = TryComp<StationDataComponent>(stationUid, out var selectedStationData)
+            ? _station.GetLargestGrid((stationUid, selectedStationData))
+            : null;
+        var selectedGate = GetEntity(args.Gate);
+        if (targetGrid == null ||
+            !TryComp<DockingComponent>(selectedGate, out var selectedDock) ||
+            Transform(selectedGate).GridUid != targetGrid ||
+            selectedDock.Docked)
+        {
+            failure = "Выбранные ворота заняты или больше недоступны.";
+            return false;
+        }
+
         if (!TryComp<BankAccountComponent>(player, out _))
         {
             failure = Loc.GetString("shipyard-console-no-bank");
@@ -415,13 +435,13 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         var voucherUsed = voucher != null;
         if (voucher != null)
         {
-            if (voucher.RedemptionsLeft <= 0)
+            if (voucher.DestroyOnEmpty && voucher.RedemptionsLeft <= 0)
             {
                 failure = Loc.GetString("shipyard-console-no-voucher-redemptions");
                 return false;
             }
 
-            if (voucher.ConsoleType != (ShipyardConsoleUiKey) args.UiKey)
+            if (voucher.ConsoleType != (ShipyardConsoleUiKey)args.UiKey)
             {
                 failure = Loc.GetString("shipyard-console-invalid-voucher-type");
                 return false;
@@ -455,6 +475,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             voucher,
             vessel,
             stationUid,
+            selectedGate,
             quote);
         failure = string.Empty;
         return true;
@@ -465,6 +486,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         EntityUid player,
         ShipyardConsolePurchaseMessage args,
         ShipyardPurchaseContext context,
+        Guid purchaseReservationId,
         ref EntityUid? stagedShuttleUid,
         ref bool targetDeedPublished,
         out string? failure)
@@ -478,7 +500,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         var station = context.StationUid;
         var name = vessel.Name;
 
-        if (!TryPurchaseShuttle(station, vessel.ShuttlePath, out var shuttleUidOut))
+        if (!TryPurchaseShuttle(station, vessel.ShuttlePath, out var shuttleUidOut, context.SelectedGate))
         {
             failure = Loc.GetString("shipyard-console-purchase-creation-failed");
             return false;
@@ -562,6 +584,8 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         var shuttleOwner = Name(player).Trim();
         var deedShuttle = EnsureComp<ShuttleDeedComponent>(shuttleUid);
         AssignShuttleDeedProperties(deedShuttle, shuttleUid, name, shuttleOwner, voucherUsed, voucherUsed ? targetId.ToString() : null);
+        deedShuttle.PersistentShipId = null;
+        Dirty(shuttleUid, deedShuttle);
 
         // Lock all shuttle consoles on the ship to this deed
         var shuttleConsoleQuery = EntityQueryEnumerator<ShuttleConsoleComponent, TransformComponent>();
@@ -579,6 +603,22 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             Log.Debug("Locked shuttle console {0} to shuttle {1} for deed holder {2}", consoleUid, shuttleUid, targetId);
         }
 
+        // Revalidate the exact reservation and clean target immediately before
+        // publishing. This closes purchase-vs-call interleavings while the bank
+        // settlement callback pumps asynchronous continuations.
+        if (!_player.TryGetSessionByEntity(player, out var currentSession) ||
+            !IsShuttlePurchaseReservationHeld(
+                currentSession.UserId,
+                targetId,
+                purchaseReservationId) ||
+            !TryComp<ShipyardConsoleComponent>(shipyardConsoleUid, out var currentComponent) ||
+            currentComponent.TargetIdSlot.ContainerSlot?.ContainedEntity != targetId ||
+            HasComp<ShuttleDeedComponent>(targetId))
+        {
+            failure = Loc.GetString("shipyard-console-purchase-changed");
+            return false;
+        }
+
         // Publish the deed before any mutations outside the staged shuttle and
         // its newly-created station. From this point onward failures are
         // fail-closed: keep the debit and block retries for reconciliation.
@@ -591,12 +631,15 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             voucherUsed,
             voucherUsed ? targetId.ToString() : null);
         deedID.DeedHolder = targetId;
+        deedID.PersistentShipId = null;
+        Dirty(targetId, deedID);
         targetDeedPublished = true;
 
         if (voucher != null)
         {
             voucher.NextBuyAt = _timing.CurTime + voucher.Cooldown;
-            voucher.RedemptionsLeft--;
+            if (voucher.DestroyOnEmpty)
+                voucher.RedemptionsLeft--;
             Dirty(targetId, voucher);
         }
 
@@ -675,10 +718,60 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         if (requiresCrew)
             EnsureComp<CrewedShuttleComponent>(shuttleUid);
 
+        string? persistentId = null;
+        if (!voucherUsed)
+        {
+            if (!TryComp<ShipOwnershipComponent>(shuttleUid, out var ownership))
+            {
+                failure = "Persistent ship registration requires authoritative ownership.";
+                return false;
+            }
+
+            var registrationTask = RegisterPurchasedShipAsync(
+                shuttleUid,
+                ownership.OwnerUserId,
+                vessel.ID,
+                deedShuttle,
+                vessel.Price);
+            _taskManager.BlockWaitOnTask(registrationTask);
+            var registration = registrationTask.GetAwaiter().GetResult();
+            if (!registration.Success)
+            {
+                _sawmill.Error(
+                    $"Persistent ship registration failed for shuttle {shuttleUid}, owner {ownership.OwnerUserId}: " +
+                    $"{registration.Status}: {registration.Reason}");
+                failure = $"Persistent ship registration failed: {registration.Reason ?? registration.Status.ToString()}";
+
+                if (registration.Status == LuaMShipPersistenceWriteStatus.UnknownOutcome)
+                    throw new ShuttlePurchaseRecoveryRequiredException(failure);
+
+                return false;
+            }
+
+            var persistentIdentity = Comp<LuaMShipIdentityComponent>(shuttleUid);
+            if (!_shuttleConsoleLock.TryBindPersistentShipSecurity(
+                    shuttleUid,
+                    persistentIdentity.ShipId,
+                    out var securityBindingFailure))
+            {
+                _sawmill.Error(
+                    $"Persistent ship security binding failed for shuttle {shuttleUid}, " +
+                    $"ship {persistentIdentity.ShipId}: {securityBindingFailure}");
+                failure = $"Persistent ship security binding failed: {securityBindingFailure}";
+                return false;
+            }
+
+            persistentId = persistentIdentity.ShipId.ToString("D");
+            deedShuttle.PersistentShipId = persistentId;
+            deedID.PersistentShipId = persistentId;
+            Dirty(shuttleUid, deedShuttle);
+            Dirty(targetId, deedID);
+        }
+
         var sellValue = 0;
         if (!voucherUsed)
         {
-            sellValue = (int) _pricing.AppraiseGrid(shuttleUid, LacksPreserveOnSaleComp);
+            sellValue = (int)_pricing.AppraiseGrid(shuttleUid, LacksPreserveOnSaleComp);
             sellValue = CalculateShipResaleValue((shipyardConsoleUid, component), sellValue);
         }
 
@@ -706,7 +799,8 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                     ownerName: shuttleOwner,
                     entityUid: _entityManager.GetNetEntity(shuttleUid),
                     purchasedWithVoucher: voucherUsed,
-                    purchasePrice: (uint)vessel.Price
+                    purchasePrice: (uint)vessel.Price,
+                    persistentShipId: persistentId
                 )
             );
         }
@@ -714,6 +808,23 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         var purchaseEv = new ShipyardShuttlePurchaseEvent(shuttleUid, player); // Mono: half of this shit could be an event.
         RaiseLocalEvent(purchaseEv);
         return true;
+    }
+
+    private Task<LuaMShipOrchestrationResult> RegisterPurchasedShipAsync(
+        EntityUid shuttleUid,
+        Robust.Shared.Network.NetUserId ownerUserId,
+        string vesselPrototypeId,
+        ShuttleDeedComponent deed,
+        int purchasePrice)
+    {
+        var metadata = new LuaMShipSnapshotMetadata(
+            vesselPrototypeId,
+            deed.ShuttleName ?? Name(shuttleUid),
+            deed.ShuttleNameSuffix,
+            purchasePrice,
+            deed.PurchasedWithVoucher,
+            _gameTicker.RoundId);
+        return _shipPersistence.RegisterAsync(shuttleUid, ownerUserId, metadata, DateTime.UtcNow);
     }
 
     private bool TryCleanupFailedShuttlePurchase(
@@ -729,6 +840,26 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
         try
         {
+            if (TryComp<LuaMShipIdentityComponent>(shuttleUid, out var identity) &&
+                identity.ShipId != Guid.Empty &&
+                _shipPersistence.ActiveLeases.Any(active =>
+                    active.ShipId == identity.ShipId && active.Grid == shuttleUid))
+            {
+                var retirementTask = _shipPersistence.RetireAsync(
+                    identity.ShipId,
+                    "failed shipyard purchase cleanup",
+                    DateTime.UtcNow);
+                _taskManager.BlockWaitOnTask(retirementTask);
+                var retirement = retirementTask.GetAwaiter().GetResult();
+                if (!retirement.Success)
+                {
+                    _sawmill.Error(
+                        $"Could not retire persistent ship {identity.ShipId} before cleaning failed purchase " +
+                        $"grid {shuttleUid}: {retirement.Status}: {retirement.Reason}");
+                    return false;
+                }
+            }
+
             if (TryComp<ShuttleDeedComponent>(targetId, out var targetDeed) &&
                 (targetDeed.ShuttleUid == null || targetDeed.ShuttleUid == shuttleUid))
             {
@@ -779,7 +910,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         ShipyardVoucherComponent? Voucher,
         VesselPrototype Vessel,
         EntityUid StationUid,
+        EntityUid SelectedGate,
         ShipyardPurchaseQuote Quote);
+
+    private sealed class ShuttlePurchaseRecoveryRequiredException(string message) : Exception(message);
 
     private void TryParseShuttleName(ShuttleDeedComponent deed, string name)
     {
@@ -848,8 +982,26 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return;
         }
 
-        if (!TryComp<ShuttleDeedComponent>(targetId, out var deed) ||
-            deed.ShuttleUid is not { Valid: true } shuttleUid)
+        if (!TryComp<ShuttleDeedComponent>(targetId, out var deed))
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-no-deed"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        if (!TryAuthorizePersistentDeedForActor(
+                player,
+                targetId,
+                deed,
+                out var deedOwnerUserId,
+                out var persistentShipId))
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-owner-denied"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        if (deed.ShuttleUid is not { Valid: true } shuttleUid || Deleted(shuttleUid))
         {
             ConsolePopup(player, Loc.GetString("shipyard-console-no-deed"));
             PlayDenySound(player, uid, component);
@@ -871,7 +1023,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return;
         }
 
-        var uiKey = (ShipyardConsoleUiKey) args.UiKey;
+        var uiKey = (ShipyardConsoleUiKey)args.UiKey;
         var disableSaleQuery = GetEntityQuery<ShipyardSellConditionComponent>();
         var xformQuery = GetEntityQuery<TransformComponent>();
         var disableSaleMsg = FindDisableShipyardSaleObjects(
@@ -886,8 +1038,23 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return;
         }
 
+        if (!TryReserveDeedMutation(
+                targetId,
+                out var deedRecoveryRequired,
+                out var deedReservationId))
+        {
+            ConsolePopup(
+                player,
+                Loc.GetString(deedRecoveryRequired
+                    ? "shipyard-console-sale-recovery-required"
+                    : "shipyard-console-call-pending"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
         if (!TryReserveShuttleSale(shuttleUid, out var recoveryRequired))
         {
+            ReleaseDeedMutation(targetId, deedReservationId);
             ConsolePopup(
                 player,
                 Loc.GetString(recoveryRequired
@@ -898,6 +1065,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         }
 
         var releaseReservation = true;
+        var blockDeedReservation = false;
         try
         {
             var saleResult = TryAppraiseShuttleSale(stationUid, shuttleUid, out var appraisal);
@@ -928,11 +1096,15 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             bool FinalizeAfterCommit()
             {
                 finalizeAttempted = true;
-                if (!TryValidateReservedShuttleSale(
+                if (!IsDeedMutationReservationHeld(targetId, deedReservationId) ||
+                    !TryValidateReservedShuttleSale(
                         uid,
+                        player,
                         targetId,
                         stationUid,
                         shuttleUid,
+                        deedOwnerUserId,
+                        persistentShipId,
                         uiKey,
                         voucherUsed,
                         quote,
@@ -946,6 +1118,22 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
                 try
                 {
+                    if (persistentShipId is { } shipId)
+                    {
+                        var retirementTask = _shipPersistence.RetireAsync(
+                            shipId,
+                            "shipyard sale",
+                            DateTime.UtcNow);
+                        _taskManager.BlockWaitOnTask(retirementTask);
+                        var retirement = retirementTask.GetAwaiter().GetResult();
+                        if (!retirement.Success)
+                        {
+                            _sawmill.Error(
+                                $"Persistent ship retirement failed for shuttle {shuttleUid}: {retirement.Reason ?? retirement.Status.ToString()}");
+                            return false;
+                        }
+                    }
+
                     // Remove the deed first so a partially completed world
                     // finalization can never be retried as another valid sale.
                     RemComp<ShuttleDeedComponent>(targetId);
@@ -997,6 +1185,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             if (finalizationRecoveryRequired)
             {
                 releaseReservation = false;
+                blockDeedReservation = true;
                 BlockShuttleSale(shuttleUid);
                 ConsolePopup(player, Loc.GetString("shipyard-console-sale-recovery-required"));
                 if (TryComp<ShipyardConsoleComponent>(uid, out var recoveryComponent))
@@ -1032,7 +1221,6 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             if (currentComponent.SecretShipyardChannel is { } secretChannel)
                 SendSellMessage(uid, soldOwner, soldName ?? shuttleName, secretChannel, player, secret: true);
 
-            EntityUid? refreshId = targetId;
             if (voucherUsed)
             {
                 _adminLogger.Add(
@@ -1053,22 +1241,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                 currentVoucher.DestroyOnEmpty)
             {
                 QueueDel(targetId);
-                refreshId = null;
             }
 
-            if (TryComp<BankAccountComponent>(player, out var bank) &&
-                HasComp<ShipyardConsoleComponent>(uid))
-            {
-                RefreshState(
-                    uid,
-                    bank.Balance,
-                    true,
-                    null,
-                    0,
-                    refreshId,
-                    uiKey,
-                    voucherUsed);
-            }
+            if (TryComp<ShipyardConsoleComponent>(uid, out var refreshedComponent))
+                RefreshOpenStates(uid, refreshedComponent, uiKey);
         }
         catch (BankMutationRollbackException exception)
         {
@@ -1076,6 +1252,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             // no retry can duplicate it; an administrator must reconcile the bank
             // account before process restart or explicit administrator recovery.
             releaseReservation = false;
+            blockDeedReservation = true;
             BlockShuttleSale(shuttleUid);
             _sawmill.Error(
                 $"CRITICAL: keeping sale reservation for {shuttleUid} after payout rollback failure: {exception}");
@@ -1086,14 +1263,22 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         {
             if (releaseReservation)
                 ReleaseShuttleSale(shuttleUid);
+
+            if (blockDeedReservation)
+                BlockDeedMutation(targetId, deedReservationId);
+            else
+                ReleaseDeedMutation(targetId, deedReservationId);
         }
     }
 
     private bool TryValidateReservedShuttleSale(
         EntityUid consoleUid,
+        EntityUid player,
         EntityUid targetId,
         EntityUid stationUid,
         EntityUid shuttleUid,
+        NetUserId deedOwnerUserId,
+        Guid? persistentShipId,
         ShipyardConsoleUiKey uiKey,
         bool voucherUsed,
         ShipyardSaleQuote expectedQuote,
@@ -1116,6 +1301,19 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             !TryComp<ShuttleDeedComponent>(targetId, out var currentDeed) ||
             currentDeed.ShuttleUid != shuttleUid ||
             currentDeed.PurchasedWithVoucher != voucherUsed)
+        {
+            failure.Error = ShipyardSaleError.InvalidShip;
+            return false;
+        }
+
+        if (persistentShipId is { } shipId &&
+            (!_player.TryGetSessionByEntity(player, out var currentSession) ||
+             currentSession.UserId != deedOwnerUserId ||
+             !TryComp<LuaMShipIdentityComponent>(shuttleUid, out var identity) ||
+             identity.ShipId != shipId ||
+             !TryComp<ShipOwnershipComponent>(shuttleUid, out var ownership) ||
+             ownership.OwnerUserId != deedOwnerUserId ||
+             !GetOwnerShipRecords(currentSession.UserId).Any(record => record.ShipId == shipId)))
         {
             failure.Error = ShipyardSaleError.InvalidShip;
             return false;
@@ -1160,14 +1358,14 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
         var grossPayout = component.IgnoreBaseSaleRate
             ? appraisal
-            : (int) (appraisal * _baseSaleRate);
+            : (int)(appraisal * _baseSaleRate);
         var taxes = component.TaxAccounts
             .Select(entry => new ShipyardSaleTax(
                 entry.Key,
                 CalculateSalesTax(grossPayout, entry.Value)))
             .ToArray();
-        var totalTax = taxes.Sum(tax => (long) tax.Amount);
-        var netPayout = (int) Math.Max(0L, (long) grossPayout - totalTax);
+        var totalTax = taxes.Sum(tax => (long)tax.Amount);
+        var netPayout = (int)Math.Max(0L, (long)grossPayout - totalTax);
         return new ShipyardSaleQuote(appraisal, grossPayout, netPayout, taxes);
     }
 
@@ -1231,50 +1429,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         if (!component.Initialized)
             return;
 
-        // kind of cursed. We need to update the UI when an Id is entered, but the UI needs to know the player characters bank account.
-        if (!TryComp<ActivatableUIComponent>(uid, out var uiComp) || uiComp.Key == null)
-            return;
-
         if (args.Actor is not { Valid: true } player)
             return;
 
-        //      mayhaps re-enable this later for HoS/SA
-        //        var station = _station.GetOwningStation(uid);
-
-        if (!TryComp<BankAccountComponent>(player, out var bank))
-            return;
-
-        var targetId = component.TargetIdSlot.ContainerSlot?.ContainedEntity;
-
-        if (TryComp<ShuttleDeedComponent>(targetId, out var deed))
-        {
-            if (Deleted(deed!.ShuttleUid))
-            {
-                RemComp<ShuttleDeedComponent>(targetId!.Value);
-                return;
-            }
-        }
-
-        var voucherUsed = HasComp<ShipyardVoucherComponent>(targetId);
-
-        int sellValue = 0;
-        if (deed?.ShuttleUid != null)
-        {
-            sellValue = (int)_pricing.AppraiseGrid((EntityUid)(deed?.ShuttleUid!), LacksPreserveOnSaleComp);
-            sellValue = CalculateShipResaleValue((uid, component), sellValue);
-        }
-
-        var fullName = deed != null ? GetFullName(deed) : null;
-
-        // If the player is on cooldown, disable the unassign button
-        var remainingCooldown = GetRemainingCooldownTime(player);
-        if (remainingCooldown.HasValue)
-        {
-            // TODO: Update UI to show cooldown time on button
-            // For now we'll just let them see the cooldown message when they try to use it
-        }
-
-        RefreshState(uid, bank.Balance, true, fullName, sellValue, targetId, (ShipyardConsoleUiKey)args.UiKey, voucherUsed);
+        RefreshStateForActor(uid, component, player, (ShipyardConsoleUiKey)args.UiKey);
     }
 
     private void ConsolePopup(EntityUid uid, string text)
@@ -1330,51 +1488,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         if (args.Container.ID != component.TargetIdSlot.ID)
             return;
 
-        // kind of cursed. We need to update the UI when an Id is entered, but the UI needs to know the player characters bank account.
         if (!TryComp<ActivatableUIComponent>(uid, out var uiComp) || uiComp.Key == null)
             return;
 
-        var uiUsers = _ui.GetActors(uid, uiComp.Key);
-
-        foreach (var user in uiUsers)
-        {
-            if (user is not { Valid: true } player)
-                continue;
-
-            if (!TryComp<BankAccountComponent>(player, out var bank))
-                continue;
-
-            var targetId = component.TargetIdSlot.ContainerSlot?.ContainedEntity;
-
-            if (TryComp<ShuttleDeedComponent>(targetId, out var deed))
-            {
-                if (Deleted(deed!.ShuttleUid))
-                {
-                    RemComp<ShuttleDeedComponent>(targetId!.Value);
-                    continue;
-                }
-            }
-
-            var voucherUsed = HasComp<ShipyardVoucherComponent>(targetId);
-
-            int sellValue = 0;
-            if (deed?.ShuttleUid != null)
-            {
-                sellValue = (int)_pricing.AppraiseGrid(deed.ShuttleUid.Value, LacksPreserveOnSaleComp);
-                sellValue = CalculateShipResaleValue((uid, component), sellValue);
-            }
-
-            var fullName = deed != null ? GetFullName(deed) : null;
-            RefreshState(uid,
-                bank.Balance,
-                true,
-                fullName,
-                sellValue,
-                targetId,
-                (ShipyardConsoleUiKey)uiComp.Key,
-                voucherUsed);
-
-        }
+        RefreshOpenStates(uid, component, (ShipyardConsoleUiKey)uiComp.Key);
     }
 
     /// <summary>
@@ -1546,21 +1663,280 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         return (available, unavailable);
     }
 
-    private void RefreshState(EntityUid uid, int balance, bool access, string? shipDeed, int shipSellValue, EntityUid? targetId, ShipyardConsoleUiKey uiKey, bool freeListings)
+    private void RefreshOpenStates(
+        EntityUid uid,
+        ShipyardConsoleComponent component,
+        ShipyardConsoleUiKey uiKey)
     {
+        foreach (var actor in _ui.GetActors(uid, uiKey).ToArray())
+        {
+            if (actor.Valid && Exists(actor))
+                RefreshStateForActor(uid, component, actor, uiKey);
+        }
+    }
+
+    private void RefreshStateForActor(
+        EntityUid uid,
+        ShipyardConsoleComponent component,
+        EntityUid player,
+        ShipyardConsoleUiKey uiKey)
+    {
+        if (!_player.TryGetSessionByEntity(player, out var session))
+            return;
+
+        var records = GetOwnerShipRecords(session.UserId);
+        var storedShips = records
+            .Where(IsCallableStoredShip)
+            .OrderBy(record => GetShipDisplayName(record), StringComparer.OrdinalIgnoreCase)
+            .ThenBy(record => record.ShipId)
+            .Select(record => new ShipyardStoredShipInfo(
+                record.ShipId,
+                GetShipDisplayName(record),
+                record.VesselPrototypeId))
+            .ToList();
+
+        var targetId = component.TargetIdSlot.ContainerSlot?.ContainedEntity;
+        var persistentTargetUsable = targetId is { Valid: true } card && HasComp<IdCardComponent>(card);
+        TryComp<ShuttleDeedComponent>(targetId, out var deed);
+
+        Guid? boundShipId = null;
+        var deedOwned = deed != null &&
+                        IsDeedOwnedByActor(session.UserId, deed, records, out boundShipId);
+        if (deedOwned &&
+            targetId is { Valid: true } deedUid &&
+            boundShipId is { } persistentShipId)
+        {
+            TryRebindDeedToActivePersistentShuttle(
+                deedUid,
+                deed!,
+                session.UserId,
+                persistentShipId);
+        }
+
+        var activeDeed = deed?.ShuttleUid is { Valid: true } shuttle && !Deleted(shuttle);
+        var parkedDeed = deed != null &&
+                         !activeDeed &&
+                         Guid.TryParse(deed.PersistentShipId, out _);
+        var deedMutationInFlight = IsDeedMutationInFlight(targetId);
+
+        var sellValue = 0;
+        if (deedOwned && activeDeed && deed!.ShuttleUid is { } activeShuttle)
+        {
+            sellValue = (int)_pricing.AppraiseGrid(activeShuttle, LacksPreserveOnSaleComp);
+            sellValue = CalculateShipResaleValue((uid, component), sellValue);
+        }
+
+        var accessGranted = !TryComp<AccessReaderComponent>(uid, out var accessReader) ||
+                            _access.IsAllowed(player, uid, accessReader);
+        var balance = TryComp<BankAccountComponent>(player, out var bank) ? bank.Balance : 0;
+        TryComp<ShipyardVoucherComponent>(targetId, out var voucher);
+        var freeListings = voucher != null;
+        var canUnassign = deedOwned &&
+                          !deedMutationInFlight &&
+                          GetRemainingCooldownTime(player) == null &&
+                          (voucher == null || voucher.CanBeUnassigned == true);
+        var gates = GetShipyardGates(uid, out var stationGrid);
         var newState = new ShipyardConsoleInterfaceState(
             balance,
-            access,
-            shipDeed,
-            shipSellValue,
+            accessGranted,
+            deed != null ? GetFullName(deed) : null,
+            sellValue,
             targetId.HasValue,
-            ((byte)uiKey),
+            targetId is { Valid: true } targetCard ? GetNetEntity(targetCard) : null,
+            (byte)uiKey,
             GetAvailableShuttles(uid, uiKey, targetId: targetId),
             uiKey.ToString(),
             freeListings,
-            CalculateSellRate(uid));
+            CalculateSellRate(uid),
+            gates,
+            stationGrid is { Valid: true } grid ? GetNetEntity(grid) : null,
+            parkedDeed,
+            storedShips,
+            deedOwned ? boundShipId : null,
+            deed != null && !deedOwned,
+            deedOwned && activeDeed && !deedMutationInFlight,
+            deedOwned && activeDeed && !deedMutationInFlight,
+            canUnassign,
+            persistentTargetUsable &&
+            deedOwned &&
+            activeDeed &&
+            boundShipId != null &&
+            !deedMutationInFlight,
+            persistentTargetUsable &&
+            !activeDeed &&
+            (deed == null || deedOwned) &&
+            storedShips.Count > 0 &&
+            !deedMutationInFlight,
+            deedMutationInFlight);
 
-        _ui.SetUiState(uid, uiKey, newState);
+        _ui.ServerSendUiMessage(uid, uiKey, new ShipyardConsoleStateMessage(newState), player);
+    }
+
+    private IReadOnlyList<LuaMShipRegistryRecord> GetOwnerShipRecords(NetUserId ownerUserId)
+    {
+        try
+        {
+            var task = _serverDb.GetLuaMShipSnapshotsByOwnerAsync(ownerUserId);
+            _taskManager.BlockWaitOnTask(task);
+            return task.GetAwaiter().GetResult();
+        }
+        catch (Exception exception)
+        {
+            _sawmill.Error($"Could not read persistent ship registry for {ownerUserId}: {exception}");
+            return Array.Empty<LuaMShipRegistryRecord>();
+        }
+    }
+
+    private static bool IsCallableStoredShip(LuaMShipRegistryRecord record)
+    {
+        return record.Status == DbLuaMShipSnapshotStatus.Stored &&
+               record.LeaseId == null &&
+               record.QuarantinedAtUtc == null &&
+               record.RetiredAtUtc == null;
+    }
+
+    private static string GetShipDisplayName(LuaMShipRegistryRecord record)
+    {
+        return string.IsNullOrWhiteSpace(record.ShipNameSuffix)
+            ? record.ShipName
+            : $"{record.ShipName} {record.ShipNameSuffix}";
+    }
+
+    private bool IsDeedOwnedByActor(
+        NetUserId actorUserId,
+        ShuttleDeedComponent deed,
+        IReadOnlyList<LuaMShipRegistryRecord> ownerRecords,
+        out Guid? persistentShipId)
+    {
+        persistentShipId = null;
+
+        Guid shipId;
+        if (string.IsNullOrEmpty(deed.PersistentShipId))
+        {
+            // A legacy deed is only a bearer deed when it does not point at a
+            // live persistent grid. Old copied deeds omitted PersistentShipId,
+            // so recover the canonical identity from the grid before checking
+            // both the durable owner and live ownership component.
+            if (deed.ShuttleUid is not { Valid: true } liveShuttle ||
+                Deleted(liveShuttle) ||
+                !TryComp<LuaMShipIdentityComponent>(liveShuttle, out var liveIdentity))
+            {
+                return true;
+            }
+
+            if (liveIdentity.ShipId == Guid.Empty)
+                return false;
+
+            shipId = liveIdentity.ShipId;
+        }
+        else if (!Guid.TryParse(deed.PersistentShipId, out shipId) || shipId == Guid.Empty)
+        {
+            // A present but malformed identity can never fall back to bearer
+            // authorization.
+            return false;
+        }
+
+        if (!ownerRecords.Any(record => record.ShipId == shipId))
+        {
+            return false;
+        }
+
+        persistentShipId = shipId;
+        if (deed.ShuttleUid is not { Valid: true } shuttle || Deleted(shuttle))
+            return true;
+
+        return TryComp<LuaMShipIdentityComponent>(shuttle, out var identity) &&
+               identity.ShipId == shipId &&
+               TryComp<ShipOwnershipComponent>(shuttle, out var ownership) &&
+               ownership.OwnerUserId == actorUserId;
+    }
+
+    private bool TryAuthorizePersistentDeedForActor(
+        EntityUid player,
+        EntityUid deedUid,
+        ShuttleDeedComponent deed,
+        out NetUserId actorUserId,
+        out Guid? persistentShipId)
+    {
+        actorUserId = default;
+        persistentShipId = null;
+        if (!_player.TryGetSessionByEntity(player, out var session))
+            return false;
+
+        actorUserId = session.UserId;
+        var records = GetOwnerShipRecords(session.UserId);
+        if (!IsDeedOwnedByActor(session.UserId, deed, records, out persistentShipId))
+            return false;
+
+        if (persistentShipId is { } shipId)
+        {
+            TryRebindDeedToActivePersistentShuttle(
+                deedUid,
+                deed,
+                session.UserId,
+                shipId);
+        }
+
+        return true;
+    }
+
+    private bool TryRebindDeedToActivePersistentShuttle(
+        EntityUid deedUid,
+        ShuttleDeedComponent deed,
+        NetUserId ownerUserId,
+        Guid shipId)
+    {
+        var active = _shipPersistence.ActiveLeases.FirstOrDefault(lease =>
+            lease.ShipId == shipId && lease.OwnerUserId == ownerUserId);
+        if (active == null ||
+            Deleted(active.Grid) ||
+            !TryComp<LuaMShipIdentityComponent>(active.Grid, out var identity) ||
+            identity.ShipId != shipId ||
+            !TryComp<ShipOwnershipComponent>(active.Grid, out var ownership) ||
+            ownership.OwnerUserId != ownerUserId)
+        {
+            return false;
+        }
+
+        var canonicalShipId = shipId.ToString("D");
+        if (deed.ShuttleUid == active.Grid &&
+            string.Equals(deed.PersistentShipId, canonicalShipId, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        deed.ShuttleUid = active.Grid;
+        deed.PersistentShipId = canonicalShipId;
+        Dirty(deedUid, deed);
+        return true;
+    }
+
+    private List<ShipyardGateInfo> GetShipyardGates(EntityUid consoleUid, out EntityUid? stationGrid)
+    {
+        var result = new List<ShipyardGateInfo>();
+        stationGrid = null;
+        if (_station.GetOwningStation(consoleUid) is not { Valid: true } station ||
+            !TryComp<StationDataComponent>(station, out var stationData) ||
+            _station.GetLargestGrid((station, stationData)) is not { } grid)
+        {
+            return result;
+        }
+
+        stationGrid = grid;
+
+        foreach (var gate in _docking.GetDocks(grid)
+                     .Where(gate => (gate.Comp.DockType & DockType.Airlock) != DockType.None)
+                     .OrderBy(gate => gate.Comp.Name ?? Name(gate.Owner)))
+        {
+            var name = gate.Comp.Name == null ? Name(gate.Owner) : Loc.GetString(gate.Comp.Name);
+            var position = _transform.GetRelativePosition(
+                Transform(gate.Owner),
+                grid,
+                GetEntityQuery<TransformComponent>());
+            result.Add(new ShipyardGateInfo(GetNetEntity(gate.Owner), name, !gate.Comp.Docked, position));
+        }
+
+        return result;
     }
 
     #region Deed Assignment
@@ -1590,6 +1966,16 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
         var deedID = EnsureComp<ShuttleDeedComponent>(uid);
         AssignShuttleDeedProperties(deedID, shuttleDeed.ShuttleUid, shuttleDeed.ShuttleName, shuttleDeed.ShuttleOwner, shuttleDeed.PurchasedWithVoucher, shuttleDeed.PurchaseVoucherUid);
+
+        var persistentShipId = shuttleDeed.PersistentShipId;
+        if (TryComp<LuaMShipIdentityComponent>(xform.GridUid.Value, out var identity) &&
+            identity.ShipId != Guid.Empty)
+        {
+            persistentShipId = identity.ShipId.ToString("D");
+        }
+
+        deedID.PersistentShipId = persistentShipId;
+        Dirty(uid, deedID);
     }
     #endregion
 
@@ -1655,9 +2041,16 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return;
         }
 
-        if (!TryComp<ShuttleDeedComponent>(targetId, out var deed) || deed.ShuttleUid == null)
+        if (!TryComp<ShuttleDeedComponent>(targetId, out var deed))
         {
             ConsolePopup(player, Loc.GetString("shipyard-console-no-deed"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        if (!TryAuthorizePersistentDeedForActor(player, targetId, deed, out _, out _))
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-owner-denied"));
             PlayDenySound(player, uid, component);
             return;
         }
@@ -1681,27 +2074,13 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         // Get the old name for logging
         var oldName = GetFullName(deed);
 
-        // Preserve the original sell value from the current UI state
-        int originalSellValue = 0;
-        if (_ui.TryGetUiState<ShipyardConsoleInterfaceState>(uid, (ShipyardConsoleUiKey)args.UiKey, out var currentState))
-        {
-            originalSellValue = currentState.ShipSellValue;
-        }
-
         // Rename the ship using the existing method
         if (TryRenameShuttle(targetId, deed, newName, deed.ShuttleNameSuffix))
         {
             ConsolePopup(player, $"Ship renamed to '{GetFullName(deed)}'");
             PlayConfirmSound(player, uid, component);
 
-            // Get the player's balance or use 0 if they don't have a bank account
-            int balance = 0;
-            if (TryComp<BankAccountComponent>(player, out var bank))
-                balance = bank.Balance;
-
-            // Update the UI with the new ship name, preserving the original sell value
-            var fullName = GetFullName(deed);
-            RefreshState(uid, balance, true, fullName, originalSellValue, targetId, (ShipyardConsoleUiKey)args.UiKey, false);
+            RefreshOpenStates(uid, component, (ShipyardConsoleUiKey)args.UiKey);
 
             _adminLogger.Add(LogType.ShipYardUsage, LogImpact.Low,
                 $"{ToPrettyString(player):actor} renamed ship from '{oldName}' to '{GetFullName(deed)}' via {ToPrettyString(uid)}");
@@ -1725,9 +2104,17 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return;
         }
 
-        if (!TryComp<ShuttleDeedComponent>(targetId, out var deed) || deed.ShuttleUid == null)
+        if (!TryComp<ShuttleDeedComponent>(targetId, out var deed) ||
+            deed.ShuttleUid is not { Valid: true } && !Guid.TryParse(deed.PersistentShipId, out _))
         {
             ConsolePopup(player, Loc.GetString("shipyard-console-no-deed"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        if (!TryAuthorizePersistentDeedForActor(player, targetId, deed, out _, out _))
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-owner-denied"));
             PlayDenySound(player, uid, component);
             return;
         }
@@ -1773,15 +2160,346 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         ConsolePopup(player, Loc.GetString("shipyard-console-deed-unassigned"));
         PlayConfirmSound(player, uid, component);
 
-        // Get the player's balance or use 0 if they don't have a bank account
-        int balance = 0;
-        if (TryComp<BankAccountComponent>(player, out var bank))
-            balance = bank.Balance;
-
-        // Update the UI
-        RefreshState(uid, balance, true, null, 0, targetId, (ShipyardConsoleUiKey)args.UiKey, false);
+        RefreshOpenStates(uid, component, (ShipyardConsoleUiKey)args.UiKey);
 
         _adminLogger.Add(LogType.ShipYardUsage, LogImpact.Low,
             $"{ToPrettyString(player):actor} unassigned deed for ship '{shipName}' from {ToPrettyString(targetId)} via {ToPrettyString(uid)}");
     }
+
+    private void OnParkShipMessage(EntityUid uid, ShipyardConsoleComponent component, ShipyardConsoleParkMessage args)
+    {
+        if (args.Actor is not { Valid: true } player)
+            return;
+
+        if (component.TargetIdSlot.ContainerSlot?.ContainedEntity is not { Valid: true } targetId ||
+            !HasComp<IdCardComponent>(targetId) ||
+            !TryComp<ShuttleDeedComponent>(targetId, out var deed))
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-no-deed"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        if (!TryAuthorizePersistentDeedForActor(player, targetId, deed, out var actorUserId, out _) ||
+            deed.ShuttleUid is not { Valid: true } shuttle ||
+            Deleted(shuttle) ||
+            !TryComp<LuaMShipIdentityComponent>(shuttle, out var identity) ||
+            identity.ShipId == Guid.Empty ||
+            !TryComp<ShipOwnershipComponent>(shuttle, out var ownership) ||
+            ownership.OwnerUserId != actorUserId)
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-owner-denied"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        if (_station.GetOwningStation(uid) is not { Valid: true } station ||
+            !TryComp<StationDataComponent>(station, out var stationData) ||
+            _station.GetLargestGrid((station, stationData)) is not { } stationGrid ||
+            !_docking.AreGridsDocked(shuttle, stationGrid))
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-park-docked"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        if (!TryReservePersistentShipCall(identity.ShipId, targetId, out var reservationId))
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-call-pending"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        RefreshOpenStates(uid, component, (ShipyardConsoleUiKey)args.UiKey);
+        try
+        {
+            EvacuateCrewForParking(shuttle, Transform(uid).Coordinates);
+
+            var task = _shipPersistence.StoreAndDeactivateAsync(
+                identity.ShipId,
+                _gameTicker.RoundId,
+                DateTime.UtcNow);
+            _taskManager.BlockWaitOnTask(task);
+            var result = task.GetAwaiter().GetResult();
+            if (!result.Success)
+            {
+                ConsolePopup(player, Loc.GetString(
+                    "shipyard-console-park-failed",
+                    ("reason", result.Reason ?? result.Status.ToString())));
+                PlayDenySound(player, uid, component);
+                return;
+            }
+
+            if (!IsPersistentShipCallReservationHeld(identity.ShipId, targetId, reservationId) ||
+                component.TargetIdSlot.ContainerSlot?.ContainedEntity != targetId ||
+                !TryComp<ShuttleDeedComponent>(targetId, out var currentDeed) ||
+                currentDeed != deed)
+            {
+                // The durable store succeeded, so discard the now-inactive
+                // physical grid without overwriting a card that changed state.
+                QueueDel(shuttle);
+                ConsolePopup(player, Loc.GetString("shipyard-console-purchase-changed"));
+                PlayDenySound(player, uid, component);
+                return;
+            }
+
+            deed.PersistentShipId = identity.ShipId.ToString("D");
+            deed.ShuttleUid = null;
+            Dirty(targetId, deed);
+            QueueDel(shuttle);
+            ConsolePopup(player, Loc.GetString("shipyard-console-park-success"));
+            PlayConfirmSound(player, uid, component);
+        }
+        finally
+        {
+            ReleasePersistentShipCall(identity.ShipId, targetId, reservationId);
+            if (Exists(uid) && TryComp<ShipyardConsoleComponent>(uid, out var refreshedComponent))
+                RefreshOpenStates(uid, refreshedComponent, (ShipyardConsoleUiKey)args.UiKey);
+        }
+    }
+
+    private void EvacuateCrewForParking(EntityUid shuttle, EntityCoordinates destination)
+    {
+        var crew = new List<EntityUid>();
+        var pending = new Stack<EntityUid>();
+        pending.Push(shuttle);
+
+        while (pending.TryPop(out var current))
+        {
+            var children = Transform(current).ChildEnumerator;
+            while (children.MoveNext(out var child))
+            {
+                pending.Push(child);
+                if (HasComp<MobStateComponent>(child))
+                    crew.Add(child);
+            }
+        }
+
+        foreach (var mob in crew)
+        {
+            if (TryComp<Content.Shared.Buckle.Components.BuckleComponent>(mob, out var buckle) && buckle.Buckled)
+                _buckle.Unbuckle(mob, user: null);
+
+            _container.TryRemoveFromContainer(mob, force: true);
+            _transform.SetCoordinates(mob, destination);
+            _transform.AttachToGridOrMap(mob);
+        }
+    }
+
+    private void OnCallShipMessage(EntityUid uid, ShipyardConsoleComponent component, ShipyardConsoleCallMessage args)
+    {
+        if (args.Actor is not { Valid: true } player)
+            return;
+
+        if (!_player.TryGetSessionByEntity(player, out var session) ||
+            component.TargetIdSlot.ContainerSlot?.ContainedEntity is not { Valid: true } targetId ||
+            !HasComp<IdCardComponent>(targetId) ||
+            _station.GetOwningStation(uid) is not { Valid: true } station ||
+            !TryComp<StationDataComponent>(station, out var stationData) ||
+            _station.GetLargestGrid((station, stationData)) is not { } stationGrid)
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-no-stored-ship"));
+            PlayDenySound(player, uid, component);
+            return;
+        }
+
+        var records = GetOwnerShipRecords(session.UserId);
+        var stored = records.SingleOrDefault(record =>
+            record.ShipId == args.ShipId && IsCallableStoredShip(record));
+        TryComp<ShuttleDeedComponent>(targetId, out var existingDeed);
+        var existingDeedAuthorized = existingDeed == null ||
+                                     IsDeedOwnedByActor(
+                                         session.UserId,
+                                         existingDeed,
+                                         records,
+                                         out _);
+        if (stored == null ||
+            !existingDeedAuthorized ||
+            existingDeed?.ShuttleUid is { Valid: true } existingShuttle &&
+            !Deleted(existingShuttle))
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-no-stored-ship"));
+            PlayDenySound(player, uid, component);
+            RefreshStateForActor(uid, component, player, (ShipyardConsoleUiKey)args.UiKey);
+            return;
+        }
+
+        var selectedGate = GetEntity(args.Gate);
+        if (!TryComp<DockingComponent>(selectedGate, out var dock) ||
+            (dock.DockType & DockType.Airlock) == DockType.None ||
+            dock.Docked ||
+            Transform(selectedGate).GridUid != stationGrid)
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-gate-invalid"));
+            PlayDenySound(player, uid, component);
+            RefreshStateForActor(uid, component, player, (ShipyardConsoleUiKey)args.UiKey);
+            return;
+        }
+
+        var expectedCardState = new PersistentShipCallCardState(
+            existingDeed != null,
+            existingDeed?.ShuttleUid,
+            existingDeed?.PersistentShipId);
+        if (!TryReservePersistentShipCall(stored.ShipId, targetId, out var reservationId))
+        {
+            ConsolePopup(player, Loc.GetString("shipyard-console-call-pending"));
+            PlayDenySound(player, uid, component);
+            RefreshStateForActor(uid, component, player, (ShipyardConsoleUiKey)args.UiKey);
+            return;
+        }
+
+        RefreshOpenStates(uid, component, (ShipyardConsoleUiKey)args.UiKey);
+        try
+        {
+            _map.CreateMap(out var restoreMap);
+            _map.SetPaused(restoreMap, false);
+            LuaMShipOrchestrationResult result;
+            try
+            {
+                var task = _shipPersistence.RestoreClaimAsync(
+                    stored.ShipId,
+                    session.UserId,
+                    _gameTicker.RoundId,
+                    restoreMap,
+                    DateTime.UtcNow,
+                    restored =>
+                    {
+                        if (!IsPersistentShipCallTargetCurrent(
+                                uid,
+                                player,
+                                session.UserId,
+                                targetId,
+                                stored.ShipId,
+                                reservationId,
+                                expectedCardState))
+                        {
+                            _sawmill.Error(
+                                $"Persistent ship call placement aborted for {stored.ShipId}: target card state changed.");
+                            return false;
+                        }
+
+                        if (!TryComp<ShuttleComponent>(restored, out var shuttle))
+                        {
+                            _sawmill.Error(
+                                $"Persistent ship call placement failed for {stored.ShipId}: restored grid has no ShuttleComponent.");
+                            return false;
+                        }
+
+                        if (_shuttle.TryFTLDockAtDock(restored, shuttle, stationGrid, selectedGate))
+                            return true;
+
+                        _sawmill.Error(
+                            $"Persistent ship call placement failed for {stored.ShipId}: selected gate {selectedGate} is free but no valid docking geometry was found for restored grid {restored}.");
+                        return false;
+                    });
+                _taskManager.BlockWaitOnTask(task);
+                result = task.GetAwaiter().GetResult();
+            }
+            finally
+            {
+                if (_map.MapExists(restoreMap))
+                    _map.DeleteMap(restoreMap);
+            }
+
+            if (!result.Success || result.Grid == null)
+            {
+                _sawmill.Error(
+                    $"Persistent ship call failed for ship {stored.ShipId}, owner {session.UserId}, gate {selectedGate}: {result.Status}: {result.Reason}");
+                ConsolePopup(player, Loc.GetString(
+                    "shipyard-console-call-failed",
+                    ("reason", result.Reason ?? result.Status.ToString())));
+                PlayDenySound(player, uid, component);
+                return;
+            }
+
+            if (!IsPersistentShipCallTargetCurrent(
+                    uid,
+                    player,
+                    session.UserId,
+                    targetId,
+                    stored.ShipId,
+                    reservationId,
+                    expectedCardState))
+            {
+                var rollbackTask = _shipPersistence.StoreAndDeactivateAsync(
+                    stored.ShipId,
+                    _gameTicker.RoundId,
+                    DateTime.UtcNow);
+                _taskManager.BlockWaitOnTask(rollbackTask);
+                var rollback = rollbackTask.GetAwaiter().GetResult();
+                if (rollback.Success)
+                {
+                    QueueDel(result.Grid.Value);
+                }
+                else
+                {
+                    _sawmill.Error(
+                        $"CRITICAL: restored ship {stored.ShipId} lost its target card and could not be returned to storage: " +
+                        $"{rollback.Status}: {rollback.Reason}");
+                }
+
+                ConsolePopup(player, Loc.GetString("shipyard-console-purchase-changed"));
+                PlayDenySound(player, uid, component);
+                return;
+            }
+
+            var deed = EnsureComp<ShuttleDeedComponent>(targetId);
+            AssignShuttleDeedProperties(
+                deed,
+                result.Grid.Value,
+                stored.ShipName,
+                Name(player).Trim(),
+                stored.PurchasedWithVoucher);
+            deed.ShuttleNameSuffix = stored.ShipNameSuffix;
+            deed.DeedHolder = targetId;
+            deed.PersistentShipId = stored.ShipId.ToString("D");
+            Dirty(targetId, deed);
+
+            var gateName = dock.Name == null ? Name(selectedGate) : Loc.GetString(dock.Name);
+            ConsolePopup(player, Loc.GetString("shipyard-console-call-success", ("gate", gateName)));
+            PlayConfirmSound(player, uid, component);
+        }
+        finally
+        {
+            ReleasePersistentShipCall(stored.ShipId, targetId, reservationId);
+            if (Exists(uid) && TryComp<ShipyardConsoleComponent>(uid, out var refreshedComponent))
+                RefreshOpenStates(uid, refreshedComponent, (ShipyardConsoleUiKey)args.UiKey);
+        }
+    }
+
+    private bool IsPersistentShipCallTargetCurrent(
+        EntityUid consoleUid,
+        EntityUid player,
+        NetUserId ownerUserId,
+        EntityUid targetId,
+        Guid shipId,
+        Guid reservationId,
+        PersistentShipCallCardState expectedState)
+    {
+        if (!IsPersistentShipCallReservationHeld(shipId, targetId, reservationId) ||
+            Deleted(consoleUid) ||
+            Deleted(player) ||
+            Deleted(targetId) ||
+            !_player.TryGetSessionByEntity(player, out var currentSession) ||
+            currentSession.UserId != ownerUserId ||
+            !TryComp<ShipyardConsoleComponent>(consoleUid, out var currentComponent) ||
+            currentComponent.TargetIdSlot.ContainerSlot?.ContainedEntity != targetId)
+        {
+            return false;
+        }
+
+        var hasCurrentDeed = TryComp<ShuttleDeedComponent>(targetId, out var currentDeed);
+        return hasCurrentDeed == expectedState.HasDeed &&
+               (!hasCurrentDeed ||
+                currentDeed!.ShuttleUid == expectedState.ShuttleUid &&
+                string.Equals(
+                    currentDeed.PersistentShipId,
+                    expectedState.PersistentShipId,
+                    StringComparison.OrdinalIgnoreCase));
+    }
+
+    private readonly record struct PersistentShipCallCardState(
+        bool HasDeed,
+        EntityUid? ShuttleUid,
+        string? PersistentShipId);
 }

@@ -117,6 +117,17 @@ namespace Content.Client.Stylesheets
 
         public static readonly Color PanelDark = Color.FromHex("#1E1E1E");
 
+        // LuaM semantic operational palette. Device-specific classes remain as compatibility aliases,
+        // while new composed screens should use Ui* names so a PDA reskin cannot silently alter admin UIs.
+        public static readonly Color UiSurfaceDeep = Color.FromHex("#0D1315");
+        public static readonly Color UiSurfaceBase = Color.FromHex("#111719");
+        public static readonly Color UiSurfaceRaised = Color.FromHex("#141B1E");
+        public static readonly Color UiSurfaceCard = Color.FromHex("#182024");
+        public static readonly Color UiBorder = Color.FromHex("#31434A");
+        public static readonly Color UiAccent = Color.FromHex("#72C2D0");
+        public static readonly Color UiTextPrimary = Color.FromHex("#E2ECEF");
+        public static readonly Color UiTextMuted = Color.FromHex("#82969C");
+
         public static readonly Color NanoGold = Color.FromHex("#bdbdbd");
         public static readonly Color GoodGreenFore = Color.FromHex("#31843E");
         public static readonly Color ConcerningOrangeFore = Color.FromHex("#A5762F");
@@ -1596,14 +1607,105 @@ namespace Content.Client.Stylesheets
                     .Pseudo(TextureButton.StylePseudoClassHover)
                     .Prop(TextureButton.StylePropertyTexture, resCache.GetTexture("/Textures/Interface/Radial/back_hover.png")),
 
-                //PDA - Backgrounds
+                // LuaM shared operational surfaces. Keep state meaning in copy/icons as well as color.
+                Element<PanelContainer>().Class("UiSurfaceNavigation")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = UiSurfaceDeep,
+                        BorderColor = UiBorder,
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("UiSurfaceHeader")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#101719"),
+                        BorderColor = UiBorder,
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("UiSurfaceSection")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = UiSurfaceRaised,
+                        BorderColor = UiBorder,
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("UiSurfaceCard")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = UiSurfaceCard,
+                        BorderColor = Color.FromHex("#344A52"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("UiNoticeInfo")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#14242A"),
+                        BorderColor = Color.FromHex("#3D6673"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("UiNoticeWarning")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#282315"),
+                        BorderColor = Color.FromHex("#8C7338"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("UiNoticeDanger")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#29191A"),
+                        BorderColor = Color.FromHex("#9B4F4F"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<Label>().Class("UiTextTitle")
+                    .Prop(Label.StylePropertyFont, notoSansBold16)
+                    .Prop(Label.StylePropertyFontColor, UiTextPrimary),
+
+                Element<Label>().Class("UiTextSection")
+                    .Prop(Label.StylePropertyFont, notoSansBold12)
+                    .Prop(Label.StylePropertyFontColor, UiAccent),
+
+                Element<Label>().Class("UiTextBody")
+                    .Prop(Label.StylePropertyFont, notoSans12)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#D7E5E3")),
+
+                Element<Label>().Class("UiTextMuted")
+                    .Prop(Label.StylePropertyFont, notoSans12)
+                    .Prop(Label.StylePropertyFontColor, UiTextMuted),
+
+                Element<RichTextLabel>().Class("UiTextBody")
+                    .Prop(Label.StylePropertyFont, notoSans12)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#D7E5E3")),
+
+                Element<RichTextLabel>().Class("UiTextMuted")
+                    .Prop(Label.StylePropertyFont, notoSans12)
+                    .Prop(Label.StylePropertyFontColor, UiTextMuted),
+
+                Element<Label>().Class("UiTextFooter")
+                    .Prop(Label.StylePropertyFont, notoSans10)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#71858B")),
+
+                Element<Button>().Class("UiActionSafe")
+                    .Prop(Control.StylePropertyModulateSelf, Color.FromHex("#5F9C78")),
+
+                Element<Button>().Class("UiActionDanger")
+                    .Prop(Control.StylePropertyModulateSelf, Color.FromHex("#C95E5E")),
+
+                // PDA compatibility aliases and device-specific controls.
                 Element<PanelContainer>().Class("PdaContentBackground")
                     .Prop(PanelContainer.StylePropertyPanel, BaseButtonOpenBoth)
-                    .Prop(Control.StylePropertyModulateSelf, Color.FromHex("#262626")),
+                    .Prop(Control.StylePropertyModulateSelf, Color.FromHex("#111719")),
 
                 Element<PanelContainer>().Class("PdaBackground")
                     .Prop(PanelContainer.StylePropertyPanel, BaseButtonOpenBoth)
-                    .Prop(Control.StylePropertyModulateSelf, Color.FromHex("#000000")),
+                    .Prop(Control.StylePropertyModulateSelf, Color.FromHex("#080C0E")),
 
                 Element<PanelContainer>().Class("PdaBackgroundRect")
                     .Prop(PanelContainer.StylePropertyPanel, BaseAngleRect)
@@ -1612,8 +1714,106 @@ namespace Content.Client.Stylesheets
                 Element<PanelContainer>().Class("PdaBorderRect")
                     .Prop(PanelContainer.StylePropertyPanel, AngleBorderRect),
 
+                Element<PanelContainer>().Class("PdaGoldFrameRect")
+                    .Prop(PanelContainer.StylePropertyPanel, AngleBorderRect)
+                    .Prop(Control.StylePropertyModulateSelf, Color.FromHex("#D6AE55")),
+
                 Element<PanelContainer>().Class("BackgroundDark")
                     .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat(Color.FromHex("#242424"))),
+
+                Element<PanelContainer>().Class("PdaNavigationSurface")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#0D1315"),
+                        BorderColor = Color.FromHex("#33464E"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("PdaHeaderSurface")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#101719"),
+                        BorderColor = Color.FromHex("#31434A"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("PdaOuterFooterSurface")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#101719"),
+                        BorderColor = Color.FromHex("#26383D"),
+                        BorderThickness = new Thickness(1, 0, 1, 1),
+                    }),
+
+                Element<PanelContainer>().Class("PdaSectionPanel")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#141B1E"),
+                        BorderColor = Color.FromHex("#31434A"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("PdaNoticeWarning")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#282315"),
+                        BorderColor = Color.FromHex("#8C7338"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("PdaNoticeInfo")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#14242A"),
+                        BorderColor = Color.FromHex("#3D6673"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("PdaListingCard")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#182024"),
+                        BorderColor = Color.FromHex("#344A52"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<PanelContainer>().Class("PdaProgramSurface")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat(Color.FromHex("#111719"))),
+
+                Element<PanelContainer>().Class("PdaFooterSurface")
+                    .Prop(PanelContainer.StylePropertyPanel, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#0D1315"),
+                        BorderColor = Color.FromHex("#27363C"),
+                        BorderThickness = new Thickness(0, 1, 0, 0),
+                    }),
+
+                Element<ContainerButton>().Class("PdaInfoButton")
+                    .Pseudo(ContainerButton.StylePseudoClassNormal)
+                    .Prop(ContainerButton.StylePropertyStyleBox, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#182024"),
+                        BorderColor = Color.FromHex("#2B3C43"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<ContainerButton>().Class("PdaInfoButton")
+                    .Pseudo(ContainerButton.StylePseudoClassHover)
+                    .Prop(ContainerButton.StylePropertyStyleBox, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#213138"),
+                        BorderColor = Color.FromHex("#4A7783"),
+                        BorderThickness = new Thickness(1),
+                    }),
+
+                Element<ContainerButton>().Class("PdaInfoButton")
+                    .Pseudo(ContainerButton.StylePseudoClassPressed)
+                    .Prop(ContainerButton.StylePropertyStyleBox, new StyleBoxFlat
+                    {
+                        BackgroundColor = Color.FromHex("#0F1619"),
+                        BorderColor = Color.FromHex("#5A8994"),
+                        BorderThickness = new Thickness(1),
+                    }),
 
                 //PDA - Buttons
                 Element<PdaSettingsButton>().Pseudo(ContainerButton.StylePseudoClassNormal)
@@ -1642,13 +1842,57 @@ namespace Content.Client.Stylesheets
                     .Prop(PdaProgramItem.StylePropertyBgColor, Color.FromHex(PdaProgramItem.HoverColor)),
 
                 //PDA - Text
+                Element<Label>().Class("PdaDeviceTitle")
+                    .Prop(Label.StylePropertyFont, notoSansBold12)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#E2ECEF")),
+
+                Element<Label>().Class("PdaDeviceStatus")
+                    .Prop(Label.StylePropertyFont, notoSans10)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#8DB8A3")),
+
+                Element<Label>().Class("PdaScreenTitle")
+                    .Prop(Label.StylePropertyFont, notoSansBold16)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#E2ECEF")),
+
+                Element<Label>().Class("PdaSectionTitle")
+                    .Prop(Label.StylePropertyFont, notoSansBold12)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#72C2D0")),
+
+                Element<Label>().Class("PdaSubsectionTitle")
+                    .Prop(Label.StylePropertyFont, notoSansBold12)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#C7D8DC")),
+
+                Element<Label>().Class("PdaSectionHint")
+                    .Prop(Label.StylePropertyFont, notoSans12)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#82969C")),
+
+                Element<Label>().Class("PdaNavigationText")
+                    .Prop(Label.StylePropertyFont, notoSansBold12)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#DCE8EB")),
+
+                Element<Label>().Class("PdaProgramTitle")
+                    .Prop(Label.StylePropertyFont, notoSansBold12)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#DCE8EB")),
+
+                Element<Label>().Class("PdaSettingsTitle")
+                    .Prop(Label.StylePropertyFont, notoSansBold12)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#DCE8EB")),
+
+                Element<Label>().Class("PdaSettingsChevron")
+                    .Prop(Label.StylePropertyFont, notoSansBold20)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#72C2D0")),
+
+                Element<Label>().Class("PdaListingTitle")
+                    .Prop(Label.StylePropertyFont, notoSansBold12)
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#DCE8EB")),
+
                 Element<Label>().Class("PdaContentFooterText")
                     .Prop(Label.StylePropertyFont, notoSans10)
-                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#757575")),
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#71858B")),
 
                 Element<Label>().Class("PdaWindowFooterText")
                     .Prop(Label.StylePropertyFont, notoSans10)
-                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#333d3b")),
+                    .Prop(Label.StylePropertyFontColor, Color.FromHex("#71858B")),
 
                 // Fancy Tree
                 Element<ContainerButton>().Identifier(TreeItem.StyleIdentifierTreeButton)

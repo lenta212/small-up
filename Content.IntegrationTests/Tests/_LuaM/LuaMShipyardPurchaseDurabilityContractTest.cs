@@ -36,13 +36,35 @@ public sealed class LuaMShipyardPurchaseDurabilityContractTest
                 Is.GreaterThanOrEqualTo(3),
                 "Purchase must validate before debit and again inside the bank callback.");
             Assert.That(consoles, Does.Contain("catch (BankMutationRollbackException"));
-            Assert.That(consoles, Does.Contain("BlockShuttlePurchase(userId, targetId)"));
+            Assert.That(consoles, Does.Contain(
+                "BlockShuttlePurchase(userId, targetId, purchaseReservationId)"));
             Assert.That(consoles, Does.Contain("TryCleanupFailedShuttlePurchase("));
             Assert.That(consoles, Does.Contain("if (!finalized && stagedShuttleUid != null)"));
             Assert.That(system, Does.Contain("_shuttlePurchaseUsersInFlight.Clear()"));
-            Assert.That(system, Does.Contain("_shuttlePurchaseTargetsInFlight.Clear()"));
+            Assert.That(system, Does.Contain("_deedMutationCardsInFlight.Clear()"));
             Assert.That(system, Does.Not.Contain("_shuttlePurchaseUsersBlocked.Clear()"));
-            Assert.That(system, Does.Not.Contain("_shuttlePurchaseTargetsBlocked.Clear()"));
+            Assert.That(system, Does.Not.Contain("_deedMutationCardsBlocked.Clear()"));
+        });
+    }
+
+    [Test]
+    public void ReusableVouchersUseCooldownInsteadOfConsumingTheirOnlyRedemption()
+    {
+        var source = ReadSource(
+            "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs");
+        var validation = source[source.IndexOf("private bool TryValidateShuttlePurchase(", StringComparison.Ordinal)..source.IndexOf("private bool TryCreatePurchasedShuttle(", StringComparison.Ordinal)];
+        var finalizer = source[source.IndexOf("private bool TryCreatePurchasedShuttle(", StringComparison.Ordinal)..source.IndexOf("private Task<LuaMShipOrchestrationResult> RegisterPurchasedShipAsync(", StringComparison.Ordinal)];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(validation, Does.Contain("voucher.DestroyOnEmpty && voucher.RedemptionsLeft <= 0"));
+            Assert.That(validation, Does.Contain("_timing.CurTime < voucher.NextBuyAt"));
+            Assert.That(finalizer, Does.Contain("voucher.NextBuyAt = _timing.CurTime + voucher.Cooldown;"));
+            Assert.That(finalizer, Does.Contain("if (voucher.DestroyOnEmpty)"));
+            Assert.That(finalizer.IndexOf("voucher.NextBuyAt = _timing.CurTime + voucher.Cooldown;", StringComparison.Ordinal),
+                Is.LessThan(finalizer.IndexOf("if (voucher.DestroyOnEmpty)", StringComparison.Ordinal)));
+            Assert.That(finalizer.IndexOf("if (voucher.DestroyOnEmpty)", StringComparison.Ordinal),
+                Is.LessThan(finalizer.IndexOf("voucher.RedemptionsLeft--;", StringComparison.Ordinal)));
         });
     }
 
@@ -61,7 +83,8 @@ public sealed class LuaMShipyardPurchaseDurabilityContractTest
         Assert.Multiple(() =>
         {
             Assert.That(deedMarker, Is.GreaterThanOrEqualTo(0));
-            Assert.That(finalizer.IndexOf("voucher.RedemptionsLeft--;"), Is.GreaterThan(deedMarker));
+            Assert.That(finalizer.IndexOf("if (voucher.DestroyOnEmpty)"), Is.GreaterThan(deedMarker));
+            Assert.That(finalizer.IndexOf("voucher.RedemptionsLeft--;"), Is.GreaterThan(finalizer.IndexOf("if (voucher.DestroyOnEmpty)", StringComparison.Ordinal)));
             Assert.That(finalizer.IndexOf("_accessSystem.TrySetTags("), Is.GreaterThan(deedMarker));
             Assert.That(finalizer.IndexOf("_shipOwnership.RegisterShipOwnership("), Is.GreaterThan(deedMarker));
         });

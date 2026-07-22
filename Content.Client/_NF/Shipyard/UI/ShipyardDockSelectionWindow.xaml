@@ -1,0 +1,60 @@
+<controls:FancyWindow xmlns="https://spacestation14.io"
+                      xmlns:controls="clr-namespace:Content.Client.UserInterface.Controls"
+                      xmlns:gfx="clr-namespace:Robust.Client.Graphics;assembly=Robust.Client"
+                      xmlns:shipyard="clr-namespace:Content.Client._NF.Shipyard.UI"
+                      SetSize="620 520"
+                      MinSize="480 420"
+                      Resizable="True">
+    <BoxContainer Orientation="Vertical" Margin="8">
+        <Label Name="ShipLabel"
+               StyleClasses="LabelHeading"
+               Margin="0 0 0 6" />
+        <Label Text="{Loc 'shipyard-console-call-map-hint'}"
+               StyleClasses="PdaSectionHint"
+               Margin="0 0 0 7" />
+        <PanelContainer VerticalExpand="True" HorizontalExpand="True">
+            <PanelContainer.PanelOverride>
+                <gfx:StyleBoxFlat BackgroundColor="#101416" BorderColor="#3A4449" BorderThickness="1" />
+            </PanelContainer.PanelOverride>
+            <shipyard:ShipyardDockMapControl Name="DockMap"
+                                             MinSize="440 330"
+                                             HorizontalExpand="True"
+                                             VerticalExpand="True" />
+        </PanelContainer>
+        <PanelContainer StyleClasses="PdaSectionPanel"
+                        HorizontalExpand="True"
+                        Margin="0 7 0 0">
+            <BoxContainer Name="GateLegend"
+                          Orientation="Horizontal"
+                          HorizontalExpand="True"
+                          Margin="8 5">
+                <Label Text="{Loc 'shipyard-console-gate-legend-available'}"
+                       StyleClasses="PdaDeviceStatus"
+                       HorizontalExpand="True" />
+                <Label Text="{Loc 'shipyard-console-gate-legend-occupied'}"
+                       StyleClasses="PdaSectionHint"
+                       HorizontalExpand="True"
+                       Align="Center" />
+                <Label Text="{Loc 'shipyard-console-gate-legend-selected'}"
+                       StyleClasses="PdaSectionHint"
+                       HorizontalExpand="True"
+                       Align="Right" />
+            </BoxContainer>
+        </PanelContainer>
+        <BoxContainer Orientation="Horizontal" Margin="0 8 0 0">
+            <BoxContainer Orientation="Vertical" HorizontalExpand="True">
+                <Label Text="{Loc 'shipyard-console-call-map-selected-label'}"
+                       StyleClasses="LabelKeyText" />
+                <Label Name="SelectedDockLabel" />
+            </BoxContainer>
+            <Button Name="CancelButton"
+                    Text="{Loc 'quick-dialog-ui-cancel'}"
+                    Margin="4 0 0 0" />
+            <Button Name="ConfirmButton"
+                    Text="{Loc 'shipyard-console-call-button'}"
+                    StyleClasses="ButtonColorGreen"
+                    Disabled="True"
+                    Margin="4 0 0 0" />
+        </BoxContainer>
+    </BoxContainer>
+</controls:FancyWindow>

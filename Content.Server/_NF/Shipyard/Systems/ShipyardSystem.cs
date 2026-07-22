@@ -1,5 +1,7 @@
 using Content.Server.Shuttles.Systems;
 using Content.Server.Shuttles.Components;
+using Content.Server._LuaM.ShipPersistence;
+using Content.Server.GameTicking;
 using Content.Server.Cargo.Systems;
 using Content.Server.Station.Systems;
 using Content.Shared._NF.Shipyard.Components;
@@ -16,6 +18,7 @@ using System.Numerics;
 using Content.Shared._NF.Shipyard.Events;
 using Content.Shared.Mobs.Components;
 using Robust.Shared.Containers;
+using Content.Shared.Buckle;
 using Content.Server._NF.Station.Components;
 using Content.Server.Storage.Components;
 using Content.Shared._Mono.Shipyard;
@@ -24,6 +27,7 @@ using Robust.Shared.Utility;
 using Content.Shared.Doors.Components;
 using Robust.Shared.Map.Components;
 using Robust.Shared.Network;
+using Robust.Shared.Asynchronous;
 
 namespace Content.Server._NF.Shipyard.Systems;
 
@@ -31,6 +35,9 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 {
     [Dependency] private IConfigurationManager _configManager = default!;
     [Dependency] private IMapManager _mapManager = default!;
+    [Dependency] private LuaMShipPersistenceOrchestrator _shipPersistence = default!;
+    [Dependency] private ITaskManager _taskManager = default!;
+    [Dependency] private GameTicker _gameTicker = default!;
     [Dependency] private DockingSystem _docking = default!;
     [Dependency] private PricingSystem _pricing = default!;
     [Dependency] private ShuttleSystem _shuttle = default!;
@@ -41,6 +48,8 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private ShipOwnershipSystem _shipOwnership = default!;
     [Dependency] private EntityLookupSystem _lookup = default!;
+    [Dependency] private SharedContainerSystem _container = default!;
+    [Dependency] private SharedBuckleSystem _buckle = default!;
 
     public MapId? ShipyardMap { get; private set; }
     private float _shuttleIndex;
@@ -51,11 +60,12 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     private readonly object _shuttleSaleLock = new();
     private readonly HashSet<EntityUid> _shuttleSalesInFlight = new();
     private readonly HashSet<EntityUid> _shuttleSalesBlocked = new();
-    private readonly object _shuttlePurchaseLock = new();
-    private readonly HashSet<NetUserId> _shuttlePurchaseUsersInFlight = new();
-    private readonly HashSet<EntityUid> _shuttlePurchaseTargetsInFlight = new();
+    private readonly object _shipyardMutationLock = new();
+    private readonly Dictionary<NetUserId, Guid> _shuttlePurchaseUsersInFlight = new();
     private readonly HashSet<NetUserId> _shuttlePurchaseUsersBlocked = new();
-    private readonly HashSet<EntityUid> _shuttlePurchaseTargetsBlocked = new();
+    private readonly Dictionary<Guid, Guid> _persistentShipCallsInFlight = new();
+    private readonly Dictionary<EntityUid, Guid> _deedMutationCardsInFlight = new();
+    private readonly HashSet<EntityUid> _deedMutationCardsBlocked = new();
 
     // The type of error from the attempted sale of a ship.
     public enum ShipyardSaleError
@@ -92,6 +102,8 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsolePurchaseMessage>(OnPurchaseMessage);
         SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsoleUnassignDeedMessage>(OnUnassignDeedMessage);
         SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsoleRenameMessage>(OnRenameMessage);
+        SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsoleParkMessage>(OnParkShipMessage);
+        SubscribeLocalEvent<ShipyardConsoleComponent, ShipyardConsoleCallMessage>(OnCallShipMessage);
         SubscribeLocalEvent<ShipyardConsoleComponent, EntInsertedIntoContainerMessage>(OnItemSlotChanged);
         SubscribeLocalEvent<ShipyardConsoleComponent, EntRemovedFromContainerMessage>(OnItemSlotChanged);
         SubscribeLocalEvent<RoundRestartCleanupEvent>(OnRoundRestart);
@@ -114,13 +126,123 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         lock (_shuttleSaleLock)
             _shuttleSalesInFlight.Clear();
 
-        lock (_shuttlePurchaseLock)
+        lock (_shipyardMutationLock)
         {
             _shuttlePurchaseUsersInFlight.Clear();
-            _shuttlePurchaseTargetsInFlight.Clear();
+            _persistentShipCallsInFlight.Clear();
+            _deedMutationCardsInFlight.Clear();
         }
 
         CleanupShipyard();
+    }
+
+    private bool TryReservePersistentShipCall(Guid shipId, EntityUid targetId, out Guid reservationId)
+    {
+        reservationId = Guid.Empty;
+        lock (_shipyardMutationLock)
+        {
+            if (_persistentShipCallsInFlight.ContainsKey(shipId) ||
+                _deedMutationCardsInFlight.ContainsKey(targetId) ||
+                _deedMutationCardsBlocked.Contains(targetId))
+            {
+                return false;
+            }
+
+            reservationId = Guid.NewGuid();
+            _persistentShipCallsInFlight.Add(shipId, reservationId);
+            _deedMutationCardsInFlight.Add(targetId, reservationId);
+            return true;
+        }
+    }
+
+    private bool IsPersistentShipCallReservationHeld(Guid shipId, EntityUid targetId, Guid reservationId)
+    {
+        lock (_shipyardMutationLock)
+        {
+            return _persistentShipCallsInFlight.TryGetValue(shipId, out var shipReservation) &&
+                   shipReservation == reservationId &&
+                   _deedMutationCardsInFlight.TryGetValue(targetId, out var cardReservation) &&
+                   cardReservation == reservationId;
+        }
+    }
+
+    private void ReleasePersistentShipCall(Guid shipId, EntityUid targetId, Guid reservationId)
+    {
+        lock (_shipyardMutationLock)
+        {
+            if (_persistentShipCallsInFlight.TryGetValue(shipId, out var shipReservation) &&
+                shipReservation == reservationId)
+            {
+                _persistentShipCallsInFlight.Remove(shipId);
+            }
+
+            if (_deedMutationCardsInFlight.TryGetValue(targetId, out var cardReservation) &&
+                cardReservation == reservationId)
+            {
+                _deedMutationCardsInFlight.Remove(targetId);
+            }
+        }
+    }
+
+    private bool IsDeedMutationInFlight(EntityUid? targetId)
+    {
+        lock (_shipyardMutationLock)
+        {
+            return targetId is { } card && _deedMutationCardsInFlight.ContainsKey(card);
+        }
+    }
+
+    private bool TryReserveDeedMutation(
+        EntityUid targetId,
+        out bool recoveryRequired,
+        out Guid reservationId)
+    {
+        reservationId = Guid.Empty;
+        lock (_shipyardMutationLock)
+        {
+            recoveryRequired = _deedMutationCardsBlocked.Contains(targetId);
+            if (recoveryRequired || _deedMutationCardsInFlight.ContainsKey(targetId))
+                return false;
+
+            reservationId = Guid.NewGuid();
+            _deedMutationCardsInFlight.Add(targetId, reservationId);
+            return true;
+        }
+    }
+
+    private bool IsDeedMutationReservationHeld(EntityUid targetId, Guid reservationId)
+    {
+        lock (_shipyardMutationLock)
+        {
+            return _deedMutationCardsInFlight.TryGetValue(targetId, out var currentReservation) &&
+                   currentReservation == reservationId;
+        }
+    }
+
+    private void ReleaseDeedMutation(EntityUid targetId, Guid reservationId)
+    {
+        lock (_shipyardMutationLock)
+        {
+            if (_deedMutationCardsInFlight.TryGetValue(targetId, out var currentReservation) &&
+                currentReservation == reservationId)
+            {
+                _deedMutationCardsInFlight.Remove(targetId);
+            }
+        }
+    }
+
+    private void BlockDeedMutation(EntityUid targetId, Guid reservationId)
+    {
+        lock (_shipyardMutationLock)
+        {
+            if (_deedMutationCardsInFlight.TryGetValue(targetId, out var currentReservation) &&
+                currentReservation == reservationId)
+            {
+                _deedMutationCardsInFlight.Remove(targetId);
+            }
+
+            _deedMutationCardsBlocked.Add(targetId);
+        }
     }
 
     private void SetShipyardEnabled(bool value)
@@ -147,7 +269,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     /// <param name="stationUid">The ID of the station to dock the shuttle to</param>
     /// <param name="shuttlePath">The path to the shuttle file to load. Must be a grid file!</param>
     /// <param name="shuttleEntityUid">The EntityUid of the shuttle that was purchased</param>
-    public bool TryPurchaseShuttle(EntityUid stationUid, ResPath shuttlePath, [NotNullWhen(true)] out EntityUid? shuttleEntityUid)
+    public bool TryPurchaseShuttle(EntityUid stationUid, ResPath shuttlePath, [NotNullWhen(true)] out EntityUid? shuttleEntityUid, EntityUid? targetDock = null)
     {
         shuttleEntityUid = null;
         if (!TryComp<StationDataComponent>(stationUid, out var stationData) ||
@@ -174,7 +296,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         // The grid remains staged until it is successfully placed at the target
         // station. A failed placement is fully removed so the bank callback can
         // safely return false and roll the debit back.
-        if (!_shuttle.TryFTLDock(shuttleGrid.Value, shuttleComponent, targetGrid.Value))
+        var placed = targetDock is { } selectedDock
+            ? _shuttle.TryFTLDockAtDock(shuttleGrid.Value, shuttleComponent, targetGrid.Value, selectedDock)
+            : _shuttle.TryFTLDock(shuttleGrid.Value, shuttleComponent, targetGrid.Value);
+        if (!placed)
         {
             QueueDel(shuttleGrid);
             return false;
@@ -339,42 +464,78 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     private bool TryReserveShuttlePurchase(
         NetUserId userId,
         EntityUid targetId,
-        out bool recoveryRequired)
+        out bool recoveryRequired,
+        out Guid reservationId)
     {
-        lock (_shuttlePurchaseLock)
+        reservationId = Guid.Empty;
+        lock (_shipyardMutationLock)
         {
             recoveryRequired = _shuttlePurchaseUsersBlocked.Contains(userId) ||
-                               _shuttlePurchaseTargetsBlocked.Contains(targetId);
+                               _deedMutationCardsBlocked.Contains(targetId);
             if (recoveryRequired ||
-                _shuttlePurchaseUsersInFlight.Contains(userId) ||
-                _shuttlePurchaseTargetsInFlight.Contains(targetId))
+                _shuttlePurchaseUsersInFlight.ContainsKey(userId) ||
+                _deedMutationCardsInFlight.ContainsKey(targetId))
             {
                 return false;
             }
 
-            _shuttlePurchaseUsersInFlight.Add(userId);
-            _shuttlePurchaseTargetsInFlight.Add(targetId);
+            reservationId = Guid.NewGuid();
+            _shuttlePurchaseUsersInFlight.Add(userId, reservationId);
+            _deedMutationCardsInFlight.Add(targetId, reservationId);
             return true;
         }
     }
 
-    private void ReleaseShuttlePurchase(NetUserId userId, EntityUid targetId)
+    private bool IsShuttlePurchaseReservationHeld(
+        NetUserId userId,
+        EntityUid targetId,
+        Guid reservationId)
     {
-        lock (_shuttlePurchaseLock)
+        lock (_shipyardMutationLock)
         {
-            _shuttlePurchaseUsersInFlight.Remove(userId);
-            _shuttlePurchaseTargetsInFlight.Remove(targetId);
+            return _shuttlePurchaseUsersInFlight.TryGetValue(userId, out var userReservation) &&
+                   userReservation == reservationId &&
+                   _deedMutationCardsInFlight.TryGetValue(targetId, out var cardReservation) &&
+                   cardReservation == reservationId;
         }
     }
 
-    private void BlockShuttlePurchase(NetUserId userId, EntityUid targetId)
+    private void ReleaseShuttlePurchase(NetUserId userId, EntityUid targetId, Guid reservationId)
     {
-        lock (_shuttlePurchaseLock)
+        lock (_shipyardMutationLock)
         {
-            _shuttlePurchaseUsersInFlight.Remove(userId);
-            _shuttlePurchaseTargetsInFlight.Remove(targetId);
+            if (_shuttlePurchaseUsersInFlight.TryGetValue(userId, out var userReservation) &&
+                userReservation == reservationId)
+            {
+                _shuttlePurchaseUsersInFlight.Remove(userId);
+            }
+
+            if (_deedMutationCardsInFlight.TryGetValue(targetId, out var cardReservation) &&
+                cardReservation == reservationId)
+            {
+                _deedMutationCardsInFlight.Remove(targetId);
+            }
+        }
+    }
+
+    private void BlockShuttlePurchase(NetUserId userId, EntityUid targetId, Guid reservationId)
+    {
+        lock (_shipyardMutationLock)
+        {
+            if (_shuttlePurchaseUsersInFlight.TryGetValue(userId, out var userReservation) &&
+                userReservation == reservationId)
+            {
+                _shuttlePurchaseUsersInFlight.Remove(userId);
+            }
+
+            if (_deedMutationCardsInFlight.TryGetValue(targetId, out var cardReservation) &&
+                cardReservation == reservationId)
+            {
+                _deedMutationCardsInFlight.Remove(targetId);
+            }
+
             _shuttlePurchaseUsersBlocked.Add(userId);
-            _shuttlePurchaseTargetsBlocked.Add(targetId);
+            _deedMutationCardsBlocked.Add(targetId);
         }
     }
 

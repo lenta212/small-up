@@ -80,14 +80,7 @@ public sealed partial class ConfirmButton : Button
     protected override void FrameUpdate(FrameEventArgs args)
     {
         if (IsConfirming && _gameTiming.CurTime > _nextReset)
-        {
-            IsConfirming = false;
-            base.Text = Text;
-            DrawModeChanged();
-        }
-
-        if (IsConfirming && Disabled && _gameTiming.CurTime > _nextCooldown)
-            Disabled = false;
+            ResetConfirmation();
     }
 
     protected override void DrawModeChanged()
@@ -128,7 +121,6 @@ public sealed partial class ConfirmButton : Button
             case false:
                 _nextCooldown  = _gameTiming.CurTime + CooldownTime;
                 _nextReset = _gameTiming.CurTime + ResetTime;
-                Disabled = true;
                 break;
             case true:
                 OnPressed?.Invoke(buttonEvent);
@@ -138,5 +130,22 @@ public sealed partial class ConfirmButton : Button
         base.Text = IsConfirming ? Text : ConfirmationText;
 
         IsConfirming = !IsConfirming;
+        DrawModeChanged();
+    }
+
+    /// <summary>
+    /// Cancels an armed confirmation without changing the externally controlled disabled state.
+    /// Use this when the action context or server state changes between clicks.
+    /// </summary>
+    public void ResetConfirmation()
+    {
+        if (!IsConfirming)
+            return;
+
+        IsConfirming = false;
+        _nextReset = null;
+        _nextCooldown = null;
+        base.Text = Text;
+        DrawModeChanged();
     }
 }

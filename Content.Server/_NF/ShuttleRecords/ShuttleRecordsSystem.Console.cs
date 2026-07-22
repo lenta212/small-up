@@ -1,4 +1,5 @@
 using System.Linq;
+using Content.Server._LuaM.ShipPersistence;
 using Content.Server._NF.Bank;
 using Content.Server.Cargo.Components;
 using Content.Shared._NF.Bank.BUI;
@@ -206,6 +207,20 @@ public sealed partial class ShuttleRecordsSystem
         deed.ShuttleName = shuttleRecord.Name;
         deed.ShuttleNameSuffix = shuttleRecord.Suffix;
         deed.PurchasedWithVoucher = shuttleRecord.PurchasedWithVoucher;
+
+        var persistentShipId = shuttleRecord.PersistentShipId;
+        if (_entityManager.EntityExists(shuttleEntity) &&
+            _entityManager.TryGetComponent<LuaMShipIdentityComponent>(shuttleEntity, out var identity) &&
+            identity.ShipId != Guid.Empty)
+        {
+            // The live grid is authoritative. This also upgrades records made
+            // before ShuttleRecord carried the persistent identity.
+            persistentShipId = identity.ShipId.ToString("D");
+            shuttleRecord.PersistentShipId = persistentShipId;
+        }
+
+        deed.PersistentShipId = persistentShipId;
+        Dirty(targetId, deed);
     }
 
     /// <summary>

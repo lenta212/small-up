@@ -39,15 +39,17 @@ public sealed class ShipyardConsoleBoundUserInterface : BoundUserInterface
         _menu.OnSellShip += SellShip;
         _menu.OnUnassignDeed += UnassignDeed;
         _menu.OnRenameShip += RenameShip;
+        _menu.OnParkShip += ParkShip;
+        _menu.OnCallShip += CallShip;
         _menu.TargetIdButton.OnPressed += _ => SendMessage(new ItemSlotButtonPressedEvent("ShipyardConsole-targetId"));
     }
 
-    private void Populate(List<string> availablePrototypes, List<string> unavailablePrototypes, bool freeListings, bool validId)
+    private void Populate(List<string> availablePrototypes, List<string> unavailablePrototypes, bool freeListings)
     {
         if (_menu == null)
             return;
 
-        _menu.PopulateProducts(availablePrototypes, unavailablePrototypes, freeListings, validId);
+        _menu.PopulateProducts(availablePrototypes, unavailablePrototypes, freeListings, _menu.CanPurchase);
         _menu.PopulateCategories(availablePrototypes, unavailablePrototypes);
         _menu.PopulateClasses(availablePrototypes, unavailablePrototypes);
         _menu.PopulateEngines(availablePrototypes, unavailablePrototypes);
@@ -60,11 +62,25 @@ public sealed class ShipyardConsoleBoundUserInterface : BoundUserInterface
         if (state is not ShipyardConsoleInterfaceState cState)
             return;
 
+        ApplyState(cState);
+    }
+
+    protected override void ReceiveMessage(BoundUserInterfaceMessage message)
+    {
+        base.ReceiveMessage(message);
+
+        if (message is ShipyardConsoleStateMessage update)
+            ApplyState(update.State);
+    }
+
+    private void ApplyState(ShipyardConsoleInterfaceState cState)
+    {
         Balance = cState.Balance;
         ShipSellValue = cState.ShipSellValue;
-        var castState = (ShipyardConsoleInterfaceState) state;
-        Populate(castState.ShipyardPrototypes.available, castState.ShipyardPrototypes.unavailable, castState.FreeListings, castState.IsTargetIdPresent);
-        _menu?.UpdateState(castState);
+        _menu?.UpdateState(cState);
+        Populate(cState.ShipyardPrototypes.available,
+            cState.ShipyardPrototypes.unavailable,
+            cState.FreeListings);
     }
 
     protected override void Dispose(bool disposing)
@@ -76,15 +92,12 @@ public sealed class ShipyardConsoleBoundUserInterface : BoundUserInterface
         _menu?.Dispose();
     }
 
-    private void ApproveOrder(ButtonEventArgs args)
+    private void ApproveOrder(string vesselId)
     {
-        if (args.Button.Parent?.Parent?.Parent is not VesselRow row || row.Vessel == null) // Mono - another .parent? - this is really fucking stupid
-        {
+        if (_menu is not { CanPurchase: true } || _menu.SelectedGate is not { } gate)
             return;
-        }
 
-        var vesselId = row.Vessel.ID;
-        SendMessage(new ShipyardConsolePurchaseMessage(vesselId));
+        SendMessage(new ShipyardConsolePurchaseMessage(vesselId, gate));
     }
 
     private void SellShip(ButtonEventArgs args)
@@ -101,5 +114,15 @@ public sealed class ShipyardConsoleBoundUserInterface : BoundUserInterface
     private void RenameShip(string newName)
     {
         SendMessage(new ShipyardConsoleRenameMessage(newName));
+    }
+
+    private void ParkShip(ButtonEventArgs args)
+    {
+        SendMessage(new ShipyardConsoleParkMessage());
+    }
+
+    private void CallShip(Guid shipId, NetEntity gate)
+    {
+        SendMessage(new ShipyardConsoleCallMessage(shipId, gate));
     }
 }
