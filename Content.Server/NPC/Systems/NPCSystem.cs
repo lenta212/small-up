@@ -187,6 +187,13 @@ namespace Content.Server.NPC.Systems
                 if (_mobState.IsIncapacitated(npcUid))
                     continue;
 
+                // Some autonomous roles own world-level assignments which must
+                // continue even when their patient/work target is not a living
+                // player. They opt out explicitly on HTN instead of being woken
+                // every update only to have this sweep destroy their plan again.
+                if (!htn.PauseWhenNoPlayersInRange)
+                    continue;
+
                 var npcCoords = npcTransform.Coordinates;
                 var hasNearbyPlayer = false;
 

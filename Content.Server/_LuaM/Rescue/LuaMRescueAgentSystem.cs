@@ -2,8 +2,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Content.Server.Administration;
+using Content.Server.PowerCell;
 using Content.Server.Bed.Components;
+using Content.Server.Body.Components;
 using Content.Server.Buckle.Systems;
+using Content.Server.Chemistry.EntitySystems;
 using Content.Server.Chat.Systems;
 using Content.Server.Hands.Systems;
 using Content.Server.Interaction;
@@ -12,22 +15,30 @@ using Content.Server.Medical.Components;
 using Content.Server.Mind;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
-using Content.Server.NPC.Pathfinding;
 using Content.Server.NPC.Systems;
 using Content.Server.Radio.EntitySystems;
 using Content.Server.Shuttles.Components;
 using Content.Server.VendingMachines;
 using Content.Shared.ActionBlocker;
+using Content.Shared._Goobstation.DoAfter;
+using Content.Shared.Atmos.Rotting;
 using Content.Shared.Buckle.Components;
+using Content.Shared.Body.Systems;
 using Content.Shared.Chemistry.Components;
 using Content.Shared.Chemistry.Components.SolutionManager;
+using Content.Shared.Chemistry.EntitySystems;
+using Content.Shared.Chemistry.Reagent;
 using Content.Shared.Chat;
 using Content.Shared.Damage;
+using Content.Shared.DoAfter;
+using Content.Shared.Examine;
 using Content.Shared.Hands.Components;
 using Content.Shared.Interaction;
 using Content.Shared.Inventory;
 using Content.Shared.Item.ItemToggle;
 using Content.Shared.Medical;
+using Content.Shared.MedicalScanner;
+using Content.Shared.Mind.Components;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Movement.Pulling.Components;
@@ -38,11 +49,13 @@ using Content.Shared.Administration;
 using Content.Shared.Stacks;
 using Content.Shared.Storage;
 using Content.Shared.Storage.EntitySystems;
+using Content.Shared.Traits.Assorted;
 using Content.Shared.VendingMachines;
 using Robust.Server.Player;
 using Robust.Shared.Containers;
 using Robust.Shared.Console;
 using Robust.Shared.Map;
+using Robust.Shared.Map.Components;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Timing;
@@ -51,20 +64,84 @@ namespace Content.Server._LuaM.Rescue;
 
 public sealed class LuaMRescueAgentSystem : EntitySystem
 {
+    // LuaM rescue state is server-only; status commands query it directly.
+    private static void Dirty(EntityUid _, LuaMRescueAgentComponent __) { }
+
+    private enum PullStartResult : byte
+    {
+        Started,
+        Waiting,
+        TerminalFailure,
+    }
+
+    private enum PatientBuckleResult : byte
+    {
+        NotReady,
+        Waiting,
+        Succeeded,
+        TerminalFailure,
+    }
+
+    private enum PatientRouteFailureDisposition : byte
+    {
+        TemporarySkip,
+        DormantRecovery,
+        DurableSkip,
+    }
+
+    private enum PatientDeliveryStrapState : byte
+    {
+        Viable,
+        TemporarilyUnavailable,
+        Exhausted,
+    }
+
+    private sealed class MedicalEffectExpectation
+    {
+        public readonly HashSet<string> DamageTypes = new(StringComparer.Ordinal);
+
+        public bool ReducesBleeding;
+
+        public bool IncreasesBloodVolume;
+
+        public bool ImprovesMobState;
+
+        public bool HasObservableEffect =>
+            DamageTypes.Count > 0 || ReducesBleeding || IncreasesBloodVolume || ImprovesMobState;
+    }
+
     private const string RescueAgentPrototype = "LuaMRescueAgent";
     private const string RescueAgentDisabledStatusPrefix = "rescue-agent-disabled:";
     private const string RescueAgentRecoveredStatusPrefix = "rescue-agent-recovered:";
+    private static readonly TimeSpan MedicalDoAfterHardTimeout = TimeSpan.FromSeconds(30);
     private static readonly ProtoId<RadioChannelPrototype> MedicalRadioChannel = "Medical";
     private static readonly string[] TreatmentStorageSlotPriority =
     [
-        "back",
         "belt",
+        "back",
         "pocket1",
         "pocket2",
         "suitstorage",
         "outerClothing",
         "jumpsuit",
     ];
+    private static readonly Dictionary<string, float> ConservativeMedicineLimits = new(StringComparer.Ordinal)
+    {
+        ["Bicaridine"] = 16f,
+        // Dermaline starts producing harmful effects at 10u. Keep the
+        // post-transfer bloodstream strictly below that prototype threshold.
+        ["Dermaline"] = 10f,
+        ["Kelotane"] = 25f,
+        ["Dexalin"] = 20f,
+        ["DexalinPlus"] = 25f,
+        ["Dylovene"] = 15f,
+        ["Inaprovaline"] = 15f,
+        ["Epinephrine"] = 20f,
+        ["Tricordrazine"] = 15f,
+        ["Omnizine"] = 60f,
+        ["TranexamicAcid"] = 15f,
+        ["Leporazine"] = 25f,
+    };
     private static readonly string[] MedicalVendingProductPriority =
     [
         "Brutepack",
@@ -78,6 +155,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     ];
 
     [Dependency] private readonly NPCSystem _npc = default!;
+    [Dependency] private readonly HTNSystem _htnSystem = default!;
     [Dependency] private readonly MindSystem _mind = default!;
     [Dependency] private readonly EntityLookupSystem _lookup = default!;
     [Dependency] private readonly MedibotSystem _medibot = default!;
@@ -86,17 +164,23 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly HandsSystem _hands = default!;
     [Dependency] private readonly InventorySystem _inventory = default!;
     [Dependency] private readonly InteractionSystem _interaction = default!;
+    [Dependency] private readonly ExamineSystemShared _examine = default!;
     [Dependency] private readonly ChatSystem _chat = default!;
     [Dependency] private readonly RadioSystem _radio = default!;
     [Dependency] private readonly DefibrillatorSystem _defibrillator = default!;
+    [Dependency] private readonly PowerCellSystem _powerCell = default!;
     [Dependency] private readonly SharedStorageSystem _storage = default!;
+    [Dependency] private readonly SharedBodySystem _body = default!;
+    [Dependency] private readonly SharedSolutionContainerSystem _solutionContainers = default!;
     [Dependency] private readonly ItemToggleSystem _itemToggle = default!;
     [Dependency] private readonly SharedContainerSystem _container = default!;
     [Dependency] private readonly ActionBlockerSystem _actionBlocker = default!;
+    [Dependency] private readonly SharedDoAfterSystem _doAfter = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
     [Dependency] private readonly VendingMachineSystem _vending = default!;
     [Dependency] private readonly IPrototypeManager _prototype = default!;
-    [Dependency] private readonly PathfindingSystem _pathfinding = default!;
+    [Dependency] private readonly LuaMRescueNavigationSystem _rescueNavigation = default!;
+    [Dependency] private readonly LuaMRescueActivityCoordinatorSystem _activity = default!;
     [Dependency] private readonly LuaMRescueTeamSystem _rescueTeam = default!;
 
     public override void Initialize()
@@ -104,6 +188,442 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         base.Initialize();
 
         SubscribeLocalEvent<MobStateComponent, TargetDefibrillatedEvent>(OnTargetDefibrillated);
+        // Medical DoAfter events are component-exclusive in Robust. Subscribe to the
+        // user-side completion event instead of competing with the medical systems
+        // that own the actual action result.
+        SubscribeLocalEvent<LuaMRescueAgentComponent, DoAfterEndedEvent>(OnRescueMedicalDoAfterEnded);
+    }
+
+    public void PurgeMedicalTargetStateFromAllAgents(EntityUid target, string reason)
+    {
+        var agents = new List<EntityUid>();
+        var query = EntityQueryEnumerator<LuaMRescueAgentComponent>();
+        while (query.MoveNext(out var agent, out _))
+            agents.Add(agent);
+
+        foreach (var agent in agents)
+        {
+            if (!TryComp<LuaMRescueAgentComponent>(agent, out var rescue))
+                continue;
+
+            TryComp<HTNComponent>(agent, out var htn);
+            PurgePatientState(agent, rescue, htn, target, reason);
+        }
+    }
+
+    private void PurgePatientState(
+        EntityUid agent,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent? htn,
+        EntityUid target,
+        string reason)
+    {
+        // Manual, Required and dormant lineage can coexist with an active
+        // mission for another patient. Only exact active-mission references may
+        // tear down shared HTN movement, delivery-strap or progress state.
+        EntityUid? followedEntity = null;
+        if (htn != null &&
+            htn.Blackboard.TryGetValue<EntityCoordinates>(
+                NPCBlackboard.FollowTarget,
+                out var followTarget,
+                EntityManager) &&
+            followTarget.EntityId is { Valid: true } followUid)
+        {
+            followedEntity = followUid;
+        }
+
+        var followsTarget = followedEntity == target;
+        var activityReferencesTarget = rescue.ActivityContext.Target == target ||
+                                       rescue.ActivityContext.Destination is { } destination &&
+                                       destination.EntityId == target;
+        var pendingMedical = rescue.PendingMedicalDoAfterTarget == target;
+        var pendingPlayerAction = rescue.PendingPlayerActionTarget == target;
+        var taskReferencesTarget = rescue.TaskPatientTarget == target || rescue.TaskSupplyTarget == target;
+        var progressReferencesTarget = rescue.ProgressTarget == target ||
+                                       rescue.ProgressGoal == target ||
+                                       rescue.RouteBlockHoldTarget == target ||
+                                       rescue.RouteBlockHoldGoal == target;
+        var hasAuthoritativeActivityReference =
+            rescue.ActivityContext.Target is { Valid: true } ||
+            rescue.ActivityContext.Destination is { EntityId: { Valid: true } };
+        var orphanAssignedTarget = rescue.AssignedTarget == target &&
+                                   !hasAuthoritativeActivityReference &&
+                                   followedEntity == null;
+        var evacuationMissionReferencesTarget = rescue.EvacuatingTarget == target ||
+                                                 rescue.OnboardCareTarget == target ||
+                                                 (rescue.TaskPatientTarget == target &&
+                                                  rescue.TaskStage is LuaMRescueTaskStage.EvacuatingPatient or
+                                                      LuaMRescueTaskStage.DeliveringPatient) ||
+                                                 (rescue.ActivityContext.Target == target &&
+                                                  rescue.ActivityContext.Activity is
+                                                      LuaMRescueActivity.PreparingEvacuation or
+                                                      LuaMRescueActivity.Pulling or
+                                                      LuaMRescueActivity.Delivering or
+                                                      LuaMRescueActivity.BucklePatient or
+                                                      LuaMRescueActivity.OnboardCare or
+                                                      LuaMRescueActivity.Handoff);
+        var movementReferencesTarget = followsTarget ||
+                                       activityReferencesTarget ||
+                                       orphanAssignedTarget;
+
+        var changed = false;
+        // The tracking mirror may already be stale or point at a newer patient.
+        // Always inspect the authoritative DoAfter records for this exact lifecycle
+        // identity, while only clearing mirror fields when they reference it too.
+        CancelMedicalDoAftersForIntentReplacement(
+            agent,
+            rescue,
+            $"{reason}; target={FormatEntityRef(target)}",
+            exactTarget: target,
+            recordActivityProgress: false);
+        if (pendingMedical)
+        {
+            changed = true;
+        }
+
+        if (pendingPlayerAction)
+        {
+            ClearPendingPlayerAction(
+                rescue,
+                $"failed player action: {LuaMRescueFailureReason.TargetLost}; {reason}");
+            changed = true;
+        }
+
+        StopPullingTarget(agent, target);
+        _rescueNavigation.CancelRoute(agent, target);
+
+        if (htn != null && movementReferencesTarget)
+        {
+            ClearFollowTarget(agent, rescue, htn);
+            changed = true;
+        }
+
+        if (rescue.ManualOverrideTarget == target)
+        {
+            rescue.ManualOverrideTarget = null;
+            rescue.ManualOverrideGeneration = NextManualOverrideGeneration(rescue.ManualOverrideGeneration);
+            changed = true;
+        }
+
+        if (rescue.AssignedTarget == target)
+        {
+            rescue.AssignedTarget = null;
+            changed = true;
+        }
+
+        if (rescue.DeathSignalTarget == target)
+        {
+            ClearDeathSignalTarget(rescue, target);
+            changed = true;
+        }
+
+        if (rescue.ArrivalReportedTarget == target)
+        {
+            ClearArrivalReportTarget(rescue, target);
+            changed = true;
+        }
+
+        if (rescue.TriageReportedTarget == target)
+        {
+            ClearTriageDecisionTarget(rescue, target);
+            changed = true;
+        }
+
+        if (rescue.ShuttleRoutedTarget == target)
+        {
+            rescue.ShuttleRoutedTarget = null;
+            changed = true;
+        }
+
+        if (rescue.EvacuatingTarget == target)
+        {
+            rescue.EvacuatingTarget = null;
+            changed = true;
+        }
+
+        if (rescue.OnboardCareTarget == target)
+        {
+            rescue.OnboardCareTarget = null;
+            changed = true;
+        }
+
+        if (evacuationMissionReferencesTarget ||
+            orphanAssignedTarget ||
+            rescue.AssignedPatientStrap == target)
+        {
+            rescue.AssignedPatientStrap = null;
+            changed = true;
+        }
+
+        if (taskReferencesTarget)
+        {
+            ClearRescueTask(agent, rescue, $"forgot patient identity {FormatEntityRef(target)}: {reason}");
+            changed = true;
+        }
+
+        if (evacuationMissionReferencesTarget ||
+            activityReferencesTarget ||
+            taskReferencesTarget ||
+            progressReferencesTarget)
+        {
+            ResetTargetProgress(rescue);
+            changed = true;
+        }
+
+        if (rescue.DormantRouteTarget == target)
+        {
+            ClearDormantRouteRecovery(
+                rescue,
+                $"cancelled target={FormatEntityRef(target)}; reason={LuaMRescueFailureReason.TargetLost}",
+                clearFailureBudget: true);
+            rescue.DormantRouteProbeCount = 0;
+            rescue.DormantRouteResumeCount = 0;
+            changed = true;
+        }
+
+        changed |= rescue.SkippedTargets.Remove(target);
+        changed |= rescue.DeferredPatientTargets.Remove(target);
+        changed |= rescue.RouteFailureAttempts.Remove(target);
+        changed |= rescue.AnalyzedTargets.Remove(target);
+        changed |= rescue.AnalysisAttempts.Remove(target);
+        changed |= rescue.TerminalAnalysisFailures.Remove(target);
+        changed |= rescue.TreatmentAttempts.Remove(target);
+        changed |= rescue.TerminalTreatmentFailures.Remove(target);
+        changed |= rescue.TerminalTreatmentFailureDamage.Remove(target);
+        changed |= rescue.DefibrillationAttempts.Remove(target);
+        changed |= rescue.CompletedDefibrillationFailures.Remove(target);
+        changed |= rescue.DefibrillationStartedAt.Remove(target);
+        changed |= rescue.TerminalDefibrillationFailures.Remove(target);
+        changed |= rescue.PullAttempts.Remove(target);
+        changed |= rescue.NextPullAttemptAt.Remove(target);
+        changed |= rescue.TerminalPullFailures.Remove(target);
+        changed |= rescue.EvacuationUnbuckleAttempts.Remove(target);
+        changed |= rescue.NextEvacuationUnbuckleAttemptAt.Remove(target);
+        changed |= rescue.TerminalEvacuationUnbuckleFailures.Remove(target);
+        changed |= rescue.OnboardCareAttempts.Remove(target);
+        changed |= rescue.TerminalOnboardCareFailures.Remove(target);
+        changed |= rescue.OnboardHandoffAttempts.Remove(target);
+        changed |= rescue.IgnoredOnboardPatients.Remove(target);
+        changed |= rescue.RequiredOnboardHandoffPatients.Remove(target);
+
+        var bucklePairs = rescue.PatientBuckleAttempts.Keys
+            .Concat(rescue.NextPatientBuckleAttemptAt.Keys)
+            .Concat(rescue.TerminalPatientBuckleFailures.Keys)
+            .Where(pair => pair.Patient == target)
+            .Distinct()
+            .ToArray();
+        if (bucklePairs.Length > 0)
+        {
+            ClearPatientBuckleFailures(rescue, target);
+            changed = true;
+        }
+
+        if (activityReferencesTarget)
+        {
+            _activity.BeginOrReplaceIntent(
+                agent,
+                rescue.ActivityRole == LuaMRescueRole.None ? LuaMRescueRole.Aibolit : rescue.ActivityRole,
+                LuaMRescueActivity.Standby,
+                target: null,
+                destination: null,
+                out _);
+            rescue.LastIntentCancellationStatus =
+                $"patient identity lost: target={target}; reason={reason}";
+
+            changed = true;
+        }
+
+        if (!changed)
+            return;
+
+        rescue.LastTargetTrackingStatus =
+            $"patient_identity_purged: target={target}; reason={reason}";
+        Dirty(agent, rescue);
+    }
+
+    private void OnRescueMedicalDoAfterEnded(
+        Entity<LuaMRescueAgentComponent> agent,
+        ref DoAfterEndedEvent args)
+    {
+        var rescue = agent.Comp;
+        if (args.Target is not { Valid: true } patient ||
+            rescue.PendingMedicalDoAfterTarget != patient)
+        {
+            return;
+        }
+
+        // DoAfterEndedEvent carries no event type or id. Ignore an unrelated
+        // action ending on the same target while the tracked medical DoAfter is
+        // still authoritative, and never re-enter a completed transfer that is
+        // already waiting for its metabolic effect.
+        if (rescue.PendingMedicalEffectVerification ||
+            rescue.PendingMedicalDoAfterId is { } trackedId &&
+            _doAfter.GetStatus(trackedId) == DoAfterStatus.Running)
+        {
+            return;
+        }
+
+        var completesManualTreatment =
+            rescue.PendingPlayerAction == LuaMRescuePlayerActionKind.Treat &&
+            rescue.PendingPlayerActionTarget == patient;
+
+        if (rescue.PendingMedicalIntentGeneration != rescue.ActivityContext.Generation ||
+            rescue.ActivityContext.Target != patient)
+        {
+            var staleStatus =
+                $"failed treat: ActionCancelled; stale medical intent for {FormatEntityRef(patient)} was replaced";
+            ClearTrackedMedicalDoAfter(rescue);
+            if (completesManualTreatment)
+                ClearPendingPlayerAction(rescue, staleStatus);
+            rescue.LastAutoTreatmentStatus = staleStatus;
+            Dirty(agent.Owner, rescue);
+            return;
+        }
+
+        var used = rescue.PendingMedicalDoAfterItem;
+        var kind = rescue.PendingMedicalDoAfterKind;
+        var item = used is { Valid: true } usedItem && !Deleted(usedItem)
+            ? FormatEntityRef(usedItem)
+            : "none";
+        var succeeded = !args.Cancelled && DidTrackedMedicalActionSucceed(rescue, patient, used);
+        var treatmentAction = kind is "healing" or "hypospray" or "injector";
+        var injectionAction = IsInjectionMedicalAction(kind, used);
+        if (string.Equals(kind, "defibrillator", StringComparison.Ordinal))
+        {
+            if (succeeded)
+                rescue.CompletedDefibrillationFailures.Remove(patient);
+            else if (!args.Cancelled)
+            {
+                rescue.CompletedDefibrillationFailures[patient] =
+                    rescue.CompletedDefibrillationFailures.GetValueOrDefault(patient) + 1;
+            }
+        }
+
+        if (!args.Cancelled &&
+            !succeeded &&
+            injectionAction &&
+            rescue.PendingMedicalExpectedPositiveEffect &&
+            DidTrackedMedicalSolutionTransfer(rescue, used))
+        {
+            // The item system has authoritatively completed the transfer, but
+            // reagent metabolism normally applies on a later server update.
+            // Keep ownership of the action and wait for an observed benefit.
+            BeginMedicalEffectVerification(agent.Owner, rescue, patient, kind, item);
+            return;
+        }
+
+        var result = args.Cancelled ? "ActionCancelled" : succeeded ? "completed" : "Failed";
+        var status = $"{kind} DoAfter {result}: patient={FormatEntityRef(patient)}; item={item}";
+
+        switch (kind)
+        {
+            case "analyzer":
+                rescue.LastAutoAnalyzeStatus = status;
+                if (succeeded)
+                {
+                    rescue.AnalysisAttempts.Remove(patient);
+                    rescue.TerminalAnalysisFailures.Remove(patient);
+                    rescue.AnalyzedTargets[patient] =
+                        _timing.CurTime + TimeSpan.FromSeconds(rescue.AutoAnalyzeCooldown);
+                }
+                break;
+            case "defibrillator":
+                rescue.LastAutoDefibStatus = status;
+                break;
+            default:
+                rescue.LastAutoTreatmentStatus = status;
+                break;
+        }
+
+        var doAfterStatus = args.Cancelled
+            ? LuaMRescueDoAfterStatus.Cancelled
+            : succeeded
+                ? LuaMRescueDoAfterStatus.Succeeded
+                : LuaMRescueDoAfterStatus.Failed;
+
+        if (succeeded)
+        {
+            rescue.TargetStallAccumulator = 0f;
+            if (treatmentAction)
+            {
+                rescue.OnboardCareAttempts.Remove(patient);
+                ClearTreatmentFailure(rescue, patient);
+            }
+            rescue.NextAutoTreatmentAttempt = _timing.CurTime +
+                TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoTreatCooldown));
+            _activity.RecordProgress(
+                agent.Owner,
+                Transform(patient).Coordinates,
+                TryGetDistance(agent.Owner, patient, out var distance) ? distance : null,
+                LuaMRescueRouteStatus.Arrived,
+                doAfterStatus,
+                out _);
+        }
+        else
+        {
+            _activity.RecordProgress(
+                agent.Owner,
+                Transform(patient).Coordinates,
+                TryGetDistance(agent.Owner, patient, out var distance) ? distance : null,
+                LuaMRescueRouteStatus.Arrived,
+                doAfterStatus,
+                out _);
+            if (treatmentAction)
+            {
+                RecordTreatmentFailure(
+                    agent.Owner,
+                    rescue,
+                    patient,
+                    args.Cancelled
+                        ? LuaMRescueFailureReason.ActionCancelled
+                        : LuaMRescueFailureReason.NoEffectiveMedicine,
+                    $"{kind} DoAfter did not produce a confirmed medical effect");
+            }
+            else if (string.Equals(kind, "analyzer", StringComparison.Ordinal))
+            {
+                RecordAnalysisFailure(
+                    agent.Owner,
+                    rescue,
+                    patient,
+                    args.Cancelled
+                        ? LuaMRescueFailureReason.ActionCancelled
+                        : LuaMRescueFailureReason.NoEffectiveMedicine,
+                    $"analyzer DoAfter did not produce a confirmed scan for {FormatEntityRef(patient)}");
+            }
+            else
+            {
+                _activity.RecordAttempt(agent.Owner, out _);
+            }
+            if (IsOnAssignedShuttle(patient, rescue))
+            {
+                var attempts = rescue.OnboardCareAttempts.GetValueOrDefault(patient) + 1;
+                rescue.OnboardCareAttempts[patient] = attempts;
+                if (attempts >= Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts))
+                {
+                    MarkTerminalOnboardCareFailure(
+                        agent.Owner,
+                        rescue,
+                        patient,
+                        args.Cancelled
+                            ? LuaMRescueFailureReason.ActionCancelled
+                            : LuaMRescueFailureReason.NoEffectiveMedicine,
+                        $"medical DoAfter failed after {attempts} bounded onboard attempts");
+                }
+            }
+        }
+
+        ClearTrackedMedicalDoAfter(rescue);
+        if (completesManualTreatment && TryComp<HTNComponent>(agent.Owner, out var htn))
+        {
+            FinishPendingPlayerAction(
+                agent.Owner,
+                rescue,
+                htn,
+                succeeded
+                    ? status
+                    : $"failed treat: {status}");
+        }
+        Dirty(agent.Owner, rescue);
     }
 
     public override void Update(float frameTime)
@@ -113,10 +633,23 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var query = EntityQueryEnumerator<LuaMRescueAgentComponent, HTNComponent>();
         while (query.MoveNext(out var uid, out var rescue, out var htn))
         {
+            // Identity cleanup is lifecycle safety and must precede manual
+            // control or self-incapacitation gates.
+            PruneDeletedRequiredHandoffPatients(uid, rescue, htn);
+
             if (HasComp<ActorComponent>(uid))
                 continue;
 
             if (TryHandleRescueAgentMobState(uid, rescue, htn))
+                continue;
+
+            if (TryDiscardStaleTrackedMedicalAction(uid, rescue))
+                continue;
+
+            if (TryUpdatePendingMedicalEffectVerification(uid, rescue))
+                continue;
+
+            if (TryExpireMedicalDoAfter(uid, rescue))
                 continue;
 
             if (rescue.PendingPlayerAction != LuaMRescuePlayerActionKind.None)
@@ -163,6 +696,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         out EntityUid agent,
         out string status)
     {
+        RetireDeadAgentsForReplacement("direct rescue agent replacement");
+
         if (TryFindActiveAgent(out var activeAgent, out _))
         {
             agent = activeAgent;
@@ -180,7 +715,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var query = EntityQueryEnumerator<LuaMRescueAgentComponent>();
         while (query.MoveNext(out var uid, out var rescueComp))
         {
-            if (Deleted(uid))
+            if (Deleted(uid) ||
+                TryComp<MobStateComponent>(uid, out var mobState) &&
+                mobState.CurrentState == MobState.Dead)
                 continue;
 
             agent = uid;
@@ -206,6 +743,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
             if (!rescue.LastAutoEvacuationStatus.Equals(status, StringComparison.Ordinal))
             {
+                DeferPatientInterruptedByAgentState(uid, rescue, mobState.CurrentState);
                 if (rescue.EvacuatingTarget is { Valid: true } evacuatingTarget &&
                     !Deleted(evacuatingTarget))
                 {
@@ -258,6 +796,11 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.LastAutoEvacuationStatus = "rescue-agent-recovered: ready";
         rescue.LastTargetTrackingStatus = "self-state recovered; ready to reacquire";
         Dirty(uid, rescue);
+        if (TryResumeManualOverrideTarget(uid, rescue, htn) ||
+            TryResumeDeferredPatientTask(uid, rescue, htn))
+        {
+            return true;
+        }
         return false;
     }
 
@@ -334,14 +877,21 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        if (TryGetBlockingOnboardPatientForExplicitOrder(rescue, target, out var onboardPatient))
+        {
+            status =
+                $"Cannot replace the rescue order while {FormatEntityRef(onboardPatient)} still owns " +
+                "an onboard handoff; release, re-board, or complete the confirmed home handoff first.";
+            return false;
+        }
+
         if (target is not { Valid: true } targetUid)
         {
-            if (rescue.EvacuatingTarget is { Valid: true } previousTarget &&
-                !Deleted(previousTarget))
-            {
-                StopPullingTarget(agent, previousTarget);
-            }
-
+            PrepareForExternalIntentReplacement(agent, EntityUid.Invalid);
+            ClearPatientIntentOwnershipForExplicitOrder(agent, rescue);
+            rescue.DeferredPatientTargets.Clear();
+            rescue.LastDeferredPatientStatus = "explicit order cleared deferred patients";
+            ClearDormantRouteRecovery(rescue, "explicit order cleared", clearFailureBudget: true);
             ClearPendingPlayerAction(rescue);
             ClearRescueTask(agent, rescue, "order cleared");
             ResetTargetProgress(rescue);
@@ -350,21 +900,147 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
         }
 
+        var restartTerminalIntent = rescue.ActivityContext.Target == targetUid &&
+                                    rescue.ActivityContext.TerminalStatus is LuaMRescueTerminalStatus.Blocked
+                                        or LuaMRescueTerminalStatus.Succeeded
+                                        or LuaMRescueTerminalStatus.Failed
+                                        or LuaMRescueTerminalStatus.Cancelled;
+        var terminalGeneration = rescue.ActivityContext.Generation;
+        var clearsDurableRouteFailure =
+            rescue.RouteFailureAttempts.ContainsKey(targetUid) &&
+            rescue.SkippedTargets.TryGetValue(targetUid, out var skipUntil) &&
+            skipUntil == TimeSpan.MaxValue;
+        var preserveRequiredOwnershipOnRejection =
+            rescue.RequiredOnboardHandoffPatients.Contains(targetUid) &&
+            (rescue.AssignedTarget == targetUid ||
+             rescue.EvacuatingTarget == targetUid ||
+             rescue.TaskPatientTarget == targetUid ||
+             rescue.OnboardCareTarget == targetUid ||
+             rescue.ActivityContext.Target == targetUid);
+
+        // Ordinary administrative replacement keeps the historical reject-and-
+        // clear behavior. The exact Required target is transactional: a failed
+        // same-patient retry must not erase the only physical custody owner.
+        if (!preserveRequiredOwnershipOnRejection)
+        {
+            PrepareForExternalIntentReplacement(agent, targetUid);
+            ClearPatientIntentOwnershipForExplicitOrder(agent, rescue);
+            ClearDormantRouteRecovery(rescue, "explicit order replaced dormant route", clearFailureBudget: true);
+            if (clearsDurableRouteFailure)
+                rescue.RouteFailureAttempts.Remove(targetUid);
+        }
+
         if (Deleted(targetUid))
         {
+            rescue.RequiredOnboardHandoffPatients.Remove(targetUid);
             status = $"Target {targetUid} is deleted.";
             return false;
         }
 
-        if (rescue.EvacuatingTarget is { Valid: true } previous &&
-            previous != targetUid &&
-            !Deleted(previous))
+        if (!_activity.IsEligibleRescuePatient(
+                agent,
+                targetUid,
+                LuaMRescuePatientRequestKind.Manual,
+                manualOverride: true,
+                out var eligibilityFailure))
         {
-            StopPullingTarget(agent, previous);
+            if (preserveRequiredOwnershipOnRejection)
+            {
+                rescue.LastTargetTrackingStatus =
+                    $"required_handoff_order_rejected: target={FormatEntityRef(targetUid)}; " +
+                    $"ownership=retained; reason={eligibilityFailure}";
+                Dirty(agent, rescue);
+                status =
+                    $"Target {FormatEntityRef(targetUid)} remains the required handoff owner but the order " +
+                    $"is currently blocked: {eligibilityFailure}.";
+                return false;
+            }
+
+            rescue.RequiredOnboardHandoffPatients.Remove(targetUid);
+            StopPullingTarget(agent, targetUid);
+            ClearRescueTask(agent, rescue, $"manual order rejected: {eligibilityFailure}");
+            ClearFollowTarget(agent, rescue, htn);
+            _activity.BeginOrReplaceIntent(
+                agent,
+                LuaMRescueRole.Aibolit,
+                LuaMRescueActivity.Interacting,
+                targetUid,
+                new EntityCoordinates(targetUid, Vector2.Zero),
+                out _);
+            _activity.Block(
+                agent,
+                eligibilityFailure,
+                LuaMRescueActivity.Handoff,
+                out _);
+            rescue.LastTargetTrackingStatus =
+                $"target_rejected: {FormatEntityRef(targetUid)}; reason={eligibilityFailure}";
+            Dirty(agent, rescue);
+            status = $"Target {FormatEntityRef(targetUid)} is not a supported rescue patient: {eligibilityFailure}.";
+            return false;
         }
 
+        if (preserveRequiredOwnershipOnRejection)
+        {
+            PrepareForExternalIntentReplacement(agent, targetUid);
+            ClearPatientIntentOwnershipForExplicitOrder(agent, rescue);
+            ClearDormantRouteRecovery(rescue, "explicit order replaced dormant route", clearFailureBudget: true);
+            if (clearsDurableRouteFailure)
+                rescue.RouteFailureAttempts.Remove(targetUid);
+        }
+
+        // Eligibility is the commit boundary for an authoritative explicit
+        // redispatch. Let external queue owners synchronously retire recovery
+        // lineage from the previous Aibolit before any local bounded state is
+        // cleared or a replacement intent can start.
+        var acceptedOrder = new LuaMRescueExplicitPatientOrderAcceptedEvent(targetUid);
+        RaiseLocalEvent(agent, ref acceptedOrder);
+
         rescue.SkippedTargets.Remove(targetUid);
+        rescue.DeferredPatientTargets.Remove(targetUid);
+        rescue.AnalysisAttempts.Remove(targetUid);
+        rescue.TerminalAnalysisFailures.Remove(targetUid);
+        rescue.PullAttempts.Remove(targetUid);
+        rescue.NextPullAttemptAt.Remove(targetUid);
+        rescue.TerminalPullFailures.Remove(targetUid);
+        ClearPatientBuckleFailures(rescue, targetUid);
+        rescue.EvacuationUnbuckleAttempts.Remove(targetUid);
+        rescue.NextEvacuationUnbuckleAttemptAt.Remove(targetUid);
+        rescue.TerminalEvacuationUnbuckleFailures.Remove(targetUid);
+        rescue.TreatmentAttempts.Remove(targetUid);
+        rescue.TerminalTreatmentFailures.Remove(targetUid);
+        rescue.TerminalTreatmentFailureDamage.Remove(targetUid);
         ClearPendingPlayerAction(rescue);
+
+        if (restartTerminalIntent)
+        {
+            var role = rescue.ActivityRole == LuaMRescueRole.None
+                ? LuaMRescueRole.Aibolit
+                : rescue.ActivityRole;
+            if (!_activity.BeginOrReplaceIntent(
+                    agent,
+                    role,
+                    LuaMRescueActivity.ApproachPatient,
+                    targetUid,
+                    new EntityCoordinates(targetUid, Vector2.Zero),
+                    out var restarted))
+            {
+                ClearRescueTask(agent, rescue, "explicit terminal intent restart rejected");
+                ClearFollowTarget(agent, rescue, htn);
+                rescue.LastTargetTrackingStatus =
+                    $"explicit_order_intent_failed: target={FormatEntityRef(targetUid)}; " +
+                    $"generation={terminalGeneration}; reason={restarted.FailureReason}";
+                Dirty(agent, rescue);
+                status =
+                    $"Could not start a fresh rescue intent for {FormatEntityRef(targetUid)}: " +
+                    $"{restarted.FailureReason}.";
+                return false;
+            }
+
+            rescue.LastIntentCancellationStatus =
+                $"explicit terminal redispatch: target={FormatEntityRef(targetUid)}; " +
+                $"oldGeneration={terminalGeneration}; newGeneration={restarted.Generation}";
+        }
+
         SetRescueTask(
             agent,
             rescue,
@@ -372,6 +1048,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             targetUid,
             null,
             $"ordered to rescue {FormatEntityRef(targetUid)}");
+        EstablishManualOverrideTarget(agent, rescue, targetUid);
         ResetTargetProgress(rescue);
 
         if (TryStartOrContinueEvacuation(agent, rescue, htn, targetUid))
@@ -431,6 +1108,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (action == LuaMRescuePlayerActionKind.None)
         {
+            // Clearing the action is itself a valid explicit replacement.
+            RevokeManualOverrideTarget(agent, rescue, null, "explicit manual action clear");
+            PrepareForExternalIntentReplacement(agent, EntityUid.Invalid);
             ClearPendingPlayerAction(rescue, "cleared");
             ClearRescueTask(agent, rescue, "manual action cleared");
             ResetTargetProgress(rescue);
@@ -460,6 +1140,55 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        if (target is not { Valid: true } actionTarget)
+        {
+            // Execute targetless actions before committing an intent
+            // replacement. If the action is rejected (for example an empty
+            // inventory slot), the previous patient owner, generation and HTN
+            // steering must remain completely authoritative.
+            if (!TryExecutePlayerAction(
+                    agent,
+                    rescue,
+                    action,
+                    null,
+                    normalizedSlot,
+                    normalizedItemSelector,
+                    out var actionStatus))
+            {
+                rescue.LastPlayerActionStatus = actionStatus;
+                Dirty(agent, rescue);
+                status = $"{FormatEntityRef(agent)} failed to {FormatPlayerAction(action)}: {actionStatus}.";
+                return false;
+            }
+
+            RevokeManualOverrideTarget(
+                agent,
+                rescue,
+                null,
+                $"accepted targetless action {FormatPlayerAction(action)}");
+            if (rescue.EvacuatingTarget is { Valid: true } previousTargetless &&
+                !Deleted(previousTargetless))
+            {
+                StopPullingTarget(agent, previousTargetless);
+            }
+
+            rescue.EvacuatingTarget = null;
+            rescue.AssignedPatientStrap = null;
+            ResetTargetProgress(rescue);
+            PrepareForExternalIntentReplacement(agent, EntityUid.Invalid);
+            ClearPendingPlayerAction(rescue, actionStatus);
+            StandbyAtAssignedShuttle(agent, rescue, htn);
+            status = $"{FormatEntityRef(agent)} {actionStatus}.";
+            return true;
+        }
+
+        // Scheduling a validated target action is the commit point that
+        // explicitly supersedes the older patient override.
+        RevokeManualOverrideTarget(
+            agent,
+            rescue,
+            null,
+            $"accepted target action {FormatPlayerAction(action)}");
         if (rescue.EvacuatingTarget is { Valid: true } previous &&
             !Deleted(previous))
         {
@@ -469,22 +1198,6 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         rescue.EvacuatingTarget = null;
         rescue.AssignedPatientStrap = null;
         ResetTargetProgress(rescue);
-
-        if (target is not { Valid: true } actionTarget)
-        {
-            if (TryExecutePlayerAction(agent, rescue, action, null, normalizedSlot, normalizedItemSelector, out var actionStatus))
-            {
-                ClearPendingPlayerAction(rescue, actionStatus);
-                StandbyAtAssignedShuttle(agent, rescue, htn);
-                status = $"{FormatEntityRef(agent)} {actionStatus}.";
-                return true;
-            }
-
-            rescue.LastPlayerActionStatus = actionStatus;
-            StandbyAtAssignedShuttle(agent, rescue, htn);
-            status = $"{FormatEntityRef(agent)} failed to {FormatPlayerAction(action)}: {actionStatus}.";
-            return false;
-        }
 
         rescue.PendingPlayerAction = action;
         rescue.PendingPlayerActionTarget = actionTarget;
@@ -512,22 +1225,46 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private string BuildRescueStatusLine(EntityUid uid, LuaMRescueAgentComponent rescue)
     {
         var target = rescue.EvacuatingTarget ?? rescue.AssignedTarget;
+        var activityStatus = _activity.GetSnapshot(uid, out var activitySnapshot)
+            ? activitySnapshot.ToDebugString()
+            : "activity=unavailable";
+        var eligibility = "none";
+        var priority = int.MinValue;
+        var distance = "none";
+        if (target is { Valid: true } patient && !Deleted(patient))
+        {
+            var kind = TryComp<MobStateComponent>(patient, out var mobState) && mobState.CurrentState == MobState.Dead
+                ? LuaMRescuePatientRequestKind.AutomaticEvacuation
+                : LuaMRescuePatientRequestKind.AutomaticTreatment;
+            priority = _activity.GetPatientPriority(uid, patient, kind, manualOverride: false, out var eligibilityReason);
+            eligibility = priority == int.MinValue ? $"false:{eligibilityReason}" : "true";
+            if (TryGetDistance(uid, patient, out var patientDistance))
+                distance = patientDistance.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         var route = rescue.ShuttleReturnRouted
             ? "home"
             : rescue.ShuttleRoutedTarget is { Valid: true } routedTarget && !Deleted(routedTarget)
                 ? $"target:{FormatEntityRef(routedTarget)}"
                 : "none";
 
-        return $"{FormatEntityRef(uid)} phase={GetRescuePhase(uid, rescue)}; " +
+        return $"{FormatEntityRef(uid)} phase={GetRescuePhase(uid, rescue)}; {activityStatus}; " +
                $"target={FormatEntityRef(target)}; shuttle={FormatEntityRef(rescue.AssignedShuttle)}; " +
+               $"eligibility={eligibility}; priority={priority}; distance={distance}; " +
+               $"actionRange={rescue.PlayerActionRange:0.00}; held={FormatHeldItems(uid)}; " +
+               $"selectedTreatment={FormatEntityRef(rescue.PendingMedicalDoAfterItem)}; " +
                $"bed={FormatEntityRef(rescue.AssignedPatientStrap)}; route={route}; " +
                $"taskStage={FormatRescueTaskStage(rescue.TaskStage)}; " +
                $"taskPatient={FormatEntityRef(rescue.TaskPatientTarget)}; taskSupply={FormatEntityRef(rescue.TaskSupplyTarget)}; " +
                $"targetTrack={rescue.LastTargetTrackingStatus}; " +
                $"deathSignal={FormatEntityRef(rescue.DeathSignalTarget)}; " +
                $"taskLast={rescue.LastTaskStatus}; " +
+               $"deferredPatients={rescue.DeferredPatientTargets.Count}; deferredLast={rescue.LastDeferredPatientStatus}; " +
                $"skipped={rescue.SkippedTargets.Count}; skippedSupply={rescue.SkippedSupplyTargets.Count}; " +
                $"skippedDelivery={rescue.SkippedDeliveryTargets.Count}; " +
+               $"dormantRoute={FormatEntityRef(rescue.DormantRouteTarget)}; " +
+               $"dormantProbe={rescue.DormantRouteProbeCount}; dormantResume={rescue.DormantRouteResumeCount}; " +
+               $"dormantNext={rescue.NextDormantRouteProbeAt.TotalSeconds:0.0}s; dormantStatus={rescue.LastDormantRouteStatus}; " +
                $"autoAnalyze={rescue.LastAutoAnalyzeStatus}; " +
                $"autoTreat={rescue.LastAutoTreatmentStatus}; autoDefib={rescue.LastAutoDefibStatus}; " +
                $"autoEvac={rescue.LastAutoEvacuationStatus}; " +
@@ -543,6 +1280,18 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                $"speech={rescue.LastRescueSpeechStatus}; " +
                $"autoSupply={rescue.LastAutoSupplyStatus}; " +
                $"{FormatPlayerActionStatus(rescue)}; {FormatProgress(rescue)}";
+    }
+
+    private string FormatHeldItems(EntityUid uid)
+    {
+        if (!TryComp<HandsComponent>(uid, out var hands))
+            return "none";
+
+        var held = hands.Hands.Values
+            .Where(hand => hand.HeldEntity is { Valid: true })
+            .Select(hand => FormatEntityRef(hand.HeldEntity))
+            .ToArray();
+        return held.Length == 0 ? "none" : string.Join(',', held);
     }
 
     private string FormatRadioEntityName(EntityUid? entity, string fallback)
@@ -586,15 +1335,38 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryComp<LuaMRescueAgentComponent>(args.User, out var rescue))
             return;
 
+        if (rescue.PendingMedicalDoAfterTarget == target &&
+            string.Equals(rescue.PendingMedicalDoAfterKind, "defibrillator", StringComparison.Ordinal))
+        {
+            rescue.PendingMedicalOutcomeRecorded = true;
+            rescue.PendingMedicalOutcomeSucceeded = mobState.CurrentState != MobState.Dead;
+        }
+
         var targetName = Name(target);
         if (mobState.CurrentState != MobState.Dead)
         {
+            rescue.DefibrillationAttempts.Remove(target);
+            rescue.CompletedDefibrillationFailures.Remove(target);
+            rescue.DefibrillationStartedAt.Remove(target);
+            rescue.TerminalDefibrillationFailures.Remove(target);
             TrySendRescueStatusComms(
                 args.User,
                 rescue,
                 $"defib-success:{target}",
                 $"Пульс {targetName} восстановлен. Продолжаю стабилизацию.");
             return;
+        }
+
+        if (rescue.DefibrillationAttempts.GetValueOrDefault(target) >= 3 ||
+            rescue.DefibrillationStartedAt.TryGetValue(target, out var startedAt) &&
+            _timing.CurTime - startedAt >= TimeSpan.FromSeconds(30))
+        {
+            MarkTerminalDefibrillationFailure(
+                args.User,
+                rescue,
+                target,
+                LuaMRescueFailureReason.Unrevivable,
+                "defibrillation failed after the bounded three-attempt/30-second recovery policy; transport/handoff fallback");
         }
 
         TrySendRescueStatusComms(
@@ -965,7 +1737,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private void PruneRescueTaskMemory(EntityUid uid, LuaMRescueAgentComponent rescue)
     {
         if (rescue.TaskPatientTarget is { Valid: true } patient &&
-            (Deleted(patient) || IsTargetTemporarilySkipped(patient, rescue)))
+            (Deleted(patient) ||
+             IsTargetTemporarilySkipped(uid, patient, rescue) &&
+             !rescue.RequiredOnboardHandoffPatients.Contains(patient)))
         {
             ClearRescueTask(uid, rescue, $"forgot unavailable patient {FormatEntityRef(patient)}");
             return;
@@ -1010,7 +1784,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (rescue.TaskPatientTarget is not { Valid: true } patient ||
             Deleted(patient) ||
-            IsTargetTemporarilySkipped(patient, rescue))
+            IsTargetTemporarilySkipped(uid, patient, rescue))
         {
             return false;
         }
@@ -1101,8 +1875,23 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                     return;
                 }
 
-                if (rescue.AssignedTarget != targetUid)
+                var automaticResupplyMovement =
+                    rescue.TaskPatientTarget is { Valid: true } &&
+                    rescue.TaskSupplyTarget == targetUid &&
+                    rescue.TaskStage is LuaMRescueTaskStage.PickingUpSupply or LuaMRescueTaskStage.VendingSupply &&
+                    action is LuaMRescuePlayerActionKind.Pickup
+                        or LuaMRescuePlayerActionKind.TakeTargetStorage
+                        or LuaMRescuePlayerActionKind.Vend;
+                if (automaticResupplyMovement)
+                {
+                    // The supply is only the movement destination. The remembered
+                    // patient and Resupply activity remain the authoritative intent.
+                    SetTaskMovementTarget(uid, rescue, htn, targetUid);
+                }
+                else if (rescue.AssignedTarget != targetUid)
+                {
                     SetFollowTarget(uid, rescue, htn, targetUid);
+                }
 
                 return;
             }
@@ -1114,6 +1903,30 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
+        if (action == LuaMRescuePlayerActionKind.Treat &&
+            target is { Valid: true } treatmentTarget &&
+            rescue.PendingMedicalDoAfterTarget == treatmentTarget &&
+            rescue.PendingMedicalEffectVerification)
+        {
+            rescue.LastPlayerActionStatus =
+                $"waiting for observed medical effect on {FormatEntityRef(treatmentTarget)}";
+            rescue.TargetStallAccumulator = 0f;
+            Dirty(uid, rescue);
+            return;
+        }
+
+        if (action == LuaMRescuePlayerActionKind.Treat &&
+            target is { Valid: true } runningTreatmentTarget &&
+            rescue.PendingMedicalDoAfterTarget == runningTreatmentTarget &&
+            HasActiveMedicalDoAfter(uid, runningTreatmentTarget, out var runningKind))
+        {
+            rescue.LastPlayerActionStatus =
+                $"waiting for {runningKind} DoAfter on {FormatEntityRef(runningTreatmentTarget)}";
+            rescue.TargetStallAccumulator = 0f;
+            Dirty(uid, rescue);
+            return;
+        }
+
         var succeeded = TryExecutePlayerAction(
             uid,
             rescue,
@@ -1122,6 +1935,19 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue.PendingPlayerActionSlot,
             rescue.PendingPlayerActionItem,
             out var status);
+        if (succeeded &&
+            action == LuaMRescuePlayerActionKind.Treat &&
+            target is { Valid: true } startedTreatmentTarget &&
+            rescue.PendingMedicalDoAfterTarget == startedTreatmentTarget)
+        {
+            // InteractUsing only started the authoritative medical action. Keep the
+            // manual order pending until DoAfterEndedEvent confirms its outcome.
+            rescue.LastPlayerActionStatus = status;
+            rescue.TargetStallAccumulator = 0f;
+            Dirty(uid, rescue);
+            return;
+        }
+
         FinishPendingPlayerAction(
             uid,
             rescue,
@@ -1207,11 +2033,77 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 if (!TryFindTreatmentItem(uid, targetUid, slot, itemSelector, includeDiagnosticItems: true, out var item, out status))
                     return false;
 
+                var startingDamage = TryComp<DamageableComponent>(targetUid, out var damageable)
+                    ? damageable.TotalDamage.Float()
+                    : 0f;
+                var startingDamageByType = GetDamageTypeSnapshot(targetUid);
+                var startingVolume = GetMedicalItemSolutionVolume(item);
+                var startingMobState = TryComp<MobStateComponent>(targetUid, out var mobState)
+                    ? mobState.CurrentState
+                    : MobState.Invalid;
+                var startingBleedAmount = TryComp<BloodstreamComponent>(targetUid, out var bloodstream)
+                    ? bloodstream.BleedAmount
+                    : 0f;
+                var startingBloodVolume = GetPatientBloodVolume(targetUid);
+                var expectedEffect = BuildMedicalEffectExpectation(item, targetUid);
+                var expectedPositiveEffect = expectedEffect.HasObservableEffect &&
+                                             IsEffectiveTreatmentItem(item, targetUid, out _);
                 var handled = _interaction.InteractUsing(uid, item, targetUid, Transform(targetUid).Coordinates);
-                status = handled
-                    ? $"treated {FormatEntityRef(targetUid)} using {FormatEntityRef(item)}"
-                    : $"treatment of {FormatEntityRef(targetUid)} using {FormatEntityRef(item)} was not handled";
-                return handled;
+                if (HasActiveMedicalDoAfter(uid, targetUid, out var kind))
+                {
+                    TrackMedicalDoAfter(uid, rescue, targetUid, item, kind);
+                    status =
+                        $"{kind} DoAfter started for {FormatEntityRef(targetUid)} using {FormatEntityRef(item)}";
+                    return true;
+                }
+
+                var analyzed = TryComp<HealthAnalyzerComponent>(item, out var analyzer) &&
+                               analyzer.ScannedEntity == targetUid;
+                var solutionConsumed = !Deleted(item) &&
+                                       startingVolume is { } before &&
+                                       GetMedicalItemSolutionVolume(item) is { } after &&
+                                       after + 0.001f < before;
+                var observedImprovement = HasObservedMedicalImprovement(
+                    targetUid,
+                    startingDamageByType,
+                    startingBleedAmount,
+                    startingBloodVolume,
+                    expectedEffect.DamageTypes,
+                    expectedEffect.ReducesBleeding,
+                    expectedEffect.IncreasesBloodVolume,
+                    startingMobState,
+                    expectedEffect.ImprovesMobState);
+                var completed = handled && (analyzed || observedImprovement);
+                if (!completed &&
+                    handled &&
+                    solutionConsumed &&
+                    expectedPositiveEffect &&
+                    IsInjectionMedicalAction("injection", item))
+                {
+                    TrackInstantMedicalEffectVerification(
+                        uid,
+                        rescue,
+                        targetUid,
+                        item,
+                        TryComp<InjectorComponent>(item, out _) ? "injector" : "hypospray",
+                        startingDamage,
+                        startingDamageByType,
+                        startingVolume,
+                        startingBleedAmount,
+                        startingMobState,
+                        startingBloodVolume,
+                        expectedEffect);
+                    status =
+                        $"injection transferred for {FormatEntityRef(targetUid)}; awaiting observed medical effect";
+                    return true;
+                }
+
+                status = completed
+                    ? $"treatment completed for {FormatEntityRef(targetUid)} using {FormatEntityRef(item)}"
+                    : handled
+                        ? $"treatment of {FormatEntityRef(targetUid)} produced no confirmed medical effect"
+                        : $"treatment of {FormatEntityRef(targetUid)} using {FormatEntityRef(item)} was not handled";
+                return completed;
             }
             case LuaMRescuePlayerActionKind.Pickup:
             {
@@ -1252,6 +2144,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 if (!TryComp<PullableComponent>(targetUid, out _))
                 {
                     status = $"{FormatEntityRef(targetUid)} is not pullable";
+                    return false;
+                }
+
+                if (_container.IsEntityOrParentInContainer(targetUid) ||
+                    !_container.IsInSameOrNoContainer((uid, null, null), (targetUid, null, null)))
+                {
+                    status = $"ContainedTarget: {FormatEntityRef(targetUid)} cannot be passed to PullingSystem";
                     return false;
                 }
 
@@ -1737,7 +2636,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (hand.HeldEntity is not { Valid: true })
                 continue;
 
-            foreach (var slot in TreatmentStorageSlotPriority)
+            foreach (var slot in GetTreatmentStorageSlots(uid))
             {
                 if (!TryResolveStorageSlot(uid, slot, out var storageUid, out var storage, out _))
                     continue;
@@ -1794,7 +2693,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        foreach (var slot in TreatmentStorageSlotPriority)
+        foreach (var slot in GetTreatmentStorageSlots(uid))
         {
             if (!TryResolveStorageSlot(uid, slot, out var storageUid, out var storage, out _))
                 continue;
@@ -1910,7 +2809,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (!TrySelectVendingProduct(vendingUid, vending, itemSelector, includeDiagnosticItems, out var product, out status))
+        if (!TrySelectVendingProduct(
+                vendingUid,
+                vending,
+                itemSelector,
+                includeDiagnosticItems,
+                treatmentTarget: null,
+                out var product,
+                out status))
             return false;
 
         _vending.AuthorizedVend(vendingUid, uid, product.Type, product.ID, vending);
@@ -1933,6 +2839,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         VendingMachineComponent vending,
         string? itemSelector,
         bool includeDiagnosticItems,
+        EntityUid? treatmentTarget,
         out VendingMachineInventoryEntry product,
         out string status)
     {
@@ -1964,7 +2871,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var bestScore = 0;
         foreach (var entry in available)
         {
-            var score = GetMedicalVendingProductScore(entry.ID, includeDiagnosticItems);
+            var score = treatmentTarget is { Valid: true } patient && !Deleted(patient)
+                ? (int) MathF.Ceiling(GetMedicalVendingProductPatientScore(entry.ID, patient, includeDiagnosticItems))
+                : GetMedicalVendingProductScore(entry.ID, includeDiagnosticItems);
             if (score <= bestScore)
                 continue;
 
@@ -2012,6 +2921,49 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return 0;
     }
 
+    private float GetMedicalVendingProductPatientScore(
+        string productId,
+        EntityUid patient,
+        bool includeDiagnosticItems)
+    {
+        var priority = GetMedicalVendingProductScore(productId, includeDiagnosticItems);
+        if (priority <= 0 ||
+            !TryComp<DamageableComponent>(patient, out var damageable) ||
+            !TryComp<MobStateComponent>(patient, out var mobState))
+        {
+            return 0f;
+        }
+
+        var brute = GetDamageAmount(damageable, "Blunt", "Slash", "Piercing");
+        var burn = GetDamageAmount(damageable, "Heat", "Cold", "Shock", "Caustic");
+        var general = brute + burn + GetDamageAmount(
+            damageable,
+            "Asphyxiation",
+            "Bloodloss",
+            "Poison",
+            "Radiation",
+            "Cellular");
+        var bleeding = TryComp<BloodstreamComponent>(patient, out var bloodstream)
+            ? Math.Max(0f, bloodstream.BleedAmount)
+            : 0f;
+
+        var expectedBenefit = productId switch
+        {
+            "Brutepack" => brute,
+            "Ointment" => burn,
+            "Gauze" => bleeding * 100f,
+            "Bloodpack" => bleeding * 50f + GetDamageAmount(damageable, "Bloodloss"),
+            "EmergencyMedipen" or "EpinephrineChemistryBottle" when mobState.CurrentState == MobState.Critical =>
+                1000f + general,
+            "PillCanisterTricordrazine" => general,
+            "HandheldHealthAnalyzer" when includeDiagnosticItems => 1f,
+            _ => 0f,
+        };
+        return expectedBenefit > 0f
+            ? expectedBenefit * 100f + priority
+            : 0f;
+    }
+
     private bool TryRetrieveDispensedVendingProduct(
         EntityUid uid,
         EntityUid vendingUid,
@@ -2038,7 +2990,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!IsWithinRange(uid, candidateUid, rescue.PlayerActionRange))
         {
             status = $"moving to vended {FormatEntityRef(candidateUid)} from {FormatEntityRef(vendingUid)}";
-            SetFollowTarget(uid, rescue, htn, candidateUid);
+            SetTaskMovementTarget(uid, rescue, htn, candidateUid);
             return false;
         }
 
@@ -2162,6 +3114,37 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                prototype.ToLowerInvariant().Contains(lowered);
     }
 
+    private IEnumerable<string> GetTreatmentStorageSlots(EntityUid uid)
+    {
+        if (TryComp<LuaMRescueAgentComponent>(uid, out var rescue) &&
+            rescue.ActivityRoleProfile.EquipmentPolicy.InventorySearchSlots.Count > 0)
+        {
+            return rescue.ActivityRoleProfile.EquipmentPolicy.InventorySearchSlots;
+        }
+
+        return TreatmentStorageSlotPriority;
+    }
+
+    private bool AllowsEquipment(EntityUid uid, LuaMRescueEquipmentKind equipment)
+    {
+        return !TryComp<LuaMRescueAgentComponent>(uid, out var rescue) ||
+               rescue.ActivityRoleProfile.EquipmentPolicy.Allows(equipment);
+    }
+
+    private bool AllowsTreatmentEquipment(EntityUid uid, EntityUid item)
+    {
+        if (HasComp<HealthAnalyzerComponent>(item))
+            return AllowsEquipment(uid, LuaMRescueEquipmentKind.Analyzer);
+        if (HasComp<DefibrillatorComponent>(item))
+            return AllowsEquipment(uid, LuaMRescueEquipmentKind.Defibrillator);
+        if (HasComp<HealingComponent>(item))
+            return AllowsEquipment(uid, LuaMRescueEquipmentKind.TopicalMedicine);
+        if (HasComp<HyposprayComponent>(item) || HasComp<InjectorComponent>(item))
+            return AllowsEquipment(uid, LuaMRescueEquipmentKind.Injector);
+
+        return false;
+    }
+
     private bool TryFindHealthAnalyzerItem(
         EntityUid uid,
         out EntityUid item,
@@ -2169,6 +3152,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         item = default;
         status = string.Empty;
+
+        if (!AllowsEquipment(uid, LuaMRescueEquipmentKind.Analyzer))
+        {
+            status = "role profile disallows health analyzers";
+            return false;
+        }
 
         if (!TryComp<HandsComponent>(uid, out var hands))
         {
@@ -2194,7 +3183,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        foreach (var candidateSlot in TreatmentStorageSlotPriority)
+        foreach (var candidateSlot in GetTreatmentStorageSlots(uid))
         {
             if (TryTakeHealthAnalyzerFromSlot(uid, candidateSlot, emptyHand, hands, out item, out _))
                 return true;
@@ -2262,11 +3251,18 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     private bool TryFindDefibrillatorItem(
         EntityUid uid,
+        EntityUid target,
         out EntityUid item,
         out string status)
     {
         item = default;
         status = string.Empty;
+
+        if (!AllowsEquipment(uid, LuaMRescueEquipmentKind.Defibrillator))
+        {
+            status = "role profile disallows defibrillators";
+            return false;
+        }
 
         if (!TryComp<HandsComponent>(uid, out var hands))
         {
@@ -2277,7 +3273,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         foreach (var hand in hands.Hands.Values)
         {
             if (hand.HeldEntity is not { Valid: true } held ||
-                !HasComp<DefibrillatorComponent>(held))
+                !HasComp<DefibrillatorComponent>(held) ||
+                !TryPrepareDefibrillatorCandidate(uid, target, held, out _))
             {
                 continue;
             }
@@ -2292,18 +3289,26 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        foreach (var candidateSlot in TreatmentStorageSlotPriority)
+        foreach (var candidateSlot in GetTreatmentStorageSlots(uid))
         {
-            if (TryTakeDefibrillatorFromSlot(uid, candidateSlot, emptyHand, hands, out item, out _))
+            if (TryTakeDefibrillatorFromSlot(
+                    uid,
+                    target,
+                    candidateSlot,
+                    emptyHand,
+                    hands,
+                    out item,
+                    out _))
                 return true;
         }
 
-        status = "no defibrillator found in hands or storage";
+        status = "no charged, activatable defibrillator with an expected positive effect was found in hands or storage";
         return false;
     }
 
     private bool TryTakeDefibrillatorFromSlot(
         EntityUid uid,
+        EntityUid target,
         string slot,
         Hand emptyHand,
         HandsComponent hands,
@@ -2315,7 +3320,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryResolveStorageSlot(uid, slot, out var storageUid, out var storage, out status))
             return false;
 
-        if (!TrySelectDefibrillatorItem(storageUid, storage, out var storedItem, out status))
+        if (!TrySelectDefibrillatorItem(uid, target, storageUid, storage, out var storedItem, out status))
             return false;
 
         if (!_container.RemoveEntity(storageUid, storedItem))
@@ -2337,6 +3342,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     }
 
     private bool TrySelectDefibrillatorItem(
+        EntityUid uid,
+        EntityUid target,
         EntityUid storageUid,
         StorageComponent storage,
         out EntityUid item,
@@ -2347,15 +3354,122 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         foreach (var contained in storage.Container.ContainedEntities)
         {
-            if (!HasComp<DefibrillatorComponent>(contained))
+            if (!TryPrepareDefibrillatorCandidate(uid, target, contained, out _))
                 continue;
 
             item = contained;
             return true;
         }
 
-        status = $"no defibrillator in {FormatEntityRef(storageUid)}";
+        status = $"no usable defibrillator in {FormatEntityRef(storageUid)}";
         return false;
+    }
+
+    private bool TryPrepareDefibrillatorCandidate(
+        EntityUid uid,
+        EntityUid target,
+        EntityUid candidate,
+        out string reason)
+    {
+        if (!candidate.Valid || Deleted(candidate) ||
+            !TryComp<DefibrillatorComponent>(candidate, out var defibrillator))
+        {
+            reason = "not a defibrillator";
+            return false;
+        }
+
+        if (!HasExpectedDefibrillatorBenefit(defibrillator, target))
+        {
+            reason = "no expected positive effect for the patient's current damage";
+            return false;
+        }
+
+        if (!_powerCell.HasActivatableCharge(candidate, user: uid))
+        {
+            reason = LuaMRescueFailureReason.NoDefibrillatorCharge.ToString();
+            return false;
+        }
+
+        if (!_itemToggle.IsActivated(candidate) &&
+            !_itemToggle.TryActivate(candidate, uid))
+        {
+            reason = "defibrillator activation was rejected";
+            return false;
+        }
+
+        reason = "usable";
+        return true;
+    }
+
+    /// <summary>
+    /// Adopts an exhausted low-frequency route observer without creating a new
+    /// activity generation or resetting its failure budget.
+    /// </summary>
+    public bool TryAdoptDormantRouteRecovery(
+        EntityUid agent,
+        LuaMRescueAgentComponent rescue,
+        LuaMRescueDormantRouteTransfer transfer)
+    {
+        if (Deleted(transfer.Target) ||
+            rescue.ManualOverrideTarget == transfer.Target ||
+            rescue.DormantRouteTarget is { Valid: true } current && current != transfer.Target)
+        {
+            return false;
+        }
+
+        _rescueNavigation.CancelRoute(agent, transfer.Target);
+        rescue.DormantRouteTarget = transfer.Target;
+        rescue.NextDormantRouteProbeAt = transfer.NextProbeAt > _timing.CurTime
+            ? transfer.NextProbeAt
+            : _timing.CurTime;
+        rescue.DormantRouteProbeInFlight = false;
+        rescue.DormantRouteProbeStartedAt = TimeSpan.Zero;
+        rescue.DormantRouteActionRange = transfer.ActionRange > 0f
+            ? transfer.ActionRange
+            : GetPatientApproachActionRange(rescue);
+        rescue.DormantRouteProbeCount = Math.Max(rescue.DormantRouteProbeCount, transfer.ProbeCount);
+        rescue.DormantRouteResumeCount = Math.Max(rescue.DormantRouteResumeCount, transfer.ResumeCount);
+        rescue.DormantRouteObservationSeconds = Math.Max(0.1f, transfer.ObservationSeconds);
+        rescue.DormantRouteProbeTimeoutSeconds = Math.Max(0.1f, transfer.ProbeTimeoutSeconds);
+        rescue.SkippedTargets[transfer.Target] = TimeSpan.MaxValue;
+        if (transfer.RouteFailureAttempts > 0)
+        {
+            rescue.RouteFailureAttempts[transfer.Target] = Math.Max(
+                rescue.RouteFailureAttempts.GetValueOrDefault(transfer.Target),
+                transfer.RouteFailureAttempts);
+        }
+        rescue.LastDormantRouteStatus =
+            $"transferred target={FormatEntityRef(transfer.Target)} from retired owner; {transfer.Status}";
+        Dirty(agent, rescue);
+        return true;
+    }
+
+    /// <summary>
+    /// Atomically retires every dead active-role component before a replacement
+    /// is selected. The permanent personnel marker survives revival, while the
+    /// event lets the shuttle queue revoke work owned by the retired lineage.
+    /// </summary>
+    public int RetireDeadAgentsForReplacement(string reason)
+    {
+        var retired = new List<EntityUid>();
+        var query = EntityQueryEnumerator<LuaMRescueAgentComponent, MobStateComponent>();
+        while (query.MoveNext(out var uid, out var rescue, out var mobState))
+        {
+            if (Deleted(uid) || mobState.CurrentState != MobState.Dead)
+                continue;
+
+            EnsureComp<LuaMRescuePersonnelComponent>(uid);
+            retired.Add(uid);
+        }
+
+        foreach (var uid in retired)
+        {
+            var retiring = new LuaMRescueAgentRetiringEvent(reason);
+            RaiseLocalEvent(uid, ref retiring);
+            RemComp<LuaMRescueAgentComponent>(uid);
+        }
+
+        return retired.Count;
     }
 
     private bool TryFindTreatmentItem(
@@ -2381,6 +3495,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (hand.HeldEntity is not { Valid: true } held)
                 continue;
 
+            if (!AllowsTreatmentEquipment(uid, held))
+                continue;
+
             if (GetTreatmentItemScore(held, target, itemSelector, includeDiagnosticItems) <= 0f)
                 continue;
 
@@ -2399,7 +3516,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return TryTakeTreatmentItemFromSlot(uid, target, slot, itemSelector, includeDiagnosticItems, emptyHand, hands, out item, out status);
         }
 
-        foreach (var candidateSlot in TreatmentStorageSlotPriority)
+        foreach (var candidateSlot in GetTreatmentStorageSlots(uid))
         {
             if (TryTakeTreatmentItemFromSlot(uid, target, candidateSlot, itemSelector, includeDiagnosticItems, emptyHand, hands, out item, out _))
                 return true;
@@ -2427,28 +3544,39 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryResolveStorageSlot(uid, slot, out var storageUid, out var storage, out status))
             return false;
 
-        if (!TrySelectTreatmentItem(storageUid, storage, target, itemSelector, includeDiagnosticItems, out var storedItem, out status))
+        if (!TrySelectTreatmentItem(
+                uid,
+                storageUid,
+                storage,
+                target,
+                itemSelector,
+                includeDiagnosticItems,
+                out var storedItem,
+                out var sourceStorageUid,
+                out var sourceStorage,
+                out status))
             return false;
 
-        if (!_container.RemoveEntity(storageUid, storedItem))
+        if (!_container.RemoveEntity(sourceStorageUid, storedItem))
         {
-            status = $"could not remove {FormatEntityRef(storedItem)} from {FormatEntityRef(storageUid)}";
+            status = $"could not remove {FormatEntityRef(storedItem)} from {FormatEntityRef(sourceStorageUid)}";
             return false;
         }
 
         if (!_hands.TryPickup(uid, storedItem, emptyHand, handsComp: hands))
         {
-            _storage.Insert(storageUid, storedItem, out _, user: uid, storageComp: storage);
-            status = $"could not take {FormatEntityRef(storedItem)} from {FormatEntityRef(storageUid)} into hand";
+            _storage.Insert(sourceStorageUid, storedItem, out _, user: uid, storageComp: sourceStorage);
+            status = $"could not take {FormatEntityRef(storedItem)} from {FormatEntityRef(sourceStorageUid)} into hand";
             return false;
         }
 
         item = storedItem;
-        status = $"took {FormatEntityRef(storedItem)} from {FormatEntityRef(storageUid)}";
+        status = $"took {FormatEntityRef(storedItem)} from {FormatEntityRef(sourceStorageUid)}";
         return true;
     }
 
     private bool TrySelectTreatmentItem(
+        EntityUid user,
         EntityUid storageUid,
         StorageComponent storage,
         EntityUid target,
@@ -2457,18 +3585,79 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         out EntityUid item,
         out string status)
     {
+        return TrySelectTreatmentItem(
+            user,
+            storageUid,
+            storage,
+            target,
+            itemSelector,
+            includeDiagnosticItems,
+            out item,
+            out _,
+            out _,
+            out status);
+    }
+
+    private bool TrySelectTreatmentItem(
+        EntityUid user,
+        EntityUid storageUid,
+        StorageComponent storage,
+        EntityUid target,
+        string? itemSelector,
+        bool includeDiagnosticItems,
+        out EntityUid item,
+        out EntityUid sourceStorageUid,
+        out StorageComponent sourceStorage,
+        out string status,
+        int depth = 0)
+    {
         item = default;
+        sourceStorageUid = default;
+        sourceStorage = default!;
         status = string.Empty;
 
         var bestScore = 0f;
         foreach (var contained in storage.Container.ContainedEntities)
         {
-            var score = GetTreatmentItemScore(contained, target, itemSelector, includeDiagnosticItems);
-            if (score <= bestScore)
+            var score = AllowsTreatmentEquipment(user, contained)
+                ? GetTreatmentItemScore(contained, target, itemSelector, includeDiagnosticItems)
+                : 0f;
+            if (score > bestScore)
+            {
+                item = contained;
+                sourceStorageUid = storageUid;
+                sourceStorage = storage;
+                bestScore = score;
+            }
+
+            if (depth >= 2 ||
+                !TryComp<StorageComponent>(contained, out var nestedStorage) ||
+                !TrySelectTreatmentItem(
+                    user,
+                    contained,
+                    nestedStorage,
+                    target,
+                    itemSelector,
+                    includeDiagnosticItems,
+                    out var nestedItem,
+                    out var nestedSourceUid,
+                    out var nestedSource,
+                    out _,
+                    depth + 1))
+            {
+                continue;
+            }
+
+            var nestedScore = AllowsTreatmentEquipment(user, nestedItem)
+                ? GetTreatmentItemScore(nestedItem, target, itemSelector, includeDiagnosticItems)
+                : 0f;
+            if (nestedScore <= bestScore)
                 continue;
 
-            item = contained;
-            bestScore = score;
+            item = nestedItem;
+            sourceStorageUid = nestedSourceUid;
+            sourceStorage = nestedSource;
+            bestScore = nestedScore;
         }
 
         if (item is { Valid: true })
@@ -2496,26 +3685,1297 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             score = Math.Max(score, healingScore);
         }
 
-        if (HasComp<HyposprayComponent>(item) || HasComp<InjectorComponent>(item))
-            score = Math.Max(score, 110f);
+        if (TryGetInjectionItemTargetScore(item, target, out var injectionScore))
+            score = Math.Max(score, injectionScore);
 
         if (includeDiagnosticItems && HasComp<HealthAnalyzerComponent>(item))
             score = Math.Max(score, 90f);
 
-        if (score > 0f)
-            return score;
+        return score;
+    }
 
-        if (string.IsNullOrWhiteSpace(itemSelector))
-            return 0f;
+    /// <summary>
+    /// Runtime-testable rescue treatment contract. This deliberately does not expose
+    /// HypospraySystem's historical "handled but empty" behavior as a medical success.
+    /// </summary>
+    public bool IsEffectiveTreatmentItem(EntityUid item, EntityUid target, out string reason)
+    {
+        reason = "NoEffectiveMedicine";
+        if (TerminatingOrDeleted(item) || TerminatingOrDeleted(target))
+            return false;
 
-        var lowered = itemSelector.Trim().ToLowerInvariant();
-        var prototype = MetaData(item).EntityPrototype?.ID?.ToLowerInvariant() ?? string.Empty;
-        var name = Name(item).ToLowerInvariant();
+        string? solutionName = null;
+        var transfer = 0f;
+        if (TryComp<HyposprayComponent>(item, out var hypospray))
+        {
+            solutionName = hypospray.SolutionName;
+            transfer = hypospray.TransferAmount.Float();
+        }
+        else if (TryComp<InjectorComponent>(item, out var injector))
+        {
+            solutionName = injector.SolutionName;
+            transfer = injector.TransferAmount.Float();
+        }
 
-        if (prototype.Contains(lowered) || name.Contains(lowered))
-            return 50f;
+        if (solutionName != null)
+        {
+            if (!_solutionContainers.TryGetSolution(item, solutionName, out _, out var solution) ||
+                solution.Volume <= 0)
+            {
+                reason = "ItemEmpty";
+                return false;
+            }
 
-        return 0f;
+            if (!TryGetInjectionItemTargetScore(item, target, out _))
+            {
+                Solution? bloodstream = null;
+                if (TryComp<BloodstreamComponent>(target, out var bloodstreamComponent))
+                {
+                    _solutionContainers.TryGetSolution(
+                        target,
+                        bloodstreamComponent.ChemicalSolutionName,
+                        out _,
+                        out bloodstream);
+                }
+
+                if (solution.Contents.Any(quantity =>
+                        quantity.Quantity > 0 &&
+                        !CanPatientMetabolizeMedicine(target, quantity.Reagent.Prototype)))
+                {
+                    reason = "UnsupportedSpecies";
+                }
+                else if (solution.Contents.Any(quantity =>
+                             HasMedicineOverdoseRisk(
+                                 quantity.Reagent.Prototype,
+                                 Math.Min(quantity.Quantity.Float(), transfer),
+                                 bloodstream)))
+                {
+                    reason = "OverdoseRisk";
+                }
+
+                return false;
+            }
+        }
+
+        if (GetTreatmentItemScore(item, target, null, includeDiagnosticItems: false) <= 0f)
+            return false;
+
+        reason = "None";
+        return true;
+    }
+
+    private bool HasActiveMedicalDoAfter(EntityUid user, EntityUid target, out string kind)
+    {
+        kind = string.Empty;
+        if (!TryComp<DoAfterComponent>(user, out var doAfters))
+            return false;
+
+        foreach (var doAfter in doAfters.DoAfters.Values)
+        {
+            if (doAfter.Cancelled ||
+                doAfter.Completed ||
+                doAfter.Args.Target != target)
+            {
+                continue;
+            }
+
+            kind = doAfter.Args.Event switch
+            {
+                HealingDoAfterEvent => "healing",
+                HyposprayDoAfterEvent => "hypospray",
+                InjectorDoAfterEvent => "injector",
+                HealthAnalyzerDoAfterEvent => "analyzer",
+                DefibrillatorZapDoAfterEvent => "defibrillator",
+                _ => string.Empty,
+            };
+
+            if (kind.Length != 0)
+                return true;
+        }
+
+        return false;
+    }
+
+    private void TrackMedicalDoAfter(
+        EntityUid user,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        EntityUid? item,
+        string kind)
+    {
+        DoAfterId? activeId = null;
+        if (TryComp<DoAfterComponent>(user, out var doAfters))
+        {
+            foreach (var doAfter in doAfters.DoAfters.Values)
+            {
+                if (!doAfter.Cancelled &&
+                    !doAfter.Completed &&
+                    doAfter.Args.Target == target &&
+                    IsMedicalDoAfterEvent(doAfter.Args.Event))
+                {
+                    activeId = doAfter.Id;
+                    break;
+                }
+            }
+        }
+
+        if (rescue.PendingMedicalDoAfterTarget == target &&
+            string.Equals(rescue.PendingMedicalDoAfterKind, kind, StringComparison.Ordinal))
+        {
+            rescue.PendingMedicalDoAfterId = activeId ?? rescue.PendingMedicalDoAfterId;
+            rescue.PendingMedicalIntentGeneration = rescue.ActivityContext.Generation;
+            HoldMovementForMedicalDoAfter(user, rescue, target);
+            return;
+        }
+
+        rescue.PendingMedicalDoAfterTarget = target;
+        rescue.PendingMedicalDoAfterItem = item;
+        rescue.PendingMedicalDoAfterId = activeId;
+        rescue.PendingMedicalDoAfterKind = kind;
+        rescue.PendingMedicalDoAfterStartedAt = _timing.CurTime;
+        rescue.PendingMedicalIntentGeneration = rescue.ActivityContext.Generation;
+        rescue.PendingMedicalStartingDamage = TryComp<DamageableComponent>(target, out var damageable)
+            ? damageable.TotalDamage.Float()
+            : 0f;
+        CopyDamageTypeSnapshot(
+            GetDamageTypeSnapshot(target),
+            rescue.PendingMedicalStartingDamageByType);
+        rescue.PendingMedicalStartingVolume = item is { Valid: true } used && !Deleted(used)
+            ? GetMedicalItemSolutionVolume(used)
+            : null;
+        rescue.PendingMedicalStartingMobState = TryComp<MobStateComponent>(target, out var mobState)
+            ? mobState.CurrentState
+            : MobState.Invalid;
+        rescue.PendingMedicalStartingBleedAmount = TryComp<BloodstreamComponent>(target, out var bloodstream)
+            ? bloodstream.BleedAmount
+            : 0f;
+        rescue.PendingMedicalStartingBloodVolume = GetPatientBloodVolume(target);
+        var expectedEffect = item is { Valid: true } expectedItem && !Deleted(expectedItem)
+            ? BuildMedicalEffectExpectation(expectedItem, target)
+            : new MedicalEffectExpectation();
+        CopyExpectedMedicalEffect(expectedEffect, rescue);
+        rescue.PendingMedicalEffectVerification = false;
+        rescue.PendingMedicalEffectVerificationStartedAt = TimeSpan.Zero;
+        rescue.PendingMedicalExpectedPositiveEffect =
+            kind is "healing" or "hypospray" or "injector" &&
+            item is { Valid: true } treatmentItem &&
+            !Deleted(treatmentItem) &&
+            expectedEffect.HasObservableEffect &&
+            IsEffectiveTreatmentItem(treatmentItem, target, out _);
+        rescue.PendingMedicalOutcomeRecorded = false;
+        rescue.PendingMedicalOutcomeSucceeded = false;
+
+        // Healing, analysis and defibrillation DoAfters break on movement. The
+        // activity coordinator owns this intent, so the generic FollowCompound
+        // must be made inert until the authoritative result event arrives.
+        HoldMovementForMedicalDoAfter(user, rescue, target);
+
+        _activity.RecordProgress(
+            user,
+            Transform(target).Coordinates,
+            TryGetDistance(user, target, out var distance) ? distance : null,
+            LuaMRescueRouteStatus.Arrived,
+            LuaMRescueDoAfterStatus.Running,
+            out _);
+        Dirty(user, rescue);
+    }
+
+    private void HoldMovementForMedicalDoAfter(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target)
+    {
+        if (!TryComp<HTNComponent>(uid, out var htn))
+            return;
+
+        if (htn.Blackboard.ContainsKey(NPCBlackboard.FollowTarget) ||
+            htn.Plan != null ||
+            htn.PlanningToken != null ||
+            htn.PlanningJob != null)
+        {
+            CancelCurrentHtnMovement(uid, htn, cancelRouteProbe: false);
+        }
+
+        htn.Blackboard.Remove<EntityCoordinates>(NPCBlackboard.FollowTarget);
+        _npc.SleepNPC(uid, htn);
+        rescue.LastTargetTrackingStatus =
+            $"medical movement hold: {rescue.PendingMedicalDoAfterKind} on {FormatEntityRef(target)}; " +
+            $"generation={rescue.PendingMedicalIntentGeneration}";
+    }
+
+    private bool DidTrackedMedicalActionSucceed(
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        EntityUid? item)
+    {
+        if (rescue.PendingMedicalOutcomeRecorded)
+            return rescue.PendingMedicalOutcomeSucceeded;
+
+        if (string.Equals(rescue.PendingMedicalDoAfterKind, "analyzer", StringComparison.Ordinal) &&
+            item is { Valid: true } analyzer &&
+            !Deleted(analyzer) &&
+            TryComp<HealthAnalyzerComponent>(analyzer, out var analyzerComponent))
+        {
+            return analyzerComponent.ScannedEntity == target;
+        }
+
+        return HasObservedMedicalImprovement(
+            target,
+            rescue.PendingMedicalStartingDamageByType,
+            rescue.PendingMedicalStartingBleedAmount,
+            rescue.PendingMedicalStartingBloodVolume,
+            rescue.PendingMedicalExpectedDamageTypes,
+            rescue.PendingMedicalExpectedBleedReduction,
+            rescue.PendingMedicalExpectedBloodIncrease,
+            rescue.PendingMedicalStartingMobState,
+            rescue.PendingMedicalExpectedMobStateImprovement);
+    }
+
+    private bool HasObservedMedicalImprovement(
+        EntityUid target,
+        IReadOnlyDictionary<string, float> startingDamageByType,
+        float startingBleedAmount,
+        float? startingBloodVolume,
+        IReadOnlyCollection<string> expectedDamageTypes,
+        bool expectedBleedReduction,
+        bool expectedBloodIncrease,
+        MobState startingMobState,
+        bool expectedMobStateImprovement)
+    {
+        if (Deleted(target))
+            return false;
+
+        if (expectedDamageTypes.Count > 0 &&
+            TryComp<DamageableComponent>(target, out var damageable))
+        {
+            foreach (var damageType in expectedDamageTypes)
+            {
+                if (!startingDamageByType.TryGetValue(damageType, out var startingAmount) ||
+                    startingAmount <= 0f)
+                {
+                    continue;
+                }
+
+                var currentAmount = damageable.Damage.DamageDict.TryGetValue(damageType, out var current)
+                    ? current.Float()
+                    : 0f;
+                if (currentAmount + 0.001f < startingAmount)
+                    return true;
+            }
+        }
+
+        if (TryComp<BloodstreamComponent>(target, out var bloodstream))
+        {
+            if (expectedBleedReduction &&
+                bloodstream.BleedAmount + 0.001f < startingBleedAmount)
+            {
+                return true;
+            }
+
+            if (expectedBloodIncrease &&
+                startingBloodVolume is { } initialBlood &&
+                bloodstream.BloodSolution is { } bloodSolution &&
+                bloodSolution.Comp.Solution.Volume.Float() > initialBlood + 0.001f)
+            {
+                return true;
+            }
+        }
+
+        return expectedMobStateImprovement &&
+               TryComp<MobStateComponent>(target, out var mobState) &&
+               GetMedicalMobStateRank(mobState.CurrentState) > GetMedicalMobStateRank(startingMobState);
+    }
+
+    private static int GetMedicalMobStateRank(MobState state)
+    {
+        return state switch
+        {
+            MobState.Dead => 0,
+            MobState.Critical => 1,
+            MobState.Alive => 2,
+            _ => -1,
+        };
+    }
+
+    private Dictionary<string, float> GetDamageTypeSnapshot(EntityUid target)
+    {
+        var snapshot = new Dictionary<string, float>(StringComparer.Ordinal);
+        if (!TryComp<DamageableComponent>(target, out var damageable))
+            return snapshot;
+
+        foreach (var (damageType, amount) in damageable.Damage.DamageDict)
+            snapshot[damageType] = amount.Float();
+
+        return snapshot;
+    }
+
+    private static void CopyDamageTypeSnapshot(
+        IReadOnlyDictionary<string, float> source,
+        Dictionary<string, float> destination)
+    {
+        destination.Clear();
+        foreach (var (damageType, amount) in source)
+            destination[damageType] = amount;
+    }
+
+    private bool DidTrackedMedicalSolutionTransfer(
+        LuaMRescueAgentComponent rescue,
+        EntityUid? item)
+    {
+        return item is { Valid: true } used &&
+               !Deleted(used) &&
+               rescue.PendingMedicalStartingVolume is { } startingVolume &&
+               GetMedicalItemSolutionVolume(used) is { } remainingVolume &&
+               remainingVolume + 0.001f < startingVolume;
+    }
+
+    private bool IsInjectionMedicalAction(string kind, EntityUid? item)
+    {
+        return kind is "hypospray" or "injector" ||
+               item is { Valid: true } used &&
+               !Deleted(used) &&
+               (HasComp<HyposprayComponent>(used) || HasComp<InjectorComponent>(used));
+    }
+
+    private void BeginMedicalEffectVerification(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        string kind,
+        string item)
+    {
+        rescue.PendingMedicalDoAfterId = null;
+        rescue.PendingMedicalDoAfterKind = kind;
+        rescue.PendingMedicalDoAfterStartedAt = _timing.CurTime;
+        rescue.PendingMedicalEffectVerification = true;
+        rescue.PendingMedicalEffectVerificationStartedAt = _timing.CurTime;
+        rescue.PendingMedicalOutcomeRecorded = false;
+        rescue.PendingMedicalOutcomeSucceeded = false;
+        rescue.TargetStallAccumulator = 0f;
+        rescue.LastAutoTreatmentStatus =
+            $"awaiting observed medical effect: patient={FormatEntityRef(target)}; item={item}";
+
+        HoldMovementForMedicalDoAfter(uid, rescue, target);
+        _activity.RecordProgress(
+            uid,
+            Transform(target).Coordinates,
+            TryGetDistance(uid, target, out var distance) ? distance : null,
+            LuaMRescueRouteStatus.Arrived,
+            LuaMRescueDoAfterStatus.Running,
+            out _);
+        Dirty(uid, rescue);
+    }
+
+    private void TrackInstantMedicalEffectVerification(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        EntityUid item,
+        string kind,
+        float startingDamage,
+        IReadOnlyDictionary<string, float> startingDamageByType,
+        float? startingVolume,
+        float startingBleedAmount,
+        MobState startingMobState,
+        float? startingBloodVolume,
+        MedicalEffectExpectation expectedEffect)
+    {
+        rescue.PendingMedicalDoAfterTarget = target;
+        rescue.PendingMedicalDoAfterItem = item;
+        rescue.PendingMedicalIntentGeneration = rescue.ActivityContext.Generation;
+        rescue.PendingMedicalStartingDamage = startingDamage;
+        CopyDamageTypeSnapshot(
+            startingDamageByType,
+            rescue.PendingMedicalStartingDamageByType);
+        rescue.PendingMedicalStartingVolume = startingVolume;
+        rescue.PendingMedicalStartingBleedAmount = startingBleedAmount;
+        rescue.PendingMedicalStartingMobState = startingMobState;
+        rescue.PendingMedicalStartingBloodVolume = startingBloodVolume;
+        CopyExpectedMedicalEffect(expectedEffect, rescue);
+        rescue.PendingMedicalExpectedPositiveEffect = expectedEffect.HasObservableEffect;
+        BeginMedicalEffectVerification(uid, rescue, target, kind, FormatEntityRef(item));
+    }
+
+    private static void ClearTrackedMedicalDoAfter(LuaMRescueAgentComponent rescue)
+    {
+        rescue.PendingMedicalDoAfterTarget = null;
+        rescue.PendingMedicalDoAfterItem = null;
+        rescue.PendingMedicalDoAfterId = null;
+        rescue.PendingMedicalDoAfterKind = "none";
+        rescue.PendingMedicalDoAfterStartedAt = TimeSpan.Zero;
+        rescue.PendingMedicalIntentGeneration = 0;
+        rescue.PendingMedicalStartingDamage = 0f;
+        rescue.PendingMedicalStartingDamageByType.Clear();
+        rescue.PendingMedicalExpectedDamageTypes.Clear();
+        rescue.PendingMedicalStartingVolume = null;
+        rescue.PendingMedicalStartingMobState = MobState.Invalid;
+        rescue.PendingMedicalStartingBleedAmount = 0f;
+        rescue.PendingMedicalStartingBloodVolume = null;
+        rescue.PendingMedicalExpectedBleedReduction = false;
+        rescue.PendingMedicalExpectedBloodIncrease = false;
+        rescue.PendingMedicalExpectedMobStateImprovement = false;
+        rescue.PendingMedicalEffectVerification = false;
+        rescue.PendingMedicalEffectVerificationStartedAt = TimeSpan.Zero;
+        rescue.PendingMedicalExpectedPositiveEffect = false;
+        rescue.PendingMedicalOutcomeRecorded = false;
+        rescue.PendingMedicalOutcomeSucceeded = false;
+    }
+
+    private bool TryDiscardStaleTrackedMedicalAction(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.PendingMedicalDoAfterTarget is not { Valid: true } target ||
+            rescue.PendingMedicalIntentGeneration == rescue.ActivityContext.Generation &&
+            rescue.ActivityContext.Target == target)
+        {
+            return false;
+        }
+
+        var clearsManualTreatment =
+            rescue.PendingPlayerAction == LuaMRescuePlayerActionKind.Treat &&
+            rescue.PendingPlayerActionTarget == target;
+        var status =
+            $"failed treat: ActionCancelled; stale medical intent for {FormatEntityRef(target)} was replaced";
+        var staleDoAfters = new HashSet<DoAfterId>();
+        if (rescue.PendingMedicalDoAfterId is { } trackedId)
+            staleDoAfters.Add(trackedId);
+        if (TryComp<DoAfterComponent>(uid, out var doAfters))
+        {
+            foreach (var doAfter in doAfters.DoAfters.Values)
+            {
+                if (!doAfter.Cancelled &&
+                    !doAfter.Completed &&
+                    doAfter.Args.Target == target &&
+                    IsMedicalDoAfterEvent(doAfter.Args.Event))
+                {
+                    staleDoAfters.Add(doAfter.Id);
+                }
+            }
+        }
+
+        // Cancellation raises DoAfterEndedEvent synchronously. Clear the stale
+        // tracker first so that callback cannot observe or mutate the new owner.
+        ClearTrackedMedicalDoAfter(rescue);
+        foreach (var id in staleDoAfters)
+            _doAfter.Cancel(id);
+        if (clearsManualTreatment)
+            ClearPendingPlayerAction(rescue, status);
+        rescue.LastAutoTreatmentStatus = status;
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool TryUpdatePendingMedicalEffectVerification(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue)
+    {
+        if (!rescue.PendingMedicalEffectVerification ||
+            rescue.PendingMedicalDoAfterTarget is not { Valid: true } target)
+        {
+            return false;
+        }
+
+        if (Deleted(target) ||
+            rescue.PendingMedicalIntentGeneration != rescue.ActivityContext.Generation ||
+            rescue.ActivityContext.Target != target)
+        {
+            var pendingGeneration = rescue.PendingMedicalIntentGeneration;
+            var ownsCurrentIntent = pendingGeneration == rescue.ActivityContext.Generation &&
+                                    rescue.ActivityContext.Target == target;
+            var manual = rescue.PendingPlayerAction == LuaMRescuePlayerActionKind.Treat &&
+                         rescue.PendingPlayerActionTarget == target;
+            var failure = Deleted(target)
+                ? LuaMRescueFailureReason.TargetLost
+                : LuaMRescueFailureReason.ActionCancelled;
+            ClearTrackedMedicalDoAfter(rescue);
+            if (ownsCurrentIntent)
+                _activity.Fail(uid, pendingGeneration, failure, out _);
+            if (manual && ownsCurrentIntent && TryComp<HTNComponent>(uid, out var staleHtn))
+            {
+                FinishPendingPlayerAction(
+                    uid,
+                    rescue,
+                    staleHtn,
+                    $"failed treat: {failure}; pending medical effect lost its intent");
+            }
+            else if (manual)
+            {
+                ClearPendingPlayerAction(
+                    rescue,
+                    $"failed treat: {failure}; stale pending medical effect discarded");
+            }
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        if (DidTrackedMedicalActionSucceed(rescue, target, rescue.PendingMedicalDoAfterItem))
+        {
+            CompletePendingMedicalEffectVerification(uid, rescue, target, succeeded: true);
+            return true;
+        }
+
+        var timeout = TimeSpan.FromSeconds(Math.Max(0.05f, rescue.MedicalEffectVerificationTimeout));
+        if (_timing.CurTime - rescue.PendingMedicalEffectVerificationStartedAt < timeout)
+        {
+            rescue.TargetStallAccumulator = 0f;
+            HoldMovementForMedicalDoAfter(uid, rescue, target);
+            return true;
+        }
+
+        CompletePendingMedicalEffectVerification(uid, rescue, target, succeeded: false);
+        return true;
+    }
+
+    private void CompletePendingMedicalEffectVerification(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        bool succeeded)
+    {
+        var kind = rescue.PendingMedicalDoAfterKind;
+        var used = rescue.PendingMedicalDoAfterItem;
+        var item = used is { Valid: true } usedItem && !Deleted(usedItem)
+            ? FormatEntityRef(usedItem)
+            : "none";
+        var completesManualTreatment =
+            rescue.PendingPlayerAction == LuaMRescuePlayerActionKind.Treat &&
+            rescue.PendingPlayerActionTarget == target;
+        var onboard = !Deleted(target) && IsOnAssignedShuttle(target, rescue);
+        var coordinates = Deleted(target) ? (EntityCoordinates?) null : Transform(target).Coordinates;
+        var remainingDistance = !Deleted(target) && TryGetDistance(uid, target, out var distance)
+            ? distance
+            : (float?) null;
+
+        ClearTrackedMedicalDoAfter(rescue);
+
+        if (succeeded)
+        {
+            var status =
+                $"{kind} effect confirmed: patient={FormatEntityRef(target)}; item={item}";
+            rescue.LastAutoTreatmentStatus = status;
+            rescue.TargetStallAccumulator = 0f;
+            rescue.OnboardCareAttempts.Remove(target);
+            ClearTreatmentFailure(rescue, target);
+            rescue.NextAutoTreatmentAttempt = _timing.CurTime +
+                TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoTreatCooldown));
+            _activity.RecordProgress(
+                uid,
+                coordinates,
+                remainingDistance,
+                LuaMRescueRouteStatus.Arrived,
+                LuaMRescueDoAfterStatus.Succeeded,
+                out _);
+
+            if (completesManualTreatment && TryComp<HTNComponent>(uid, out var successHtn))
+                FinishPendingPlayerAction(uid, rescue, successHtn, status);
+        }
+        else
+        {
+            var detail =
+                $"{kind} transfer produced no observed damage, bleed, or MobState improvement within " +
+                $"{Math.Max(0.05f, rescue.MedicalEffectVerificationTimeout):0.00}s";
+            _activity.RecordProgress(
+                uid,
+                coordinates,
+                remainingDistance,
+                LuaMRescueRouteStatus.Arrived,
+                LuaMRescueDoAfterStatus.Failed,
+                out _);
+            RecordTreatmentFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.NoEffectiveMedicine,
+                detail);
+
+            if (onboard)
+            {
+                var attempts = rescue.OnboardCareAttempts.GetValueOrDefault(target) + 1;
+                rescue.OnboardCareAttempts[target] = attempts;
+                if (attempts >= Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts))
+                {
+                    MarkTerminalOnboardCareFailure(
+                        uid,
+                        rescue,
+                        target,
+                        LuaMRescueFailureReason.NoEffectiveMedicine,
+                        detail);
+                }
+            }
+
+            if (completesManualTreatment && TryComp<HTNComponent>(uid, out var failureHtn))
+            {
+                FinishPendingPlayerAction(
+                    uid,
+                    rescue,
+                    failureHtn,
+                    $"failed treat: {LuaMRescueFailureReason.NoEffectiveMedicine}; {detail}");
+            }
+        }
+
+        Dirty(uid, rescue);
+    }
+
+    private bool TryExpireMedicalDoAfter(EntityUid uid, LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.PendingMedicalDoAfterTarget is not { Valid: true } target ||
+            _timing.CurTime - rescue.PendingMedicalDoAfterStartedAt < MedicalDoAfterHardTimeout)
+        {
+            return false;
+        }
+
+        var kind = rescue.PendingMedicalDoAfterKind;
+        var trackedId = rescue.PendingMedicalDoAfterId;
+        var elapsed = _timing.CurTime - rescue.PendingMedicalDoAfterStartedAt;
+        var expiresManualTreatment =
+            rescue.PendingPlayerAction == LuaMRescuePlayerActionKind.Treat &&
+            rescue.PendingPlayerActionTarget == target;
+        var ids = new List<DoAfterId>();
+        if (trackedId is { } trackedDoAfterId)
+        {
+            ids.Add(trackedDoAfterId);
+        }
+        else if (TryComp<DoAfterComponent>(uid, out var doAfters))
+        {
+            foreach (var doAfter in doAfters.DoAfters.Values)
+            {
+                if (!doAfter.Cancelled &&
+                    !doAfter.Completed &&
+                    doAfter.Args.Target == target &&
+                    IsMedicalDoAfterEvent(doAfter.Args.Event))
+                {
+                    ids.Add(doAfter.Id);
+                }
+            }
+        }
+
+        // Clear first: cancellation raises DoAfterEndedEvent synchronously and a
+        // timed-out operation must not be accepted as the current generation.
+        ClearTrackedMedicalDoAfter(rescue);
+        foreach (var id in ids)
+            _doAfter.Cancel(id);
+
+        EntityCoordinates? targetCoordinates = null;
+        float? remainingDistance = null;
+        if (!Deleted(target))
+        {
+            targetCoordinates = Transform(target).Coordinates;
+            if (TryGetDistance(uid, target, out var distance))
+                remainingDistance = distance;
+        }
+
+        _activity.RecordProgress(
+            uid,
+            targetCoordinates,
+            remainingDistance,
+            LuaMRescueRouteStatus.Arrived,
+            LuaMRescueDoAfterStatus.TimedOut,
+            out _);
+
+        var detail = $"{kind} DoAfter exceeded {elapsed.TotalSeconds:0.0}s hard timeout";
+        if (string.Equals(kind, "defibrillator", StringComparison.Ordinal))
+        {
+            MarkTerminalDefibrillationFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.DoAfterTimedOut,
+                $"{detail}; transport/handoff fallback");
+        }
+        else if (string.Equals(kind, "analyzer", StringComparison.Ordinal))
+        {
+            RecordAnalysisFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.DoAfterTimedOut,
+                detail,
+                forceTerminal: true);
+        }
+        else
+        {
+            RecordTreatmentFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.DoAfterTimedOut,
+                detail,
+                forceTerminal: true);
+            if (!Deleted(target) && IsOnAssignedShuttle(target, rescue))
+            {
+                MarkTerminalOnboardCareFailure(
+                    uid,
+                    rescue,
+                    target,
+                    LuaMRescueFailureReason.DoAfterTimedOut,
+                    detail);
+            }
+        }
+
+        if (expiresManualTreatment && TryComp<HTNComponent>(uid, out var htn))
+        {
+            FinishPendingPlayerAction(
+                uid,
+                rescue,
+                htn,
+                $"failed treat: DoAfterTimedOut after {elapsed.TotalSeconds:0.0}s");
+        }
+
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool HasTerminalTreatmentFailure(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target)
+    {
+        if (!rescue.TerminalTreatmentFailures.TryGetValue(target, out var failure))
+            return false;
+
+        // Damage ticks are not evidence that the failed treatment became viable.
+        // Keep the budget terminal until a confirmed medical success or an
+        // explicit administrative redispatch clears it.
+        rescue.LastAutoTreatmentStatus = failure;
+        _activity.Fail(uid, LuaMRescueFailureReason.NoEffectiveMedicine, out _);
+        ApplyTerminalTreatmentFallback(uid, rescue, target);
+        return true;
+    }
+
+    private bool RecordTreatmentFailure(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        LuaMRescueFailureReason reason,
+        string detail,
+        bool forceTerminal = false)
+    {
+        var attempts = rescue.TreatmentAttempts.GetValueOrDefault(target) + 1;
+        rescue.TreatmentAttempts[target] = attempts;
+        _activity.RecordAttempt(uid, out _);
+
+        if (!forceTerminal && attempts < Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts))
+        {
+            rescue.LastAutoTreatmentStatus =
+                $"{reason}: treatment attempt {attempts}/{rescue.ActivityRoleProfile.MaxAttempts} failed; {detail}";
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        var terminal =
+            $"{reason}: treatment terminal after {attempts} bounded attempts; {detail}; patient={FormatEntityRef(target)}";
+        rescue.TerminalTreatmentFailures[target] = terminal;
+        rescue.TerminalTreatmentFailureDamage[target] =
+            TryComp<DamageableComponent>(target, out var damageable)
+                ? damageable.TotalDamage.Float()
+                : 0f;
+        rescue.LastAutoTreatmentStatus = terminal;
+        _activity.Fail(uid, reason, out _);
+        ApplyTerminalTreatmentFallback(uid, rescue, target);
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private void ApplyTerminalTreatmentFallback(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target)
+    {
+        if (Deleted(target))
+            return;
+
+        if (NeedsEvacuation(uid, target, rescue))
+        {
+            rescue.LastAutoTreatmentStatus += "; fallback=transport/handoff";
+            return;
+        }
+
+        // A non-evacuation patient with no effective bounded treatment must not
+        // remain the coordinator owner forever. Preserve a durable specialist
+        // handoff marker; an explicit order clears both this marker and the skip.
+        rescue.SkippedTargets[target] = TimeSpan.MaxValue;
+        StopPullingTarget(uid, target);
+        ClearRescueTask(uid, rescue, $"NeedsSpecialist: terminal treatment for {FormatEntityRef(target)}");
+        ClearArrivalReportTarget(rescue, target);
+        ClearTriageDecisionTarget(rescue, target);
+        ClearDeathSignalTarget(rescue, target);
+        rescue.EvacuatingTarget = null;
+        rescue.AssignedTarget = null;
+        rescue.AssignedPatientStrap = null;
+        ResetTargetProgress(rescue);
+
+        if (TryComp<HTNComponent>(uid, out var htn))
+            StandbyAtAssignedShuttle(uid, rescue, htn);
+    }
+
+    private static void ClearTreatmentFailure(LuaMRescueAgentComponent rescue, EntityUid target)
+    {
+        rescue.TreatmentAttempts.Remove(target);
+        rescue.TerminalTreatmentFailures.Remove(target);
+        rescue.TerminalTreatmentFailureDamage.Remove(target);
+    }
+
+    private void RecordAnalysisFailure(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        LuaMRescueFailureReason reason,
+        string detail,
+        bool forceTerminal = false)
+    {
+        var attempts = rescue.AnalysisAttempts.GetValueOrDefault(target) + 1;
+        rescue.AnalysisAttempts[target] = attempts;
+        _activity.RecordAttempt(uid, out _);
+
+        var terminal = forceTerminal || attempts >= Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts);
+        if (!terminal)
+        {
+            rescue.LastAutoAnalyzeStatus =
+                $"{reason}: analyzer attempt {attempts}/{rescue.ActivityRoleProfile.MaxAttempts}; {detail}";
+            Dirty(uid, rescue);
+            return;
+        }
+
+        var status =
+            $"{reason}: analyzer failed after {attempts} bounded attempts; patient={FormatEntityRef(target)}; {detail}";
+        rescue.TerminalAnalysisFailures[target] = status;
+        rescue.LastAutoAnalyzeStatus = status;
+        _activity.Fail(uid, reason, out _);
+        Dirty(uid, rescue);
+    }
+
+    private static bool IsMedicalDoAfterEvent(DoAfterEvent doAfterEvent)
+    {
+        return doAfterEvent is HealingDoAfterEvent
+            or HyposprayDoAfterEvent
+            or InjectorDoAfterEvent
+            or HealthAnalyzerDoAfterEvent
+            or DefibrillatorZapDoAfterEvent;
+    }
+
+    private void CancelMedicalDoAftersForIntentReplacement(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        string reason,
+        EntityUid? exactTarget = null,
+        bool recordActivityProgress = true)
+    {
+        var ids = new List<DoAfterId>();
+        if (TryComp<DoAfterComponent>(uid, out var doAfters))
+        {
+            foreach (var doAfter in doAfters.DoAfters.Values)
+            {
+                if (!doAfter.Cancelled &&
+                    !doAfter.Completed &&
+                    IsMedicalDoAfterEvent(doAfter.Args.Event) &&
+                    (exactTarget == null || doAfter.Args.Target == exactTarget))
+                {
+                    ids.Add(doAfter.Id);
+                }
+            }
+        }
+
+        var clearTrackedMedical = exactTarget == null
+            ? rescue.PendingMedicalDoAfterTarget != null
+            : rescue.PendingMedicalDoAfterTarget == exactTarget;
+        if (ids.Count == 0 && !clearTrackedMedical)
+            return;
+
+        if (clearTrackedMedical)
+            ClearTrackedMedicalDoAfter(rescue);
+        foreach (var id in ids)
+            _doAfter.Cancel(id);
+
+        rescue.LastAutoTreatmentStatus = $"ActionCancelled: stale medical action cancelled; {reason}";
+        if (recordActivityProgress)
+        {
+            _activity.RecordProgress(
+                uid,
+                destination: null,
+                remainingDistance: null,
+                LuaMRescueRouteStatus.None,
+                LuaMRescueDoAfterStatus.Cancelled,
+                out _);
+        }
+        Dirty(uid, rescue);
+    }
+
+    public void PrepareForExternalIntentReplacement(
+        EntityUid uid,
+        EntityUid newTarget)
+    {
+        if (!TryComp<LuaMRescueAgentComponent>(uid, out var rescue) ||
+            !TryComp<HTNComponent>(uid, out var htn))
+        {
+            return;
+        }
+
+        if (newTarget.Valid)
+            rescue.DeferredPatientTargets.Remove(newTarget);
+
+        var sameTrackedTarget = rescue.PendingMedicalDoAfterTarget == null ||
+                                rescue.PendingMedicalDoAfterTarget == newTarget;
+
+        // ActivityContext is the authoritative owner of the current generation.
+        // Legacy mirror fields can be transiently stale while an atomic priority
+        // transfer is being reconciled; they must never cancel an already-active
+        // intent for the requested target.
+        if (newTarget.Valid &&
+            rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+            rescue.ActivityContext.Target == newTarget &&
+            sameTrackedTarget)
+        {
+            return;
+        }
+
+        if (rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+            TryGetActivePatientTarget(rescue, out var current) &&
+            current == newTarget &&
+            sameTrackedTarget)
+        {
+            return;
+        }
+
+        CancelMedicalDoAftersForIntentReplacement(uid, rescue, $"newTarget={FormatEntityRef(newTarget)}");
+        var replacedRouteTargets = new HashSet<EntityUid>();
+        if (TryGetActivePatientTarget(rescue, out current) && current != newTarget)
+        {
+            StopPullingTarget(uid, current);
+            replacedRouteTargets.Add(current);
+        }
+
+        if (htn.Blackboard.TryGetValue<EntityCoordinates>(
+                NPCBlackboard.FollowTarget,
+                out var previousFollow,
+                EntityManager) &&
+            previousFollow.EntityId is { Valid: true } previousTarget &&
+            previousTarget != newTarget)
+        {
+            replacedRouteTargets.Add(previousTarget);
+        }
+
+        // HTN steering belongs to the old generation, but a completed route
+        // probe for the newly requested target is authoritative selection data
+        // and may already have been computed by dispatch. Cancel only the route
+        // owned by the displaced target instead of wiping every probe for the
+        // agent, including the replacement's cache.
+        CancelCurrentHtnMovement(uid, htn, cancelRouteProbe: false);
+        if (!newTarget.Valid)
+        {
+            _rescueNavigation.CancelRoute(uid);
+        }
+        else
+        {
+            foreach (var oldRouteTarget in replacedRouteTargets)
+                _rescueNavigation.CancelRoute(uid, oldRouteTarget);
+        }
+
+        var cancelledGeneration = rescue.ActivityContext.Generation;
+        var cancellationStatus =
+            $"external replacement: current={FormatEntityRef(current)}; new={FormatEntityRef(newTarget)}; " +
+            $"assigned={FormatEntityRef(rescue.AssignedTarget)}; task={FormatEntityRef(rescue.TaskPatientTarget)}; " +
+            $"evacuating={FormatEntityRef(rescue.EvacuatingTarget)}; onboard={FormatEntityRef(rescue.OnboardCareTarget)}; " +
+            $"deathSignal={FormatEntityRef(rescue.DeathSignalTarget)}; " +
+            $"activity={rescue.ActivityContext.Activity}; generation={cancelledGeneration}";
+        if (_activity.Cancel(uid, cancelledGeneration, LuaMRescueFailureReason.Cancelled, out _))
+            rescue.LastIntentCancellationStatus = cancellationStatus;
+    }
+
+    /// <summary>
+    /// Clears bounded failure and retry memory that belongs to a completed
+    /// critical/death episode. Physical ownership (for example a patient still
+    /// strapped onboard) and an explicit manual order are deliberately retained.
+    /// </summary>
+    public void CloseRecoveredPatientEpisode(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target)
+    {
+        if (rescue.ActivityContext.Target == target &&
+            rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active)
+        {
+            _activity.Complete(uid, rescue.ActivityContext.Generation, out _);
+        }
+
+        rescue.SkippedTargets.Remove(target);
+        rescue.DeferredPatientTargets.Remove(target);
+        rescue.RouteFailureAttempts.Remove(target);
+        rescue.AnalyzedTargets.Remove(target);
+        rescue.AnalysisAttempts.Remove(target);
+        rescue.TerminalAnalysisFailures.Remove(target);
+
+        ClearTreatmentFailure(rescue, target);
+        rescue.DefibrillationAttempts.Remove(target);
+        rescue.CompletedDefibrillationFailures.Remove(target);
+        rescue.DefibrillationStartedAt.Remove(target);
+        rescue.TerminalDefibrillationFailures.Remove(target);
+        rescue.PullAttempts.Remove(target);
+        rescue.NextPullAttemptAt.Remove(target);
+        rescue.TerminalPullFailures.Remove(target);
+        rescue.EvacuationUnbuckleAttempts.Remove(target);
+        rescue.NextEvacuationUnbuckleAttemptAt.Remove(target);
+        rescue.TerminalEvacuationUnbuckleFailures.Remove(target);
+        ClearPatientBuckleFailures(rescue, target);
+        rescue.OnboardCareAttempts.Remove(target);
+        rescue.TerminalOnboardCareFailures.Remove(target);
+        rescue.OnboardHandoffAttempts.Remove(target);
+        rescue.IgnoredOnboardPatients.Remove(target);
+
+        if (rescue.DormantRouteTarget == target)
+        {
+            if (rescue.DormantRouteProbeInFlight)
+                _rescueNavigation.CancelRoute(uid, target);
+            ClearDormantRouteRecovery(rescue, "medical episode recovered", clearFailureBudget: true);
+        }
+
+        if (rescue.ArrivalReportedTarget == target)
+            rescue.ArrivalReportedTarget = null;
+        if (rescue.TriageReportedTarget == target)
+            rescue.TriageReportedTarget = null;
+        if (rescue.ShuttleRoutedTarget == target)
+            rescue.ShuttleRoutedTarget = null;
+        if (rescue.DeathSignalTarget == target)
+        {
+            rescue.DeathSignalTarget = null;
+            rescue.DeathSignalDispatchReported = false;
+        }
+
+        rescue.LastDeferredPatientStatus = $"medical episode recovered for {FormatEntityRef(target)}";
+        Dirty(uid, rescue);
+    }
+
+    /// <summary>
+    /// An explicit order is an atomic ownership transfer. Merely cancelling HTN
+    /// is insufficient because evacuation/onboard/death-signal fields are also
+    /// consulted as authoritative patient owners by later updates and dispatch.
+    /// </summary>
+    private void ClearPatientIntentOwnershipForExplicitOrder(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue)
+    {
+        var previousTargets = new HashSet<EntityUid>();
+        if (rescue.EvacuatingTarget is { Valid: true } evacuating)
+            previousTargets.Add(evacuating);
+        if (rescue.OnboardCareTarget is { Valid: true } onboard)
+            previousTargets.Add(onboard);
+        if (rescue.AssignedTarget is { Valid: true } assigned)
+            previousTargets.Add(assigned);
+        if (rescue.DeathSignalTarget is { Valid: true } deathSignal)
+            previousTargets.Add(deathSignal);
+        if (rescue.TaskPatientTarget is { Valid: true } taskPatient)
+            previousTargets.Add(taskPatient);
+
+        foreach (var previous in previousTargets)
+        {
+            if (Deleted(previous))
+                continue;
+
+            StopPullingTarget(uid, previous);
+            ClearArrivalReportTarget(rescue, previous);
+            ClearTriageDecisionTarget(rescue, previous);
+        }
+
+        rescue.EvacuatingTarget = null;
+        rescue.OnboardCareTarget = null;
+        rescue.AssignedTarget = null;
+        RevokeManualOverrideTarget(uid, rescue, null, "explicit patient order replacement");
+        rescue.AssignedPatientStrap = null;
+        rescue.DeathSignalTarget = null;
+        rescue.DeathSignalDispatchReported = false;
+        ClearRescueTask(uid, rescue, "explicit order released previous patient ownership");
+    }
+
+    private bool TryGetBlockingOnboardPatientForExplicitOrder(
+        LuaMRescueAgentComponent rescue,
+        EntityUid? requestedTarget,
+        out EntityUid patient)
+    {
+        foreach (var required in rescue.RequiredOnboardHandoffPatients)
+        {
+            if (!Deleted(required) && required != requestedTarget)
+            {
+                patient = required;
+                return true;
+            }
+        }
+
+        if (rescue.OnboardCareTarget is { Valid: true } onboard &&
+            onboard != requestedTarget &&
+            !Deleted(onboard) &&
+            TryComp<BuckleComponent>(onboard, out var buckle) &&
+            buckle.BuckledTo is { Valid: true } actualStrap &&
+            IsAssignedShuttlePatientStrap(actualStrap, rescue))
+        {
+            patient = onboard;
+            return true;
+        }
+
+        if (rescue.AssignedPatientStrap is { Valid: true } assignedStrap &&
+            !Deleted(assignedStrap) &&
+            IsAssignedShuttlePatientStrap(assignedStrap, rescue) &&
+            TryComp<StrapComponent>(assignedStrap, out var strap))
+        {
+            foreach (var buckled in strap.BuckledEntities)
+            {
+                if (!Deleted(buckled) && buckled != requestedTarget)
+                {
+                    patient = buckled;
+                    return true;
+                }
+            }
+        }
+
+        patient = default;
+        return false;
+    }
+
+    private float? GetMedicalItemSolutionVolume(EntityUid item)
+    {
+        var solutionName = TryComp<HyposprayComponent>(item, out var hypospray)
+            ? hypospray.SolutionName
+            : TryComp<InjectorComponent>(item, out var injector)
+                ? injector.SolutionName
+                : null;
+
+        if (solutionName == null ||
+            !_solutionContainers.TryGetSolution(item, solutionName, out _, out var solution))
+        {
+            return null;
+        }
+
+        return solution.Volume.Float();
+    }
+
+    private float? GetPatientBloodVolume(EntityUid target)
+    {
+        return TryComp<BloodstreamComponent>(target, out var bloodstream) &&
+               bloodstream.BloodSolution is { } bloodSolution
+            ? bloodSolution.Comp.Solution.Volume.Float()
+            : null;
+    }
+
+    private MedicalEffectExpectation BuildMedicalEffectExpectation(EntityUid item, EntityUid target)
+    {
+        var expectation = new MedicalEffectExpectation();
+        if (Deleted(item) || Deleted(target))
+            return expectation;
+
+        if (TryComp<HealingComponent>(item, out var healing))
+        {
+            foreach (var (damageType, amount) in healing.Damage.DamageDict)
+            {
+                if (amount < 0)
+                    expectation.DamageTypes.Add(damageType);
+            }
+
+            expectation.ReducesBleeding |= healing.BloodlossModifier < 0f;
+            expectation.IncreasesBloodVolume |= healing.ModifyBloodLevel > 0f;
+        }
+
+        var solutionName = TryComp<HyposprayComponent>(item, out var hypospray)
+            ? hypospray.SolutionName
+            : TryComp<InjectorComponent>(item, out var injector)
+                ? injector.SolutionName
+                : null;
+        if (solutionName == null ||
+            !_solutionContainers.TryGetSolution(item, solutionName, out _, out var solution))
+        {
+            return expectation;
+        }
+
+        var critical = TryComp<MobStateComponent>(target, out var mobState) &&
+                       mobState.CurrentState == MobState.Critical;
+        foreach (var quantity in solution.Contents)
+        {
+            if (quantity.Quantity <= 0)
+                continue;
+
+            AddExpectedReagentEffects(expectation, quantity.Reagent.Prototype, critical);
+        }
+
+        return expectation;
+    }
+
+    private static void AddExpectedReagentEffects(
+        MedicalEffectExpectation expectation,
+        string reagent,
+        bool critical)
+    {
+        switch (reagent)
+        {
+            case "Bicaridine":
+                AddExpectedDamageTypes(expectation, "Blunt", "Slash", "Piercing");
+                expectation.ReducesBleeding = true;
+                break;
+            case "Dermaline":
+            case "Kelotane":
+                AddExpectedDamageTypes(expectation, "Heat", "Shock", "Cold");
+                break;
+            case "Dexalin":
+            case "DexalinPlus":
+                AddExpectedDamageTypes(expectation, "Asphyxiation", "Bloodloss");
+                break;
+            case "Dylovene":
+                AddExpectedDamageTypes(expectation, "Poison");
+                break;
+            case "Inaprovaline":
+                if (critical)
+                {
+                    AddExpectedDamageTypes(expectation, "Asphyxiation");
+                    expectation.ImprovesMobState = true;
+                }
+                expectation.ReducesBleeding = true;
+                break;
+            case "Epinephrine" when critical:
+                AddExpectedDamageTypes(
+                    expectation,
+                    "Blunt", "Slash", "Piercing",
+                    "Heat", "Shock", "Cold", "Caustic",
+                    "Asphyxiation", "Poison");
+                expectation.ImprovesMobState = true;
+                break;
+            case "Tricordrazine":
+                AddExpectedDamageTypes(
+                    expectation,
+                    "Blunt", "Slash", "Piercing",
+                    "Heat", "Shock", "Cold", "Caustic",
+                    "Poison", "Radiation", "Cellular");
+                break;
+            case "Omnizine":
+                AddExpectedDamageTypes(
+                    expectation,
+                    "Blunt", "Slash", "Piercing",
+                    "Heat", "Shock", "Cold", "Caustic",
+                    "Poison", "Radiation",
+                    "Asphyxiation", "Bloodloss");
+                break;
+            case "TranexamicAcid":
+                expectation.ReducesBleeding = true;
+                break;
+            case "Leporazine":
+                AddExpectedDamageTypes(expectation, "Cold");
+                break;
+        }
+    }
+
+    private static void AddExpectedDamageTypes(
+        MedicalEffectExpectation expectation,
+        params string[] damageTypes)
+    {
+        foreach (var damageType in damageTypes)
+            expectation.DamageTypes.Add(damageType);
+    }
+
+    private static void CopyExpectedMedicalEffect(
+        MedicalEffectExpectation source,
+        LuaMRescueAgentComponent rescue)
+    {
+        rescue.PendingMedicalExpectedDamageTypes.Clear();
+        rescue.PendingMedicalExpectedDamageTypes.UnionWith(source.DamageTypes);
+        rescue.PendingMedicalExpectedBleedReduction = source.ReducesBleeding;
+        rescue.PendingMedicalExpectedBloodIncrease = source.IncreasesBloodVolume;
+        rescue.PendingMedicalExpectedMobStateImprovement = source.ImprovesMobState;
     }
 
     private bool TryGetHealingItemTargetScore(HealingComponent healing, EntityUid target, out float score)
@@ -2554,14 +5014,171 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
         }
 
-        if (healing.BloodlossModifier != 0 ||
-            healing.ModifyBloodLevel > 0)
+        if (TryComp<BloodstreamComponent>(target, out var bloodstream) &&
+            (healing.BloodlossModifier < 0f && bloodstream.BleedAmount > 0f ||
+             healing.ModifyBloodLevel > 0f &&
+             bloodstream.BloodSolution is { } bloodSolution &&
+             bloodSolution.Comp.Solution.Volume < bloodstream.BloodMaxVolume))
         {
-            score = 105f;
+            score = 105f + bloodstream.BleedAmount * 10f;
             return true;
         }
 
         return false;
+    }
+
+    private bool TryGetInjectionItemTargetScore(EntityUid item, EntityUid target, out float score)
+    {
+        score = 0f;
+
+        string solutionName;
+        float transferAmount;
+        if (TryComp<HyposprayComponent>(item, out var hypospray))
+        {
+            solutionName = hypospray.SolutionName;
+            transferAmount = hypospray.TransferAmount.Float();
+        }
+        else if (TryComp<InjectorComponent>(item, out var injector))
+        {
+            if (injector.ToggleState != InjectorToggleMode.Inject || injector.IgnoreMobs)
+                return false;
+
+            solutionName = injector.SolutionName;
+            transferAmount = injector.TransferAmount.Float();
+        }
+        else
+        {
+            return false;
+        }
+
+        if (!_solutionContainers.TryGetSolution(item, solutionName, out _, out var solution) ||
+            solution.Volume <= 0 ||
+            !HasComp<InjectableSolutionComponent>(target) ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            !TryComp<DamageableComponent>(target, out var damageable))
+        {
+            return false;
+        }
+
+        Solution? bloodstream = null;
+        if (TryComp<BloodstreamComponent>(target, out var bloodstreamComponent))
+        {
+            _solutionContainers.TryGetSolution(
+                target,
+                bloodstreamComponent.ChemicalSolutionName,
+                out _,
+                out bloodstream);
+        }
+
+        var best = 0f;
+        foreach (var quantity in solution.Contents)
+        {
+            var reagent = quantity.Reagent.Prototype;
+            var incoming = Math.Min(quantity.Quantity.Float(), transferAmount);
+            if (incoming <= 0f)
+                continue;
+
+            // The rescue planner is intentionally allow-list based. A mixed
+            // injector containing an unknown compound cannot be proven safe just
+            // because another reagent in it would be beneficial.
+            if (!ConservativeMedicineLimits.ContainsKey(reagent) ||
+                !CanPatientMetabolizeMedicine(target, reagent) ||
+                HasMedicineOverdoseRisk(reagent, incoming, bloodstream))
+            {
+                return false;
+            }
+
+            var reagentScore = GetExpectedMedicineBenefit(reagent, target, mobState, damageable);
+            if (reagentScore > best)
+                best = reagentScore;
+        }
+
+        if (best <= 0f)
+            return false;
+
+        score = 110f + best;
+        return true;
+    }
+
+    private static bool HasMedicineOverdoseRisk(string reagent, float incoming, Solution? bloodstream)
+    {
+        if (!ConservativeMedicineLimits.TryGetValue(reagent, out var limit))
+            return false;
+
+        var current = bloodstream?.Contents
+            .Where(quantity => quantity.Reagent.Prototype.Equals(reagent, StringComparison.Ordinal))
+            .Sum(quantity => quantity.Quantity.Float()) ?? 0f;
+        return current + incoming >= limit;
+    }
+
+    private bool CanPatientMetabolizeMedicine(EntityUid target, string reagent)
+    {
+        if (!_prototype.TryIndex<ReagentPrototype>(reagent, out var prototype) ||
+            prototype.Metabolisms is null)
+        {
+            return false;
+        }
+
+        foreach (var metabolizer in _body.GetBodyOrganEntityComps<MetabolizerComponent>((target, null)))
+        {
+            if (metabolizer.Comp1.MetabolismGroups is null)
+                continue;
+
+            foreach (var group in metabolizer.Comp1.MetabolismGroups)
+            {
+                if (prototype.Metabolisms.ContainsKey(group.Id))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private float GetExpectedMedicineBenefit(
+        string reagent,
+        EntityUid target,
+        MobStateComponent mobState,
+        DamageableComponent damageable)
+    {
+        var brute = GetDamageAmount(damageable, "Blunt", "Slash", "Piercing");
+        var burn = GetDamageAmount(damageable, "Heat", "Cold", "Shock", "Caustic");
+        var dermalBurn = GetDamageAmount(damageable, "Heat", "Cold", "Shock");
+        var asphyxiation = GetDamageAmount(damageable, "Asphyxiation", "Bloodloss");
+        var toxin = GetDamageAmount(damageable, "Poison", "Radiation", "Cellular");
+        var toxinWithoutCellular = GetDamageAmount(damageable, "Poison", "Radiation");
+        var poison = GetDamageAmount(damageable, "Poison");
+        var bleeding = TryComp<BloodstreamComponent>(target, out var bloodstream)
+            ? Math.Max(0f, bloodstream.BleedAmount)
+            : 0f;
+
+        return reagent switch
+        {
+            "Bicaridine" => brute + bleeding * 10f,
+            "Dermaline" or "Kelotane" => dermalBurn,
+            "Dexalin" or "DexalinPlus" => asphyxiation,
+            "Dylovene" => poison,
+            "Inaprovaline" when mobState.CurrentState == MobState.Critical =>
+                GetDamageAmount(damageable, "Asphyxiation") + bleeding * 10f,
+            "Epinephrine" when mobState.CurrentState == MobState.Critical =>
+                brute + burn + GetDamageAmount(damageable, "Asphyxiation", "Poison"),
+            "Tricordrazine" => brute + burn + toxin,
+            "Omnizine" => brute + burn + toxinWithoutCellular + asphyxiation,
+            "TranexamicAcid" when bleeding > 0f => 75f + bleeding * 10f,
+            "Leporazine" => GetDamageAmount(damageable, "Cold"),
+            _ => 0f,
+        };
+    }
+
+    private static float GetDamageAmount(DamageableComponent damageable, params string[] damageTypes)
+    {
+        var total = 0f;
+        foreach (var type in damageTypes)
+        {
+            if (damageable.Damage.DamageDict.TryGetValue(type, out var amount) && amount > 0)
+                total += amount.Float();
+        }
+
+        return total;
     }
 
     private void FinishPendingPlayerAction(
@@ -2602,7 +5219,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (completedSupplyAction &&
             rescue.TaskPatientTarget is { Valid: true } patient &&
             !Deleted(patient) &&
-            !IsTargetTemporarilySkipped(patient, rescue))
+            !IsTargetTemporarilySkipped(uid, patient, rescue))
         {
             var collectedSupply = completedAction switch
             {
@@ -2731,26 +5348,124 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     private void UpdateAssignedTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
     {
+        PruneManualOverrideTarget(uid, rescue);
         PruneSkippedTargets(rescue);
         PruneSkippedSupplyTargets(rescue);
         PruneSkippedDeliveryTargets(rescue);
+        PrunePatientBuckleFailures(rescue);
         PruneAnalyzedTargets(rescue);
         PruneRescueTaskMemory(uid, rescue);
+        ReconcileActivePatientIntentOwnership(uid, rescue, htn);
         TryReportDeathSignalDispatch(uid, rescue);
         UpdateTargetTrackingStatus(uid, rescue, htn);
 
-        if (UpdateEvacuation(uid, rescue, htn))
-            return;
-
-        if (TryContinueOnboardCare(uid, rescue, htn))
-            return;
-
-        if (rescue.AssignedTarget is { Valid: true } assigned &&
-            !IsTargetTemporarilySkipped(assigned, rescue) &&
-            TryTreatOrEvacuateTarget(uid, rescue, htn, assigned))
+        if (TryGetActivePatientTarget(rescue, out var activeTarget) &&
+            !IsEligibleAssignedPatient(uid, activeTarget, rescue, out var ineligibleReason))
         {
+            var hadRequiredHandoff = rescue.RequiredOnboardHandoffPatients.Contains(activeTarget);
+            var rejectedRequiredHandoff = hadRequiredHandoff && !Deleted(activeTarget);
+            if (rejectedRequiredHandoff)
+            {
+                TryHoldRequiredHandoffCustody(
+                    uid,
+                    activeTarget,
+                    rescue,
+                    htn,
+                    $"structural eligibility blocked: {ineligibleReason}",
+                    ineligibleReason);
+                if (!rescue.TerminalOnboardCareFailures.ContainsKey(activeTarget))
+                {
+                    rescue.TerminalOnboardCareFailures[activeTarget] =
+                        $"required handoff structurally blocked: {ineligibleReason}";
+                    RecordRescueHandoff(
+                        uid,
+                        rescue,
+                        activeTarget,
+                        "blocked-custody",
+                        ineligibleReason.ToString(),
+                        "required physical handoff retained until the structural blocker is repaired");
+                }
+
+                rescue.LastOnboardCareStatus =
+                    $"onboard-care blocked handoff: patient={FormatEntityRef(activeTarget)}; " +
+                    $"ownership=retained; reason={ineligibleReason}";
+                SetTargetTrackingStatus(
+                    uid,
+                    rescue,
+                    $"required_handoff_blocked: {FormatEntityRef(activeTarget)}; reason={ineligibleReason}");
+                Dirty(uid, rescue);
+                return;
+            }
+
+            if (hadRequiredHandoff)
+                rescue.RequiredOnboardHandoffPatients.Remove(activeTarget);
+
+            PrepareForExternalIntentReplacement(uid, EntityUid.Invalid);
+            StopPullingTarget(uid, activeTarget);
+            rescue.EvacuatingTarget = null;
+            rescue.AssignedTarget = null;
+            if (rescue.ManualOverrideTarget == activeTarget)
+            {
+                RevokeManualOverrideTarget(
+                    uid,
+                    rescue,
+                    activeTarget,
+                    $"patient became ineligible: {ineligibleReason}");
+            }
+            rescue.AssignedPatientStrap = null;
+            ClearArrivalReportTarget(rescue, activeTarget);
+            ClearTriageDecisionTarget(rescue, activeTarget);
+            ClearDeathSignalTarget(rescue, activeTarget);
+            ClearRescueTask(uid, rescue, $"ineligible patient {FormatEntityRef(activeTarget)}: {ineligibleReason}");
+            ResetTargetProgress(rescue);
+            _activity.Fail(uid, ineligibleReason, out _);
+            ClearFollowTarget(uid, rescue, htn);
+            SetTargetTrackingStatus(
+                uid,
+                rescue,
+                $"target_rejected: {FormatEntityRef(activeTarget)}; reason={ineligibleReason}");
+        }
+
+        if (TryUpdateDormantRouteRecovery(uid, rescue, htn))
+            return;
+
+        if (rescue.OnboardCareTarget is { Valid: true } blockedOnboard &&
+            rescue.IgnoredOnboardPatients.Contains(blockedOnboard) &&
+            IsBuckledToAssignedShuttlePatientStrap(blockedOnboard, rescue))
+        {
+            // Terminal/manual-release custody still owns a physical bed. It is
+            // intentionally ignored by treatment scans, but must be held before
+            // priority preemption or automatic reacquisition can choose a second
+            // patient and strand the occupied strap.
+            CancelCurrentHtnMovement(uid, htn);
+            ClearFollowTarget(uid, rescue, htn);
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.DeliveringPatient,
+                blockedOnboard,
+                rescue.AssignedPatientStrap,
+                $"holding terminal onboard custody for {FormatEntityRef(blockedOnboard)} until physical release");
+            Dirty(uid, rescue);
             return;
         }
+
+        if (rescue.AssignedTarget is { Valid: true } boardedTarget &&
+            IsBuckledToAssignedShuttlePatientStrap(boardedTarget, rescue))
+        {
+            // Physical boarding is authoritative. Normalize even externally
+            // buckled/manual assignments through the same handoff used by the
+            // evacuation executor so an onboard patient can never retain a
+            // FollowTarget owner or be preempted before care takes ownership.
+            CompleteEvacuation(uid, rescue, htn, boardedTarget);
+            return;
+        }
+
+        if (TryPreemptForHigherUrgencyPatient(uid, rescue, htn))
+            return;
+
+        if (UpdateEvacuation(uid, rescue, htn))
+            return;
 
         if (!TryComp<MedibotComponent>(uid, out var medibot))
         {
@@ -2758,8 +5473,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
+        if (TryResumeDeferredPatientTask(uid, rescue, htn))
+            return;
+
+        if (TryResumeManualOverrideTarget(uid, rescue, htn))
+            return;
+
         if (TryFindPriorityRescueOverride(uid, rescue, medibot, out var priorityTarget))
         {
+            if (!TryReplacePriorityPatientIntent(uid, rescue, htn, priorityTarget))
+                return;
+
             if (TryTreatOrEvacuateTarget(uid, rescue, htn, priorityTarget))
                 return;
 
@@ -2774,11 +5498,35 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
+        if (rescue.AssignedTarget is { Valid: true } assigned &&
+            !IsTargetTemporarilySkipped(uid, assigned, rescue) &&
+            !IsBuckledToAssignedShuttlePatientStrap(assigned, rescue))
+        {
+            if (TryTreatOrEvacuateTarget(uid, rescue, htn, assigned))
+                return;
+
+            // Coordinator/manual ownership is stronger than automatic
+            // perception. A patient behind a wall may be temporarily unseen,
+            // but the authoritative route probe must be allowed to terminalize
+            // that assignment instead of silently dropping it into Standby.
+            // Keep the deterministic same-urgency acuity/distance override
+            // above this block so a better patient can still take ownership.
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.FollowingPatient,
+                assigned,
+                null,
+                $"following coordinator-assigned patient {FormatEntityRef(assigned)}");
+            SetFollowTarget(uid, rescue, htn, assigned);
+            return;
+        }
+
         if (TryResumeRememberedPatientTask(uid, rescue, htn, medibot))
             return;
 
         if (rescue.AssignedTarget is { Valid: true } current &&
-            !IsTargetTemporarilySkipped(current, rescue) &&
+            !IsTargetTemporarilySkipped(uid, current, rescue) &&
             IsRescueCandidate(uid, current, medibot, requireRange: false, rescue.SearchRange, out _))
         {
             if (TryTreatOrEvacuateTarget(uid, rescue, htn, current))
@@ -2795,10 +5543,21 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
-        if (TryFindRescueTarget(uid, rescue.SearchRange, rescue, medibot, out var target))
+        // Onboard scanners are subordinate to the coordinator's explicit
+        // assigned/remembered intent. In particular, a low-priority patient on a
+        // bed must not steal ownership back from a newly dispatched Critical.
+        if (TryContinueOnboardCare(uid, rescue, htn))
+            return;
+
+        if (TryFindBestPatientTarget(uid, rescue.SearchRange, rescue, medibot, out var target))
         {
-            if (TryTreatOrEvacuateTarget(uid, rescue, htn, target))
+            var dead = TryComp<MobStateComponent>(target, out var selectedState) &&
+                       selectedState.CurrentState == MobState.Dead;
+            if (dead && TryAutoDefibTarget(uid, rescue, htn, target) ||
+                TryTreatOrEvacuateTarget(uid, rescue, htn, target))
+            {
                 return;
+            }
 
             SetRescueTask(
                 uid,
@@ -2811,19 +5570,15 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return;
         }
 
-        if (TryFindEvacuationTarget(uid, rescue.SearchRange, rescue, out var evacuationTarget) &&
-            (TryAutoDefibTarget(uid, rescue, htn, evacuationTarget) ||
-             TryTreatOrEvacuateTarget(uid, rescue, htn, evacuationTarget)))
-        {
-            return;
-        }
-
         StandbyAtAssignedShuttle(uid, rescue, htn);
     }
 
     private bool TryContinueOnboardCare(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
     {
-        return TryAutoDefibDeadPatientOnShuttle(uid, rescue, htn) ||
+        PruneIgnoredOnboardPatients(rescue);
+        PruneStaleOnboardCareOwnership(uid, rescue, htn);
+        return TryHandoffTerminalOnboardPatient(uid, rescue, htn) ||
+               TryAutoDefibDeadPatientOnShuttle(uid, rescue, htn) ||
                TryTreatOnboardPatient(uid, rescue, htn) ||
                TryReleaseStabilizedPatientOnShuttle(uid, rescue, htn);
     }
@@ -2836,6 +5591,15 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         TryReportPatientArrival(uid, rescue, target);
         TryReportTriageDecision(uid, rescue, target);
+
+        // Defibrillation is a patient action, not a shuttle-only action. An
+        // explicitly assigned or deferred recoverable patient must remain
+        // executable even when no evacuation shuttle is available.
+        if (TryHandleTerminalDefibrillationPatient(uid, rescue, htn, target) ||
+            TryAutoDefibTarget(uid, rescue, htn, target))
+        {
+            return true;
+        }
 
         if (ShouldEvacuateBeforeTreatment(uid, target, rescue))
         {
@@ -2871,7 +5635,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (candidate == excludedTarget)
                 continue;
 
-            if (IsTargetTemporarilySkipped(candidate, rescue))
+            if (IsTargetTemporarilySkipped(uid, candidate, rescue) ||
+                !CanPerceiveAutomaticTarget(uid, candidate, searchRange))
                 continue;
 
             if (!IsRescueCandidate(uid, candidate, medibot, requireRange: true, searchRange, out var score))
@@ -2890,6 +5655,66 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return target != default;
     }
 
+    private bool TryFindBestPatientTarget(
+        EntityUid uid,
+        float searchRange,
+        LuaMRescueAgentComponent rescue,
+        MedibotComponent medibot,
+        out EntityUid target)
+    {
+        target = default;
+        var bestScore = float.MinValue;
+
+        foreach (var candidate in _lookup.GetEntitiesInRange(uid, searchRange))
+        {
+            if (IsTargetTemporarilySkipped(uid, candidate, rescue) ||
+                !CanPerceiveAutomaticTarget(uid, candidate, searchRange) ||
+                !TryComp<MobStateComponent>(candidate, out var state) ||
+                !TryGetDistance(uid, candidate, out var distance))
+            {
+                continue;
+            }
+
+            LuaMRescuePatientRequestKind kind;
+            if (state.CurrentState == MobState.Dead)
+            {
+                kind = LuaMRescuePatientRequestKind.AutomaticEvacuation;
+                if (!IsEvacuationCandidate(uid, candidate, rescue, searchRange, out _))
+                    continue;
+            }
+            else
+            {
+                kind = LuaMRescuePatientRequestKind.AutomaticTreatment;
+                if (!IsRescueCandidate(uid, candidate, medibot, requireRange: true, searchRange, out _) ||
+                    !HasAutoAcquireAcuity(candidate, rescue))
+                {
+                    continue;
+                }
+            }
+
+            var priority = _activity.GetPatientPriority(
+                uid,
+                candidate,
+                kind,
+                manualOverride: false,
+                out _);
+            if (priority == int.MinValue)
+                continue;
+
+            var score = priority - distance;
+            if (score < bestScore ||
+                Math.Abs(score - bestScore) < 0.001f && target.Valid && candidate.Id >= target.Id)
+            {
+                continue;
+            }
+
+            target = candidate;
+            bestScore = score;
+        }
+
+        return target.Valid;
+    }
+
     private bool TryFindPriorityRescueOverride(
         EntityUid uid,
         LuaMRescueAgentComponent rescue,
@@ -2900,7 +5725,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (!TryGetActivePatientTarget(rescue, out var current) ||
             Deleted(current) ||
-            IsTargetTemporarilySkipped(current, rescue) ||
+            rescue.RequiredOnboardHandoffPatients.Contains(current) ||
+            IsTargetTemporarilySkipped(uid, current, rescue) ||
             !TryGetRescueTargetPriority(
                 uid,
                 current,
@@ -2918,7 +5744,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         foreach (var candidate in _lookup.GetEntitiesInRange(uid, rescue.SearchRange))
         {
             if (candidate == current ||
-                IsTargetTemporarilySkipped(candidate, rescue))
+                IsTargetTemporarilySkipped(uid, candidate, rescue) ||
+                !CanPerceiveAutomaticTarget(uid, candidate, rescue.SearchRange))
             {
                 continue;
             }
@@ -2953,6 +5780,94 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return target != default;
     }
 
+    /// <summary>
+    /// Atomically transfers the sole patient intent before any treatment or
+    /// evacuation code can run. In particular, an in-range replacement may
+    /// start a medical DoAfter without ever calling SetFollowTarget, so leaving
+    /// the old FollowTarget/AssignedTarget in place would keep the stale MoveTo
+    /// alive beside the new coordinator activity.
+    /// </summary>
+    private bool TryReplacePriorityPatientIntent(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid replacement)
+    {
+        if (!TryGetActivePatientTarget(rescue, out var displaced) ||
+            displaced == replacement ||
+            Deleted(displaced) ||
+            Deleted(replacement))
+        {
+            return false;
+        }
+
+        DeferPatientDisplacedByUrgency(uid, rescue, displaced, replacement);
+        PrepareForExternalIntentReplacement(uid, replacement);
+        StopPullingTarget(uid, displaced);
+
+        // PrepareForExternalIntentReplacement shuts the plan and steering down,
+        // but FollowTarget is persistent blackboard state. Remove it before the
+        // new action starts so an immediate treatment cannot inherit the old
+        // patient's movement owner.
+        htn.Blackboard.Remove<EntityCoordinates>(NPCBlackboard.FollowTarget);
+
+        rescue.EvacuatingTarget = null;
+        rescue.OnboardCareTarget = null;
+        rescue.AssignedPatientStrap = null;
+        ClearDeathSignalTarget(rescue, displaced);
+        if (rescue.ShuttleRoutedTarget == displaced)
+            rescue.ShuttleRoutedTarget = null;
+        rescue.AssignedTarget = replacement;
+        rescue.SkippedTargets.Remove(replacement);
+        rescue.DeferredPatientTargets.Remove(replacement);
+        ResetTargetProgress(rescue);
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.FollowingPatient,
+            replacement,
+            null,
+            $"preempting {FormatEntityRef(displaced)} for closer higher-acuity {FormatEntityRef(replacement)}");
+
+        var entryActivity = GetPriorityPatientEntryActivity(uid, rescue, replacement);
+        if (BeginPatientActivity(
+                uid,
+                rescue,
+                entryActivity,
+                replacement,
+                new EntityCoordinates(replacement, Vector2.Zero)))
+        {
+            return true;
+        }
+
+        rescue.LastTargetTrackingStatus =
+            $"priority replacement failed: target={FormatEntityRef(replacement)}; " +
+            $"reason={rescue.ActivityContext.FailureReason}";
+        Dirty(uid, rescue);
+        return false;
+    }
+
+    private LuaMRescueActivity GetPriorityPatientEntryActivity(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target)
+    {
+        if (ShouldEvacuateBeforeTreatment(uid, target, rescue))
+            return LuaMRescueActivity.PrepareEvacuation;
+
+        if (rescue.AutoTreatWithCarriedItems &&
+            IsWithinRange(uid, target, rescue.PlayerActionRange) &&
+            TryComp<MobStateComponent>(target, out var mobState) &&
+            mobState.CurrentState != MobState.Dead &&
+            TryComp<DamageableComponent>(target, out var damageable) &&
+            damageable.TotalDamage.Float() >= rescue.AutoTreatMinDamage)
+        {
+            return LuaMRescueActivity.TreatPatient;
+        }
+
+        return LuaMRescueActivity.ApproachPatient;
+    }
+
     private bool TryGetActivePatientTarget(LuaMRescueAgentComponent rescue, out EntityUid target)
     {
         if (rescue.EvacuatingTarget is { Valid: true } evacuating)
@@ -2975,6 +5890,505 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         target = default;
         return false;
+    }
+
+    private bool IsEligibleAssignedPatient(
+        EntityUid rescuer,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        out LuaMRescueFailureReason failureReason)
+    {
+        // Once a patient physically occupies a bed on the assigned shuttle, the
+        // onboard-care lifecycle is the sole owner of their eligibility and
+        // release. The generic target loop must not clear that ownership merely
+        // because the patient became healthy (or otherwise terminal) before the
+        // bounded handoff path has actually unbuckled them.
+        if (IsBuckledToAssignedShuttlePatientStrap(target, rescue))
+        {
+            failureReason = LuaMRescueFailureReason.None;
+            return true;
+        }
+
+        var requiredHandoff = rescue.RequiredOnboardHandoffPatients.Contains(target);
+        if (requiredHandoff && !HasComp<PullableComponent>(target))
+        {
+            failureReason = LuaMRescueFailureReason.TargetNotPullable;
+            return false;
+        }
+
+        if (requiredHandoff && !HasComp<BuckleComponent>(target))
+        {
+            failureReason = LuaMRescueFailureReason.InvalidPatient;
+            return false;
+        }
+
+        var manualOverride = IsManualPatientIntent(rescue, target);
+        var kind = manualOverride
+            ? LuaMRescuePatientRequestKind.Manual
+            : TryComp<MobStateComponent>(target, out var mobState) &&
+              mobState.CurrentState == MobState.Dead
+                ? LuaMRescuePatientRequestKind.AutomaticEvacuation
+                : LuaMRescuePatientRequestKind.AutomaticTreatment;
+        var eligible = _activity.IsEligibleRescuePatient(
+            rescuer,
+            target,
+            kind,
+            manualOverride,
+            out failureReason);
+        return eligible ||
+               requiredHandoff &&
+               IsAcceptedRequiredHandoffMedicalFailure(failureReason);
+    }
+
+    private void PruneDeletedRequiredHandoffPatients(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        foreach (var target in rescue.RequiredOnboardHandoffPatients.ToArray())
+        {
+            if (!Deleted(target))
+                continue;
+
+            PurgePatientState(
+                uid,
+                rescue,
+                htn,
+                target,
+                "deleted required handoff fallback prune");
+        }
+    }
+
+    private static bool IsAcceptedRequiredHandoffMedicalFailure(LuaMRescueFailureReason failure)
+    {
+        // Required handoff is physical custody, not a new treatment request.
+        // Medical impossibility must therefore fall through to bounded
+        // evacuation/transport, while structural failures remain rejected.
+        return failure is LuaMRescueFailureReason.TargetHealthy or
+               LuaMRescueFailureReason.Unrevivable or
+               LuaMRescueFailureReason.TargetHasNoMind or
+               LuaMRescueFailureReason.TargetNotInjectable;
+    }
+
+    private static bool IsManualPatientIntent(LuaMRescueAgentComponent rescue, EntityUid target)
+    {
+        return rescue.ManualOverrideTarget == target ||
+               rescue.PendingPlayerAction != LuaMRescuePlayerActionKind.None &&
+               rescue.PendingPlayerActionTarget == target;
+    }
+
+    private void PruneManualOverrideTarget(EntityUid uid, LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.ManualOverrideTarget is not { Valid: true } manualTarget)
+        {
+            rescue.ManualOverrideTarget = null;
+            return;
+        }
+
+        if (Deleted(manualTarget))
+            RevokeManualOverrideTarget(uid, rescue, manualTarget, "manual patient deleted");
+    }
+
+    private void RevokeManualOverrideTarget(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid? expectedTarget,
+        string reason)
+    {
+        if (rescue.ManualOverrideTarget is not { Valid: true } manualTarget)
+        {
+            rescue.ManualOverrideTarget = null;
+            return;
+        }
+
+        if (expectedTarget is { Valid: true } expected && manualTarget != expected)
+            return;
+
+        var revokedGeneration = rescue.ManualOverrideGeneration;
+        rescue.ManualOverrideTarget = null;
+        rescue.ManualOverrideGeneration = NextManualOverrideGeneration(rescue.ManualOverrideGeneration);
+        var revoked = new LuaMRescueManualOverrideRevokedEvent(manualTarget, revokedGeneration, reason);
+        RaiseLocalEvent(uid, ref revoked);
+        Dirty(uid, rescue);
+    }
+
+    /// <summary>
+    /// Establishes a fresh explicit-order lineage. Returning the existing
+    /// generation for the same target lets a displaced manual order be
+    /// reconciled without manufacturing a new owner or resetting recovery.
+    /// </summary>
+    public uint EstablishManualOverrideTarget(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target)
+    {
+        if (!target.Valid)
+            return rescue.ManualOverrideGeneration;
+
+        if (rescue.ManualOverrideTarget == target && rescue.ManualOverrideGeneration != 0)
+            return rescue.ManualOverrideGeneration;
+
+        if (rescue.ManualOverrideTarget is { Valid: true })
+            RevokeManualOverrideTarget(uid, rescue, null, "manual patient ownership replaced");
+
+        rescue.ManualOverrideGeneration = NextManualOverrideGeneration(rescue.ManualOverrideGeneration);
+        rescue.ManualOverrideTarget = target;
+        Dirty(uid, rescue);
+        return rescue.ManualOverrideGeneration;
+    }
+
+    private static uint NextManualOverrideGeneration(uint generation)
+    {
+        return generation == uint.MaxValue ? 1u : generation + 1u;
+    }
+
+    private bool TryPreemptForHigherUrgencyPatient(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (!TryGetActivePatientTarget(rescue, out var current) || Deleted(current))
+            return false;
+
+        if (rescue.RequiredOnboardHandoffPatients.Contains(current))
+            return false;
+
+        var currentUrgency = _activity.GetPatientUrgency(current);
+        if (currentUrgency == LuaMRescuePatientUrgency.Critical)
+            return false;
+
+        EntityUid best = default;
+        var bestUrgency = currentUrgency;
+        foreach (var candidate in _lookup.GetEntitiesInRange(uid, rescue.SearchRange))
+        {
+            if (candidate == current ||
+                IsTargetTemporarilySkipped(uid, candidate, rescue) ||
+                !CanPerceiveAutomaticTarget(uid, candidate, rescue.SearchRange) ||
+                !_activity.IsEligibleRescuePatient(
+                    uid,
+                    candidate,
+                    LuaMRescuePatientRequestKind.AutomaticTreatment,
+                    manualOverride: false,
+                    out _) ||
+                !TryGetNavigationSelectionPenalty(uid, candidate, rescue.PlayerActionRange, out _))
+            {
+                continue;
+            }
+
+            var urgency = _activity.GetPatientUrgency(candidate);
+            if (urgency <= bestUrgency || urgency < LuaMRescuePatientUrgency.Severe)
+                continue;
+
+            best = candidate;
+            bestUrgency = urgency;
+        }
+
+        if (!best.Valid)
+            return false;
+
+        DeferPatientDisplacedByUrgency(uid, rescue, current, best);
+        PrepareForExternalIntentReplacement(uid, best);
+        StopPullingTarget(uid, current);
+        rescue.EvacuatingTarget = null;
+        rescue.OnboardCareTarget = null;
+        rescue.AssignedPatientStrap = null;
+        rescue.AssignedTarget = best;
+        if (rescue.DeathSignalTarget == current)
+            rescue.DeathSignalTarget = null;
+        rescue.SkippedTargets.Remove(best);
+        rescue.DeferredPatientTargets.Remove(best);
+        ResetTargetProgress(rescue);
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.FollowingPatient,
+            best,
+            null,
+            $"preempting {FormatEntityRef(current)} for higher urgency {FormatEntityRef(best)}");
+        SetFollowTarget(uid, rescue, htn, best);
+        return true;
+    }
+
+    private void DeferPatientDisplacedByUrgency(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid displaced,
+        EntityUid replacement)
+    {
+        var manualOverride = rescue.ManualOverrideTarget == displaced;
+        var kind = manualOverride
+            ? LuaMRescuePatientRequestKind.Manual
+            : TryComp<MobStateComponent>(displaced, out var state) &&
+              state.CurrentState == MobState.Dead
+                ? LuaMRescuePatientRequestKind.AutomaticEvacuation
+                : LuaMRescuePatientRequestKind.AutomaticTreatment;
+        if (!_activity.IsEligibleRescuePatient(
+                uid,
+                displaced,
+                kind,
+                manualOverride,
+                out var failureReason))
+        {
+            rescue.LastDeferredPatientStatus =
+                $"not deferred {FormatEntityRef(displaced)}: {failureReason}";
+            return;
+        }
+
+        rescue.DeferredPatientTargets.TryAdd(displaced, _timing.CurTime);
+        rescue.LastDeferredPatientStatus =
+            $"deferred {FormatEntityRef(displaced)} for higher urgency {FormatEntityRef(replacement)}";
+        Dirty(uid, rescue);
+    }
+
+    private void DeferPatientInterruptedByAgentState(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        MobState agentState)
+    {
+        var interrupted = rescue.EvacuatingTarget ??
+                          rescue.AssignedTarget ??
+                          rescue.DeathSignalTarget ??
+                          rescue.TaskPatientTarget ??
+                          (rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active
+                              ? rescue.ActivityContext.Target
+                              : null);
+        if (interrupted is not { Valid: true } target ||
+            Deleted(target) ||
+            rescue.OnboardCareTarget == target ||
+            rescue.ManualOverrideTarget == target)
+        {
+            return;
+        }
+
+        var requestKind = TryComp<MobStateComponent>(target, out var targetState) &&
+                          targetState.CurrentState == MobState.Dead
+            ? LuaMRescuePatientRequestKind.AutomaticEvacuation
+            : LuaMRescuePatientRequestKind.AutomaticTreatment;
+        if (!_activity.IsEligibleRescuePatient(
+                uid,
+                target,
+                requestKind,
+                manualOverride: false,
+                out var failureReason))
+        {
+            rescue.LastDeferredPatientStatus =
+                $"not deferred after self-{agentState}: {FormatEntityRef(target)}; {failureReason}";
+            return;
+        }
+
+        rescue.DeferredPatientTargets.TryAdd(target, _timing.CurTime);
+        rescue.LastDeferredPatientStatus =
+            $"deferred {FormatEntityRef(target)} while rescue agent was {agentState}";
+    }
+
+    private bool TryResumeDeferredPatientTask(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (rescue.DeferredPatientTargets.Count == 0 ||
+            TryGetActivePatientTarget(rescue, out _) ||
+            rescue.OnboardCareTarget is { Valid: true } ||
+            rescue.DeathSignalTarget is { Valid: true })
+        {
+            return false;
+        }
+
+        EntityUid selected = default;
+        var selectedPriority = int.MinValue;
+        var selectedEnqueuedAt = TimeSpan.MaxValue;
+        foreach (var (candidate, enqueuedAt) in rescue.DeferredPatientTargets.ToArray())
+        {
+            if (!candidate.Valid || Deleted(candidate))
+            {
+                rescue.DeferredPatientTargets.Remove(candidate);
+                continue;
+            }
+
+            if (IsTargetTemporarilySkipped(uid, candidate, rescue))
+                continue;
+
+            var manualOverride = rescue.ManualOverrideTarget == candidate;
+            var kind = manualOverride
+                ? LuaMRescuePatientRequestKind.Manual
+                : TryComp<MobStateComponent>(candidate, out var state) &&
+                  state.CurrentState == MobState.Dead
+                    ? LuaMRescuePatientRequestKind.AutomaticEvacuation
+                    : LuaMRescuePatientRequestKind.AutomaticTreatment;
+            var priority = _activity.GetPatientPriority(
+                uid,
+                candidate,
+                kind,
+                manualOverride,
+                out var failureReason);
+            if (priority == int.MinValue)
+            {
+                rescue.DeferredPatientTargets.Remove(candidate);
+                rescue.LastDeferredPatientStatus =
+                    $"discarded deferred {FormatEntityRef(candidate)}: {failureReason}";
+                continue;
+            }
+
+            if (priority < selectedPriority ||
+                priority == selectedPriority &&
+                (enqueuedAt > selectedEnqueuedAt ||
+                 enqueuedAt == selectedEnqueuedAt && selected.Valid && candidate.Id >= selected.Id))
+            {
+                continue;
+            }
+
+            selected = candidate;
+            selectedPriority = priority;
+            selectedEnqueuedAt = enqueuedAt;
+        }
+
+        if (!selected.Valid)
+            return false;
+
+        rescue.DeferredPatientTargets.Remove(selected);
+        rescue.LastDeferredPatientStatus = $"resuming deferred {FormatEntityRef(selected)}";
+        rescue.SkippedTargets.Remove(selected);
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.FollowingPatient,
+            selected,
+            null,
+            rescue.LastDeferredPatientStatus);
+        SetFollowTarget(uid, rescue, htn, selected);
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    /// <summary>
+    /// A temporary route skip clears the active compatibility mirrors, but it
+    /// must not erase an explicit manual assignment. Once the skip expires,
+    /// restore that target through the normal route executor so its bounded
+    /// failure budget can advance to a durable or dormant disposition.
+    /// </summary>
+    private bool TryResumeManualOverrideTarget(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (rescue.ManualOverrideTarget is not { Valid: true } target ||
+            Deleted(target) ||
+            rescue.PendingPlayerAction != LuaMRescuePlayerActionKind.None ||
+            TryGetActivePatientTarget(rescue, out _) ||
+            rescue.OnboardCareTarget is { Valid: true } ||
+            rescue.DeathSignalTarget is { Valid: true } ||
+            rescue.DormantRouteTarget == target ||
+            IsTargetTemporarilySkipped(uid, target, rescue))
+        {
+            return false;
+        }
+
+        if (!_activity.IsEligibleRescuePatient(
+                uid,
+                target,
+                LuaMRescuePatientRequestKind.Manual,
+                manualOverride: true,
+                out var failureReason))
+        {
+            RevokeManualOverrideTarget(
+                uid,
+                rescue,
+                target,
+                $"manual patient became ineligible: {failureReason}");
+            rescue.LastDeferredPatientStatus =
+                $"discarded manual override {FormatEntityRef(target)}: {failureReason}";
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        rescue.LastDeferredPatientStatus = $"resuming manual override {FormatEntityRef(target)}";
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.FollowingPatient,
+            target,
+            null,
+            rescue.LastDeferredPatientStatus);
+        SetFollowTarget(uid, rescue, htn, target);
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    /// <summary>
+    /// ActivityContext owns the active generation. The older assignment/task
+    /// fields are compatibility mirrors used by selection and status code; a
+    /// stale mirror must be repaired before it can trigger a second replacement
+    /// of the intent the coordinator already owns.
+    /// </summary>
+    private void ReconcileActivePatientIntentOwnership(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (rescue.ActivityContext.TerminalStatus != LuaMRescueTerminalStatus.Active ||
+            rescue.ActivityContext.Target is not { Valid: true } authoritativeTarget ||
+            Deleted(authoritativeTarget) ||
+            rescue.TaskPatientTarget != authoritativeTarget)
+        {
+            return;
+        }
+
+        if (IsBuckledToAssignedShuttlePatientStrap(authoritativeTarget, rescue) &&
+            rescue.AssignedTarget != authoritativeTarget)
+        {
+            // OnboardCare/Handoff owns a physically boarded patient without a
+            // follow mirror. Preserve an existing matching assignment just long
+            // enough for UpdateAssignedTarget to normalize an externally
+            // buckled patient through CompleteEvacuation, but never synthesize
+            // that mirror again on subsequent onboard refreshes.
+            if (rescue.AssignedTarget is { Valid: true } staleOnboardMirror)
+            {
+                StopPullingTarget(uid, staleOnboardMirror);
+                _rescueNavigation.CancelRoute(uid, staleOnboardMirror);
+                if (htn.Blackboard.TryGetValue<EntityCoordinates>(
+                        NPCBlackboard.FollowTarget,
+                        out var onboardFollow,
+                        EntityManager) &&
+                    onboardFollow.EntityId == staleOnboardMirror)
+                {
+                    CancelCurrentHtnMovement(uid, htn, cancelRouteProbe: false);
+                    htn.Blackboard.Remove<EntityCoordinates>(NPCBlackboard.FollowTarget);
+                }
+
+                rescue.AssignedTarget = null;
+                Dirty(uid, rescue);
+            }
+            else if (rescue.AssignedTarget != null)
+            {
+                rescue.AssignedTarget = null;
+                Dirty(uid, rescue);
+            }
+
+            return;
+        }
+
+        if (rescue.AssignedTarget == authoritativeTarget)
+            return;
+
+        var staleTarget = rescue.AssignedTarget;
+        if (staleTarget is { Valid: true } stale && stale != authoritativeTarget)
+        {
+            StopPullingTarget(uid, stale);
+            _rescueNavigation.CancelRoute(uid, stale);
+        }
+
+        if (htn.Blackboard.TryGetValue<EntityCoordinates>(
+                NPCBlackboard.FollowTarget,
+                out var follow,
+                EntityManager) &&
+            follow.EntityId != authoritativeTarget)
+        {
+            CancelCurrentHtnMovement(uid, htn, cancelRouteProbe: false);
+            htn.Blackboard.Remove<EntityCoordinates>(NPCBlackboard.FollowTarget);
+        }
+
+        rescue.AssignedTarget = authoritativeTarget;
+        Dirty(uid, rescue);
     }
 
     private void UpdateTargetTrackingStatus(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
@@ -3088,7 +6502,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (candidate == excludedTarget)
                 continue;
 
-            if (IsTargetTemporarilySkipped(candidate, rescue))
+            if (IsTargetTemporarilySkipped(uid, candidate, rescue) ||
+                !CanPerceiveAutomaticTarget(uid, candidate, searchRange))
                 continue;
 
             if (!IsEvacuationCandidate(uid, candidate, rescue, searchRange, out var score))
@@ -3104,14 +6519,163 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return target != default;
     }
 
-    private bool UpdateEvacuation(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    private PullStartResult TryPrepareAndStartPatientPull(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
     {
-        if (!CanUseAssignedShuttle(rescue))
+        if (!rescue.ActivityRoleProfile.EquipmentPolicy.Allows(LuaMRescueEquipmentKind.Pulling))
         {
-            rescue.EvacuatingTarget = null;
-            return false;
+            rescue.LastAutoEvacuationStatus = "RoleDisallowed: role profile disallows patient pulling";
+            _activity.Block(uid, LuaMRescueFailureReason.RoleDisallowed, LuaMRescueActivity.Handoff, out _);
+            return PullStartResult.TerminalFailure;
         }
 
+        if (rescue.TerminalPullFailures.TryGetValue(target, out var terminalPullFailure))
+        {
+            rescue.LastAutoEvacuationStatus = terminalPullFailure;
+            return PullStartResult.TerminalFailure;
+        }
+
+        if (rescue.NextPullAttemptAt.TryGetValue(target, out var retryAt) &&
+            _timing.CurTime < retryAt)
+        {
+            rescue.LastAutoEvacuationStatus =
+                $"pull retry backoff until {retryAt.TotalSeconds:0.00}s; patient={FormatEntityRef(target)}";
+            return PullStartResult.Waiting;
+        }
+
+        var continuingPullIntent = rescue.ActivityContext.Activity == LuaMRescueActivity.PullPatient &&
+                                   rescue.ActivityContext.Target == target &&
+                                   rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active;
+        if (!continuingPullIntent &&
+            !BeginPatientActivity(
+                uid,
+                rescue,
+                LuaMRescueActivity.PrepareEvacuation,
+                target,
+                new EntityCoordinates(target, Vector2.Zero)))
+        {
+            return PullStartResult.TerminalFailure;
+        }
+
+        if (HasActiveMedicalDoAfter(uid, target, out var medicalAction))
+        {
+            rescue.LastAutoEvacuationStatus =
+                $"waiting for {medicalAction} DoAfter before pull; patient={FormatEntityRef(target)}";
+            rescue.TargetStallAccumulator = 0f;
+            return PullStartResult.Waiting;
+        }
+
+        if (_container.IsEntityOrParentInContainer(target) ||
+            !_container.IsInSameOrNoContainer((uid, null, null), (target, null, null)))
+        {
+            _activity.Block(uid, LuaMRescueFailureReason.ContainedTarget, LuaMRescueActivity.Handoff, out _);
+            TemporarilySkipTarget(uid, rescue, htn, target);
+            rescue.LastAutoEvacuationStatus =
+                $"ContainedTarget: refusing pull for {FormatEntityRef(target)}";
+            Dirty(uid, rescue);
+            return PullStartResult.TerminalFailure;
+        }
+
+        if (!HasComp<PullableComponent>(target))
+        {
+            _activity.Block(uid, LuaMRescueFailureReason.InvalidPatient, LuaMRescueActivity.Handoff, out _);
+            TemporarilySkipTarget(uid, rescue, htn, target);
+            rescue.LastAutoEvacuationStatus =
+                $"InvalidPatient: {FormatEntityRef(target)} has no PullableComponent";
+            Dirty(uid, rescue);
+            return PullStartResult.TerminalFailure;
+        }
+
+        if (!TryComp<HandsComponent>(uid, out var hands))
+        {
+            _activity.Block(uid, LuaMRescueFailureReason.NoFreeHand, LuaMRescueActivity.Handoff, out _);
+            TemporarilySkipTarget(uid, rescue, htn, target);
+            rescue.LastAutoEvacuationStatus = "NoFreeHand: rescue agent has no hands component";
+            Dirty(uid, rescue);
+            return PullStartResult.TerminalFailure;
+        }
+
+        if (!_hands.TryGetEmptyHand(uid, out _, hands))
+        {
+            if (TryAutoStowHeldItemForTreatment(uid, rescue, out var stowStatus))
+            {
+                rescue.LastAutoEvacuationStatus = $"preparing pull: {stowStatus}";
+                Dirty(uid, rescue);
+                return PullStartResult.Waiting;
+            }
+
+            TrySendRescueStatusComms(
+                uid,
+                rescue,
+                $"pull-blocked-no-hand:{target}",
+                $"Не могу начать эвакуацию {Name(target)}: не удаётся освободить руку. Нужна помощь с переноской.");
+            _activity.Block(uid, LuaMRescueFailureReason.NoFreeHand, LuaMRescueActivity.Handoff, out _);
+            TemporarilySkipTarget(uid, rescue, htn, target);
+            rescue.LastAutoEvacuationStatus = $"NoFreeHand: {stowStatus}";
+            Dirty(uid, rescue);
+            return PullStartResult.TerminalFailure;
+        }
+
+        if (!continuingPullIntent &&
+            !BeginPatientActivity(
+                uid,
+                rescue,
+                LuaMRescueActivity.PullPatient,
+                target,
+                new EntityCoordinates(target, Vector2.Zero)))
+        {
+            return PullStartResult.TerminalFailure;
+        }
+
+        if (_pulling.TryStartPull(uid, target) && IsPullingTarget(uid, target))
+        {
+            rescue.PullAttempts.Remove(target);
+            rescue.NextPullAttemptAt.Remove(target);
+            rescue.TerminalPullFailures.Remove(target);
+            _activity.RecordProgress(
+                uid,
+                Transform(target).Coordinates,
+                0f,
+                LuaMRescueRouteStatus.Arrived,
+                LuaMRescueDoAfterStatus.None,
+                out _);
+            return PullStartResult.Started;
+        }
+
+        var attempts = rescue.PullAttempts.GetValueOrDefault(target) + 1;
+        rescue.PullAttempts[target] = attempts;
+        var backoffSeconds = Math.Min(
+            Math.Max(1d, rescue.ActivityRoleProfile.MaxRetryBackoff.TotalSeconds),
+            Math.Max(0.1d, rescue.ActivityRoleProfile.BaseRetryBackoff.TotalSeconds) * Math.Pow(2d, attempts - 1));
+        rescue.NextPullAttemptAt[target] = _timing.CurTime + TimeSpan.FromSeconds(backoffSeconds);
+        _activity.RecordAttempt(uid, out var snapshot);
+        if (attempts >= Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts) || snapshot.IsTerminal)
+        {
+            var terminalStatus =
+                $"ActionCancelled: pull failed after {attempts} attempts; requesting evacuation help";
+            rescue.TerminalPullFailures[target] = terminalStatus;
+            rescue.LastAutoEvacuationStatus = terminalStatus;
+            TrySendRescueStatusComms(
+                uid,
+                rescue,
+                $"pull-terminal:{target}",
+                $"Не могу зафиксировать переноску {Name(target)} после {attempts} попыток. Нужен помощник эвакуации.");
+            _activity.Fail(uid, LuaMRescueFailureReason.ActionCancelled, out _);
+            TemporarilySkipTarget(uid, rescue, htn, target);
+            return PullStartResult.TerminalFailure;
+        }
+
+        rescue.LastAutoEvacuationStatus =
+            $"ActionCancelled: pull attempt {attempts}/{rescue.ActivityRoleProfile.MaxAttempts} failed; retry in {backoffSeconds:0.0}s";
+        Dirty(uid, rescue);
+        return PullStartResult.Waiting;
+    }
+
+    private bool UpdateEvacuation(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
+    {
         if (rescue.EvacuatingTarget is not { Valid: true } target ||
             Deleted(target))
         {
@@ -3120,8 +6684,38 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (IsTargetTemporarilySkipped(target, rescue))
+        if (!CanUseAssignedShuttle(rescue))
         {
+            if (TryHoldRequiredHandoffCustody(
+                    uid,
+                    target,
+                    rescue,
+                    htn,
+                    "assigned shuttle is unavailable",
+                    LuaMRescueFailureReason.ShuttleUnavailable))
+            {
+                return true;
+            }
+
+            rescue.EvacuatingTarget = null;
+            return false;
+        }
+
+        if (TryHandleTerminalDefibrillationPatient(uid, rescue, htn, target))
+            return true;
+
+        if (IsTargetTemporarilySkipped(uid, target, rescue))
+        {
+            if (TryHoldRequiredHandoffCustody(
+                    uid,
+                    target,
+                    rescue,
+                    htn,
+                    "bounded evacuation failure remains unresolved"))
+            {
+                return true;
+            }
+
             StopPullingTarget(uid, target);
             rescue.EvacuatingTarget = null;
             rescue.AssignedTarget = null;
@@ -3134,8 +6728,19 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (!TryComp<MobStateComponent>(target, out var mobState) ||
             mobState.CurrentState == MobState.Dead &&
-            !IsDeadPatientRecoveryTarget(target, rescue, mobState))
+            !IsDeadPatientRecoveryTarget(uid, target, rescue, mobState))
         {
+            if (TryHoldRequiredHandoffCustody(
+                    uid,
+                    target,
+                    rescue,
+                    htn,
+                    "dead patient cannot enter another recovery cycle",
+                    LuaMRescueFailureReason.Unrevivable))
+            {
+                return true;
+            }
+
             StopPullingTarget(uid, target);
             rescue.EvacuatingTarget = null;
             ResetTargetProgress(rescue);
@@ -3144,7 +6749,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (IsEvacuationComplete(target, rescue))
+        if (IsEvacuationComplete(uid, target, rescue))
         {
             CompleteEvacuation(uid, rescue, htn, target);
             return false;
@@ -3184,34 +6789,39 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
         }
 
-        if (TryFindPatientDeliveryStrap(rescue, out var patientStrap, out _))
+        if (TryFindPatientDeliveryStrap(uid, rescue, out var patientStrap, out _))
         {
             rescue.AssignedPatientStrap = patientStrap;
-            if (TryBucklePatientToStrap(uid, target, patientStrap, rescue))
-            {
-                CompleteEvacuation(uid, rescue, htn, target);
-                return false;
-            }
-
-            if (ShouldSkipFailedPatientDeliveryTarget(target, patientStrap, rescue))
-            {
-                TemporarilySkipDeliveryTarget(rescue, patientStrap, "buckle failed");
-                ResetTargetProgress(rescue);
-                if (TryFindPatientDeliveryStrap(rescue, out var replacementStrap, out _))
-                    rescue.AssignedPatientStrap = replacementStrap;
-            }
         }
         else
         {
             rescue.AssignedPatientStrap = null;
+            if (rescue.RequiredOnboardHandoffPatients.Contains(target) &&
+                !HasAvailablePatientDeliveryStrap(rescue, target))
+            {
+                TryHoldRequiredHandoffCustody(
+                    uid,
+                    target,
+                    rescue,
+                    htn,
+                    "no viable patient delivery strap is available",
+                    LuaMRescueFailureReason.ShuttleUnavailable);
+                return true;
+            }
         }
 
         if (!IsPullingTarget(uid, target))
         {
             if (IsWithinRange(uid, target, rescue.EvacuationStartRange))
             {
-                _pulling.TryStartPull(uid, target);
-                if (IsPullingTarget(uid, target))
+                var pullResult = TryPrepareAndStartPatientPull(uid, target, rescue, htn);
+                if (pullResult == PullStartResult.TerminalFailure)
+                    return false;
+
+                if (pullResult == PullStartResult.Waiting)
+                    return true;
+
+                if (pullResult == PullStartResult.Started)
                 {
                     startedPatientPull = true;
                     TrySayRescueAction(
@@ -3248,18 +6858,38 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (rescue.AssignedPatientStrap is { Valid: true } deliveryStrap &&
             !Deleted(deliveryStrap))
         {
-            if (TryBucklePatientToStrap(uid, target, deliveryStrap, rescue))
+            var buckleResult = TryBucklePatientToStrap(uid, target, deliveryStrap, rescue);
+            if (buckleResult == PatientBuckleResult.Succeeded)
             {
                 CompleteEvacuation(uid, rescue, htn, target);
                 return false;
             }
 
-            if (ShouldSkipFailedPatientDeliveryTarget(target, deliveryStrap, rescue))
+            if (buckleResult == PatientBuckleResult.Waiting)
             {
-                TemporarilySkipDeliveryTarget(rescue, deliveryStrap, "buckle failed");
+                // The patient already satisfies the physical buckle contract.
+                // Keep BucklePatient as the authoritative activity while its
+                // pair-scoped backoff runs instead of replacing it with a fresh
+                // DeliverPatient generation on every refresh.
+                HoldMovementForRoute(uid, htn);
+                SetRescueTask(
+                    uid,
+                    rescue,
+                    LuaMRescueTaskStage.DeliveringPatient,
+                    target,
+                    deliveryStrap,
+                    $"waiting for bounded buckle retry on {FormatEntityRef(deliveryStrap)}");
+                Dirty(uid, rescue);
+                return true;
+            }
+
+            if (buckleResult == PatientBuckleResult.TerminalFailure)
+            {
                 ResetTargetProgress(rescue);
-                if (TryFindPatientDeliveryStrap(rescue, out var replacementStrap, out _))
+                if (TryFindPatientDeliveryStrap(uid, rescue, out var replacementStrap, out _))
                     rescue.AssignedPatientStrap = replacementStrap;
+                else
+                    rescue.AssignedPatientStrap = null;
             }
         }
 
@@ -3314,6 +6944,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         HTNComponent htn,
         EntityUid target)
     {
+        if (TryHandleTerminalDefibrillationPatient(uid, rescue, htn, target))
+            return true;
+
         var unsafeSceneEvacuation = IsThreatenedEvacuationTarget(uid, target, rescue);
         if (!NeedsEvacuation(uid, target, rescue))
             return false;
@@ -3375,10 +7008,11 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
         }
 
-        _pulling.TryStartPull(uid, target);
-        var startedPatientPull = IsPullingTarget(uid, target);
+        var pullResult = TryPrepareAndStartPatientPull(uid, target, rescue, htn);
+        if (pullResult == PullStartResult.TerminalFailure)
+            return false;
 
-        if (!startedPatientPull)
+        if (pullResult == PullStartResult.Waiting)
         {
             SetRescueTask(
                 uid,
@@ -3448,12 +7082,30 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         HTNComponent htn)
     {
         if (!rescue.AutoUnbucklePatientsForEvacuation ||
-            !TryComp<BuckleComponent>(target, out var buckle) ||
-            buckle.BuckledTo is not { Valid: true } strap ||
-            Deleted(strap) ||
+            !TryComp<BuckleComponent>(target, out var buckle))
+        {
+            return false;
+        }
+
+        if (buckle.BuckledTo is not { Valid: true } strap)
+        {
+            rescue.EvacuationUnbuckleAttempts.Remove(target);
+            rescue.NextEvacuationUnbuckleAttemptAt.Remove(target);
+            rescue.TerminalEvacuationUnbuckleFailures.Remove(target);
+            return false;
+        }
+
+        if (Deleted(strap) ||
             IsAssignedShuttlePatientStrap(strap, rescue))
         {
             return false;
+        }
+
+        if (rescue.TerminalEvacuationUnbuckleFailures.TryGetValue(target, out var terminalFailure))
+        {
+            rescue.LastAutoEvacuationStatus = terminalFailure;
+            TemporarilySkipTarget(uid, rescue, htn, target);
+            return true;
         }
 
         if (!IsWithinRange(uid, strap, buckle.Range))
@@ -3463,15 +7115,66 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
         }
 
+        if (rescue.NextEvacuationUnbuckleAttemptAt.TryGetValue(target, out var retryAt) &&
+            _timing.CurTime < retryAt)
+        {
+            rescue.LastAutoEvacuationStatus =
+                $"ActionCancelled: waiting for bounded unbuckle retry of {FormatEntityRef(target)}";
+            return true;
+        }
+
+        if (TryGetUnbuckleDelayRemaining(buckle, out var unbuckleDelay))
+        {
+            rescue.TargetStallAccumulator = 0f;
+            rescue.LastAutoEvacuationStatus =
+                $"waiting {unbuckleDelay.TotalSeconds:0.00}s for buckle safety delay before evacuating " +
+                $"{FormatEntityRef(target)} from {FormatEntityRef(strap)}";
+            Dirty(uid, rescue);
+            return true;
+        }
+
         var unbuckled = _buckle.TryUnbuckle(target, uid, buckle, popup: false);
         rescue.LastAutoEvacuationStatus = unbuckled
             ? $"unbuckled {FormatEntityRef(target)} from {FormatEntityRef(strap)} for evacuation"
             : $"could not unbuckle {FormatEntityRef(target)} from {FormatEntityRef(strap)} for evacuation";
 
-        if (!unbuckled)
-            SetFollowTarget(uid, rescue, htn, target);
-        else
+        if (unbuckled)
+        {
+            rescue.EvacuationUnbuckleAttempts.Remove(target);
+            rescue.NextEvacuationUnbuckleAttemptAt.Remove(target);
+            rescue.TerminalEvacuationUnbuckleFailures.Remove(target);
             Dirty(uid, rescue);
+            return true;
+        }
+
+        var attempts = rescue.EvacuationUnbuckleAttempts.GetValueOrDefault(target) + 1;
+        rescue.EvacuationUnbuckleAttempts[target] = attempts;
+        var backoffSeconds = Math.Min(
+            Math.Max(1d, rescue.ActivityRoleProfile.MaxRetryBackoff.TotalSeconds),
+            Math.Max(0.1d, rescue.ActivityRoleProfile.BaseRetryBackoff.TotalSeconds) * Math.Pow(2d, attempts - 1));
+        rescue.NextEvacuationUnbuckleAttemptAt[target] =
+            _timing.CurTime + TimeSpan.FromSeconds(backoffSeconds);
+        _activity.RecordAttempt(uid, out _);
+        if (attempts >= Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts))
+        {
+            var status =
+                $"ActionCancelled: unbuckle failed after {attempts} attempts; patient={FormatEntityRef(target)}; assistance required";
+            rescue.TerminalEvacuationUnbuckleFailures[target] = status;
+            rescue.LastAutoEvacuationStatus = status;
+            _activity.Block(uid, LuaMRescueFailureReason.ActionCancelled, LuaMRescueActivity.Handoff, out _);
+            TrySendRescueStatusComms(
+                uid,
+                rescue,
+                $"unbuckle-terminal:{target}",
+                $"Не могу освободить {Name(target)} для эвакуации после {attempts} попыток. Нужна ручная помощь.");
+            TemporarilySkipTarget(uid, rescue, htn, target);
+            return true;
+        }
+
+        rescue.LastAutoEvacuationStatus =
+            $"ActionCancelled: unbuckle attempt {attempts}/{rescue.ActivityRoleProfile.MaxAttempts}; retry in {backoffSeconds:0.0}s";
+        SetFollowTarget(uid, rescue, htn, target);
+        Dirty(uid, rescue);
 
         return true;
     }
@@ -3482,6 +7185,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         HTNComponent htn,
         EntityUid target)
     {
+        if (rescue.TerminalAnalysisFailures.TryGetValue(target, out var terminalAnalysis))
+        {
+            rescue.LastAutoAnalyzeStatus = terminalAnalysis;
+            return false;
+        }
+
         if (!rescue.AutoAnalyzeBeforeTreatment ||
             rescue.AutoAnalyzeCooldown <= 0f ||
             _timing.CurTime < rescue.NextAutoAnalyzeAttempt ||
@@ -3490,6 +7199,15 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        if (!BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.Triage,
+            target,
+            new EntityCoordinates(target, Vector2.Zero)))
+        {
+            return false;
+        }
         rescue.NextAutoAnalyzeAttempt = _timing.CurTime + TimeSpan.FromSeconds(Math.Min(5f, rescue.AutoAnalyzeCooldown));
 
         if (!TryFindHealthAnalyzerItem(uid, out var analyzer, out var status))
@@ -3512,20 +7230,20 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        var handled = _interaction.InteractUsing(uid, analyzer, target, Transform(target).Coordinates);
-        rescue.LastAutoAnalyzeStatus = handled
-            ? $"analyzed {FormatEntityRef(target)} using {FormatEntityRef(analyzer)}"
-            : $"analysis of {FormatEntityRef(target)} using {FormatEntityRef(analyzer)} was not handled";
-
-        if (handled)
+        _interaction.InteractUsing(uid, analyzer, target, Transform(target).Coordinates);
+        if (HasActiveMedicalDoAfter(uid, target, out var kind))
         {
-            rescue.AnalyzedTargets[target] = _timing.CurTime + TimeSpan.FromSeconds(rescue.AutoAnalyzeCooldown);
-            rescue.NextAutoAnalyzeAttempt = _timing.CurTime + TimeSpan.FromSeconds(0.1f);
-            SetFollowTarget(uid, rescue, htn, target);
+            TrackMedicalDoAfter(uid, rescue, target, analyzer, kind);
+            rescue.LastAutoAnalyzeStatus =
+                $"{kind} DoAfter running: patient={FormatEntityRef(target)}; item={FormatEntityRef(analyzer)}";
+            Dirty(uid, rescue);
+            return true;
         }
 
+        rescue.LastAutoAnalyzeStatus =
+            $"analysis of {FormatEntityRef(target)} using {FormatEntityRef(analyzer)} did not start";
         Dirty(uid, rescue);
-        return handled;
+        return false;
     }
 
     private bool TryAutoTreatTarget(
@@ -3534,15 +7252,79 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         HTNComponent htn,
         EntityUid target)
     {
-        if (!rescue.AutoTreatWithCarriedItems ||
-            Deleted(target) ||
-            !TryComp<MobStateComponent>(target, out var mobState) ||
-            mobState.CurrentState == MobState.Dead ||
-            !TryComp<DamageableComponent>(target, out var damageable) ||
-            damageable.TotalDamage.Float() < rescue.AutoTreatMinDamage ||
-            !IsWithinRange(uid, target, rescue.PlayerActionRange))
+        if (!rescue.AutoTreatWithCarriedItems)
         {
+            rescue.LastAutoTreatmentDecisionStatus = "automatic carried-item treatment is disabled";
             return false;
+        }
+
+        if (Deleted(target))
+        {
+            rescue.LastAutoTreatmentDecisionStatus = $"treatment target {FormatEntityRef(target)} is deleted";
+            return false;
+        }
+
+        if (!TryComp<MobStateComponent>(target, out var mobState))
+        {
+            rescue.LastAutoTreatmentDecisionStatus = $"treatment target {FormatEntityRef(target)} has no mob state";
+            return false;
+        }
+
+        if (mobState.CurrentState == MobState.Dead)
+        {
+            rescue.LastAutoTreatmentDecisionStatus = $"treatment target {FormatEntityRef(target)} is dead";
+            return false;
+        }
+
+        if (!TryComp<DamageableComponent>(target, out var damageable))
+        {
+            rescue.LastAutoTreatmentDecisionStatus = $"treatment target {FormatEntityRef(target)} has no damage state";
+            return false;
+        }
+
+        var totalDamage = damageable.TotalDamage.Float();
+        if (totalDamage < rescue.AutoTreatMinDamage)
+        {
+            rescue.LastAutoTreatmentDecisionStatus =
+                $"treatment target {FormatEntityRef(target)} is below threshold: " +
+                $"damage={totalDamage:0.###}; minimum={rescue.AutoTreatMinDamage:0.###}";
+            return false;
+        }
+
+        var withinTreatmentRange = IsWithinRange(uid, target, rescue.PlayerActionRange);
+        var maintainingTreatmentCooldown =
+            _timing.CurTime < rescue.NextAutoTreatmentAttempt &&
+            rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+            rescue.ActivityContext.Activity == LuaMRescueActivity.TreatPatient &&
+            rescue.ActivityContext.Target == target;
+        if (!withinTreatmentRange && !maintainingTreatmentCooldown)
+        {
+            rescue.LastAutoTreatmentDecisionStatus =
+                $"treatment target {FormatEntityRef(target)} is outside unobstructed action range; " +
+                $"range={rescue.PlayerActionRange:0.###}; activity={rescue.ActivityContext.Activity}; " +
+                $"terminal={rescue.ActivityContext.TerminalStatus}; generation={rescue.ActivityContext.Generation}";
+            return false;
+        }
+
+        if (rescue.PendingMedicalEffectVerification &&
+            rescue.PendingMedicalDoAfterTarget == target)
+        {
+            rescue.LastAutoTreatmentStatus =
+                $"awaiting observed medical effect on {FormatEntityRef(target)}";
+            rescue.TargetStallAccumulator = 0f;
+            HoldMovementForMedicalDoAfter(uid, rescue, target);
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        if (HasActiveMedicalDoAfter(uid, target, out var activeKind))
+        {
+            TrackMedicalDoAfter(uid, rescue, target, rescue.PendingMedicalDoAfterItem, activeKind);
+            rescue.LastAutoTreatmentStatus =
+                $"{activeKind} DoAfter running: patient={FormatEntityRef(target)}";
+            rescue.TargetStallAccumulator = 0f;
+            Dirty(uid, rescue);
+            return true;
         }
 
         SetRescueTask(
@@ -3552,6 +7334,28 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             target,
             null,
             $"treating {FormatEntityRef(target)}");
+        if (!BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.TreatPatient,
+            target,
+            new EntityCoordinates(target, Vector2.Zero)))
+        {
+            rescue.LastAutoTreatmentDecisionStatus =
+                $"cannot own treatment intent for {FormatEntityRef(target)}: " +
+                $"activity={rescue.ActivityContext.Activity}; terminal={rescue.ActivityContext.TerminalStatus}; " +
+                $"failure={rescue.ActivityContext.FailureReason}; generation={rescue.ActivityContext.Generation}";
+            return false;
+        }
+
+        if (HasTerminalTreatmentFailure(uid, rescue, target))
+        {
+            rescue.LastAutoTreatmentDecisionStatus =
+                rescue.TerminalTreatmentFailures.GetValueOrDefault(
+                    target,
+                    $"terminal treatment failure for {FormatEntityRef(target)}");
+            return false;
+        }
         if (!IsOnAssignedShuttle(target, rescue))
         {
             TrySayRescueAction(
@@ -3567,7 +7371,46 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
 
         if (_timing.CurTime < rescue.NextAutoTreatmentAttempt)
-            return false;
+        {
+            // The coordinator already owns an in-range TreatPatient intent. A
+            // finite item cooldown is active waiting, not a navigation failure:
+            // returning false would let the caller replace it with ApproachPatient
+            // every refresh and churn the intent generation until the deadline.
+            var cooldownStatus =
+                $"treatment cooldown for {FormatEntityRef(target)} until " +
+                $"{rescue.NextAutoTreatmentAttempt.TotalSeconds:0.00}s";
+            var changed = rescue.TargetStallAccumulator != 0f ||
+                          !string.Equals(
+                              rescue.LastAutoTreatmentStatus,
+                              cooldownStatus,
+                              StringComparison.Ordinal);
+            rescue.TargetStallAccumulator = 0f;
+            rescue.LastAutoTreatmentStatus = cooldownStatus;
+
+            if (withinTreatmentRange)
+            {
+                // A stale FollowTarget can still carry velocity from the patient
+                // that was just displaced. Stop it while the authoritative
+                // treatment intent waits for its bounded item cooldown.
+                HoldMovementForTreatmentCooldown(uid, htn);
+            }
+            else
+            {
+                // Range loss during a cooldown is execution progress inside the
+                // same treatment intent, not a reason to replace that intent with
+                // ApproachPatient and then immediately replace it back again.
+                SetMovementGoal(
+                    uid,
+                    rescue,
+                    htn,
+                    new EntityCoordinates(target, Vector2.Zero),
+                    rescue.PlayerActionRange);
+            }
+
+            if (changed)
+                Dirty(uid, rescue);
+            return true;
+        }
 
         rescue.NextAutoTreatmentAttempt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoTreatCooldown));
 
@@ -3613,21 +7456,246 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                     rescue.LastAutoSupplyStatus = supplyStatus;
             }
 
+            var failureReason = status.Equals("no empty hand for treatment item", StringComparison.OrdinalIgnoreCase)
+                ? LuaMRescueFailureReason.NoFreeHand
+                : LuaMRescueFailureReason.NoEffectiveMedicine;
+            RecordTreatmentFailure(uid, rescue, target, failureReason, status);
             Dirty(uid, rescue);
             return false;
         }
 
+        if (!IsEffectiveTreatmentItem(item, target, out var rejectionReason))
+        {
+            rescue.LastAutoTreatmentStatus =
+                $"{rejectionReason}: {FormatEntityRef(item)} cannot treat {FormatEntityRef(target)}";
+            var failureReason = Enum.TryParse<LuaMRescueFailureReason>(rejectionReason, out var parsedReason)
+                ? parsedReason
+                : LuaMRescueFailureReason.NoEffectiveMedicine;
+            RecordTreatmentFailure(uid, rescue, target, failureReason, rescue.LastAutoTreatmentStatus);
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        var startingDamage = damageable.TotalDamage.Float();
+        var startingDamageByType = GetDamageTypeSnapshot(target);
+        var startingMobState = mobState.CurrentState;
+        var startingBleedAmount = TryComp<BloodstreamComponent>(target, out var bloodstream)
+            ? bloodstream.BleedAmount
+            : 0f;
+        var startingBloodVolume = GetPatientBloodVolume(target);
+        var expectedEffect = BuildMedicalEffectExpectation(item, target);
+        var volumeBefore = GetMedicalItemSolutionVolume(item);
         var handled = _interaction.InteractUsing(uid, item, target, Transform(target).Coordinates);
-        rescue.LastAutoTreatmentStatus = handled
-            ? $"treated {FormatEntityRef(target)} using {FormatEntityRef(item)}"
-            : $"treatment of {FormatEntityRef(target)} using {FormatEntityRef(item)} was not handled";
+        if (HasActiveMedicalDoAfter(uid, target, out activeKind))
+        {
+            TrackMedicalDoAfter(uid, rescue, target, item, activeKind);
+            rescue.LastAutoTreatmentStatus =
+                $"{activeKind} DoAfter started: patient={FormatEntityRef(target)}; item={FormatEntityRef(item)}";
+            rescue.TargetStallAccumulator = 0f;
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        var volumeAfter = GetMedicalItemSolutionVolume(item);
+        var solutionTransferred = handled &&
+                                  volumeBefore is { } before &&
+                                  volumeAfter is { } after &&
+                                  after + 0.001f < before;
+        var immediateEffect = handled && HasObservedMedicalImprovement(
+            target,
+            startingDamageByType,
+            startingBleedAmount,
+            startingBloodVolume,
+            expectedEffect.DamageTypes,
+            expectedEffect.ReducesBleeding,
+            expectedEffect.IncreasesBloodVolume,
+            startingMobState,
+            expectedEffect.ImprovesMobState);
+        rescue.LastAutoTreatmentStatus = immediateEffect
+            ? $"instant treatment completed: patient={FormatEntityRef(target)}; item={FormatEntityRef(item)}"
+            : solutionTransferred && IsInjectionMedicalAction("injection", item)
+                ? $"injection transferred: patient={FormatEntityRef(target)}; awaiting observed medical effect"
+                : $"treatment failed to produce an effect: patient={FormatEntityRef(target)}; item={FormatEntityRef(item)}";
 
         Dirty(uid, rescue);
 
-        if (!handled)
+        if (!immediateEffect &&
+            solutionTransferred &&
+            IsInjectionMedicalAction("injection", item))
+        {
+            TrackInstantMedicalEffectVerification(
+                uid,
+                rescue,
+                target,
+                item,
+                TryComp<InjectorComponent>(item, out _) ? "injector" : "hypospray",
+                startingDamage,
+                startingDamageByType,
+                volumeBefore,
+                startingBleedAmount,
+                startingMobState,
+                startingBloodVolume,
+                expectedEffect);
+            return true;
+        }
+
+        if (!immediateEffect)
+        {
+            RecordTreatmentFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.ActionCancelled,
+                $"interaction with {FormatEntityRef(item)} produced no verified effect");
+            return false;
+        }
+
+        rescue.TargetStallAccumulator = 0f;
+        rescue.OnboardCareAttempts.Remove(target);
+        ClearTreatmentFailure(rescue, target);
+        _activity.RecordProgress(
+            uid,
+            Transform(target).Coordinates,
+            TryGetDistance(uid, target, out var immediateDistance) ? immediateDistance : null,
+            LuaMRescueRouteStatus.Arrived,
+            LuaMRescueDoAfterStatus.Succeeded,
+            out _);
+        return true;
+    }
+
+    private bool TryValidateDefibrillationPatient(
+        EntityUid target,
+        out LuaMRescueFailureReason failureReason,
+        out string status)
+    {
+        if (!TryComp<MobStateComponent>(target, out var mobState) ||
+            mobState.CurrentState is not (MobState.Dead or MobState.Critical))
+        {
+            failureReason = LuaMRescueFailureReason.InvalidPatient;
+            status = "defibrillation requires a dead or critical supported patient";
+            return false;
+        }
+
+        if (HasComp<UnrevivableComponent>(target) || HasComp<RottingComponent>(target))
+        {
+            failureReason = LuaMRescueFailureReason.Unrevivable;
+            status = HasComp<RottingComponent>(target)
+                ? "defibrillation blocked: patient is rotten"
+                : "defibrillation blocked: patient is marked unrevivable";
+            return false;
+        }
+
+        if (!HasComp<MobThresholdsComponent>(target))
+        {
+            failureReason = LuaMRescueFailureReason.UnsupportedSpecies;
+            status = "defibrillation blocked: patient has no supported mob thresholds";
+            return false;
+        }
+
+        if (!TryComp<MindContainerComponent>(target, out var mind) || !mind.HasMind)
+        {
+            failureReason = LuaMRescueFailureReason.Unrevivable;
+            status = "defibrillation blocked: no recoverable mind is attached to the body";
+            return false;
+        }
+
+        failureReason = LuaMRescueFailureReason.None;
+        status = "defibrillation patient validated";
+        return true;
+    }
+
+    private bool HasExpectedDefibrillatorBenefit(DefibrillatorComponent defibrillator, EntityUid target)
+    {
+        return TryComp<DamageableComponent>(target, out var damageable) &&
+               defibrillator.ZapHeal.DamageDict.Any(entry =>
+                   entry.Value < 0 &&
+                   damageable.Damage.DamageDict.TryGetValue(entry.Key, out var current) &&
+                   current > 0);
+    }
+
+    private void MarkTerminalDefibrillationFailure(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        LuaMRescueFailureReason reason,
+        string status)
+    {
+        var debugStatus = $"{reason}: {status}; patient={FormatEntityRef(target)}";
+        rescue.TerminalDefibrillationFailures[target] = debugStatus;
+        rescue.LastAutoDefibStatus = debugStatus;
+        _activity.Fail(uid, reason, out _);
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"defib-terminal:{target}:{reason}",
+            $"Восстановление {Name(target)} прекращено: {status}. Перехожу к транспортировке и передаче.");
+        Dirty(uid, rescue);
+    }
+
+    /// <summary>
+    /// Defibrillation eligibility is stricter than manual patient eligibility.
+    /// Resolve unrecoverable dead/critical targets before the evacuation gate so
+    /// an explicit order cannot fall through into an endless follow intent.
+    /// </summary>
+    private bool TryHandleTerminalDefibrillationPatient(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target)
+    {
+        if (!rescue.AutoDefibDeadPatients ||
+            Deleted(target) ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            mobState.CurrentState is not (MobState.Dead or MobState.Critical) ||
+            TryValidateDefibrillationPatient(target, out var failureReason, out var status))
+        {
+            return false;
+        }
+
+        if (!rescue.TerminalDefibrillationFailures.ContainsKey(target))
+            MarkTerminalDefibrillationFailure(uid, rescue, target, failureReason, status);
+
+        // An inherited physical/home-handoff contract transports even an
+        // unrevivable body. Defibrillation is terminal, but custody is not: let
+        // the forced evacuation path continue instead of clearing its owner.
+        if (rescue.RequiredOnboardHandoffPatients.Contains(target))
             return false;
 
-        SetFollowTarget(uid, rescue, htn, target);
+        StopPullingTarget(uid, target);
+        rescue.EvacuatingTarget = null;
+        rescue.AssignedTarget = null;
+        rescue.AssignedPatientStrap = null;
+        ClearArrivalReportTarget(rescue, target);
+        ClearTriageDecisionTarget(rescue, target);
+        ClearDeathSignalTarget(rescue, target);
+        ResetTargetProgress(rescue);
+
+        if (IsBuckledToAssignedShuttlePatientStrap(target, rescue))
+        {
+            // A physically occupied shuttle bed remains owned by the onboard
+            // handoff path until it is safely and actually unbuckled.
+            rescue.OnboardCareTarget = target;
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.DeliveringPatient,
+                target,
+                null,
+                $"terminal onboard handoff pending for {FormatEntityRef(target)}: {failureReason}");
+            SetOnboardCareStatus(rescue, target, $"terminal defibrillation outcome; {status}");
+        }
+        else
+        {
+            if (rescue.TaskPatientTarget == target)
+                ClearRescueTask(uid, rescue, $"terminal defibrillation handoff for {FormatEntityRef(target)}: {failureReason}");
+
+            rescue.OnboardCareTarget = null;
+        }
+
+        ClearFollowTarget(uid, rescue, htn);
+        rescue.LastTargetTrackingStatus =
+            $"target_terminal: {FormatEntityRef(target)}; reason={failureReason}; follow=cleared";
+        Dirty(uid, rescue);
         return true;
     }
 
@@ -3640,9 +7708,54 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!rescue.AutoDefibDeadPatients ||
             Deleted(target) ||
             !TryComp<MobStateComponent>(target, out var mobState) ||
-            mobState.CurrentState != MobState.Dead)
+            mobState.CurrentState is not (MobState.Dead or MobState.Critical))
         {
             return false;
+        }
+
+        if (rescue.TerminalDefibrillationFailures.TryGetValue(target, out var terminalFailure))
+        {
+            rescue.LastAutoDefibStatus = terminalFailure;
+            return false;
+        }
+
+        if (rescue.DefibrillationAttempts.GetValueOrDefault(target) >= 3)
+        {
+            MarkTerminalDefibrillationFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.Unrevivable,
+                "defibrillation failed after the bounded three-attempt policy; transport/handoff fallback");
+            return false;
+        }
+
+        if (!TryValidateDefibrillationPatient(target, out var validationFailure, out var validationStatus))
+        {
+            MarkTerminalDefibrillationFailure(uid, rescue, target, validationFailure, validationStatus);
+            return false;
+        }
+
+        if (rescue.DefibrillationStartedAt.TryGetValue(target, out var defibStarted) &&
+            _timing.CurTime - defibStarted >= TimeSpan.FromSeconds(30))
+        {
+            MarkTerminalDefibrillationFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.DeadlineExceeded,
+                "defibrillation failed: 30 second patient deadline reached; transport/handoff fallback");
+            return false;
+        }
+
+        if (HasActiveMedicalDoAfter(uid, target, out var activeKind))
+        {
+            TrackMedicalDoAfter(uid, rescue, target, rescue.PendingMedicalDoAfterItem, activeKind);
+            rescue.LastAutoDefibStatus =
+                $"{activeKind} DoAfter running: patient={FormatEntityRef(target)}";
+            rescue.TargetStallAccumulator = 0f;
+            Dirty(uid, rescue);
+            return true;
         }
 
         SetRescueTask(
@@ -3652,6 +7765,15 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             target,
             null,
             $"defibrillating {FormatEntityRef(target)}");
+        if (!BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.DefibrillatePatient,
+            target,
+            new EntityCoordinates(target, Vector2.Zero)))
+        {
+            return false;
+        }
 
         if (!IsWithinRange(uid, target, rescue.PlayerActionRange))
         {
@@ -3682,7 +7804,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.NextAutoDefibAttempt = _timing.CurTime + TimeSpan.FromSeconds(Math.Max(0.1f, rescue.AutoDefibCooldown));
 
-        if (!TryFindDefibrillatorItem(uid, out var defib, out var status))
+        if (!TryFindDefibrillatorItem(uid, target, out var defib, out var status))
         {
             rescue.LastAutoDefibStatus = status;
             if (status.Equals("no empty hand for defibrillator", StringComparison.OrdinalIgnoreCase) &&
@@ -3694,26 +7816,78 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 return true;
             }
 
-            Dirty(uid, rescue);
+            MarkTerminalDefibrillationFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.NoEffectiveMedicine,
+                $"defibrillation equipment unavailable: {status}; transport/handoff fallback");
+            return false;
+        }
+
+        if (!TryComp<DefibrillatorComponent>(defib, out var defibrillator) ||
+            !HasExpectedDefibrillatorBenefit(defibrillator, target))
+        {
+            MarkTerminalDefibrillationFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.NoEffectiveMedicine,
+                $"defibrillator {FormatEntityRef(defib)} cannot reduce the patient's current damage");
             return false;
         }
 
         if (!_itemToggle.IsActivated(defib) &&
             !_itemToggle.TryActivate(defib, uid))
         {
-            rescue.LastAutoDefibStatus = $"could not activate defibrillator {FormatEntityRef(defib)}";
-            Dirty(uid, rescue);
+            MarkTerminalDefibrillationFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.NoEffectiveMedicine,
+                $"could not activate defibrillator {FormatEntityRef(defib)}; transport/handoff fallback");
+            return false;
+        }
+
+        if (!_powerCell.HasActivatableCharge(defib, user: uid))
+        {
+            MarkTerminalDefibrillationFailure(
+                uid,
+                rescue,
+                target,
+                LuaMRescueFailureReason.NoDefibrillatorCharge,
+                $"defibrillator {FormatEntityRef(defib)} has no usable charge");
             return false;
         }
 
         if (!_defibrillator.TryStartZap(defib, target, uid))
         {
-            rescue.LastAutoDefibStatus = $"could not start defibrillation of {FormatEntityRef(target)} with {FormatEntityRef(defib)}";
+            var attempts = rescue.DefibrillationAttempts.GetValueOrDefault(target) + 1;
+            rescue.DefibrillationAttempts[target] = attempts;
+            rescue.DefibrillationStartedAt.TryAdd(target, _timing.CurTime);
+            if (attempts >= 3 ||
+                _timing.CurTime - rescue.DefibrillationStartedAt[target] >= TimeSpan.FromSeconds(30))
+            {
+                MarkTerminalDefibrillationFailure(
+                    uid,
+                    rescue,
+                    target,
+                    LuaMRescueFailureReason.ActionCancelled,
+                    $"defibrillation could not start after {attempts} bounded attempts; transport/handoff fallback");
+                return false;
+            }
+
+            rescue.LastAutoDefibStatus =
+                $"could not start defibrillation attempt {attempts}/3 of {FormatEntityRef(target)} with {FormatEntityRef(defib)}";
+            _activity.RecordAttempt(uid, out _);
             Dirty(uid, rescue);
             return false;
         }
 
         rescue.LastAutoDefibStatus = $"started defibrillation of {FormatEntityRef(target)} with {FormatEntityRef(defib)}";
+        rescue.DefibrillationStartedAt.TryAdd(target, _timing.CurTime);
+        rescue.DefibrillationAttempts[target] = rescue.DefibrillationAttempts.GetValueOrDefault(target) + 1;
+        TrackMedicalDoAfter(uid, rescue, target, defib, "defibrillator");
         TrySendRescueStatusComms(
             uid,
             rescue,
@@ -3765,7 +7939,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             target,
             supplyUid,
             $"collecting supply {FormatEntityRef(supplyUid)} for {FormatEntityRef(target)}");
-        SetFollowTarget(uid, rescue, htn, supplyUid);
+        SetTaskMovementTarget(uid, rescue, htn, supplyUid);
 
         status = $"collecting nearby {FormatEntityRef(supplyUid)}";
         return true;
@@ -3789,6 +7963,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 candidate == target ||
                 Deleted(candidate) ||
                 IsSupplyTemporarilySkipped(candidate, rescue) ||
+                !CanPerceiveAutomaticTarget(uid, candidate, searchRange) ||
                 _container.IsEntityOrParentInContainer(candidate))
             {
                 continue;
@@ -3868,7 +8043,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             target,
             storageUid,
             $"collecting stored supply {FormatEntityRef(supplyUid)} from {FormatEntityRef(storageUid)} for {FormatEntityRef(target)}");
-        SetFollowTarget(uid, rescue, htn, storageUid);
+        SetTaskMovementTarget(uid, rescue, htn, storageUid);
 
         status = $"collecting stored {FormatEntityRef(supplyUid)} from {FormatEntityRef(storageUid)}";
         return true;
@@ -3894,10 +8069,21 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 candidate == target ||
                 Deleted(candidate) ||
                 IsSupplyTemporarilySkipped(candidate, rescue) ||
+                !CanPerceiveAutomaticTarget(uid, candidate, searchRange) ||
                 _container.IsEntityOrParentInContainer(candidate) ||
                 !TryComp<StorageComponent>(candidate, out var storage) ||
                 !TryCanUseTargetStorage(uid, candidate, storage, out _) ||
-                !TrySelectTreatmentItem(candidate, storage, target, itemSelector: null, includeDiagnosticItems: false, out var storedItem, out _) ||
+                !TrySelectTreatmentItem(
+                    uid,
+                    candidate,
+                    storage,
+                    target,
+                    itemSelector: null,
+                    includeDiagnosticItems: false,
+                    out var storedItem,
+                    out var actualStorageUid,
+                    out _,
+                    out _) ||
                 Deleted(storedItem) ||
                 IsSupplyTemporarilySkipped(storedItem, rescue))
             {
@@ -3916,7 +8102,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (score <= bestScore)
                 continue;
 
-            storageUid = candidate;
+            storageUid = actualStorageUid;
             supplyUid = storedItem;
             bestScore = score;
         }
@@ -3946,7 +8132,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (!TryFindMedicalVendingSupply(uid, rescue, rescue.AutoResupplyRange, out var vendingUid, out var productId, out status))
+        if (!TryFindMedicalVendingSupply(
+                uid,
+                target,
+                rescue,
+                rescue.AutoResupplyRange,
+                out var vendingUid,
+                out var productId,
+                out status))
             return false;
 
         rescue.PendingPlayerAction = LuaMRescuePlayerActionKind.Vend;
@@ -3966,7 +8159,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             target,
             vendingUid,
             $"vending {productId} for {FormatEntityRef(target)}");
-        SetFollowTarget(uid, rescue, htn, vendingUid);
+        SetTaskMovementTarget(uid, rescue, htn, vendingUid);
 
         status = $"resupplying {productId} from {FormatEntityRef(vendingUid)}";
         return true;
@@ -3974,6 +8167,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     private bool TryFindMedicalVendingSupply(
         EntityUid uid,
+        EntityUid patient,
         LuaMRescueAgentComponent rescue,
         float searchRange,
         out EntityUid vendingUid,
@@ -3988,10 +8182,18 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         foreach (var candidate in _lookup.GetEntitiesInRange(uid, searchRange))
         {
             if (IsSupplyTemporarilySkipped(candidate, rescue) ||
+                !CanPerceiveAutomaticTarget(uid, candidate, searchRange) ||
                 !TryComp<VendingMachineComponent>(candidate, out var vending) ||
                 vending.Broken ||
                 vending.Ejecting ||
-                !TrySelectVendingProduct(candidate, vending, null, includeDiagnosticItems: false, out var product, out _))
+                !TrySelectVendingProduct(
+                    candidate,
+                    vending,
+                    itemSelector: null,
+                    includeDiagnosticItems: false,
+                    treatmentTarget: patient,
+                    out var product,
+                    out _))
             {
                 continue;
             }
@@ -4002,7 +8204,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (!TryGetNavigationSelectionPenalty(uid, candidate, rescue.PlayerActionRange, out var navPenalty))
                 continue;
 
-            var score = GetMedicalVendingProductScore(product.ID, includeDiagnosticItems: false) * 100f - distance - navPenalty;
+            var score = GetMedicalVendingProductPatientScore(product.ID, patient, includeDiagnosticItems: false) -
+                        distance - navPenalty;
             if (score <= bestScore)
                 continue;
 
@@ -4028,11 +8231,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         score = 0f;
 
-        if (candidate == rescuer ||
-            Deleted(candidate) ||
+        if (!_activity.IsEligibleRescuePatient(
+                rescuer,
+                candidate,
+                LuaMRescuePatientRequestKind.AutomaticTreatment,
+                manualOverride: false,
+                out _) ||
             !TryComp<MobStateComponent>(candidate, out var mobState) ||
-            !TryComp<DamageableComponent>(candidate, out var damage) ||
-            !HasComp<InjectableSolutionComponent>(candidate))
+            !TryComp<DamageableComponent>(candidate, out var damage))
         {
             return false;
         }
@@ -4055,9 +8261,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryGetNavigationSelectionPenalty(rescuer, candidate, SharedInteractionSystem.InteractionRange, out var navPenalty))
             return false;
 
-        score = damage.TotalDamage.Float() - distance - navPenalty;
-        if (mobState.CurrentState == MobState.Critical)
-            score += 1000f;
+        var priority = _activity.GetPatientPriority(
+            rescuer,
+            candidate,
+            LuaMRescuePatientRequestKind.AutomaticTreatment,
+            manualOverride: false,
+            out _);
+        score = priority - distance - navPenalty;
 
         return true;
     }
@@ -4076,18 +8286,26 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     private bool NeedsEvacuation(EntityUid uid, EntityUid target, LuaMRescueAgentComponent rescue)
     {
+        var requiredHandoff = rescue.RequiredOnboardHandoffPatients.Contains(target);
         if (!rescue.EvacuateTargetsToShuttle ||
             !CanUseAssignedShuttle(rescue) ||
-            IsTargetTemporarilySkipped(target, rescue) ||
-            IsEvacuationComplete(target, rescue) ||
             !TryComp<MobStateComponent>(target, out var mobState) ||
             !HasComp<PullableComponent>(target))
         {
             return false;
         }
 
+        if (requiredHandoff)
+            return true;
+
+        if (IsTargetTemporarilySkipped(uid, target, rescue) ||
+            IsEvacuationComplete(uid, target, rescue))
+        {
+            return false;
+        }
+
         if (mobState.CurrentState == MobState.Dead)
-            return IsDeadPatientRecoveryTarget(target, rescue, mobState);
+            return IsDeadPatientRecoveryTarget(uid, target, rescue, mobState);
 
         if (IsThreatenedEvacuationTarget(uid, target, rescue))
             return true;
@@ -4155,14 +8373,22 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                team.NearbyBlockers >= 2;
     }
 
-    private bool IsDeadPatientRecoveryTarget(EntityUid target, LuaMRescueAgentComponent rescue, MobStateComponent mobState)
+    private bool IsDeadPatientRecoveryTarget(
+        EntityUid rescuer,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        MobStateComponent mobState)
     {
         return rescue.RecoverDeadPatientsToShuttle &&
                mobState.CurrentState == MobState.Dead &&
-               (rescue.EvacuatingTarget == target ||
-                rescue.AssignedTarget == target ||
-                rescue.TaskPatientTarget == target ||
-                HasComp<ActorComponent>(target));
+               _activity.IsEligibleRescuePatient(
+                   rescuer,
+                   target,
+                   IsManualPatientIntent(rescue, target)
+                       ? LuaMRescuePatientRequestKind.Manual
+                       : LuaMRescuePatientRequestKind.AutomaticEvacuation,
+                   IsManualPatientIntent(rescue, target),
+                   out _);
     }
 
     private bool IsEvacuationCandidate(
@@ -4174,8 +8400,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         score = 0f;
 
-        if (candidate == rescuer ||
-            Deleted(candidate) ||
+        if (!_activity.IsEligibleRescuePatient(
+                rescuer,
+                candidate,
+                LuaMRescuePatientRequestKind.AutomaticEvacuation,
+                manualOverride: false,
+                out _) ||
             !NeedsEvacuation(rescuer, candidate, rescue))
         {
             return false;
@@ -4259,13 +8489,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!rescue.AutoReturnShuttle)
             return SetShuttleReturnStatus(uid, rescue, "return-route disabled");
 
-        if (rescue.ShuttleReturnRouted)
-            return SetShuttleReturnStatus(uid, rescue, "return-route already routed");
-
-        if (rescue.AssignedShuttleConsole is not { Valid: true } console ||
-            Deleted(console))
+        if (rescue.AssignedShuttle is not { Valid: true } shuttle || Deleted(shuttle))
         {
-            return ReportShuttleReturnHold(uid, rescue, "autopilot console unavailable");
+            return ReportShuttleReturnHold(uid, rescue, "shuttle unavailable");
         }
 
         if (rescue.AssignedReturnTarget is not { Valid: true } returnTarget ||
@@ -4274,16 +8500,59 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return ReportShuttleReturnHold(uid, rescue, "return target unavailable");
         }
 
-        if (!TryComp<ShuttleConsoleComponent>(console, out var shuttleConsole))
-            return ReportShuttleReturnHold(uid, rescue, "autopilot console component unavailable");
+        var lifecycle = EnsureComp<LuaMRescueShuttleLifecycleComponent>(shuttle);
+        if (lifecycle.Target == returnTarget &&
+            lifecycle.RouteActivity == LuaMRescueActivity.Returning &&
+            lifecycle.State != LuaMRescueShuttleRouteState.None)
+        {
+            // An existing return route, including its failed/timed-out recovery
+            // window, belongs to the lifecycle. Do not reissue it from Standby
+            // and thereby bypass the bounded retry policy.
+            rescue.ShuttleReturnRouted = true;
+            rescue.ShuttleRoutedTarget = null;
+            if (lifecycle.State is LuaMRescueShuttleRouteState.Failed or LuaMRescueShuttleRouteState.TimedOut &&
+                lifecycle.RetryCount >= lifecycle.EffectiveMaxRetries)
+            {
+                return ReportShuttleReturnHold(uid, rescue, $"{lifecycle.State}: {lifecycle.LastStatus}");
+            }
 
-        if (!TryComp<HTNComponent>(console, out var htn))
-            return ReportShuttleReturnHold(uid, rescue, "autopilot HTN unavailable");
+            rescue.LastShuttleReturnStatus =
+                $"return-route {lifecycle.State}: target={FormatEntityRef(returnTarget)}; {lifecycle.LastStatus}";
+            Dirty(uid, rescue);
+            return true;
+        }
 
-        rescue.LastShuttleReturnStatus = $"return-route home: target={FormatEntityRef(returnTarget)}";
-        _npc.SetBlackboard(console, shuttleConsole.AutopilotTargetKey, new EntityCoordinates(returnTarget, Vector2.Zero), htn);
-        htn.Blackboard.Remove<Angle>(shuttleConsole.AutopilotRotationKey);
-        _npc.WakeNPC(console, htn);
+        // The flag is only a cache. A changed/missing lifecycle must be allowed
+        // to create one new authoritative route.
+        rescue.ShuttleReturnRouted = false;
+        var routeRequest = new LuaMRescueShuttleRouteRequestEvent(
+            returnTarget,
+            LuaMRescueActivity.Returning);
+        RaiseLocalEvent(shuttle, ref routeRequest);
+        if (!routeRequest.Handled)
+        {
+            // TryIssueAutopilotRoute still creates a retryable lifecycle when its
+            // first low-level issue fails (for example, a console is temporarily
+            // unavailable). Remember that ownership instead of issuing every tick.
+            if (lifecycle.Target == returnTarget &&
+                lifecycle.RouteActivity == LuaMRescueActivity.Returning &&
+                lifecycle.State is LuaMRescueShuttleRouteState.Failed or LuaMRescueShuttleRouteState.TimedOut &&
+                lifecycle.RetryCount < lifecycle.EffectiveMaxRetries)
+            {
+                rescue.ShuttleReturnRouted = true;
+                rescue.ShuttleRoutedTarget = null;
+                rescue.LastShuttleReturnStatus =
+                    $"return-route recovery pending: target={FormatEntityRef(returnTarget)}; {routeRequest.Status}";
+                Dirty(uid, rescue);
+                return true;
+            }
+
+            return ReportShuttleReturnHold(uid, rescue, routeRequest.Status);
+        }
+
+        rescue.AssignedShuttleConsole = routeRequest.AutopilotConsole;
+        rescue.LastShuttleReturnStatus =
+            $"return-route home: target={FormatEntityRef(returnTarget)}; {routeRequest.Status}";
         rescue.ShuttleReturnRouted = true;
         rescue.ShuttleRoutedTarget = null;
         Dirty(uid, rescue);
@@ -4322,32 +8591,85 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     {
         if (!rescue.AutoRouteShuttleToTargets ||
             IsOnAssignedShuttle(target, rescue) ||
-            IsEvacuationComplete(target, rescue) ||
-            rescue.ShuttleRoutedTarget == target ||
-            rescue.AssignedShuttleConsole is not { Valid: true } console ||
-            Deleted(console) ||
-            Deleted(target) ||
-            !TryComp<ShuttleConsoleComponent>(console, out var shuttleConsole) ||
-            !TryComp<HTNComponent>(console, out var htn))
+            IsEvacuationComplete(uid, target, rescue) ||
+            rescue.AssignedShuttle is not { Valid: true } shuttle ||
+            Deleted(shuttle) ||
+            Deleted(target))
         {
             return false;
         }
 
-        _npc.SetBlackboard(console, shuttleConsole.AutopilotTargetKey, new EntityCoordinates(target, Vector2.Zero), htn);
-        htn.Blackboard.Remove<Angle>(shuttleConsole.AutopilotRotationKey);
-        _npc.WakeNPC(console, htn);
+        var currentLifecycle = EnsureComp<LuaMRescueShuttleLifecycleComponent>(shuttle);
+        if (currentLifecycle.Target == target &&
+            currentLifecycle.RouteActivity == LuaMRescueActivity.Delivering &&
+            currentLifecycle.State != LuaMRescueShuttleRouteState.None)
+        {
+            // The shuttle lifecycle is the sole owner of retries for an existing
+            // route. Reissuing here on every target refresh would bypass its
+            // backoff and retry counter, especially while Failed or TimedOut.
+            rescue.ShuttleRoutedTarget = target;
+            rescue.ShuttleReturnRouted = false;
+            return true;
+        }
+
+        var routeRequest = new LuaMRescueShuttleRouteRequestEvent(
+            target,
+            LuaMRescueActivity.Delivering);
+        RaiseLocalEvent(shuttle, ref routeRequest);
+        if (!routeRequest.Handled)
+        {
+            if (currentLifecycle.Target == target &&
+                currentLifecycle.RouteActivity == LuaMRescueActivity.Delivering &&
+                currentLifecycle.State is LuaMRescueShuttleRouteState.Failed or LuaMRescueShuttleRouteState.TimedOut &&
+                currentLifecycle.RetryCount < currentLifecycle.EffectiveMaxRetries)
+            {
+                // A failed low-level issue still created a lifecycle with a due
+                // retry. Adopt it now so the next target refresh cannot reissue
+                // attempt zero forever.
+                rescue.ShuttleRoutedTarget = target;
+                rescue.ShuttleReturnRouted = false;
+                rescue.LastAutoEvacuationStatus =
+                    $"shuttle route recovery pending for {FormatEntityRef(target)}; {routeRequest.Status}";
+                Dirty(uid, rescue);
+                return true;
+            }
+
+            rescue.LastAutoEvacuationStatus =
+                $"ShuttleRouteFailed: target={FormatEntityRef(target)}; {routeRequest.Status}";
+            _activity.Block(
+                uid,
+                LuaMRescueFailureReason.ShuttleRouteFailed,
+                LuaMRescueActivity.Standby,
+                out _);
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        rescue.AssignedShuttleConsole = routeRequest.AutopilotConsole;
         rescue.ShuttleRoutedTarget = target;
         rescue.ShuttleReturnRouted = false;
+        rescue.LastAutoEvacuationStatus =
+            $"shuttle routing to {FormatEntityRef(target)}; {routeRequest.Status}";
         Dirty(uid, rescue);
         return true;
     }
 
+    private bool CanPerceiveAutomaticTarget(EntityUid observer, EntityUid candidate, float range)
+    {
+        return observer.Valid &&
+               candidate.Valid &&
+               !Deleted(observer) &&
+               !Deleted(candidate) &&
+               _examine.CanExamine(observer, candidate) &&
+               TryGetDistance(observer, candidate, out var distance) &&
+               distance <= Math.Max(0.05f, range);
+    }
+
     private bool IsWithinRange(EntityUid uid, EntityUid target, float range)
     {
-        var uidCoordinates = Transform(uid).Coordinates;
-        var targetCoordinates = Transform(target).Coordinates;
-        return uidCoordinates.TryDistance(EntityManager, targetCoordinates, out var distance) &&
-               distance <= range;
+        return !Deleted(uid) &&
+               !Deleted(target) &&
+               _interaction.InRangeUnobstructed(uid, target, Math.Max(0.05f, range));
     }
 
     private void PruneSkippedTargets(LuaMRescueAgentComponent rescue)
@@ -4422,8 +8744,47 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return false;
     }
 
-    private bool IsTargetTemporarilySkipped(EntityUid target, LuaMRescueAgentComponent rescue)
+    private bool IsTargetTemporarilySkipped(
+        EntityUid rescuer,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue)
     {
+        if (rescue.DormantRouteTarget == target)
+            return true;
+
+        if (rescue.SkippedTargets.TryGetValue(target, out var durableSkipUntil) &&
+            durableSkipUntil == TimeSpan.MaxValue)
+        {
+            return true;
+        }
+
+        // Terminal interaction failures are durable until an explicit
+        // administrative order clears them. A short skip TTL alone would let the
+        // same impossible pull/unbuckle mission reacquire forever.
+        if (rescue.TerminalPullFailures.ContainsKey(target) ||
+            rescue.TerminalEvacuationUnbuckleFailures.ContainsKey(target))
+        {
+            return true;
+        }
+
+        if (rescue.TerminalPatientBuckleFailures.Keys.Any(pair => pair.Patient == target) &&
+            ArePatientDeliveryStrapsAuthoritativelyExhausted(rescuer, rescue, target))
+        {
+            // Once every alternate strap has an authoritative terminal route
+            // result, latch the patient as durable. Holding custody tears down
+            // the old movement probes; without this latch their recreated
+            // Pending state would otherwise wake the same failed delivery on
+            // every refresh.
+            if (!rescue.SkippedTargets.TryGetValue(target, out var durableSkip) ||
+                durableSkip != TimeSpan.MaxValue)
+            {
+                rescue.SkippedTargets[target] = TimeSpan.MaxValue;
+                Dirty(rescuer, rescue);
+            }
+
+            return true;
+        }
+
         if (!rescue.SkippedTargets.TryGetValue(target, out var skipUntil))
             return false;
 
@@ -4456,33 +8817,6 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         rescue.SkippedDeliveryTargets.Remove(target);
         return false;
-    }
-
-    private bool ShouldSkipFailedPatientDeliveryTarget(
-        EntityUid target,
-        EntityUid patientStrap,
-        LuaMRescueAgentComponent rescue)
-    {
-        if (Deleted(target) ||
-            Deleted(patientStrap) ||
-            !TryComp<BuckleComponent>(target, out var buckle) ||
-            !TryComp<StrapComponent>(patientStrap, out var strap) ||
-            !IsAssignedShuttlePatientStrap(patientStrap, rescue))
-        {
-            return true;
-        }
-
-        if (buckle.BuckledTo == patientStrap)
-            return false;
-
-        if (!strap.Enabled ||
-            IsDeliveryTargetTemporarilySkipped(patientStrap, rescue) ||
-            strap.BuckledEntities.Count != 0)
-        {
-            return true;
-        }
-
-        return IsWithinRange(target, patientStrap, buckle.Range);
     }
 
     private bool TryHoldRouteBlockedEvacuation(
@@ -4587,7 +8921,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             TemporarilySkipDeliveryTarget(rescue, blockedGoal, "route blocked hold-position");
             ResetTargetProgress(rescue);
 
-            if (TryFindPatientDeliveryStrap(rescue, out var replacementStrap, out _))
+            if (TryFindPatientDeliveryStrap(uid, rescue, out var replacementStrap, out _))
             {
                 rescue.AssignedPatientStrap = replacementStrap;
                 rescue.LastAutoEvacuationStatus =
@@ -4678,7 +9012,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         TemporarilySkipDeliveryTarget(rescue, progressGoal, "stalled delivery route");
         ResetTargetProgress(rescue);
 
-        if (TryFindPatientDeliveryStrap(rescue, out var replacementStrap, out _))
+        if (TryFindPatientDeliveryStrap(uid, rescue, out var replacementStrap, out _))
         {
             rescue.AssignedPatientStrap = replacementStrap;
             SetRescueTask(
@@ -4696,6 +9030,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     private bool UpdateTargetProgress(EntityUid uid, EntityUid target, LuaMRescueAgentComponent rescue)
     {
+        // A stationary medical DoAfter is real mission progress, not a failed route.
+        if (HasActiveMedicalDoAfter(uid, target, out var medicalAction))
+        {
+            rescue.TargetStallAccumulator = 0f;
+            SetTargetTrackingStatus(
+                uid,
+                rescue,
+                $"medical_progress: target={FormatEntityRef(target)}; action={medicalAction}");
+            return false;
+        }
+
         if (!rescue.TemporarilySkipStalledTargets ||
             rescue.TargetStallSeconds <= 0f ||
             rescue.TargetSkipSeconds <= 0f ||
@@ -4722,6 +9067,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         {
             rescue.LastProgressDistance = distance;
             rescue.TargetStallAccumulator = 0f;
+            if (!HasDurableRouteFailure(rescue, target))
+                rescue.RouteFailureAttempts.Remove(target);
             SetTargetTrackingStatus(
                 uid,
                 rescue,
@@ -4793,27 +9140,118 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!TryGetDistance(uid, target, out var directDistance))
             return false;
 
-        if (directDistance <= directAllowRange)
-            return true;
-
-        var sourcePoly = _pathfinding.GetPoly(Transform(uid).Coordinates);
-        var targetPoly = _pathfinding.GetPoly(Transform(target).Coordinates);
-
-        if (sourcePoly == null || targetPoly == null)
+        var route = _rescueNavigation.ProbeRoute(uid, target, directAllowRange);
+        switch (route.State)
         {
-            penalty = 500f;
-            return true;
+            case LuaMRescuePathProbeState.Reachable:
+                // Prefer an equally urgent route without an access interaction, while
+                // keeping access-authorized doors fully traversable.
+                penalty = route.RequiresAccess ? 5f : 0f;
+                return true;
+            case LuaMRescuePathProbeState.Pending:
+                if (TryComp<LuaMRescueAgentComponent>(uid, out var pendingRescue) &&
+                    TryGetActivePatientTarget(pendingRescue, out var pendingTarget) &&
+                    pendingTarget == target)
+                {
+                    SetTargetTrackingStatus(
+                        uid,
+                        pendingRescue,
+                        $"route_planning: target={FormatEntityRef(target)}; distance={directDistance:0.0}");
+                }
+
+                return false;
+            case LuaMRescuePathProbeState.DifferentGrid:
+            case LuaMRescuePathProbeState.NoPath:
+            case LuaMRescuePathProbeState.AccessDenied:
+            case LuaMRescuePathProbeState.NoLineOfSight:
+            case LuaMRescuePathProbeState.Invalid:
+                if (TryComp<LuaMRescueAgentComponent>(uid, out var blockedRescue) &&
+                    TryGetActivePatientTarget(blockedRescue, out var blockedTarget) &&
+                    blockedTarget == target)
+                {
+                    var reason = route.State switch
+                    {
+                        LuaMRescuePathProbeState.DifferentGrid => "different-grid; waiting for shuttle docking",
+                        LuaMRescuePathProbeState.AccessDenied => "AccessDenied",
+                        LuaMRescuePathProbeState.NoLineOfSight => "NoLineOfSight",
+                        _ => "NoPath",
+                    };
+                    SetTargetTrackingStatus(
+                        uid,
+                        blockedRescue,
+                        $"route_blocked: target={FormatEntityRef(target)}; reason={reason}; distance={directDistance:0.0}");
+                }
+
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    private void PrunePatientBuckleFailures(LuaMRescueAgentComponent rescue)
+    {
+        if (rescue.PatientBuckleAttempts.Count == 0 &&
+            rescue.NextPatientBuckleAttemptAt.Count == 0 &&
+            rescue.TerminalPatientBuckleFailures.Count == 0)
+        {
+            return;
         }
 
-        if (sourcePoly.GraphUid != targetPoly.GraphUid)
-            penalty = 250f;
+        var stalePairs = rescue.PatientBuckleAttempts.Keys
+            .Concat(rescue.NextPatientBuckleAttemptAt.Keys)
+            .Concat(rescue.TerminalPatientBuckleFailures.Keys)
+            .Where(pair => Deleted(pair.Patient) || Deleted(pair.Strap))
+            .Distinct()
+            .ToArray();
+        foreach (var pair in stalePairs)
+            ClearPatientBuckleFailure(rescue, pair.Patient, pair.Strap);
+    }
 
-        return true;
+    private static void ClearPatientBuckleFailures(
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient)
+    {
+        var pairs = rescue.PatientBuckleAttempts.Keys
+            .Concat(rescue.NextPatientBuckleAttemptAt.Keys)
+            .Concat(rescue.TerminalPatientBuckleFailures.Keys)
+            .Where(pair => pair.Patient == patient)
+            .Distinct()
+            .ToArray();
+        foreach (var pair in pairs)
+            ClearPatientBuckleFailure(rescue, pair.Patient, pair.Strap);
+    }
+
+    private static void ClearPatientBuckleFailure(
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient,
+        EntityUid strap)
+    {
+        var pair = (Patient: patient, Strap: strap);
+        rescue.PatientBuckleAttempts.Remove(pair);
+        rescue.NextPatientBuckleAttemptAt.Remove(pair);
+        rescue.TerminalPatientBuckleFailures.Remove(pair);
     }
 
     private void TemporarilySkipTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
     {
         rescue.SkippedTargets[target] = _timing.CurTime + TimeSpan.FromSeconds(rescue.TargetSkipSeconds);
+
+        if (TryHoldRequiredHandoffCustody(
+                uid,
+                target,
+                rescue,
+                htn,
+                $"target stalled for {rescue.TargetSkipSeconds:0.0}s"))
+        {
+            RecordRescueHandoff(
+                uid,
+                rescue,
+                target,
+                "blocked-custody",
+                $"required handoff stalled for {rescue.TargetSkipSeconds:0.0}s",
+                "retaining patient ownership until retry or explicit handoff");
+            return;
+        }
 
         RecordRescueHandoff(
             uid,
@@ -4907,6 +9345,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private void CompleteEvacuation(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
     {
         StopPullingTarget(uid, target);
+        BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.OnboardCare,
+            target,
+            rescue.AssignedPatientStrap is { Valid: true } strap
+                ? new EntityCoordinates(strap, Vector2.Zero)
+                : null);
         ClearRescueTask(uid, rescue, $"completed evacuation of {FormatEntityRef(target)}");
         TrySayOnboardAction(
             uid,
@@ -4935,26 +9381,35 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             out var pendingTarget,
             out var pendingReason);
         var onboardCarePending = HasPendingOnboardCareOrRelease(target, rescue);
+        var homeHandoffConfigured = rescue.AssignedReturnTarget is { Valid: true } returnTarget &&
+                                    !Deleted(returnTarget);
+        if (homeHandoffConfigured)
+            rescue.RequiredOnboardHandoffPatients.Add(target);
+        var returnRouteRequested = homeHandoffConfigured && TryRouteShuttleHome(uid, rescue);
         if (!hasPendingRescueTarget)
         {
             rescue.LastRedispatchStatus = "none";
-            rescue.LastAutoEvacuationStatus = onboardCarePending
-                ? $"completed evacuation of {FormatEntityRef(target)}; onboard care pending before return"
-                : $"completed evacuation of {FormatEntityRef(target)}; return route requested";
+            rescue.LastAutoEvacuationStatus = homeHandoffConfigured
+                ? $"completed evacuation of {FormatEntityRef(target)}; onboard care continues during return; " +
+                  $"home handoff route requested={returnRouteRequested}"
+                : onboardCarePending
+                    ? $"completed evacuation of {FormatEntityRef(target)}; onboard care pending"
+                    : $"completed evacuation of {FormatEntityRef(target)}; return route requested";
         }
-        else if (onboardCarePending)
+        else if (homeHandoffConfigured || onboardCarePending)
         {
-            rescue.ShuttleReturnRouted = false;
             rescue.LastAutoEvacuationStatus =
-                $"holding shuttle for onboard care of {FormatEntityRef(target)}; pending rescue target detected";
+                homeHandoffConfigured
+                    ? $"returning {FormatEntityRef(target)} home for confirmed handoff; pending rescue target queued"
+                    : $"holding shuttle for onboard care of {FormatEntityRef(target)}; pending rescue target detected";
             rescue.LastRedispatchStatus =
-                $"redispatch deferred: onboard-care first; completed={FormatEntityRef(target)}; " +
-                $"target={FormatEntityRef(pendingTarget)}; reason={pendingReason}; status=holding";
+                $"redispatch deferred: home-handoff first; completed={FormatEntityRef(target)}; " +
+                $"target={FormatEntityRef(pendingTarget)}; reason={pendingReason}; status=queued";
             TrySendRescueStatusComms(
                 uid,
                 rescue,
                 $"redispatch-deferred-onboard:{target}:{pendingTarget}",
-                $"\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0441\u0442\u0430\u0431\u0438\u043b\u0438\u0437\u0438\u0440\u0443\u044e \u0438 \u043e\u0441\u0432\u043e\u0431\u043e\u0436\u0434\u0430\u044e \u043a\u043e\u0439\u043a\u0443, \u0437\u0430\u0442\u0435\u043c \u043f\u0435\u0440\u0435\u0439\u0434\u0443 \u043a {Name(pendingTarget)}.");
+                $"\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u0412\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u044e \u043d\u0430 \u0431\u0430\u0437\u0443 \u0434\u043b\u044f \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0439 \u043f\u0435\u0440\u0435\u0434\u0430\u0447\u0438; \u0432\u044b\u0437\u043e\u0432 {Name(pendingTarget)} \u043e\u0441\u0442\u0430\u0451\u0442\u0441\u044f \u0432 \u043e\u0447\u0435\u0440\u0435\u0434\u0438.");
         }
 
         if (!TryComp<MobStateComponent>(target, out var onboardMobState) ||
@@ -4974,22 +9429,26 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue,
             target,
             BuildPatientTreatmentResult(target, rescue),
-            onboardCarePending
+            homeHandoffConfigured
+                ? "secured onboard; returning for confirmed home handoff"
+                : onboardCarePending
                 ? "secured onboard; onboard care pending"
                 : hasPendingRescueTarget
                 ? "secured onboard; pending rescue target detected"
                 : "secured onboard; return route requested",
-            onboardCarePending
+            homeHandoffConfigured
+                ? "onboard care during return; release only after confirmed home dock"
+                : onboardCarePending
                 ? "onboard care before redispatch or return"
                 : hasPendingRescueTarget
                     ? "redeploying to next patient"
                     : "returning to shuttle base");
 
-        if (!onboardCarePending && !hasPendingRescueTarget)
+        if (!homeHandoffConfigured && !onboardCarePending && !hasPendingRescueTarget)
         {
             TryRouteShuttleHome(uid, rescue);
         }
-        else if (!onboardCarePending)
+        else if (!homeHandoffConfigured && !onboardCarePending)
         {
             rescue.ShuttleReturnRouted = false;
             rescue.LastAutoEvacuationStatus = $"holding shuttle forward after evacuation of {FormatEntityRef(target)}; pending rescue target detected";
@@ -5002,7 +9461,11 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         ClearArrivalReportTarget(rescue, target);
         ClearTriageDecisionTarget(rescue, target);
         ClearDeathSignalTarget(rescue, target);
-        StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget && !onboardCarePending);
+        StandbyAtAssignedShuttle(
+            uid,
+            rescue,
+            htn,
+            allowAutoReturn: homeHandoffConfigured || !hasPendingRescueTarget && !onboardCarePending);
         Dirty(uid, rescue);
     }
 
@@ -5033,16 +9496,341 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             $"\u041f\u0430\u0446\u0438\u0435\u043d\u0442 {Name(target)} \u043d\u0430 \u0431\u043e\u0440\u0442\u0443. \u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043f\u043e\u0434 \u043d\u0430\u0431\u043b\u044e\u0434\u0435\u043d\u0438\u0435\u043c. {followUp}");
     }
 
-    private bool IsEvacuationComplete(EntityUid target, LuaMRescueAgentComponent rescue)
+    private bool IsEvacuationComplete(EntityUid uid, EntityUid target, LuaMRescueAgentComponent rescue)
     {
         if (IsBuckledToAssignedShuttlePatientStrap(target, rescue))
             return true;
 
-        if (TryFindPatientDeliveryStrap(rescue, out _, out _))
+        if (rescue.RequiredOnboardHandoffPatients.Contains(target))
+            return false;
+
+        if (TryFindPatientDeliveryStrap(uid, rescue, out _, out _))
+            return false;
+
+        // A pending/unreachable bed is not the same as no bed. Keep delivery
+        // active so the bounded route/fallback policy can choose an alternate or
+        // request help instead of silently declaring an unbuckled patient done.
+        if (HasAvailablePatientDeliveryStrap(rescue, target))
             return false;
 
         return IsOnAssignedShuttle(target, rescue) ||
                IsAtAssignedShuttleAnchor(target, rescue);
+    }
+
+    private void MarkTerminalOnboardCareFailure(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient,
+        LuaMRescueFailureReason reason,
+        string status)
+    {
+        var debugStatus = $"{reason}: {status}; patient={FormatEntityRef(patient)}";
+        rescue.TerminalOnboardCareFailures[patient] = debugStatus;
+        rescue.LastOnboardCareStatus = debugStatus;
+        _activity.Block(uid, reason, LuaMRescueActivity.Handoff, out _);
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"onboard-terminal:{patient}:{reason}",
+            $"Бортовое лечение {Name(patient)} заблокировано: {status}. Передаю пациента и освобождаю койку.");
+        Dirty(uid, rescue);
+    }
+
+    private bool TryHoldRequiredHandoffCustody(
+        EntityUid uid,
+        EntityUid target,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        string reason,
+        LuaMRescueFailureReason failureReason = LuaMRescueFailureReason.ActionCancelled)
+    {
+        if (Deleted(target) || !rescue.RequiredOnboardHandoffPatients.Contains(target))
+            return false;
+
+        EntityUid? deliveryTarget = null;
+        if (rescue.AssignedShuttleAnchor is { Valid: true } anchor &&
+            !Deleted(anchor) &&
+            !rescue.SkippedSupplyTargets.ContainsKey(anchor) &&
+            !rescue.SkippedDeliveryTargets.ContainsKey(anchor))
+        {
+            deliveryTarget = anchor;
+        }
+        else if (rescue.AssignedShuttle is { Valid: true } shuttle &&
+                 !Deleted(shuttle) &&
+                 !rescue.SkippedSupplyTargets.ContainsKey(shuttle) &&
+                 !rescue.SkippedDeliveryTargets.ContainsKey(shuttle))
+        {
+            deliveryTarget = shuttle;
+        }
+
+        EntityCoordinates? holdDestination = deliveryTarget is { Valid: true } destination && !Deleted(destination)
+            ? new EntityCoordinates(destination, Vector2.Zero)
+            : null;
+        var alreadyHeld =
+            rescue.AssignedTarget == target &&
+            rescue.EvacuatingTarget == target &&
+            rescue.AssignedPatientStrap == null &&
+            rescue.TaskStage == LuaMRescueTaskStage.DeliveringPatient &&
+            rescue.TaskPatientTarget == target &&
+            rescue.TaskSupplyTarget == deliveryTarget &&
+            rescue.ActivityContext.Activity == LuaMRescueActivity.Handoff &&
+            rescue.ActivityContext.Target == target &&
+            Nullable.Equals(rescue.ActivityContext.Destination, holdDestination) &&
+            rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Blocked &&
+            rescue.ActivityContext.Blocked &&
+            rescue.ActivityContext.Fallback == LuaMRescueActivity.Handoff &&
+            rescue.ActivityContext.FailureReason == failureReason &&
+            !IsPullingTarget(uid, target) &&
+            !htn.Blackboard.ContainsKey(NPCBlackboard.FollowTarget);
+        if (alreadyHeld)
+            return true;
+
+        StopPullingTarget(uid, target);
+        if (rescue.AssignedTarget != null || htn.Blackboard.ContainsKey(NPCBlackboard.FollowTarget))
+            ClearFollowTarget(uid, rescue, htn);
+        else
+            CancelCurrentHtnMovement(uid, htn);
+
+        rescue.AssignedTarget = target;
+        rescue.EvacuatingTarget = target;
+        rescue.AssignedPatientStrap = null;
+        ResetTargetProgress(rescue);
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.DeliveringPatient,
+            target,
+            deliveryTarget,
+            $"required handoff held after evacuation failure: {reason}");
+
+        if (!_activity.BeginOrReplaceIntent(
+                uid,
+                rescue.ActivityRole,
+                LuaMRescueActivity.Handoff,
+                target,
+                holdDestination,
+                out _) &&
+            rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active)
+        {
+            _activity.Cancel(
+                uid,
+                rescue.ActivityContext.Generation,
+                LuaMRescueFailureReason.Cancelled,
+                out _);
+            _activity.BeginOrReplaceIntent(
+                uid,
+                rescue.ActivityRole,
+                LuaMRescueActivity.Handoff,
+                target,
+                holdDestination,
+                out _);
+        }
+
+        _activity.Block(uid, failureReason, LuaMRescueActivity.Handoff, out _);
+        rescue.LastAutoEvacuationStatus =
+            $"required handoff custody retained: patient={FormatEntityRef(target)}; reason={reason}";
+        SetTargetTrackingStatus(
+            uid,
+            rescue,
+            $"required_handoff_blocked: {FormatEntityRef(target)}; reason={reason}");
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool TryHandoffTerminalOnboardPatient(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (!TryFindTerminalOnboardPatient(
+                uid,
+                rescue,
+                out var patient,
+                out var patientStrap,
+                out var buckle,
+                out var reason))
+        {
+            return false;
+        }
+
+        if (TryHoldOnboardPatientForConfirmedHomeHandoff(uid, rescue, htn, patient))
+            return true;
+
+        var previousAttempts = rescue.OnboardHandoffAttempts.GetValueOrDefault(patient);
+        if (previousAttempts >= Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts))
+        {
+            ReleaseBlockedOnboardOwnership(uid, rescue, htn, patient, reason);
+            return false;
+        }
+
+        if (!BeginPatientActivity(
+                uid,
+                rescue,
+                LuaMRescueActivity.Handoff,
+                patient,
+                new EntityCoordinates(patientStrap, Vector2.Zero)))
+        {
+            ReleaseBlockedOnboardOwnership(
+                uid,
+                rescue,
+                htn,
+                patient,
+                $"handoff activity terminal: {rescue.ActivityContext.FailureReason}");
+            return false;
+        }
+        SetOnboardCareStatus(rescue, patient, $"handoff terminal care: {reason}");
+
+        if (!IsWithinRange(uid, patientStrap, rescue.AutoReleaseRange))
+        {
+            SetMovementGoal(
+                uid,
+                rescue,
+                htn,
+                new EntityCoordinates(patientStrap, Vector2.Zero),
+                rescue.AutoReleaseRange);
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        if (TryGetUnbuckleDelayRemaining(buckle, out var unbuckleDelay))
+        {
+            rescue.TargetStallAccumulator = 0f;
+            rescue.LastOnboardCareStatus =
+                $"waiting {unbuckleDelay.TotalSeconds:0.00}s for buckle safety delay before terminal handoff; {reason}";
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        var unbuckled = _buckle.TryUnbuckle(patient, uid, buckle, popup: false);
+        if (!unbuckled)
+        {
+            var attempts = previousAttempts + 1;
+            rescue.OnboardHandoffAttempts[patient] = attempts;
+            _activity.RecordAttempt(uid, out _);
+            rescue.LastOnboardCareStatus =
+                $"BedUnavailable: handoff unbuckle attempt {attempts}/{rescue.ActivityRoleProfile.MaxAttempts}; {reason}";
+            if (attempts >= Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts))
+            {
+                _activity.Block(uid, LuaMRescueFailureReason.BedUnavailable, LuaMRescueActivity.Standby, out _);
+                TrySendRescueStatusComms(
+                    uid,
+                    rescue,
+                    $"handoff-bed-blocked:{patient}",
+                    $"Не могу освободить койку пациента {Name(patient)} после {attempts} попыток. Нужна ручная помощь.");
+                ReleaseBlockedOnboardOwnership(
+                    uid,
+                    rescue,
+                    htn,
+                    patient,
+                    $"BedUnavailable: {reason}; manual bed release required");
+            }
+
+            Dirty(uid, rescue);
+            return attempts < Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts);
+        }
+
+        if (rescue.AssignedPatientStrap == patientStrap)
+            rescue.AssignedPatientStrap = null;
+
+        rescue.OnboardHandoffAttempts.Remove(patient);
+        rescue.OnboardCareAttempts.Remove(patient);
+        rescue.TerminalOnboardCareFailures.Remove(patient);
+        rescue.TerminalDefibrillationFailures.Remove(patient);
+        MarkOnboardCareReleased(uid, rescue, patient);
+        RecordRescueHandoff(
+            uid,
+            rescue,
+            patient,
+            "terminal-care",
+            reason,
+            "unbuckled for specialist/manual handoff");
+        _activity.Complete(uid, out _);
+        CompleteReleasedPatientCare(uid, rescue, htn, patient);
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool TryFindTerminalOnboardPatient(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        out EntityUid patient,
+        out EntityUid patientStrap,
+        out BuckleComponent buckle,
+        out string reason)
+    {
+        patient = default;
+        patientStrap = default;
+        buckle = default!;
+        reason = string.Empty;
+        if (rescue.AssignedShuttle is not { Valid: true } shuttle || Deleted(shuttle))
+            return false;
+
+        var query = EntityQueryEnumerator<StrapComponent, TransformComponent>();
+        while (query.MoveNext(out var strapUid, out var strap, out var xform))
+        {
+            if (xform.GridUid != shuttle || !IsAssignedShuttlePatientStrap(strapUid, rescue))
+                continue;
+
+            foreach (var buckled in strap.BuckledEntities)
+            {
+                if (Deleted(buckled) ||
+                    rescue.IgnoredOnboardPatients.Contains(buckled) ||
+                    !TryComp<BuckleComponent>(buckled, out var patientBuckle) ||
+                    patientBuckle.BuckledTo != strapUid)
+                {
+                    continue;
+                }
+
+                if (rescue.TerminalOnboardCareFailures.TryGetValue(buckled, out var onboardFailure))
+                {
+                    patient = buckled;
+                    patientStrap = strapUid;
+                    buckle = patientBuckle;
+                    reason = onboardFailure;
+                    return true;
+                }
+
+                if (rescue.TerminalDefibrillationFailures.TryGetValue(buckled, out var defibFailure))
+                {
+                    patient = buckled;
+                    patientStrap = strapUid;
+                    buckle = patientBuckle;
+                    reason = defibFailure;
+                    return true;
+                }
+
+                if (!_activity.IsEligibleRescuePatient(
+                        uid,
+                        buckled,
+                        LuaMRescuePatientRequestKind.OnboardCare,
+                        manualOverride: IsManualPatientIntent(rescue, buckled),
+                        out var failureReason) &&
+                    failureReason != LuaMRescueFailureReason.TargetHealthy)
+                {
+                    patient = buckled;
+                    patientStrap = strapUid;
+                    buckle = patientBuckle;
+                    reason = failureReason.ToString();
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private void HoldMovementForTreatmentCooldown(EntityUid uid, HTNComponent htn)
+    {
+        if (htn.Blackboard.ContainsKey(NPCBlackboard.FollowTarget) ||
+            htn.Plan != null ||
+            htn.PlanningToken != null ||
+            htn.PlanningJob != null)
+        {
+            CancelCurrentHtnMovement(uid, htn, cancelRouteProbe: false);
+        }
+
+        htn.Blackboard.Remove<EntityCoordinates>(NPCBlackboard.FollowTarget);
+        _npc.SleepNPC(uid, htn);
     }
 
     private bool TryTreatOnboardPatient(
@@ -5051,8 +9839,32 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         HTNComponent htn)
     {
         if (!rescue.AutoTreatWithCarriedItems ||
-            !TryFindOnboardTreatmentPatient(rescue, out var patient, out var patientStrap, out var status))
+            !TryFindOnboardTreatmentPatient(uid, rescue, out var patient, out var patientStrap, out var status))
         {
+            return false;
+        }
+
+        if (rescue.TerminalOnboardCareFailures.ContainsKey(patient))
+            return false;
+
+        if (!BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.OnboardCare,
+            patient,
+            new EntityCoordinates(patientStrap, Vector2.Zero)))
+        {
+            if (!rescue.TerminalOnboardCareFailures.ContainsKey(patient))
+            {
+                MarkTerminalOnboardCareFailure(
+                    uid,
+                    rescue,
+                    patient,
+                    rescue.ActivityContext.FailureReason == LuaMRescueFailureReason.None
+                        ? LuaMRescueFailureReason.DeadlineExceeded
+                        : rescue.ActivityContext.FailureReason,
+                    "onboard-care activity reached a terminal state");
+            }
             return false;
         }
 
@@ -5089,14 +9901,58 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             "onboard treatment loop",
             "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u043d\u0430 \u0431\u043e\u0440\u0442\u0443, \u0434\u043e\u043b\u0435\u0447\u0438\u0432\u0430\u044e \u0434\u043e \u0432\u044b\u043f\u0443\u0441\u043a\u0430.");
 
+        // A cooldown is an in-progress wait, not a failed planner attempt. With
+        // the normal 2 s refresh and 6 s treatment cooldown, counting this as a
+        // failure could exhaust the whole onboard budget between two real uses.
+        if (!HasActiveMedicalDoAfter(uid, patient, out _) &&
+            _timing.CurTime < rescue.NextAutoTreatmentAttempt)
+        {
+            var remaining = rescue.NextAutoTreatmentAttempt - _timing.CurTime;
+            rescue.LastOnboardCareStatus =
+                $"onboard-care waiting for treatment cooldown: {remaining.TotalSeconds:0.0}s; " +
+                $"patient={FormatEntityRef(patient)}";
+            _activity.RecordProgress(
+                uid,
+                Transform(patient).Coordinates,
+                TryGetDistance(uid, patient, out var cooldownDistance) ? cooldownDistance : null,
+                LuaMRescueRouteStatus.Arrived,
+                LuaMRescueDoAfterStatus.None,
+                out _);
+            Dirty(uid, rescue);
+            return true;
+        }
+
         if (TryAutoTreatTarget(uid, rescue, htn, patient))
             return true;
 
+        BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.OnboardCare,
+            patient,
+            new EntityCoordinates(patientStrap, Vector2.Zero));
+        var attempts = rescue.OnboardCareAttempts.GetValueOrDefault(patient) + 1;
+        rescue.OnboardCareAttempts[patient] = attempts;
+        if (attempts >= Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts))
+        {
+            MarkTerminalOnboardCareFailure(
+                uid,
+                rescue,
+                patient,
+                LuaMRescueFailureReason.NoEffectiveMedicine,
+                $"no effective onboard treatment after {attempts} planner attempts; last={rescue.LastAutoTreatmentStatus}");
+            return false;
+        }
+
+        rescue.LastOnboardCareStatus =
+            $"onboard-care retry {attempts}/{rescue.ActivityRoleProfile.MaxAttempts}: {rescue.LastAutoTreatmentStatus}";
+        _activity.RecordAttempt(uid, out _);
         Dirty(uid, rescue);
         return true;
     }
 
     private bool TryFindOnboardTreatmentPatient(
+        EntityUid uid,
         LuaMRescueAgentComponent rescue,
         out EntityUid patient,
         out EntityUid patientStrap,
@@ -5125,11 +9981,22 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             foreach (var buckled in strap.BuckledEntities)
             {
                 if (Deleted(buckled) ||
+                    rescue.IgnoredOnboardPatients.Contains(buckled) ||
                     !TryComp<BuckleComponent>(buckled, out var buckle) ||
                     buckle.BuckledTo != strapUid ||
                     !TryComp<MobStateComponent>(buckled, out var mobState) ||
                     mobState.CurrentState == MobState.Dead ||
                     !TryComp<DamageableComponent>(buckled, out var damageable))
+                {
+                    continue;
+                }
+
+                if (!_activity.IsEligibleRescuePatient(
+                        uid,
+                        buckled,
+                        LuaMRescuePatientRequestKind.OnboardCare,
+                        manualOverride: IsManualPatientIntent(rescue, buckled),
+                        out _))
                 {
                     continue;
                 }
@@ -5175,6 +10042,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
 
         if (!TryFindStabilizedShuttlePatient(
+                uid,
                 rescue,
                 out var patient,
                 out var patientStrap,
@@ -5238,6 +10106,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        if (TryHoldOnboardPatientForConfirmedHomeHandoff(uid, rescue, htn, patient))
+            return true;
+
         SetOnboardCareStatus(rescue, patient, $"release-ready; {status}");
         SetRescueTask(
             uid,
@@ -5246,6 +10117,21 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             patient,
             patientStrap,
             $"releasing stabilized {FormatEntityRef(patient)} from {FormatEntityRef(patientStrap)}");
+        if (!BeginPatientActivity(
+                uid,
+                rescue,
+                LuaMRescueActivity.Handoff,
+                patient,
+                new EntityCoordinates(patientStrap, Vector2.Zero)))
+        {
+            ReleaseBlockedOnboardOwnership(
+                uid,
+                rescue,
+                htn,
+                patient,
+                $"stable-release activity terminal: {rescue.ActivityContext.FailureReason}");
+            return false;
+        }
 
         if (!IsWithinRange(uid, patientStrap, rescue.AutoReleaseRange))
         {
@@ -5257,7 +10143,22 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 "release-ready",
                 "patient stable, preparing release",
                 "\u041f\u0430\u0446\u0438\u0435\u043d\u0442 \u0441\u0442\u0430\u0431\u0438\u043b\u0435\u043d. \u0418\u0434\u0443 \u0441\u043d\u044f\u0442\u044c \u0441 \u043a\u043e\u0439\u043a\u0438 \u0438 \u0432\u044b\u043f\u0443\u0441\u0442\u0438\u0442\u044c \u0441 \u0431\u043e\u0440\u0442\u0430.");
-            SetFollowDeliveryStrap(uid, rescue, htn, patientStrap);
+            SetMovementGoal(
+                uid,
+                rescue,
+                htn,
+                new EntityCoordinates(patientStrap, Vector2.Zero),
+                rescue.AutoReleaseRange);
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        if (TryGetUnbuckleDelayRemaining(buckle, out var unbuckleDelay))
+        {
+            rescue.TargetStallAccumulator = 0f;
+            rescue.LastAutoEvacuationStatus =
+                $"waiting {unbuckleDelay.TotalSeconds:0.00}s for buckle safety delay before releasing " +
+                $"stabilized {FormatEntityRef(patient)}";
             Dirty(uid, rescue);
             return true;
         }
@@ -5273,7 +10174,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (rescue.AssignedPatientStrap == patientStrap)
                 rescue.AssignedPatientStrap = null;
 
-            MarkOnboardCareReleased(rescue, patient);
+            MarkOnboardCareReleased(uid, rescue, patient);
             RecordRescueHandoff(
                 uid,
                 rescue,
@@ -5293,14 +10194,120 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 rescue,
                 $"patient-release:{patient}",
                 $"Пациент {Name(patient)} стабилен. Отпускаю с борта.");
+            _activity.Complete(uid, out _);
             CompleteReleasedPatientCare(uid, rescue, htn, patient);
         }
         else
         {
-            SetFollowDeliveryStrap(uid, rescue, htn, patientStrap);
+            var attempts = rescue.OnboardHandoffAttempts.GetValueOrDefault(patient) + 1;
+            rescue.OnboardHandoffAttempts[patient] = attempts;
+            _activity.RecordAttempt(uid, out _);
+            if (attempts >= Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts))
+            {
+                rescue.LastOnboardCareStatus =
+                    $"BedUnavailable: stable patient release failed after {attempts} attempts";
+                _activity.Block(uid, LuaMRescueFailureReason.BedUnavailable, LuaMRescueActivity.Standby, out _);
+                TrySendRescueStatusComms(
+                    uid,
+                    rescue,
+                    $"stable-release-failed:{patient}",
+                    $"Не могу освободить койку {Name(patient)} после {attempts} попыток. Нужна ручная помощь.");
+                ReleaseBlockedOnboardOwnership(
+                    uid,
+                    rescue,
+                    htn,
+                    patient,
+                    "BedUnavailable: stable patient remained buckled; manual release required");
+                Dirty(uid, rescue);
+                return false;
+            }
         }
 
         Dirty(uid, rescue);
+        return true;
+    }
+
+    /// <summary>
+    /// A configured return target turns onboard release into a real handoff:
+    /// the patient stays strapped through flight and through mere arrival. Only
+    /// reciprocal docking at the assigned home grid is a safe release point.
+    /// Isolated/local fixtures without a return target retain local-bed behavior.
+    /// </summary>
+    private bool TryHoldOnboardPatientForConfirmedHomeHandoff(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid patient)
+    {
+        if (rescue.AssignedReturnTarget is not { Valid: true } returnTarget ||
+            Deleted(returnTarget))
+        {
+            return false;
+        }
+
+        rescue.RequiredOnboardHandoffPatients.Add(patient);
+
+        if (IsConfirmedHomeHandoffDock(rescue, returnTarget, out var dockStatus))
+            return false;
+
+        var routed = TryRouteShuttleHome(uid, rescue);
+        rescue.TargetStallAccumulator = 0f;
+        rescue.LastAutoEvacuationStatus =
+            $"holding {FormatEntityRef(patient)} buckled until confirmed home handoff; " +
+            $"return={FormatEntityRef(returnTarget)}; routed={routed}; {dockStatus}";
+        SetOnboardCareStatus(rescue, patient, $"returning home for handoff; {dockStatus}");
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool IsConfirmedHomeHandoffDock(
+        LuaMRescueAgentComponent rescue,
+        EntityUid returnTarget,
+        out string status)
+    {
+        if (rescue.AssignedShuttle is not { Valid: true } shuttle || Deleted(shuttle))
+        {
+            status = "assigned shuttle unavailable";
+            return false;
+        }
+
+        var returnGrid = HasComp<MapGridComponent>(returnTarget)
+            ? returnTarget
+            : Transform(returnTarget).GridUid;
+        if (returnGrid is not { Valid: true } grid || Deleted(grid))
+        {
+            status = "assigned return target has no valid grid";
+            return false;
+        }
+
+        if (!TryComp<LuaMRescueShuttleLifecycleComponent>(shuttle, out var lifecycle))
+        {
+            status = "return lifecycle unavailable";
+            return false;
+        }
+
+        var lifecycleConfirmed = lifecycle.Target == returnTarget &&
+                                 lifecycle.RouteActivity == LuaMRescueActivity.Returning &&
+                                 lifecycle.State == LuaMRescueShuttleRouteState.Docked &&
+                                 lifecycle.SafeExitConfirmed;
+        var physicallyDocked = IsShuttleDockedToGrid(shuttle, grid);
+        status =
+            $"home lifecycle={lifecycle.State}/{lifecycle.RouteActivity}; " +
+            $"safeExit={lifecycle.SafeExitConfirmed}; physicalDock={physicallyDocked}";
+        return lifecycleConfirmed && physicallyDocked;
+    }
+
+    private bool TryGetUnbuckleDelayRemaining(BuckleComponent buckle, out TimeSpan remaining)
+    {
+        remaining = TimeSpan.Zero;
+        if (buckle.BuckleTime is not { } buckleTime)
+            return false;
+
+        var readyAt = buckleTime + buckle.Delay;
+        if (_timing.CurTime >= readyAt)
+            return false;
+
+        remaining = readyAt - _timing.CurTime;
         return true;
     }
 
@@ -5482,10 +10489,209 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         Dirty(uid, rescue);
     }
 
-    private void MarkOnboardCareReleased(LuaMRescueAgentComponent rescue, EntityUid patient)
+    private void MarkOnboardCareReleased(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient)
     {
+        CloseRecoveredPatientEpisode(uid, rescue, patient);
         rescue.OnboardCareTarget = null;
+        rescue.RequiredOnboardHandoffPatients.Remove(patient);
+        if (rescue.ManualOverrideTarget == patient)
+            RevokeManualOverrideTarget(uid, rescue, patient, "onboard care released patient");
+        rescue.IgnoredOnboardPatients.Remove(patient);
+        rescue.OnboardCareAttempts.Remove(patient);
+        rescue.OnboardHandoffAttempts.Remove(patient);
+        rescue.TerminalOnboardCareFailures.Remove(patient);
+        rescue.TerminalDefibrillationFailures.Remove(patient);
         rescue.LastOnboardCareStatus = $"onboard-care released: patient={FormatEntityRef(patient)}";
+    }
+
+    private void PruneIgnoredOnboardPatients(LuaMRescueAgentComponent rescue)
+    {
+        foreach (var patient in rescue.IgnoredOnboardPatients.ToArray())
+        {
+            if (Deleted(patient) || !IsBuckledToAssignedShuttlePatientStrap(patient, rescue))
+                rescue.IgnoredOnboardPatients.Remove(patient);
+        }
+    }
+
+    private void PruneStaleOnboardCareOwnership(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (rescue.OnboardCareTarget is not { Valid: true } patient)
+            return;
+
+        var stillOnAssignedBed = !Deleted(patient) &&
+                                 IsBuckledToAssignedShuttlePatientStrap(patient, rescue);
+        if (stillOnAssignedBed)
+        {
+            var stillEligible = _activity.IsEligibleRescuePatient(
+                                    uid,
+                                    patient,
+                                    LuaMRescuePatientRequestKind.OnboardCare,
+                                    manualOverride: IsManualPatientIntent(rescue, patient),
+                                    out var eligibilityFailure) ||
+                                eligibilityFailure == LuaMRescueFailureReason.TargetHealthy;
+            if (stillEligible)
+                return;
+
+            // The patient still physically owns a rescue bed. This is a
+            // terminal-care handoff, not TargetLost: preserve ownership and the
+            // exact reason until the bounded unbuckle path below frees the bed.
+            if (!rescue.TerminalOnboardCareFailures.ContainsKey(patient))
+            {
+                CancelMedicalDoAftersForIntentReplacement(
+                    uid,
+                    rescue,
+                    $"onboard patient {FormatEntityRef(patient)} became ineligible: {eligibilityFailure}");
+                CancelCurrentHtnMovement(uid, htn);
+                MarkTerminalOnboardCareFailure(
+                    uid,
+                    rescue,
+                    patient,
+                    eligibilityFailure,
+                    $"still buckled but no longer eligible; fallback=bounded handoff/unbuckle");
+            }
+
+            return;
+        }
+
+        if (!Deleted(patient) && rescue.RequiredOnboardHandoffPatients.Contains(patient))
+        {
+            CancelMedicalDoAftersForIntentReplacement(
+                uid,
+                rescue,
+                $"required onboard handoff for {FormatEntityRef(patient)} lost its strap");
+            CancelCurrentHtnMovement(uid, htn);
+            rescue.OnboardCareTarget = null;
+            rescue.AssignedPatientStrap = null;
+            rescue.AssignedTarget = patient;
+            rescue.EvacuatingTarget = patient;
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.EvacuatingPatient,
+                patient,
+                null,
+                $"recovering externally unbuckled handoff patient {FormatEntityRef(patient)}");
+            _activity.BeginOrReplaceIntent(
+                uid,
+                rescue.ActivityRole == LuaMRescueRole.None ? LuaMRescueRole.Aibolit : rescue.ActivityRole,
+                LuaMRescueActivity.PreparingEvacuation,
+                patient,
+                new EntityCoordinates(patient, Vector2.Zero),
+                out _);
+            rescue.LastOnboardCareStatus =
+                $"onboard-care recovery: patient={FormatEntityRef(patient)}; reason=external unbuckle; re-boarding required";
+            Dirty(uid, rescue);
+            return;
+        }
+
+        CancelMedicalDoAftersForIntentReplacement(
+            uid,
+            rescue,
+            $"stale onboard target {FormatEntityRef(patient)} was removed or unbuckled");
+        CancelCurrentHtnMovement(uid, htn);
+        if (rescue.AssignedTarget == patient)
+            rescue.AssignedTarget = null;
+        if (rescue.EvacuatingTarget == patient)
+            rescue.EvacuatingTarget = null;
+        if (rescue.DeathSignalTarget == patient)
+            rescue.DeathSignalTarget = null;
+        if (rescue.TaskPatientTarget == patient)
+            ClearRescueTask(uid, rescue, "stale onboard patient ownership pruned");
+
+        rescue.OnboardCareTarget = null;
+        if (rescue.ManualOverrideTarget == patient)
+            RevokeManualOverrideTarget(uid, rescue, patient, "stale onboard ownership pruned");
+        rescue.AssignedPatientStrap = null;
+        rescue.OnboardCareAttempts.Remove(patient);
+        rescue.OnboardHandoffAttempts.Remove(patient);
+        rescue.TerminalOnboardCareFailures.Remove(patient);
+        rescue.TerminalDefibrillationFailures.Remove(patient);
+        rescue.IgnoredOnboardPatients.Remove(patient);
+        rescue.RequiredOnboardHandoffPatients.Remove(patient);
+        rescue.LastOnboardCareStatus =
+            $"onboard-care target pruned: patient={FormatEntityRef(patient)}; reason=TargetLost";
+        _activity.Fail(uid, LuaMRescueFailureReason.TargetLost, out _);
+        Dirty(uid, rescue);
+    }
+
+    private void ReleaseBlockedOnboardOwnership(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid patient,
+        string reason)
+    {
+        rescue.IgnoredOnboardPatients.Add(patient);
+        CancelMedicalDoAftersForIntentReplacement(uid, rescue, $"terminal onboard handoff for {FormatEntityRef(patient)}");
+        CancelCurrentHtnMovement(uid, htn);
+
+        if (TryComp<BuckleComponent>(patient, out var buckle) &&
+            buckle.BuckledTo is { Valid: true } occupiedStrap &&
+            !Deleted(occupiedStrap))
+        {
+            // A failed unbuckle is not a physical handoff. Keep one terminal
+            // owner for the occupied bed so retirement, external release and
+            // explicit-order guards can still recover the exact patient/strap.
+            rescue.AssignedTarget = null;
+            rescue.EvacuatingTarget = null;
+            rescue.OnboardCareTarget = patient;
+            rescue.AssignedPatientStrap = occupiedStrap;
+            rescue.TerminalOnboardCareFailures[patient] = reason;
+            rescue.LastOnboardCareStatus =
+                $"onboard-care terminal handoff: patient={FormatEntityRef(patient)}; " +
+                $"ownership=retained; physical release required; {reason}";
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.DeliveringPatient,
+                patient,
+                occupiedStrap,
+                rescue.LastOnboardCareStatus);
+            ResetTargetProgress(rescue);
+            RecordRescueHandoff(
+                uid,
+                rescue,
+                patient,
+                "terminal-care",
+                reason,
+                "patient remains physically buckled; manual release is required before ownership can clear");
+            Dirty(uid, rescue);
+            return;
+        }
+
+        if (rescue.AssignedTarget == patient)
+            rescue.AssignedTarget = null;
+        if (rescue.EvacuatingTarget == patient)
+            rescue.EvacuatingTarget = null;
+        if (rescue.OnboardCareTarget == patient)
+            rescue.OnboardCareTarget = null;
+        if (rescue.ManualOverrideTarget == patient)
+            RevokeManualOverrideTarget(uid, rescue, patient, "terminal onboard ownership released");
+        if (rescue.DeathSignalTarget == patient)
+            rescue.DeathSignalTarget = null;
+        if (rescue.TaskPatientTarget == patient)
+            rescue.TaskPatientTarget = null;
+
+        rescue.AssignedPatientStrap = null;
+        rescue.ShuttleRoutedTarget = null;
+        rescue.RequiredOnboardHandoffPatients.Remove(patient);
+        rescue.LastOnboardCareStatus =
+            $"onboard-care terminal handoff: patient={FormatEntityRef(patient)}; ownership=released; {reason}";
+        ResetTargetProgress(rescue);
+        RecordRescueHandoff(
+            uid,
+            rescue,
+            patient,
+            "terminal-care",
+            reason,
+            "manual specialist/bed intervention requested; coordinator ownership released");
+        Dirty(uid, rescue);
     }
 
     private string FormatHandoffLocation(LuaMRescueAgentComponent rescue, EntityUid patient)
@@ -5606,6 +10812,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     }
 
     private bool TryFindStabilizedShuttlePatient(
+        EntityUid uid,
         LuaMRescueAgentComponent rescue,
         out EntityUid patient,
         out EntityUid patientStrap,
@@ -5638,8 +10845,20 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             foreach (var buckled in strap.BuckledEntities)
             {
                 if (Deleted(buckled) ||
+                    rescue.IgnoredOnboardPatients.Contains(buckled) ||
                     !TryComp<BuckleComponent>(buckled, out var buckledComp) ||
                     buckledComp.BuckledTo != strapUid)
+                {
+                    continue;
+                }
+
+                if (!_activity.IsEligibleRescuePatient(
+                        uid,
+                        buckled,
+                        LuaMRescuePatientRequestKind.OnboardCare,
+                        manualOverride: IsManualPatientIntent(rescue, buckled),
+                        out var eligibilityFailure) &&
+                    eligibilityFailure != LuaMRescueFailureReason.TargetHealthy)
                 {
                     continue;
                 }
@@ -5673,7 +10892,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!rescue.AutoDefibDeadPatients)
             return false;
 
-        if (!TryFindDeadShuttlePatient(rescue, out var patient, out var patientStrap, out var status))
+        if (!TryFindDeadShuttlePatient(uid, rescue, out var patient, out var patientStrap, out var status))
         {
             if (!string.IsNullOrWhiteSpace(status))
                 rescue.LastAutoDefibStatus = status;
@@ -5710,6 +10929,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     }
 
     private bool TryFindDeadShuttlePatient(
+        EntityUid uid,
         LuaMRescueAgentComponent rescue,
         out EntityUid patient,
         out EntityUid patientStrap,
@@ -5737,10 +10957,21 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             foreach (var buckled in strap.BuckledEntities)
             {
                 if (Deleted(buckled) ||
+                    rescue.IgnoredOnboardPatients.Contains(buckled) ||
                     !TryComp<BuckleComponent>(buckled, out var buckledComp) ||
                     buckledComp.BuckledTo != strapUid ||
                     !TryComp<MobStateComponent>(buckled, out var mobState) ||
                     mobState.CurrentState != MobState.Dead)
+                {
+                    continue;
+                }
+
+                if (!_activity.IsEligibleRescuePatient(
+                        uid,
+                        buckled,
+                        LuaMRescuePatientRequestKind.OnboardCare,
+                        manualOverride: IsManualPatientIntent(rescue, buckled),
+                        out _))
                 {
                     continue;
                 }
@@ -5794,12 +11025,37 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private bool HasPendingOnboardCareOrRelease(EntityUid patient, LuaMRescueAgentComponent rescue)
     {
         if (Deleted(patient) ||
+            rescue.IgnoredOnboardPatients.Contains(patient) ||
             !IsBuckledToAssignedShuttlePatientStrap(patient, rescue))
         {
             return false;
         }
 
-        return true;
+        if (rescue.OnboardHandoffAttempts.GetValueOrDefault(patient) >=
+            Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts))
+        {
+            return false;
+        }
+
+        if (rescue.TerminalOnboardCareFailures.ContainsKey(patient) ||
+            rescue.TerminalDefibrillationFailures.ContainsKey(patient))
+        {
+            return true;
+        }
+
+        if (!TryComp<MobStateComponent>(patient, out var mobState))
+            return false;
+
+        if (mobState.CurrentState is MobState.Dead or MobState.Critical)
+            return true;
+
+        if (TryComp<DamageableComponent>(patient, out var damageable) &&
+            damageable.TotalDamage.Float() > rescue.AutoReleaseMaxDamage)
+        {
+            return true;
+        }
+
+        return rescue.AutoReleaseStabilizedPatients;
     }
 
     private bool HasPendingEvacuationTarget(EntityUid uid, LuaMRescueAgentComponent rescue, EntityUid completedTarget)
@@ -5838,6 +11094,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     }
 
     private bool TryFindPatientDeliveryStrap(
+        EntityUid uid,
         LuaMRescueAgentComponent rescue,
         out EntityUid patientStrap,
         out StrapComponent strap)
@@ -5852,10 +11109,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
+        var patient = rescue.EvacuatingTarget ?? rescue.TaskPatientTarget;
+
         if (rescue.AssignedPatientStrap is { Valid: true } assigned &&
             !Deleted(assigned) &&
             TryComp<StrapComponent>(assigned, out var assignedStrap) &&
-            IsAvailablePatientDeliveryStrap(assigned, assignedStrap, rescue))
+            IsAvailablePatientDeliveryStrap(assigned, assignedStrap, rescue, patient) &&
+            IsReachablePatientDeliveryStrap(uid, assigned, rescue, out _))
         {
             patientStrap = assigned;
             strap = assignedStrap;
@@ -5864,19 +11124,20 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         var bestScore = float.MinValue;
         var query = EntityQueryEnumerator<StrapComponent, TransformComponent>();
-        while (query.MoveNext(out var uid, out var strapComp, out var xform))
+        while (query.MoveNext(out var strapUid, out var strapComp, out var xform))
         {
             if (xform.GridUid != shuttle ||
-                !IsAvailablePatientDeliveryStrap(uid, strapComp, rescue))
+                !IsAvailablePatientDeliveryStrap(strapUid, strapComp, rescue, patient) ||
+                !IsReachablePatientDeliveryStrap(uid, strapUid, rescue, out var routeDistance))
             {
                 continue;
             }
 
-            var score = GetPatientDeliveryStrapScore(uid, rescue);
+            var score = GetPatientDeliveryStrapScore(strapUid, rescue) - routeDistance;
             if (score <= bestScore)
                 continue;
 
-            patientStrap = uid;
+            patientStrap = strapUid;
             strap = strapComp;
             bestScore = score;
         }
@@ -5884,15 +11145,147 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return patientStrap != default;
     }
 
+    private bool IsReachablePatientDeliveryStrap(
+        EntityUid rescuer,
+        EntityUid patientStrap,
+        LuaMRescueAgentComponent rescue,
+        out float routeDistance)
+    {
+        var route = ProbePatientDeliveryStrapRoute(rescuer, patientStrap, rescue);
+        routeDistance = route.Distance;
+        return route.State == LuaMRescuePathProbeState.Reachable;
+    }
+
+    private LuaMRescuePathProbeSnapshot ProbePatientDeliveryStrapRoute(
+        EntityUid rescuer,
+        EntityUid patientStrap,
+        LuaMRescueAgentComponent rescue)
+    {
+        var rescuerGrid = Transform(rescuer).GridUid;
+        var strapGrid = Transform(patientStrap).GridUid;
+        var confirmedDockedCrossGrid = false;
+        if (rescuerGrid != strapGrid &&
+            rescue.AssignedShuttle is { Valid: true } shuttle &&
+            strapGrid == shuttle &&
+            rescuerGrid is { Valid: true } outsideGrid &&
+            TryComp<LuaMRescueShuttleLifecycleComponent>(shuttle, out var lifecycle))
+        {
+            confirmedDockedCrossGrid = lifecycle.State == LuaMRescueShuttleRouteState.Docked &&
+                                       IsShuttleDockedToGrid(shuttle, outsideGrid);
+        }
+
+        return _rescueNavigation.ProbeRoute(
+            rescuer,
+            patientStrap,
+            Math.Min(rescue.PlayerActionRange, rescue.AutoReleaseRange),
+            confirmedDockedCrossGrid);
+    }
+
+    /// <summary>
+    /// Once a patient/bed pair is terminal, only a reachable or still-pending
+    /// alternate bed keeps the mission active. A merely empty but confirmed
+    /// NoPath bed must not cause periodic auto-reacquire forever.
+    /// </summary>
+    public bool HasViablePatientDeliveryStrap(
+        EntityUid rescuer,
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient)
+    {
+        return GetPatientDeliveryStrapState(rescuer, rescue, patient) == PatientDeliveryStrapState.Viable;
+    }
+
+    private bool ArePatientDeliveryStrapsAuthoritativelyExhausted(
+        EntityUid rescuer,
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient)
+    {
+        return GetPatientDeliveryStrapState(rescuer, rescue, patient) == PatientDeliveryStrapState.Exhausted;
+    }
+
+    private PatientDeliveryStrapState GetPatientDeliveryStrapState(
+        EntityUid rescuer,
+        LuaMRescueAgentComponent rescue,
+        EntityUid patient)
+    {
+        if (!rescue.BucklePatientsOnShuttle ||
+            rescue.AssignedShuttle is not { Valid: true } shuttle ||
+            Deleted(shuttle))
+        {
+            return PatientDeliveryStrapState.TemporarilyUnavailable;
+        }
+
+        var foundCandidate = false;
+        var foundRecoverableBlocker = false;
+        var query = EntityQueryEnumerator<StrapComponent, TransformComponent>();
+        while (query.MoveNext(out var strapUid, out var strap, out var xform))
+        {
+            if (xform.GridUid != shuttle ||
+                !IsAssignedShuttlePatientStrap(strapUid, rescue))
+            {
+                continue;
+            }
+
+            foundCandidate = true;
+            if (rescue.TerminalPatientBuckleFailures.ContainsKey((patient, strapUid)))
+                continue;
+
+            if (!strap.Enabled ||
+                strap.BuckledEntities.Count != 0 ||
+                IsDeliveryTargetTemporarilySkipped(strapUid, rescue))
+            {
+                foundRecoverableBlocker = true;
+                continue;
+            }
+
+            var route = ProbePatientDeliveryStrapRoute(rescuer, strapUid, rescue);
+            if (route.State is LuaMRescuePathProbeState.Pending or LuaMRescuePathProbeState.Reachable)
+                return PatientDeliveryStrapState.Viable;
+
+            if (route.State is LuaMRescuePathProbeState.DifferentGrid or LuaMRescuePathProbeState.Invalid)
+                foundRecoverableBlocker = true;
+        }
+
+        if (!foundCandidate || foundRecoverableBlocker)
+            return PatientDeliveryStrapState.TemporarilyUnavailable;
+
+        // Every physical candidate is either an explicitly terminal pair or
+        // has an authoritative NoPath/AccessDenied/NoLineOfSight result.
+        return PatientDeliveryStrapState.Exhausted;
+    }
+
     private bool IsAvailablePatientDeliveryStrap(
         EntityUid uid,
         StrapComponent strap,
-        LuaMRescueAgentComponent rescue)
+        LuaMRescueAgentComponent rescue,
+        EntityUid? patient = null)
     {
         return strap.Enabled &&
                !IsDeliveryTargetTemporarilySkipped(uid, rescue) &&
+               !(patient is { Valid: true } patientUid &&
+                 rescue.TerminalPatientBuckleFailures.ContainsKey((patientUid, uid))) &&
                strap.BuckledEntities.Count == 0 &&
                IsAssignedShuttlePatientStrap(uid, rescue);
+    }
+
+    private bool HasAvailablePatientDeliveryStrap(
+        LuaMRescueAgentComponent rescue,
+        EntityUid? patient = null)
+    {
+        if (!rescue.BucklePatientsOnShuttle ||
+            rescue.AssignedShuttle is not { Valid: true } shuttle ||
+            Deleted(shuttle))
+        {
+            return false;
+        }
+
+        var query = EntityQueryEnumerator<StrapComponent, TransformComponent>();
+        while (query.MoveNext(out var strapUid, out var strap, out var xform))
+        {
+            if (xform.GridUid == shuttle && IsAvailablePatientDeliveryStrap(strapUid, strap, rescue, patient))
+                return true;
+        }
+
+        return false;
     }
 
     private bool IsAssignedShuttlePatientStrap(EntityUid uid, LuaMRescueAgentComponent rescue)
@@ -5928,32 +11321,114 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return score;
     }
 
-    private bool TryBucklePatientToStrap(
+    private PatientBuckleResult TryBucklePatientToStrap(
         EntityUid uid,
         EntityUid target,
         EntityUid patientStrap,
         LuaMRescueAgentComponent rescue)
     {
-        if (!rescue.BucklePatientsOnShuttle ||
-            Deleted(target) ||
-            Deleted(patientStrap) ||
-            !IsAssignedShuttlePatientStrap(patientStrap, rescue) ||
+        if (!rescue.BucklePatientsOnShuttle || Deleted(target) || Deleted(patientStrap))
+        {
+            return PatientBuckleResult.TerminalFailure;
+        }
+
+        var pair = (Patient: target, Strap: patientStrap);
+        if (!IsAssignedShuttlePatientStrap(patientStrap, rescue) ||
             !TryComp<BuckleComponent>(target, out var buckle) ||
             !TryComp<StrapComponent>(patientStrap, out var strap))
         {
-            return false;
+            var structuralAttempts = Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts);
+            rescue.PatientBuckleAttempts[pair] = structuralAttempts;
+            rescue.NextPatientBuckleAttemptAt.Remove(pair);
+            var status =
+                $"InvalidPatient: buckle contract unavailable; patient={FormatEntityRef(target)}; " +
+                $"strap={FormatEntityRef(patientStrap)}";
+            rescue.TerminalPatientBuckleFailures[pair] = status;
+            rescue.LastAutoEvacuationStatus = status;
+            Dirty(uid, rescue);
+            return PatientBuckleResult.TerminalFailure;
+        }
+
+        if (rescue.TerminalPatientBuckleFailures.TryGetValue(pair, out var terminalFailure))
+        {
+            rescue.LastAutoEvacuationStatus = terminalFailure;
+            return PatientBuckleResult.TerminalFailure;
         }
 
         if (buckle.BuckledTo == patientStrap)
-            return true;
+        {
+            ClearPatientBuckleFailures(rescue, target);
+            _activity.Complete(uid, out _);
+            return PatientBuckleResult.Succeeded;
+        }
 
-        if (strap.BuckledEntities.Count != 0)
-            return false;
+        if (!strap.Enabled ||
+            strap.BuckledEntities.Count != 0 ||
+            !IsWithinRange(target, patientStrap, buckle.Range))
+        {
+            return PatientBuckleResult.NotReady;
+        }
 
-        if (!IsWithinRange(target, patientStrap, buckle.Range))
-            return false;
+        if (rescue.NextPatientBuckleAttemptAt.TryGetValue(pair, out var retryAt) &&
+            _timing.CurTime < retryAt)
+        {
+            rescue.LastAutoEvacuationStatus =
+                $"buckle retry backoff until {retryAt.TotalSeconds:0.00}s; " +
+                $"patient={FormatEntityRef(target)}; strap={FormatEntityRef(patientStrap)}";
+            return PatientBuckleResult.Waiting;
+        }
 
-        return _buckle.TryBuckle(target, uid, patientStrap, buckle, popup: false);
+        BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.BucklePatient,
+            target,
+            new EntityCoordinates(patientStrap, Vector2.Zero));
+        if (rescue.ActivityContext.Activity == LuaMRescueActivity.BucklePatient &&
+            rescue.ActivityContext.Target == target &&
+            rescue.ActivityContext.TerminalStatus is LuaMRescueTerminalStatus.Blocked or LuaMRescueTerminalStatus.Failed)
+        {
+            return PatientBuckleResult.TerminalFailure;
+        }
+
+        var buckled = _buckle.TryBuckle(target, uid, patientStrap, buckle, popup: false);
+        if (buckled)
+        {
+            ClearPatientBuckleFailures(rescue, target);
+            _activity.Complete(uid, out _);
+            return PatientBuckleResult.Succeeded;
+        }
+
+        var attempts = rescue.PatientBuckleAttempts.GetValueOrDefault(pair) + 1;
+        rescue.PatientBuckleAttempts[pair] = attempts;
+        var backoffSeconds = Math.Min(
+            Math.Max(1d, rescue.ActivityRoleProfile.MaxRetryBackoff.TotalSeconds),
+            Math.Max(0.1d, rescue.ActivityRoleProfile.BaseRetryBackoff.TotalSeconds) * Math.Pow(2d, attempts - 1));
+        rescue.NextPatientBuckleAttemptAt[pair] =
+            _timing.CurTime + TimeSpan.FromSeconds(backoffSeconds);
+        _activity.RecordAttempt(uid, out var snapshot);
+        if (attempts >= Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts) || snapshot.IsTerminal)
+        {
+            var status =
+                $"ActionCancelled: buckle failed after {attempts} bounded attempts; " +
+                $"patient={FormatEntityRef(target)}; strap={FormatEntityRef(patientStrap)}";
+            rescue.TerminalPatientBuckleFailures[pair] = status;
+            rescue.LastAutoEvacuationStatus = status;
+            _activity.Fail(uid, LuaMRescueFailureReason.ActionCancelled, out _);
+            TrySendRescueStatusComms(
+                uid,
+                rescue,
+                $"buckle-terminal:{target}:{patientStrap}",
+                $"Не могу закрепить {Name(target)} на койке после {attempts} попыток. Ищу другую койку или передаю пациента экипажу.");
+            Dirty(uid, rescue);
+            return PatientBuckleResult.TerminalFailure;
+        }
+
+        rescue.LastAutoEvacuationStatus =
+            $"ActionCancelled: buckle attempt {attempts}/{rescue.ActivityRoleProfile.MaxAttempts} failed; " +
+            $"retry in {backoffSeconds:0.0}s";
+        Dirty(uid, rescue);
+        return PatientBuckleResult.Waiting;
     }
 
     private bool IsBuckledToAssignedShuttlePatientStrap(EntityUid target, LuaMRescueAgentComponent rescue)
@@ -5964,25 +11439,831 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                IsAssignedShuttlePatientStrap(strap, rescue);
     }
 
-    private void SetFollowTarget(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn, EntityUid target)
+    private void SetFollowTarget(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target)
     {
+        if (rescue.PendingMedicalDoAfterTarget == target &&
+            rescue.PendingMedicalIntentGeneration == rescue.ActivityContext.Generation)
+        {
+            // Repeated coordinator/manual updates for the same patient must not
+            // wake FollowCompound while a BreakOnMove medical action is running.
+            rescue.AssignedTarget = target;
+            HoldMovementForMedicalDoAfter(uid, rescue, target);
+            Dirty(uid, rescue);
+            return;
+        }
+
+        if (rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+            rescue.ActivityContext.Activity == LuaMRescueActivity.TreatPatient &&
+            rescue.ActivityContext.Target == target &&
+            _timing.CurTime < rescue.NextAutoTreatmentAttempt)
+        {
+            // Movement is an executor of the current medical intent, not another
+            // owner. A follow request for the same patient during a bounded item
+            // cooldown must therefore preserve TreatPatient's generation.
+            rescue.AssignedTarget = target;
+            SetRescueTask(
+                uid,
+                rescue,
+                LuaMRescueTaskStage.TreatingPatient,
+                target,
+                null,
+                $"waiting for treatment cooldown on {FormatEntityRef(target)}");
+
+            if (IsWithinRange(uid, target, rescue.PlayerActionRange))
+            {
+                HoldMovementForTreatmentCooldown(uid, htn);
+            }
+            else
+            {
+                SetMovementGoal(
+                    uid,
+                    rescue,
+                    htn,
+                    new EntityCoordinates(target, Vector2.Zero),
+                    rescue.PlayerActionRange);
+            }
+
+            Dirty(uid, rescue);
+            return;
+        }
+
+        if (rescue.AssignedTarget != target ||
+            rescue.PendingMedicalDoAfterTarget is { } pendingMedicalTarget && pendingMedicalTarget != target)
+        {
+            PrepareForExternalIntentReplacement(uid, target);
+        }
+
+        var playerAction = rescue.PendingPlayerAction != LuaMRescuePlayerActionKind.None &&
+                           rescue.PendingPlayerActionTarget == target;
+        var manual = playerAction;
+        var desiredActivity = playerAction
+            ? LuaMRescueActivity.ManualAction
+            : LuaMRescueActivity.ApproachPatient;
+
         rescue.AssignedTarget = target;
-        _npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, new EntityCoordinates(target, Vector2.Zero), htn);
-        _npc.SetBlackboard(uid, "FollowCloseRange", rescue.FollowCloseRange, htn);
-        _npc.SetBlackboard(uid, "FollowRange", rescue.FollowRange, htn);
-        _npc.WakeNPC(uid, htn);
+        var actionRange = GetPatientApproachActionRange(rescue, desiredActivity);
+        var agentGrid = Transform(uid).GridUid;
+        var targetGrid = Transform(target).GridUid;
+        var crossGrid = agentGrid != targetGrid;
+        var dockedForTarget = false;
+        LuaMRescueShuttleLifecycleComponent? lifecycle = null;
+        if (crossGrid &&
+            rescue.AssignedShuttle is { Valid: true } shuttle &&
+            !Deleted(shuttle))
+        {
+            TryRouteShuttleToTarget(uid, rescue, target);
+            TryComp(shuttle, out lifecycle);
+            dockedForTarget = lifecycle?.Target == target &&
+                              lifecycle.State == LuaMRescueShuttleRouteState.Docked &&
+                              lifecycle.SafeExitConfirmed &&
+                              targetGrid is { Valid: true } destinationGrid &&
+                              IsShuttleDockedToGrid(shuttle, destinationGrid);
+        }
+
+        if (crossGrid && !dockedForTarget)
+        {
+            if (!BeginPatientActivity(
+                    uid,
+                    rescue,
+                    LuaMRescueActivity.PlanningRoute,
+                    target,
+                    new EntityCoordinates(target, Vector2.Zero)))
+            {
+                HandlePatientRouteFailure(
+                    uid,
+                    rescue,
+                    htn,
+                    target,
+                    manual,
+                    rescue.ActivityContext.FailureReason == LuaMRescueFailureReason.None
+                        ? LuaMRescueFailureReason.DeadlineExceeded
+                        : rescue.ActivityContext.FailureReason,
+                    "planning activity reached a terminal state");
+                return;
+            }
+            HoldMovementForRoute(uid, htn);
+
+            if (lifecycle != null &&
+                (lifecycle.State is LuaMRescueShuttleRouteState.Failed or LuaMRescueShuttleRouteState.TimedOut) &&
+                lifecycle.RetryCount >= lifecycle.EffectiveMaxRetries)
+            {
+                HandlePatientRouteFailure(
+                    uid,
+                    rescue,
+                    htn,
+                    target,
+                    manual,
+                    LuaMRescueFailureReason.ShuttleRouteFailed,
+                    $"{lifecycle.State}: {lifecycle.LastStatus}");
+                return;
+            }
+
+            rescue.LastTargetTrackingStatus = lifecycle == null
+                ? "shuttle route lifecycle unavailable; holding onboard"
+                : $"shuttle={lifecycle.State}; holding onboard until Docked; {lifecycle.LastStatus}";
+            _activity.RecordProgress(
+                uid,
+                new EntityCoordinates(target, Vector2.Zero),
+                null,
+                LuaMRescueRouteStatus.Planning,
+                LuaMRescueDoAfterStatus.None,
+                out _);
+            Dirty(uid, rescue);
+            return;
+        }
+
+        var route = _rescueNavigation.ProbeRoute(uid, target, actionRange, dockedForTarget);
+        if (route.State == LuaMRescuePathProbeState.Pending)
+        {
+            if (!BeginPatientActivity(
+                    uid,
+                    rescue,
+                    LuaMRescueActivity.PlanningRoute,
+                    target,
+                    new EntityCoordinates(target, Vector2.Zero)))
+            {
+                HandlePatientRouteFailure(
+                    uid,
+                    rescue,
+                    htn,
+                    target,
+                    manual,
+                    rescue.ActivityContext.FailureReason == LuaMRescueFailureReason.None
+                        ? LuaMRescueFailureReason.DeadlineExceeded
+                        : rescue.ActivityContext.FailureReason,
+                    "path planning activity reached a terminal state");
+                return;
+            }
+            HoldMovementForRoute(uid, htn);
+            rescue.LastTargetTrackingStatus = $"route planning to {FormatEntityRef(target)}";
+            _activity.RecordProgress(
+                uid,
+                new EntityCoordinates(target, Vector2.Zero),
+                route.Distance,
+                LuaMRescueRouteStatus.Planning,
+                LuaMRescueDoAfterStatus.None,
+                out _);
+            Dirty(uid, rescue);
+            return;
+        }
+
+        if (route.State != LuaMRescuePathProbeState.Reachable)
+        {
+            var reason = route.State switch
+            {
+                LuaMRescuePathProbeState.DifferentGrid => LuaMRescueFailureReason.ShuttleUnavailable,
+                LuaMRescuePathProbeState.AccessDenied => LuaMRescueFailureReason.AccessDenied,
+                LuaMRescuePathProbeState.NoLineOfSight => LuaMRescueFailureReason.NoLineOfSight,
+                _ => LuaMRescueFailureReason.NoPath,
+            };
+            HandlePatientRouteFailure(
+                uid,
+                rescue,
+                htn,
+                target,
+                manual,
+                reason,
+                route.State.ToString(),
+                authoritativeRouteFailure: true);
+            return;
+        }
+
+        if (rescue.ActivityContext.Activity != desiredActivity ||
+            rescue.ActivityContext.Target != target ||
+            rescue.ActivityContext.TerminalStatus != LuaMRescueTerminalStatus.Active)
+        {
+            if (!BeginPatientActivity(uid, rescue, desiredActivity, target, new EntityCoordinates(target, Vector2.Zero)))
+            {
+                HandlePatientRouteFailure(
+                    uid,
+                    rescue,
+                    htn,
+                    target,
+                    manual,
+                    rescue.ActivityContext.FailureReason == LuaMRescueFailureReason.None
+                        ? LuaMRescueFailureReason.DeadlineExceeded
+                        : rescue.ActivityContext.FailureReason,
+                    "approach activity reached a terminal state");
+                return;
+            }
+        }
+
+        var madePhysicalRouteProgress = route.Distance <= actionRange ||
+                                        rescue.ActivityContext.LastProgressDistance is { } previousDistance &&
+                                        route.Distance + Math.Max(
+                                            0f,
+                                            rescue.ActivityRoleProfile.ProgressTolerance) < previousDistance;
+        _activity.RecordProgress(
+            uid,
+            new EntityCoordinates(target, Vector2.Zero),
+            route.Distance,
+            route.Distance <= actionRange ? LuaMRescueRouteStatus.Arrived : LuaMRescueRouteStatus.Moving,
+            LuaMRescueDoAfterStatus.None,
+            out _);
+        if (madePhysicalRouteProgress && !HasDurableRouteFailure(rescue, target))
+            rescue.RouteFailureAttempts.Remove(target);
+        SetMovementGoal(
+            uid,
+            rescue,
+            htn,
+            new EntityCoordinates(target, Vector2.Zero),
+            actionRange);
+        Dirty(uid, rescue);
+    }
+
+    private void HoldMovementForRoute(EntityUid uid, HTNComponent htn)
+    {
+        if (htn.Blackboard.ContainsKey(NPCBlackboard.FollowTarget) || htn.Plan != null)
+            CancelCurrentHtnMovement(uid, htn, cancelRouteProbe: false);
+
+        htn.Blackboard.Remove<EntityCoordinates>(NPCBlackboard.FollowTarget);
+    }
+
+    private void HandlePatientRouteFailure(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target,
+        bool manual,
+        LuaMRescueFailureReason reason,
+        string detail,
+        bool authoritativeRouteFailure = false)
+    {
+        var failureDisposition = manual
+            ? PatientRouteFailureDisposition.TemporarySkip
+            : GetPatientRouteFailureDisposition(
+                rescue,
+                target,
+                reason,
+                authoritativeRouteFailure);
+
+        HoldMovementForRoute(uid, htn);
+        _rescueNavigation.CancelRoute(uid, target);
+        // Close the failed patient generation before TemporarilySkipTarget can
+        // create Returning/Standby as the fallback generation.
+        _activity.Block(uid, reason, LuaMRescueActivity.Standby, out _);
+        if (manual)
+        {
+            ClearPendingPlayerAction(rescue, $"{reason}: {detail}");
+            ClearRescueTask(uid, rescue, $"manual route failed: {reason}; {detail}");
+            rescue.AssignedTarget = null;
+        }
+        else
+        {
+            TemporarilySkipTarget(uid, rescue, htn, target);
+            var requiredHandoff = rescue.RequiredOnboardHandoffPatients.Contains(target);
+            if (requiredHandoff &&
+                failureDisposition is PatientRouteFailureDisposition.DormantRecovery or
+                    PatientRouteFailureDisposition.DurableSkip)
+            {
+                // Dormant recovery deliberately has no active owner. Required
+                // custody must keep one, so an exhausted route becomes a
+                // durable blocked handoff until an explicit redispatch repairs
+                // the route budget.
+                failureDisposition = PatientRouteFailureDisposition.DurableSkip;
+                ArmDurableRouteFailure(uid, rescue, target, reason, detail);
+            }
+            else if (failureDisposition == PatientRouteFailureDisposition.DormantRecovery)
+            {
+                ArmDormantRouteRecovery(uid, rescue, target, reason, detail);
+            }
+            else if (failureDisposition == PatientRouteFailureDisposition.DurableSkip)
+            {
+                ArmDurableRouteFailure(uid, rescue, target, reason, detail);
+            }
+        }
+
+        rescue.LastTargetTrackingStatus =
+            $"route terminal: target={FormatEntityRef(target)}; reason={reason}; " +
+            $"disposition={failureDisposition}; detail={detail}";
+        Dirty(uid, rescue);
+    }
+
+    private static float GetPatientApproachActionRange(
+        LuaMRescueAgentComponent rescue,
+        LuaMRescueActivity activity = LuaMRescueActivity.ApproachPatient)
+    {
+        var profileRange = rescue.ActivityRoleProfile.GetActionRange(
+            activity,
+            rescue.PlayerActionRange);
+        return Math.Min(profileRange, rescue.EvacuationStartRange);
+    }
+
+    private PatientRouteFailureDisposition GetPatientRouteFailureDisposition(
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        LuaMRescueFailureReason reason,
+        bool authoritativeRouteFailure)
+    {
+        if (!IsBoundedRouteFailure(reason))
+            return PatientRouteFailureDisposition.TemporarySkip;
+
+        var attempts = rescue.RouteFailureAttempts.GetValueOrDefault(target);
+        if (authoritativeRouteFailure || IsTerminalRouteBudgetFailure(reason))
+        {
+            attempts++;
+            rescue.RouteFailureAttempts[target] = attempts;
+        }
+
+        var maxAttempts = Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts);
+        var activityBudgetExhausted = rescue.ActivityContext.Target == target &&
+                                      (rescue.ActivityContext.TerminalStatus is LuaMRescueTerminalStatus.Blocked
+                                          or LuaMRescueTerminalStatus.Failed) &&
+                                      rescue.ActivityContext.Attempts >= maxAttempts;
+        if (attempts < maxAttempts && !activityBudgetExhausted)
+            return PatientRouteFailureDisposition.TemporarySkip;
+
+        // A route becoming reachable is sufficient evidence to recover NoPath
+        // and shuttle infrastructure failures. It is not sufficient evidence to
+        // recover an activity that already timed out on a reachable route; that
+        // requires an explicit administrative redispatch.
+        return reason == LuaMRescueFailureReason.DeadlineExceeded
+            ? PatientRouteFailureDisposition.DurableSkip
+            : PatientRouteFailureDisposition.DormantRecovery;
+    }
+
+    private static bool HasDurableRouteFailure(
+        LuaMRescueAgentComponent rescue,
+        EntityUid target)
+    {
+        return rescue.RouteFailureAttempts.ContainsKey(target) &&
+               rescue.SkippedTargets.TryGetValue(target, out var skipUntil) &&
+               skipUntil == TimeSpan.MaxValue;
+    }
+
+    private static bool IsBoundedRouteFailure(LuaMRescueFailureReason reason)
+    {
+        return reason is LuaMRescueFailureReason.NoPath
+            or LuaMRescueFailureReason.AccessDenied
+            or LuaMRescueFailureReason.NoLineOfSight
+            or LuaMRescueFailureReason.RouteBlocked
+            or LuaMRescueFailureReason.DeadlineExceeded
+            or LuaMRescueFailureReason.ShuttleRouteFailed
+            or LuaMRescueFailureReason.ShuttleUnavailable;
+    }
+
+    private static bool IsTerminalRouteBudgetFailure(LuaMRescueFailureReason reason)
+    {
+        return reason is LuaMRescueFailureReason.DeadlineExceeded
+            or LuaMRescueFailureReason.ShuttleRouteFailed
+            or LuaMRescueFailureReason.ShuttleUnavailable;
+    }
+
+    private void ArmDurableRouteFailure(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        LuaMRescueFailureReason reason,
+        string detail)
+    {
+        // The order that created this generation is no longer authoritative.
+        // Keeping its manual-override mirror would let the periodic target
+        // refresh silently resume the same patient even though a durable route
+        // failure explicitly requires a new administrative redispatch.
+        if (rescue.ManualOverrideTarget == target)
+        {
+            RevokeManualOverrideTarget(
+                uid,
+                rescue,
+                target,
+                $"durable route failure: {reason}; explicit redispatch required");
+        }
+
+        rescue.SkippedTargets[target] = TimeSpan.MaxValue;
+        rescue.LastDormantRouteStatus =
+            $"durable target={FormatEntityRef(target)}; reason={reason}; " +
+            $"attempts={rescue.RouteFailureAttempts.GetValueOrDefault(target)}/" +
+            $"{Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts)}; " +
+            $"automatic recovery disabled; explicit redispatch required; detail={detail}";
+        Dirty(uid, rescue);
+    }
+
+    private void ArmDormantRouteRecovery(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        LuaMRescueFailureReason reason,
+        string detail)
+    {
+        if (rescue.DormantRouteTarget is { Valid: true } previous && previous != target)
+            ClearDormantRouteRecovery(rescue, "replaced by another terminal route", clearFailureBudget: true);
+
+        var newlyArmed = rescue.DormantRouteTarget != target;
+        rescue.DormantRouteTarget = target;
+        rescue.DormantRouteActionRange = GetPatientApproachActionRange(rescue);
+        rescue.DormantRouteProbeInFlight = false;
+        rescue.DormantRouteProbeStartedAt = TimeSpan.Zero;
+        rescue.SkippedTargets[target] = TimeSpan.MaxValue;
+        if (newlyArmed)
+        {
+            rescue.NextDormantRouteProbeAt = _timing.CurTime +
+                TimeSpan.FromSeconds(Math.Max(0.1f, rescue.DormantRouteObservationSeconds));
+        }
+
+        rescue.LastDormantRouteStatus =
+            $"armed target={FormatEntityRef(target)}; reason={reason}; " +
+            $"attempts={rescue.RouteFailureAttempts.GetValueOrDefault(target)}/" +
+            $"{Math.Max(1, rescue.ActivityRoleProfile.MaxAttempts)}; detail={detail}";
+        Dirty(uid, rescue);
+    }
+
+    /// <summary>
+    /// Observes a terminal route outside the active activity/HTN owner. Failed
+    /// observations are rate-limited and never consume or reset the action retry
+    /// budget. A confirmed reachable route creates exactly one fresh intent.
+    /// </summary>
+    private bool TryUpdateDormantRouteRecovery(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (rescue.DormantRouteTarget is not { Valid: true } target)
+            return false;
+
+        if (Deleted(target))
+        {
+            _rescueNavigation.CancelRoute(uid, target);
+            ClearDormantRouteRecovery(
+                rescue,
+                $"cancelled target={FormatEntityRef(target)}; reason={LuaMRescueFailureReason.TargetLost}",
+                clearFailureBudget: true);
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        if (!IsEligibleAssignedPatient(uid, target, rescue, out var eligibilityFailure))
+        {
+            _rescueNavigation.CancelRoute(uid, target);
+            ClearDormantRouteRecovery(
+                rescue,
+                $"cancelled target={FormatEntityRef(target)}; reason={eligibilityFailure}",
+                clearFailureBudget: true);
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        if (TryGetActivePatientTarget(rescue, out var activeTarget))
+        {
+            if (activeTarget == target)
+            {
+                ClearDormantRouteRecovery(
+                    rescue,
+                    $"superseded by authoritative assignment target={FormatEntityRef(target)}",
+                    clearFailureBudget: true);
+                Dirty(uid, rescue);
+                return false;
+            }
+
+            DeferDormantRouteRecovery(uid, rescue, target, $"busy with {FormatEntityRef(activeTarget)}");
+            return false;
+        }
+
+        if (rescue.PendingPlayerAction != LuaMRescuePlayerActionKind.None ||
+            rescue.OnboardCareTarget is { Valid: true })
+        {
+            DeferDormantRouteRecovery(uid, rescue, target, "coordinator is busy");
+            return false;
+        }
+
+        var now = _timing.CurTime;
+        if (!rescue.DormantRouteProbeInFlight && now < rescue.NextDormantRouteProbeAt)
+            return false;
+
+        var actionRange = Math.Max(0.05f, rescue.DormantRouteActionRange);
+        var route = _rescueNavigation.ProbeRoute(uid, target, actionRange);
+        if (route.State == LuaMRescuePathProbeState.Pending)
+        {
+            if (!rescue.DormantRouteProbeInFlight)
+            {
+                rescue.DormantRouteProbeInFlight = true;
+                rescue.DormantRouteProbeStartedAt = now;
+                rescue.DormantRouteProbeCount++;
+            }
+
+            var probeTimeout = TimeSpan.FromSeconds(Math.Max(0.1f, rescue.DormantRouteProbeTimeoutSeconds));
+            if (now - rescue.DormantRouteProbeStartedAt >= probeTimeout)
+            {
+                _rescueNavigation.CancelRoute(uid, target);
+                rescue.DormantRouteProbeInFlight = false;
+                rescue.DormantRouteProbeStartedAt = TimeSpan.Zero;
+                rescue.NextDormantRouteProbeAt = now +
+                    TimeSpan.FromSeconds(Math.Max(0.1f, rescue.DormantRouteObservationSeconds));
+                rescue.LastDormantRouteStatus =
+                    $"probe timed out target={FormatEntityRef(target)}; next={rescue.NextDormantRouteProbeAt.TotalSeconds:0.0}s";
+            }
+            else
+            {
+                rescue.NextDormantRouteProbeAt = now + TimeSpan.FromSeconds(0.25);
+                rescue.LastDormantRouteStatus =
+                    $"probing target={FormatEntityRef(target)}; probe={rescue.DormantRouteProbeCount}";
+            }
+
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        rescue.DormantRouteProbeInFlight = false;
+        rescue.DormantRouteProbeStartedAt = TimeSpan.Zero;
+        if (route.State != LuaMRescuePathProbeState.Reachable)
+        {
+            _rescueNavigation.CancelRoute(uid, target);
+            rescue.NextDormantRouteProbeAt = now +
+                TimeSpan.FromSeconds(Math.Max(0.1f, rescue.DormantRouteObservationSeconds));
+            rescue.LastDormantRouteStatus =
+                $"dormant target={FormatEntityRef(target)} remains {route.State}; " +
+                $"probe={rescue.DormantRouteProbeCount}; next={rescue.NextDormantRouteProbeAt.TotalSeconds:0.0}s";
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        // The route result is authoritative. Cancel fallback movement before the
+        // sole BeginOrReplaceIntent call so no old HTN operator survives this
+        // generation change.
+        PrepareForExternalIntentReplacement(uid, target);
+        var destination = new EntityCoordinates(target, Vector2.Zero);
+        if (!_activity.BeginOrReplaceIntent(
+                uid,
+                rescue.ActivityRole,
+                LuaMRescueActivity.ApproachPatient,
+                target,
+                destination,
+                out var resumed))
+        {
+            _rescueNavigation.CancelRoute(uid, target);
+            rescue.NextDormantRouteProbeAt = now +
+                TimeSpan.FromSeconds(Math.Max(0.1f, rescue.DormantRouteObservationSeconds));
+            rescue.LastDormantRouteStatus =
+                $"reachable target={FormatEntityRef(target)} but intent replacement failed: {resumed.FailureReason}";
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        rescue.AssignedTarget = target;
+        SetRescueTask(
+            uid,
+            rescue,
+            LuaMRescueTaskStage.FollowingPatient,
+            target,
+            null,
+            $"resumed after dormant route recovery {FormatEntityRef(target)}");
+        _activity.RecordProgress(
+            uid,
+            destination,
+            route.Distance,
+            route.Distance <= actionRange ? LuaMRescueRouteStatus.Arrived : LuaMRescueRouteStatus.Moving,
+            LuaMRescueDoAfterStatus.None,
+            out _);
+        SetMovementGoal(uid, rescue, htn, destination, actionRange);
+
+        rescue.DormantRouteResumeCount++;
+        var resumeCount = rescue.DormantRouteResumeCount;
+        var probeCount = rescue.DormantRouteProbeCount;
+        ClearDormantRouteRecovery(rescue, "recovered", clearFailureBudget: true);
+        rescue.LastDormantRouteStatus =
+            $"recovered target={FormatEntityRef(target)}; generation={resumed.Generation}; " +
+            $"resume={resumeCount}; probes={probeCount}";
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private void DeferDormantRouteRecovery(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        EntityUid target,
+        string reason)
+    {
+        if (rescue.DormantRouteProbeInFlight)
+            _rescueNavigation.CancelRoute(uid, target);
+
+        rescue.DormantRouteProbeInFlight = false;
+        rescue.DormantRouteProbeStartedAt = TimeSpan.Zero;
+        rescue.NextDormantRouteProbeAt = _timing.CurTime +
+            TimeSpan.FromSeconds(Math.Max(0.1f, rescue.DormantRouteObservationSeconds));
+        rescue.LastDormantRouteStatus =
+            $"deferred target={FormatEntityRef(target)}; {reason}; next={rescue.NextDormantRouteProbeAt.TotalSeconds:0.0}s";
+        Dirty(uid, rescue);
+    }
+
+    private static void ClearDormantRouteRecovery(
+        LuaMRescueAgentComponent rescue,
+        string status,
+        bool clearFailureBudget)
+    {
+        if (rescue.DormantRouteTarget is { Valid: true } target)
+        {
+            rescue.SkippedTargets.Remove(target);
+            if (clearFailureBudget)
+                rescue.RouteFailureAttempts.Remove(target);
+        }
+
+        rescue.DormantRouteTarget = null;
+        rescue.NextDormantRouteProbeAt = TimeSpan.Zero;
+        rescue.DormantRouteProbeInFlight = false;
+        rescue.DormantRouteProbeStartedAt = TimeSpan.Zero;
+        rescue.DormantRouteActionRange = 0f;
+        rescue.LastDormantRouteStatus = status;
+    }
+
+    private bool BeginPatientActivity(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        LuaMRescueActivity activity,
+        EntityUid? target,
+        EntityCoordinates? destination = null)
+    {
+        if (rescue.ActivityContext.Activity == activity &&
+            rescue.ActivityContext.Target == target &&
+            Nullable.Equals(rescue.ActivityContext.Destination, destination) &&
+            rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Blocked)
+        {
+            var blockedGeneration = rescue.ActivityContext.Generation;
+            if (_activity.TryRecoverBlockedIntent(
+                    uid,
+                    blockedGeneration,
+                    activity,
+                    target,
+                    destination,
+                    out var retryAfter,
+                    out _))
+            {
+                rescue.LastTargetTrackingStatus =
+                    $"recovering {activity} after bounded route/action backoff; generation={rescue.ActivityContext.Generation}";
+                return true;
+            }
+
+            if (retryAfter > TimeSpan.Zero)
+            {
+                rescue.LastTargetTrackingStatus =
+                    $"blocked {activity}; retry in {retryAfter.TotalSeconds:0.0}s; reason={rescue.ActivityContext.FailureReason}";
+            }
+            return false;
+        }
+
+        if (rescue.ActivityContext.Activity == activity &&
+            rescue.ActivityContext.Target == target &&
+            rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Failed)
+        {
+            return false;
+        }
+
+        if (rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+            rescue.ActivityContext.Target != target)
+        {
+            var cancelledGeneration = rescue.ActivityContext.Generation;
+            var cancellationStatus =
+                $"patient activity target replacement: old={FormatEntityRef(rescue.ActivityContext.Target)}; " +
+                $"new={FormatEntityRef(target)}; requested={activity}; " +
+                $"generation={cancelledGeneration}";
+            if (_activity.Cancel(uid, cancelledGeneration, LuaMRescueFailureReason.Cancelled, out _))
+                rescue.LastIntentCancellationStatus = cancellationStatus;
+        }
+
+        if (_activity.BeginOrReplaceIntent(
+                uid,
+                rescue.ActivityRole,
+                activity,
+                target,
+                destination,
+                out _))
+        {
+            return true;
+        }
+
+        // A concrete server-side outcome may legitimately skip a cosmetic intermediate
+        // state (for example an already-close patient goes straight to treatment).
+        // Close the obsolete state before starting the authoritative replacement.
+        var obsoleteGeneration = rescue.ActivityContext.Generation;
+        var retryCancellationStatus =
+            $"patient activity transition retry: from={rescue.ActivityContext.Activity}; requested={activity}; " +
+            $"target={FormatEntityRef(target)}; generation={obsoleteGeneration}";
+        if (_activity.Cancel(uid, obsoleteGeneration, LuaMRescueFailureReason.Cancelled, out _))
+            rescue.LastIntentCancellationStatus = retryCancellationStatus;
+        return _activity.BeginOrReplaceIntent(
+            uid,
+            rescue.ActivityRole,
+            activity,
+            target,
+            destination,
+            out _);
+    }
+
+    private void SetTaskMovementTarget(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target)
+    {
+        if (!BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.Resupply,
+            rescue.TaskPatientTarget,
+            new EntityCoordinates(target, Vector2.Zero)))
+        {
+            return;
+        }
+        SetMovementGoal(
+            uid,
+            rescue,
+            htn,
+            new EntityCoordinates(target, Vector2.Zero),
+            rescue.PlayerActionRange);
         Dirty(uid, rescue);
     }
 
     private bool SetFollowShuttle(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
     {
         if (!TryGetShuttleAnchorCoordinates(rescue, out var coordinates))
+        {
+            HoldMovementForRoute(uid, htn);
+            _activity.Block(
+                uid,
+                LuaMRescueFailureReason.ShuttleUnavailable,
+                LuaMRescueActivity.Standby,
+                out _);
+            rescue.LastShuttleReturnStatus = "ShuttleUnavailable: no shuttle anchor is assigned";
+            Dirty(uid, rescue);
             return false;
+        }
 
-        _npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, coordinates, htn);
-        _npc.SetBlackboard(uid, "FollowCloseRange", rescue.FollowCloseRange, htn);
-        _npc.SetBlackboard(uid, "FollowRange", rescue.FollowRange, htn);
-        _npc.WakeNPC(uid, htn);
+        var patient = rescue.EvacuatingTarget ?? rescue.TaskPatientTarget;
+        var delivering = patient is { Valid: true } patientUid && IsPullingTarget(uid, patientUid);
+        if (!EnsureConfirmedShuttleTraversal(
+                uid,
+                rescue,
+                htn,
+                coordinates.EntityId,
+                delivering ? patient : null))
+        {
+            return false;
+        }
+
+        var activity = delivering ? LuaMRescueActivity.DeliverPatient : LuaMRescueActivity.ReturnToShuttle;
+        var activityTarget = delivering ? patient : rescue.AssignedShuttle;
+        if (!BeginPatientActivity(
+            uid,
+            rescue,
+            activity,
+            activityTarget,
+            coordinates))
+        {
+            return false;
+        }
+
+        var destination = coordinates.EntityId;
+        var confirmedDockedCrossGrid = Transform(uid).GridUid != Transform(destination).GridUid;
+        var route = _rescueNavigation.ProbeRoute(
+            uid,
+            destination,
+            rescue.EvacuationArrivalRange,
+            confirmedDockedCrossGrid);
+        if (route.State == LuaMRescuePathProbeState.Pending)
+        {
+            HoldMovementForRoute(uid, htn);
+            rescue.LastShuttleReturnStatus =
+                $"planning route to shuttle anchor {FormatEntityRef(destination)}";
+            _activity.RecordProgress(
+                uid,
+                coordinates,
+                route.Distance,
+                LuaMRescueRouteStatus.Planning,
+                LuaMRescueDoAfterStatus.None,
+                out _);
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        if (route.State != LuaMRescuePathProbeState.Reachable)
+        {
+            var failure = route.State switch
+            {
+                LuaMRescuePathProbeState.AccessDenied => LuaMRescueFailureReason.AccessDenied,
+                LuaMRescuePathProbeState.NoLineOfSight => LuaMRescueFailureReason.NoLineOfSight,
+                LuaMRescuePathProbeState.DifferentGrid => LuaMRescueFailureReason.ShuttleUnavailable,
+                _ => LuaMRescueFailureReason.NoPath,
+            };
+            HoldMovementForRoute(uid, htn);
+            rescue.LastShuttleReturnStatus =
+                $"{failure}: route to shuttle anchor {FormatEntityRef(destination)} is {route.State}";
+            _activity.Block(uid, failure, LuaMRescueActivity.Standby, out _);
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        _activity.RecordProgress(
+            uid,
+            coordinates,
+            route.Distance,
+            route.Distance <= rescue.EvacuationArrivalRange
+                ? LuaMRescueRouteStatus.Arrived
+                : LuaMRescueRouteStatus.Moving,
+            LuaMRescueDoAfterStatus.None,
+            out _);
+        SetMovementGoal(uid, rescue, htn, coordinates, rescue.EvacuationArrivalRange);
         Dirty(uid, rescue);
         return true;
     }
@@ -5992,12 +12273,230 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (Deleted(patientStrap))
             return SetFollowShuttle(uid, rescue, htn);
 
-        _npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, new EntityCoordinates(patientStrap, Vector2.Zero), htn);
-        _npc.SetBlackboard(uid, "FollowCloseRange", rescue.FollowCloseRange, htn);
-        _npc.SetBlackboard(uid, "FollowRange", rescue.FollowRange, htn);
-        _npc.WakeNPC(uid, htn);
+        var patient = rescue.EvacuatingTarget ?? rescue.TaskPatientTarget;
+        if (!EnsureConfirmedShuttleTraversal(uid, rescue, htn, patientStrap, patient))
+            return false;
+
+        if (!BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.DeliverPatient,
+            rescue.EvacuatingTarget ?? rescue.TaskPatientTarget,
+            new EntityCoordinates(patientStrap, Vector2.Zero)))
+        {
+            return false;
+        }
+
+        var movementRange = Math.Min(rescue.PlayerActionRange, rescue.AutoReleaseRange);
+        float? remainingDistance = null;
+        var patientReadyForBuckle = false;
+        if (patient is { Valid: true } patientUid &&
+            !Deleted(patientUid) &&
+            TryComp<BuckleComponent>(patientUid, out var buckle) &&
+            Transform(patientUid).Coordinates.TryDistance(
+                EntityManager,
+                Transform(patientStrap).Coordinates,
+                out var patientDistance))
+        {
+            remainingDistance = patientDistance;
+            patientReadyForBuckle = patientDistance <= buckle.Range &&
+                                    IsWithinRange(patientUid, patientStrap, buckle.Range);
+            if (!patientReadyForBuckle)
+            {
+                // The pulled patient trails behind the medic. Keep the medic
+                // advancing past the normal interaction stop until the actual
+                // patient-to-bed distance satisfies the buckle contract.
+                movementRange = Math.Min(
+                    movementRange,
+                    Math.Max(0.1f, buckle.Range * 0.25f));
+            }
+        }
+
+        _activity.RecordProgress(
+            uid,
+            new EntityCoordinates(patientStrap, Vector2.Zero),
+            remainingDistance,
+            patientReadyForBuckle
+                ? LuaMRescueRouteStatus.Arrived
+                : LuaMRescueRouteStatus.Moving,
+            LuaMRescueDoAfterStatus.None,
+            out _);
+        SetMovementGoal(
+            uid,
+            rescue,
+            htn,
+            new EntityCoordinates(patientStrap, Vector2.Zero),
+            movementRange);
         Dirty(uid, rescue);
         return true;
+    }
+
+    private bool EnsureConfirmedShuttleTraversal(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid destination,
+        EntityUid? patient)
+    {
+        if (Deleted(destination) ||
+            rescue.AssignedShuttle is not { Valid: true } shuttle ||
+            Deleted(shuttle))
+        {
+            HoldMovementForRoute(uid, htn);
+            _activity.Block(
+                uid,
+                LuaMRescueFailureReason.ShuttleUnavailable,
+                LuaMRescueActivity.Standby,
+                out _);
+            rescue.LastAutoEvacuationStatus = "ShuttleUnavailable: destination or shuttle is missing";
+            return false;
+        }
+
+        var agentGrid = Transform(uid).GridUid;
+        var destinationGrid = destination == shuttle
+            ? shuttle
+            : Transform(destination).GridUid;
+        if (agentGrid == destinationGrid)
+            return true;
+
+        // A destination on an unrelated graph is never a valid shuttle crossing.
+        if (destinationGrid != shuttle || agentGrid is not { Valid: true } outsideGrid)
+        {
+            HoldMovementForRoute(uid, htn);
+            _activity.Block(uid, LuaMRescueFailureReason.NoPath, LuaMRescueActivity.Standby, out _);
+            rescue.LastAutoEvacuationStatus =
+                $"NoPath: shuttle destination {FormatEntityRef(destination)} is on an unrelated grid";
+            return false;
+        }
+
+        var routeTarget = patient is { Valid: true } patientUid &&
+                          !Deleted(patientUid) &&
+                          !IsOnAssignedShuttle(patientUid, rescue)
+            ? patientUid
+            : uid;
+        TryRouteShuttleToTarget(uid, rescue, routeTarget);
+
+        var lifecycle = EnsureComp<LuaMRescueShuttleLifecycleComponent>(shuttle);
+        var physicallyDocked = lifecycle.State == LuaMRescueShuttleRouteState.Docked &&
+                               lifecycle.SafeExitConfirmed &&
+                               IsShuttleDockedToGrid(shuttle, outsideGrid);
+        if (physicallyDocked)
+            return true;
+
+        HoldMovementForRoute(uid, htn);
+        BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.PlanningRoute,
+            patient ?? shuttle,
+            new EntityCoordinates(destination, Vector2.Zero));
+
+        var terminal = (lifecycle.State is LuaMRescueShuttleRouteState.Failed
+                or LuaMRescueShuttleRouteState.TimedOut) &&
+            lifecycle.RetryCount >= lifecycle.EffectiveMaxRetries;
+        if (terminal)
+        {
+            rescue.LastAutoEvacuationStatus =
+                $"ShuttleRouteFailed: cannot traverse to {FormatEntityRef(destination)}; {lifecycle.LastStatus}";
+            _activity.Block(
+                uid,
+                LuaMRescueFailureReason.ShuttleRouteFailed,
+                LuaMRescueActivity.Standby,
+                out _);
+        }
+        else
+        {
+            rescue.LastAutoEvacuationStatus =
+                $"waiting for confirmed Docked before cross-grid traversal; shuttle={lifecycle.State}; target={FormatEntityRef(routeTarget)}";
+            _activity.RecordProgress(
+                uid,
+                new EntityCoordinates(destination, Vector2.Zero),
+                remainingDistance: null,
+                LuaMRescueRouteStatus.Planning,
+                LuaMRescueDoAfterStatus.None,
+                out _);
+        }
+
+        Dirty(uid, rescue);
+        return false;
+    }
+
+    private bool IsShuttleDockedToGrid(EntityUid shuttle, EntityUid grid)
+    {
+        var query = EntityQueryEnumerator<DockingComponent, TransformComponent>();
+        while (query.MoveNext(out var dockUid, out var docking, out var xform))
+        {
+            if (xform.GridUid != shuttle ||
+                docking.DockedWith is not { Valid: true } otherDock ||
+                Deleted(otherDock) ||
+                !TryComp<DockingComponent>(otherDock, out var reciprocal) ||
+                reciprocal.DockedWith != dockUid ||
+                docking.PathfindHandle < 0 ||
+                reciprocal.PathfindHandle != docking.PathfindHandle)
+            {
+                continue;
+            }
+
+            if (Transform(otherDock).GridUid == grid)
+                return true;
+        }
+
+        return false;
+    }
+
+    private void SetMovementGoal(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityCoordinates coordinates,
+        float actionRange)
+    {
+        actionRange = Math.Max(0.1f, actionRange);
+        if (coordinates.EntityId is { Valid: true } actionTarget &&
+            !Deleted(actionTarget) &&
+            Transform(uid).Coordinates.TryDistance(EntityManager, coordinates, out var directDistance) &&
+            directDistance <= actionRange &&
+            !_interaction.InRangeUnobstructed(uid, actionTarget, actionRange))
+        {
+            // Close behind a door/wall is not arrived. Keep FollowCompound moving
+            // toward the approach path returned by the authoritative route query.
+            actionRange = Math.Min(actionRange, 0.25f);
+        }
+        var closeRange = Math.Min(rescue.FollowCloseRange, actionRange);
+        var followRange = Math.Min(rescue.FollowRange, actionRange);
+
+        if (htn.Blackboard.TryGetValue<EntityCoordinates>(
+                NPCBlackboard.FollowTarget,
+                out var previous,
+                EntityManager) &&
+            !previous.Equals(coordinates))
+        {
+            CancelCurrentHtnMovement(uid, htn, cancelRouteProbe: false);
+            if (previous.EntityId.Valid && previous.EntityId != coordinates.EntityId)
+                _rescueNavigation.CancelRoute(uid, previous.EntityId);
+        }
+
+        _npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, coordinates, htn);
+        _npc.SetBlackboard(uid, "FollowCloseRange", closeRange, htn);
+        _npc.SetBlackboard(uid, "FollowRange", followRange, htn);
+        _npc.WakeNPC(uid, htn);
+    }
+
+    private void CancelCurrentHtnMovement(EntityUid uid, HTNComponent htn, bool cancelRouteProbe = true)
+    {
+        htn.PlanningToken?.Cancel();
+        htn.PlanningToken = null;
+        htn.PlanningJob = null;
+
+        if (htn.Plan != null)
+        {
+            _htnSystem.ShutdownTask(htn.Plan.CurrentOperator, htn.Blackboard, HTNOperatorStatus.Failed);
+            _htnSystem.ShutdownPlan(htn);
+        }
+
+        if (cancelRouteProbe)
+            _rescueNavigation.CancelRoute(uid);
+        _htnSystem.Replan(htn);
     }
 
     private void StandbyAtAssignedShuttle(
@@ -6019,16 +12518,24 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         if (CanUseAssignedShuttle(rescue))
         {
-            if (allowAutoReturn)
+            var onboard = IsOnAssignedShuttle(uid, rescue);
+            // Never command the shuttle home while its medic is still outside.
+            // Boarding through a confirmed dock is part of the current intent.
+            if (allowAutoReturn && onboard)
                 TryRouteShuttleHome(uid, rescue);
 
-            if (!IsAtAssignedShuttleAnchor(uid, rescue) &&
-                SetFollowShuttle(uid, rescue, htn))
+            if (!IsAtAssignedShuttleAnchor(uid, rescue))
             {
+                // Returning is one durable intent. Do not insert a transient
+                // Standby every refresh: that would reset generation/deadline
+                // and make an unreachable anchor retry forever.
+                SetFollowShuttle(uid, rescue, htn);
+                Dirty(uid, rescue);
                 return;
             }
         }
 
+        BeginPatientActivity(uid, rescue, LuaMRescueActivity.Standby, null);
         ClearFollowTarget(uid, rescue, htn);
         Dirty(uid, rescue);
     }
@@ -6060,6 +12567,29 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         {
             return;
         }
+
+        // Finishing a standby/return movement must still tear down its HTN
+        // operator, but it must not cancel an independent low-frequency route
+        // observation for a dormant patient. Cancel only the route that belonged
+        // to the cleared FollowTarget and leave the dormant generation's query
+        // alive.
+        var dormantTarget = rescue.DormantRouteTarget;
+        var preserveDormantProbe = dormantTarget is { Valid: true };
+        EntityUid? clearedRouteTarget = null;
+        if (preserveDormantProbe &&
+            htn.Blackboard.TryGetValue<EntityCoordinates>(
+                NPCBlackboard.FollowTarget,
+                out var followTarget,
+                EntityManager) &&
+            followTarget.EntityId is { Valid: true } routeTarget &&
+            routeTarget != dormantTarget)
+        {
+            clearedRouteTarget = routeTarget;
+        }
+
+        CancelCurrentHtnMovement(uid, htn, cancelRouteProbe: !preserveDormantProbe);
+        if (clearedRouteTarget is { Valid: true } previousTarget)
+            _rescueNavigation.CancelRoute(uid, previousTarget);
 
         rescue.AssignedTarget = null;
         htn.Blackboard.Remove<EntityCoordinates>(NPCBlackboard.FollowTarget);
@@ -6860,16 +13390,17 @@ public sealed class LuaMRescueStatusCommand : IConsoleCommand
     [Dependency] private readonly IEntityManager _entities = default!;
 
     public string Command => "luam_rescue_status";
-    public string Description => "Prints LuaM rescue agent mission telemetry.";
+    public string Description => "Prints LuaM rescue role and autopilot mission telemetry.";
     public string Help => $"Usage: {Command}";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
     {
         var system = _entities.System<LuaMRescueAgentSystem>();
         var lines = system.BuildRescueStatusLines();
+        lines.AddRange(_entities.System<LuaMRescueShuttleSystem>().BuildAutopilotStatusLines());
         if (lines.Count == 0)
         {
-            shell.WriteLine("No LuaM rescue agents are active.");
+            shell.WriteLine("No LuaM rescue roles are active.");
             return;
         }
 

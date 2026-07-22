@@ -39,6 +39,7 @@ using Robust.Shared.Physics.Components; // Mono
 using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
 using Content.Shared.Atmos.Components;
+using Content.Shared._Mono.Company;
 using System.Linq;
 using Content.Shared.StatusEffect; // Frontier
 
@@ -535,12 +536,16 @@ public sealed partial class NPCUtilitySystem : EntitySystem
                 {
                     var targetXform = Transform(target);
                     var targetGrid = targetXform.GridUid;
+                    var companyEntity = targetGrid ?? target;
                     if (targetComp.NeedGrid != NpcTargetGridMode.Either // if we care about grid..
                           // ..and our (non-)need for grid is equal to the (non-)absence of a grid
                           && (targetComp.NeedGrid == NpcTargetGridMode.OnGrid) == (targetGrid == null)
                         || targetGrid == ownGrid
                         || (_transform.GetWorldPosition(target) - _transform.GetWorldPosition(xform)).Length() > shuttlesQuery.Range
                         || targetComp.NeedPower && !this.IsPowered(target, EntityManager)
+                        || shuttlesQuery.TargetCompanies.Count > 0
+                            && (!TryComp<CompanyComponent>(companyEntity, out var company)
+                                || !shuttlesQuery.TargetCompanies.Contains(company.CompanyName))
                         || targetGrid != null && _whitelistSystem.IsBlacklistPass(shuttlesQuery.Blacklist, targetGrid.Value))
                     {
                         continue;

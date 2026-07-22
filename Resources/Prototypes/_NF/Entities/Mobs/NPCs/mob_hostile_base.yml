@@ -315,6 +315,20 @@
         true
       NavSmash: !type:Bool # They use this option too much for my liking, but I'll keep it here as an option
         true
+  - type: LuaMBehaviorAgent
+    profile: LuaMMeleeCombatantBehavior
+  - type: LuaMBehaviorHtnBinding
+    restoreOriginalTask: true
+    mirrorDecisionTarget: true
+    intentTasks:
+      DefendSelf: LuaMBehaviorMeleeDecisionCompound
+      Flee: LuaMBehaviorRetreatCompound
+      Retreat: LuaMBehaviorRetreatCompound
+      TakeCover: LuaMBehaviorRetreatCompound
+      EvadeProjectile: LuaMBehaviorRetreatCompound
+      EvacuateHazard: LuaMBehaviorRetreatCompound
+      SeekSafeAtmosphere: LuaMBehaviorRetreatCompound
+      SeekMedicalAid: LuaMBehaviorRetreatCompound
 
 - type: entity
   id: MobHumanoidHostileAISimpleRanged
@@ -332,6 +346,20 @@
         true
       NavSmash: !type:Bool # They use this option too much for my liking, but I'll keep it here as an option
         true
+  - type: LuaMBehaviorAgent
+    profile: LuaMRangedCombatantBehavior
+  - type: LuaMBehaviorHtnBinding
+    restoreOriginalTask: true
+    mirrorDecisionTarget: true
+    intentTasks:
+      DefendSelf: LuaMBehaviorRangedDecisionCompound
+      Flee: LuaMBehaviorRetreatCompound
+      Retreat: LuaMBehaviorRetreatCompound
+      TakeCover: LuaMBehaviorRetreatCompound
+      EvadeProjectile: LuaMBehaviorRetreatCompound
+      EvacuateHazard: LuaMBehaviorRetreatCompound
+      SeekSafeAtmosphere: LuaMBehaviorRetreatCompound
+      SeekMedicalAid: LuaMBehaviorRetreatCompound
 
 - type: entity
   id: MobHumanoidHostileAIComplex
@@ -347,6 +375,19 @@
         true
       NavPry: !type:Bool
         true
+  - type: LuaMBehaviorAgent
+    profile: LuaMSecurityBehavior
+  - type: LuaMBehaviorHtnBinding
+    restoreOriginalTask: true
+    mirrorDecisionTarget: true
+    intentTasks:
+      Flee: LuaMBehaviorRetreatCompound
+      Retreat: LuaMBehaviorRetreatCompound
+      TakeCover: LuaMBehaviorRetreatCompound
+      EvadeProjectile: LuaMBehaviorRetreatCompound
+      EvacuateHazard: LuaMBehaviorRetreatCompound
+      SeekSafeAtmosphere: LuaMBehaviorRetreatCompound
+      SeekMedicalAid: LuaMBehaviorRetreatCompound
 #      NavSmash: !type:Bool # They use this option too much for my liking, but I'll keep it here as an option
 #        true
 

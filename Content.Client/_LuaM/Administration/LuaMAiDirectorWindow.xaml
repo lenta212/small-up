@@ -1,258 +1,662 @@
 <DefaultWindow
     xmlns="https://spacestation14.io"
+    xmlns:controls="clr-namespace:Content.Client.UserInterface.Controls"
     Title="{Loc luam-ai-director-title}"
-    MinWidth="520"
-    MinHeight="420">
-    <ScrollContainer HorizontalExpand="True" VerticalExpand="True" HScrollEnabled="False">
-        <BoxContainer Orientation="Vertical" HorizontalExpand="True" Margin="4">
-            <PanelContainer StyleClasses="AngleRect" HorizontalExpand="True">
-                <BoxContainer Orientation="Vertical" Margin="8 6 8 6" HorizontalExpand="True">
-                    <BoxContainer Orientation="Horizontal" HorizontalExpand="True" Margin="0 0 0 4">
-                        <RichTextLabel Name="StatusLabel" HorizontalExpand="True"/>
-                        <Button Name="RefreshButton" Text="{Loc luam-ai-director-refresh}" Margin="6 0 0 0" />
-                        <Button Name="ToggleButton" Text="{Loc luam-ai-director-toggle}" Margin="6 0 0 0" />
+    SetSize="1040 720"
+    MinSize="860 560"
+    Resizable="True">
+    <BoxContainer Orientation="Vertical" HorizontalExpand="True" VerticalExpand="True" Margin="6">
+        <PanelContainer StyleClasses="PdaHeaderSurface" HorizontalExpand="True">
+            <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                <BoxContainer Orientation="Horizontal" HorizontalExpand="True">
+                    <BoxContainer Orientation="Vertical" HorizontalExpand="True">
+                        <Label Text="{Loc luam-ai-director-screen-title}" StyleClasses="PdaScreenTitle" />
+                        <RichTextLabel Name="StatusLabel" Margin="0 3 0 0" />
+                        <Label Name="LoadingLabel" Text="{Loc luam-ai-director-loading}" StyleClasses="PdaSectionHint" Margin="0 3 0 0" />
                     </BoxContainer>
-                    <RichTextLabel Name="ModeLabel" />
+                    <Button Name="RefreshButton"
+                            Text="{Loc luam-ai-director-refresh}"
+                            ToolTip="{Loc luam-ai-director-tooltip-refresh}"
+                            Margin="8 0 0 0" />
+                    <Button Name="ToggleButton"
+                            Text="{Loc luam-ai-director-toggle}"
+                            ToolTip="{Loc luam-ai-director-tooltip-toggle}"
+                            Disabled="True"
+                            Margin="6 0 0 0" />
                 </BoxContainer>
-            </PanelContainer>
-
-            <PanelContainer Name="ConfirmationPanel" Visible="False" StyleClasses="AngleRect" HorizontalExpand="True" Margin="0 6 0 0">
-                <BoxContainer Orientation="Vertical" Margin="8 6 8 6">
-                    <RichTextLabel Name="ConfirmationLabel" />
-                    <BoxContainer Orientation="Horizontal" Margin="0 4 0 0">
-                        <Control HorizontalExpand="True" />
-                        <Button Name="ConfirmActionButton" Text="{Loc luam-ai-director-confirm}" />
-                        <Button Name="CancelActionButton" Text="{Loc luam-ai-director-cancel}" Margin="6 0 0 0" />
-                    </BoxContainer>
-                </BoxContainer>
-            </PanelContainer>
-
-            <PanelContainer StyleClasses="AngleRect" MinHeight="168" HorizontalExpand="True" Margin="0 6 0 0">
-                <BoxContainer Orientation="Vertical" Margin="8" HorizontalExpand="True">
-                    <Label Text="{Loc luam-ai-director-chat}" Margin="0 0 0 4"/>
-                    <PanelContainer MinHeight="96" HorizontalExpand="True">
-                        <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
-                            <RichTextLabel Name="ChatLabel" />
-                        </ScrollContainer>
-                    </PanelContainer>
-                    <BoxContainer Orientation="Horizontal" Margin="0 6 0 0">
-                        <LineEdit Name="ChatInput" PlaceHolder="{Loc luam-ai-director-chat-placeholder}" HorizontalExpand="True" />
-                        <Button Name="ChatButton" Text="{Loc luam-ai-director-chat-send}" Margin="6 0 0 0"/>
-                    </BoxContainer>
-                </BoxContainer>
-            </PanelContainer>
-
-            <Label Text="{Loc luam-ai-director-quick-commands}" Margin="0 8 0 2"/>
-            <GridContainer Columns="4" HorizontalExpand="True">
-                <Button Name="QuickRecommendationsButton" Text="{Loc luam-ai-director-quick-recommendations}" HorizontalExpand="True" />
-                <Button Name="QuickStatusButton" Text="{Loc luam-ai-director-quick-status}" HorizontalExpand="True" />
-                <Button Name="QuickEventButton" Text="{Loc luam-ai-director-quick-event}" HorizontalExpand="True" />
-                <Button Name="QuickHistoryButton" Text="{Loc luam-ai-director-quick-history}" HorizontalExpand="True" />
-            </GridContainer>
-
-            <BoxContainer Orientation="Horizontal" Margin="0 6 0 0">
-                <Button Name="ReviewButton" Text="{Loc luam-ai-director-review}" />
-                <Button Name="CapabilityButton" Text="{Loc luam-ai-director-capabilities}" Margin="6 0 0 0" />
-                <Control HorizontalExpand="True" />
-                <Button Name="CopyOutcomeButton" Text="{Loc luam-ai-director-copy-outcome}" />
+                <RichTextLabel Name="ModeLabel" Margin="0 5 0 0" />
             </BoxContainer>
+        </PanelContainer>
 
-            <PanelContainer StyleClasses="AngleRect" MinHeight="56" HorizontalExpand="True" Margin="0 6 0 0">
-                <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="6">
-                    <RichTextLabel Name="ResultLabel" />
+        <PanelContainer Name="RequestBusyPanel"
+                        Visible="False"
+                        StyleClasses="PdaNoticeWarning"
+                        HorizontalExpand="True"
+                        Margin="0 6 0 0">
+            <BoxContainer Orientation="Horizontal" Margin="10 7" HorizontalExpand="True">
+                <Label Text="{Loc luam-ai-director-busy-title}" StyleClasses="PdaSubsectionTitle" />
+                <RichTextLabel Text="{Loc luam-ai-director-busy-description}"
+                               StyleClasses="PdaSectionHint"
+                               HorizontalExpand="True"
+                               Margin="10 1 0 0" />
+            </BoxContainer>
+        </PanelContainer>
+
+        <PanelContainer Name="ConfirmationPanel"
+                        Visible="False"
+                        StyleClasses="PdaNoticeWarning"
+                        HorizontalExpand="True"
+                        Margin="0 6 0 0">
+            <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                <Label Text="{Loc luam-ai-director-confirmation-title}" StyleClasses="PdaSubsectionTitle" />
+                <ScrollContainer HScrollEnabled="False" ReturnMeasure="True" MaxHeight="180" Margin="0 4 0 0">
+                    <RichTextLabel Name="ConfirmationLabel" />
                 </ScrollContainer>
-            </PanelContainer>
+                <BoxContainer Orientation="Horizontal" Margin="0 8 0 0">
+                    <Control HorizontalExpand="True" />
+                    <Button Name="CancelActionButton"
+                            Text="{Loc luam-ai-director-cancel}"
+                            Disabled="True" />
+                    <Button Name="ConfirmActionButton"
+                            Text="{Loc luam-ai-director-confirm}"
+                            StyleClasses="ButtonColorRed"
+                            Disabled="True"
+                            Margin="6 0 0 0" />
+                </BoxContainer>
+            </BoxContainer>
+        </PanelContainer>
 
-            <PanelContainer HorizontalExpand="True" Margin="0 6 0 0">
-                <Collapsible Name="AdvancedDetails" HorizontalExpand="True">
-                    <CollapsibleHeading Title="{Loc luam-ai-director-details}" MinHeight="28"/>
-                    <CollapsibleBody Margin="8 4 0 0">
-                        <BoxContainer Orientation="Vertical" HorizontalExpand="True">
-                            <GridContainer Columns="3" HorizontalExpand="True" Margin="0 0 0 4">
-                                <Label Text="{Loc luam-ai-director-workflow-preset}" />
-                                <OptionButton Name="WorkflowPresetOption" HorizontalExpand="True" MinWidth="220" />
-                                <Button Name="CopyWorkflowSummaryButton" Text="{Loc luam-ai-director-copy-workflow-summary}" />
+        <PanelContainer Name="GameMasterWarningPanel"
+                        Visible="False"
+                        StyleClasses="PdaNoticeWarning"
+                        HorizontalExpand="True"
+                        Margin="0 6 0 0">
+            <BoxContainer Orientation="Vertical" Margin="10 7" HorizontalExpand="True">
+                <Label Text="{Loc luam-ai-director-game-master-warning-title}" StyleClasses="PdaSubsectionTitle" />
+                <RichTextLabel Text="{Loc luam-ai-director-game-master-warning}" StyleClasses="PdaSectionHint" Margin="0 3 0 0" />
+            </BoxContainer>
+        </PanelContainer>
+
+        <PanelContainer StyleClasses="PdaNoticeInfo" HorizontalExpand="True" Margin="0 6 0 0">
+            <BoxContainer Orientation="Vertical" Margin="10 7" HorizontalExpand="True">
+                <BoxContainer Orientation="Horizontal" HorizontalExpand="True">
+                    <Label Text="{Loc luam-ai-director-operator-state-title}" StyleClasses="PdaSubsectionTitle" />
+                    <RichTextLabel Name="OperatorStateLabel"
+                                   Text="{Loc luam-ai-director-operator-state-loading}"
+                                   HorizontalExpand="True"
+                                   Margin="10 1 0 0" />
+                </BoxContainer>
+                <RichTextLabel Text="{Loc luam-ai-director-action-classification-legend}"
+                               StyleClasses="PdaSectionHint"
+                               Margin="0 3 0 0" />
+            </BoxContainer>
+        </PanelContainer>
+
+        <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 6 0 0">
+            <BoxContainer Orientation="Vertical" Margin="10 7" HorizontalExpand="True">
+                <BoxContainer Orientation="Horizontal" HorizontalExpand="True">
+                    <Label Text="{Loc luam-ai-director-context-title}" StyleClasses="PdaSectionTitle" />
+                    <RichTextLabel Text="{Loc luam-ai-director-context-hint}" StyleClasses="PdaSectionHint" HorizontalExpand="True" Margin="8 2 0 0" />
+                </BoxContainer>
+                <GridContainer Columns="3" HorizontalExpand="True" Margin="0 6 0 0">
+                    <BoxContainer Orientation="Vertical" HorizontalExpand="True" Margin="0 0 8 0">
+                        <Label Text="{Loc luam-ai-director-workflow-preset}" StyleClasses="PdaSubsectionTitle" />
+                        <OptionButton Name="WorkflowPresetOption" HorizontalExpand="True" MinWidth="210" Disabled="True" Margin="0 3 0 0" />
+                    </BoxContainer>
+                    <BoxContainer Orientation="Vertical" HorizontalExpand="True" Margin="0 0 8 0">
+                        <Label Text="{Loc luam-ai-director-target}" StyleClasses="PdaSubsectionTitle" />
+                        <OptionButton Name="TargetOption"
+                                      HorizontalExpand="True"
+                                      MinWidth="210"
+                                      ToolTip="{Loc luam-ai-director-tooltip-target}"
+                                      Disabled="True"
+                                      Margin="0 3 0 0" />
+                    </BoxContainer>
+                    <BoxContainer Orientation="Vertical" HorizontalExpand="True">
+                        <Label Text="{Loc luam-ai-director-template}" StyleClasses="PdaSubsectionTitle" />
+                        <OptionButton Name="TemplateOption" HorizontalExpand="True" MinWidth="210" Disabled="True" Margin="0 3 0 0" />
+                    </BoxContainer>
+                </GridContainer>
+                <RichTextLabel Name="WorkflowPresetLabel" Margin="0 6 0 0" />
+            </BoxContainer>
+        </PanelContainer>
+
+        <TabContainer Name="DirectorTabs" HorizontalExpand="True" VerticalExpand="True" Margin="0 6 0 0">
+            <ScrollContainer HorizontalExpand="True" VerticalExpand="True" HScrollEnabled="False" VScrollEnabled="True" ReserveScrollbarSpace="True">
+                <BoxContainer Orientation="Vertical" HorizontalExpand="True" Margin="8">
+                    <Label Text="{Loc luam-ai-director-overview-title}" StyleClasses="PdaScreenTitle" />
+                    <RichTextLabel Text="{Loc luam-ai-director-overview-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 8" />
+
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-section-snapshot}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-section-snapshot-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                            <GridContainer Columns="3" HorizontalExpand="True">
+                                <Button Name="QuickRecommendationsButton"
+                                        Text="{Loc luam-ai-director-quick-recommendations}"
+                                        StyleClasses="ButtonColorGreen"
+                                        ToolTip="{Loc luam-ai-director-tooltip-read-only}"
+                                        Disabled="True"
+                                        HorizontalExpand="True" />
+                                <Button Name="QuickStatusButton"
+                                        Text="{Loc luam-ai-director-quick-status}"
+                                        StyleClasses="ButtonColorGreen"
+                                        ToolTip="{Loc luam-ai-director-tooltip-read-only}"
+                                        Disabled="True"
+                                        HorizontalExpand="True" />
+                                <Button Name="QuickHistoryButton"
+                                        Text="{Loc luam-ai-director-quick-history}"
+                                        StyleClasses="ButtonColorGreen"
+                                        ToolTip="{Loc luam-ai-director-tooltip-read-only}"
+                                        Disabled="True"
+                                        HorizontalExpand="True" />
+                                <Button Name="ReviewButton"
+                                        Text="{Loc luam-ai-director-review}"
+                                        ToolTip="{Loc luam-ai-director-tooltip-review}"
+                                        Disabled="True"
+                                        HorizontalExpand="True" />
+                                <Button Name="CapabilityButton"
+                                        Text="{Loc luam-ai-director-capabilities}"
+                                        ToolTip="{Loc luam-ai-director-tooltip-capabilities}"
+                                        Disabled="True"
+                                        HorizontalExpand="True" />
                             </GridContainer>
-                            <RichTextLabel Name="WorkflowPresetLabel" Margin="0 0 0 6"/>
-                            <Label Text="{Loc luam-ai-director-workflow-transition}" Margin="0 0 0 2"/>
-                            <RichTextLabel Name="WorkflowTransitionLabel" Margin="0 0 0 6"/>
-                            <Label Text="{Loc luam-ai-director-safe-mode-summary}" Margin="0 0 0 2"/>
-                            <RichTextLabel Name="SafeModeSummaryLabel" Margin="0 0 0 6"/>
+                        </BoxContainer>
+                    </PanelContainer>
 
-                            <Label Text="{Loc luam-ai-director-readiness}" Margin="0 4 0 2"/>
-                            <PanelContainer MinHeight="74" HorizontalExpand="True" Margin="0 0 0 6">
-                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
-                                    <RichTextLabel Name="ReadinessLabel" />
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <BoxContainer Orientation="Horizontal" HorizontalExpand="True">
+                                <Label Text="{Loc luam-ai-director-section-outcome}" StyleClasses="PdaSectionTitle" />
+                                <Control HorizontalExpand="True" />
+                                <Button Name="CopyOutcomeButton"
+                                        Text="{Loc luam-ai-director-copy-outcome}"
+                                        Disabled="True" />
+                            </BoxContainer>
+                            <PanelContainer StyleClasses="PdaListingCard" MinHeight="76" HorizontalExpand="True" Margin="0 6 0 0">
+                                <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="8 6">
+                                    <RichTextLabel Name="ResultLabel" />
                                 </ScrollContainer>
                             </PanelContainer>
+                        </BoxContainer>
+                    </PanelContainer>
 
-                            <Label Text="{Loc luam-ai-director-conditions}" Margin="0 0 0 2"/>
-                            <PanelContainer MinHeight="56" HorizontalExpand="True" Margin="0 0 0 6">
-                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-conditions}" StyleClasses="PdaSectionTitle" />
+                            <PanelContainer StyleClasses="PdaListingCard" MinHeight="76" HorizontalExpand="True" Margin="0 6 0 0">
+                                <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="8 6">
                                     <RichTextLabel Name="ConditionsLabel" />
                                 </ScrollContainer>
                             </PanelContainer>
+                        </BoxContainer>
+                    </PanelContainer>
 
-                            <BoxContainer Orientation="Horizontal" Margin="0 4 0 2">
-                                <Label Text="{Loc luam-ai-director-recommendations}" />
-                                <Control HorizontalExpand="True" />
-                                <Button Name="CopyRecommendationsButton" Text="{Loc luam-ai-director-copy-recommendations}" />
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 8 0 0">
+                        <Collapsible Name="AdvancedDetails" HorizontalExpand="True">
+                            <CollapsibleHeading Title="{Loc luam-ai-director-details}" MinHeight="32" />
+                            <CollapsibleBody Margin="10 5 10 9">
+                                <BoxContainer Orientation="Vertical" HorizontalExpand="True">
+                                    <BoxContainer Orientation="Horizontal" HorizontalExpand="True">
+                                        <Label Text="{Loc luam-ai-director-workflow-transition}" StyleClasses="PdaSubsectionTitle" />
+                                        <Control HorizontalExpand="True" />
+                                        <Button Name="CopyWorkflowSummaryButton"
+                                                Text="{Loc luam-ai-director-copy-workflow-summary}"
+                                                Disabled="True" />
+                                    </BoxContainer>
+                                    <RichTextLabel Name="WorkflowTransitionLabel" Margin="0 3 0 7" />
+                                    <Label Text="{Loc luam-ai-director-safe-mode-summary}" StyleClasses="PdaSubsectionTitle" />
+                                    <RichTextLabel Name="SafeModeSummaryLabel" Margin="0 3 0 7" />
+                                    <Label Text="{Loc luam-ai-director-readiness}" StyleClasses="PdaSubsectionTitle" />
+                                    <PanelContainer StyleClasses="PdaListingCard" MinHeight="92" HorizontalExpand="True" Margin="0 4 0 0">
+                                        <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="8 6">
+                                            <RichTextLabel Name="ReadinessLabel" />
+                                        </ScrollContainer>
+                                    </PanelContainer>
+                                </BoxContainer>
+                            </CollapsibleBody>
+                        </Collapsible>
+                    </PanelContainer>
+                </BoxContainer>
+            </ScrollContainer>
+
+            <ScrollContainer HorizontalExpand="True" VerticalExpand="True" HScrollEnabled="False" VScrollEnabled="True" ReserveScrollbarSpace="True">
+                <BoxContainer Orientation="Vertical" HorizontalExpand="True" Margin="8">
+                    <Label Text="{Loc luam-ai-director-advisor-title}" StyleClasses="PdaScreenTitle" />
+                    <RichTextLabel Text="{Loc luam-ai-director-advisor-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 8" />
+
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-chat}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-chat-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                            <PanelContainer Name="ChatTranscriptPanel"
+                                            StyleClasses="PdaListingCard"
+                                            MinHeight="110"
+                                            MaxHeight="180"
+                                            HorizontalExpand="True">
+                                <ScrollContainer HorizontalExpand="True"
+                                                 VerticalExpand="True"
+                                                 HScrollEnabled="False"
+                                                 ReturnMeasure="True"
+                                                 Margin="8 6">
+                                    <RichTextLabel Name="ChatLabel" />
+                                </ScrollContainer>
+                            </PanelContainer>
+                            <BoxContainer Orientation="Horizontal" Margin="0 7 0 0">
+                                <LineEdit Name="ChatInput"
+                                          PlaceHolder="{Loc luam-ai-director-chat-placeholder}"
+                                          Editable="False"
+                                          HorizontalExpand="True" />
+                                <Button Name="ChatButton"
+                                        Text="{Loc luam-ai-director-chat-send}"
+                                        Disabled="True"
+                                        Margin="6 0 0 0" />
                             </BoxContainer>
-                            <RichTextLabel Name="RecommendationSourceSummaryLabel" Margin="0 0 0 4"/>
-                            <PanelContainer MinHeight="86" HorizontalExpand="True" Margin="0 0 0 6">
-                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                        </BoxContainer>
+                    </PanelContainer>
+
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <BoxContainer Orientation="Horizontal" HorizontalExpand="True">
+                                <Label Text="{Loc luam-ai-director-recommendations}" StyleClasses="PdaSectionTitle" />
+                                <Control HorizontalExpand="True" />
+                                <Button Name="CopyRecommendationsButton"
+                                        Text="{Loc luam-ai-director-copy-recommendations}"
+                                        Disabled="True" />
+                            </BoxContainer>
+                            <RichTextLabel Text="{Loc luam-ai-director-recommendations-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 4" />
+                            <RichTextLabel Name="RecommendationSourceSummaryLabel" Margin="0 0 0 5" />
+                            <GridContainer Columns="4" HorizontalExpand="True" Margin="0 0 0 6">
+                                <Label Text="{Loc luam-ai-director-recommendation-filter}" />
+                                <OptionButton Name="RecommendationFilterOption" HorizontalExpand="True" MinWidth="180" Disabled="True" />
+                                <Label Text="{Loc luam-ai-director-recommendation-sort}" Margin="8 0 0 0" />
+                                <OptionButton Name="RecommendationSortOption" HorizontalExpand="True" MinWidth="190" Disabled="True" />
+                            </GridContainer>
+                            <PanelContainer Name="RecommendationListPanel"
+                                            StyleClasses="PdaListingCard"
+                                            MinHeight="110"
+                                            MaxHeight="180"
+                                            HorizontalExpand="True">
+                                <ScrollContainer HorizontalExpand="True"
+                                                 VerticalExpand="True"
+                                                 HScrollEnabled="False"
+                                                 ReturnMeasure="True"
+                                                 Margin="8 6">
                                     <RichTextLabel Name="RecommendationsLabel" />
                                 </ScrollContainer>
                             </PanelContainer>
-
-                            <GridContainer Columns="4" HorizontalExpand="True" Margin="0 0 0 6">
-                                <Label Text="{Loc luam-ai-director-recommendation-filter}" />
-                                <OptionButton Name="RecommendationFilterOption" HorizontalExpand="True" MinWidth="160" />
-                                <Label Text="{Loc luam-ai-director-recommendation-sort}" Margin="6 0 0 0" />
-                                <OptionButton Name="RecommendationSortOption" HorizontalExpand="True" MinWidth="170" />
-                            </GridContainer>
-
-                            <GridContainer Columns="4" HorizontalExpand="True" Margin="0 0 0 6">
+                            <GridContainer Columns="4" HorizontalExpand="True" Margin="0 8 0 5">
                                 <Label Text="{Loc luam-ai-director-recommendation-action}" />
-                                <OptionButton Name="RecommendationOption" HorizontalExpand="True" />
-                                <Button Name="ApplyRecommendationButton" Text="{Loc luam-ai-director-recommendation-apply}" />
-                                <Button Name="CopyAuditBundleButton" Text="{Loc luam-ai-director-copy-audit-bundle}" />
+                                <OptionButton Name="RecommendationOption" HorizontalExpand="True" MinWidth="230" Disabled="True" />
+                                 <controls:ConfirmButton Name="ApplyRecommendationButton"
+                                                         Text="{Loc luam-ai-director-recommendation-apply}"
+                                                         ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                         StyleClasses="ButtonColorRed"
+                                                         ToolTip="{Loc luam-ai-director-tooltip-confirm-high}"
+                                                         Disabled="True" />
+                                <Button Name="CopyAuditBundleButton"
+                                        Text="{Loc luam-ai-director-copy-audit-bundle}"
+                                        Disabled="True" />
                             </GridContainer>
-                            <RichTextLabel Name="RecommendationApplyStateLabel" Margin="0 0 0 6"/>
-                            <RichTextLabel Name="RecommendationReviewSummaryLabel" Margin="0 0 0 6"/>
-                            <PanelContainer HorizontalExpand="True" Margin="0 0 0 6">
+                            <RichTextLabel Name="RecommendationApplyStateLabel" Margin="0 0 0 5" />
+                            <RichTextLabel Name="RecommendationReviewSummaryLabel" Margin="0 0 0 5" />
+                            <PanelContainer StyleClasses="PdaListingCard" HorizontalExpand="True">
                                 <Collapsible Name="RecommendationReviewDetails">
-                                    <CollapsibleHeading Title="{Loc luam-ai-director-recommendation-review-details}" MinHeight="28"/>
-                                    <CollapsibleBody Margin="8 2 0 0">
+                                    <CollapsibleHeading Title="{Loc luam-ai-director-recommendation-review-details}" MinHeight="30" />
+                                    <CollapsibleBody Margin="10 4 10 8">
                                         <BoxContainer Orientation="Vertical" HorizontalExpand="True">
-                                            <Label Text="{Loc luam-ai-director-recommendation-explanation}" Margin="0 0 0 2"/>
-                                            <RichTextLabel Name="RecommendationExplanationLabel" Margin="0 0 0 6"/>
-                                            <Label Text="{Loc luam-ai-director-recommendation-command-preview}" Margin="0 0 0 2"/>
-                                            <RichTextLabel Name="RecommendationCommandPreviewLabel" Margin="0 0 0 6"/>
-                                            <Label Text="{Loc luam-ai-director-recommendation-operator-checklist}" Margin="0 0 0 2"/>
-                                            <RichTextLabel Name="RecommendationOperatorChecklistLabel" Margin="0 0 0 6"/>
-                                            <Label Text="{Loc luam-ai-director-recommendation-provenance}" Margin="0 0 0 2"/>
-                                            <RichTextLabel Name="RecommendationProvenanceLabel" Margin="0 0 0 6"/>
+                                            <Label Text="{Loc luam-ai-director-recommendation-explanation}" StyleClasses="PdaSubsectionTitle" />
+                                            <RichTextLabel Name="RecommendationExplanationLabel" Margin="0 2 0 7" />
+                                            <Label Text="{Loc luam-ai-director-recommendation-command-preview}" StyleClasses="PdaSubsectionTitle" />
+                                            <RichTextLabel Name="RecommendationCommandPreviewLabel" Margin="0 2 0 7" />
+                                            <Label Text="{Loc luam-ai-director-recommendation-operator-checklist}" StyleClasses="PdaSubsectionTitle" />
+                                            <RichTextLabel Name="RecommendationOperatorChecklistLabel" Margin="0 2 0 7" />
+                                            <Label Text="{Loc luam-ai-director-recommendation-provenance}" StyleClasses="PdaSubsectionTitle" />
+                                            <RichTextLabel Name="RecommendationProvenanceLabel" Margin="0 2 0 0" />
                                         </BoxContainer>
                                     </CollapsibleBody>
                                 </Collapsible>
                             </PanelContainer>
+                        </BoxContainer>
+                    </PanelContainer>
+                </BoxContainer>
+            </ScrollContainer>
 
-                            <GridContainer Columns="2" HorizontalExpand="True">
-                                <Label Text="{Loc luam-ai-director-target}" />
-                                <OptionButton Name="TargetOption" HorizontalExpand="True" />
+            <ScrollContainer HorizontalExpand="True" VerticalExpand="True" HScrollEnabled="False" VScrollEnabled="True" ReserveScrollbarSpace="True">
+                <BoxContainer Orientation="Vertical" HorizontalExpand="True" Margin="8">
+                    <Label Text="{Loc luam-ai-director-operations-title}" StyleClasses="PdaScreenTitle" />
+                    <RichTextLabel Text="{Loc luam-ai-director-operations-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 8" />
 
-                                <Label Text="{Loc luam-ai-director-template}" />
-                                <OptionButton Name="TemplateOption" HorizontalExpand="True" />
-                            </GridContainer>
-
-                            <BoxContainer Orientation="Horizontal" Margin="0 8 0 4">
-                                <CheckBox Name="UseGatewayCheck" Text="{Loc luam-ai-director-use-gateway}" Pressed="True" />
-                                <CheckBox Name="IgnoreOpenLeadCheck" Text="{Loc luam-ai-director-ignore-open-lead}" />
+                    <PanelContainer StyleClasses="PdaNoticeInfo" HorizontalExpand="True">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-section-custom-process}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-section-custom-process-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                            <BoxContainer Orientation="Horizontal">
+                                <CheckBox Name="UseGatewayCheck"
+                                          Text="{Loc luam-ai-director-use-gateway}"
+                                          ToolTip="{Loc luam-ai-director-tooltip-gateway}"
+                                          Pressed="True"
+                                          Disabled="True" />
+                                <CheckBox Name="IgnoreOpenLeadCheck"
+                                          Text="{Loc luam-ai-director-ignore-open-lead}"
+                                          ToolTip="{Loc luam-ai-director-tooltip-ignore-lead}"
+                                          Disabled="True"
+                                          Margin="12 0 0 0" />
                             </BoxContainer>
-                            <Label Text="{Loc luam-ai-director-gateway-exposure}" Margin="0 0 0 2"/>
-                            <RichTextLabel Name="GatewayExposureLabel" Margin="0 0 0 6"/>
-
-                            <Label Text="{Loc luam-ai-director-instruction}" Margin="0 2 0 2"/>
-                            <TextEdit Name="InstructionEdit" MinHeight="72" HorizontalExpand="True" />
-
-                            <BoxContainer Orientation="Horizontal" Margin="0 8 0 6">
+                            <Label Text="{Loc luam-ai-director-gateway-exposure}" StyleClasses="PdaSubsectionTitle" Margin="0 5 0 0" />
+                            <RichTextLabel Name="GatewayExposureLabel" Margin="0 5 0 6" />
+                            <Label Text="{Loc luam-ai-director-instruction}" StyleClasses="PdaSubsectionTitle" />
+                            <TextEdit Name="InstructionEdit" MinHeight="82" HorizontalExpand="True" Editable="False" Margin="0 4 0 0" />
+                            <BoxContainer Orientation="Horizontal" Margin="0 7 0 0">
                                 <RichTextLabel Name="GenerateStateLabel" HorizontalExpand="True" />
-                                <Button Name="GenerateButton" Text="{Loc luam-ai-director-generate}" Margin="6 0 0 0" />
+                                <controls:ConfirmButton Name="GenerateButton"
+                                                        Text="{Loc luam-ai-director-generate}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        ToolTip="{Loc luam-ai-director-tooltip-confirm-high}"
+                                                        Disabled="True"
+                                                        Margin="8 0 0 0" />
                             </BoxContainer>
+                        </BoxContainer>
+                    </PanelContainer>
 
-                            <BoxContainer Orientation="Horizontal" Margin="0 6 0 4">
-                                <Label Text="{Loc luam-ai-director-review-history}" />
-                                <Control HorizontalExpand="True" />
-                                <Button Name="CopyReviewButton" Text="{Loc luam-ai-director-copy-review}" />
-                                <Button Name="LogReviewButton" Text="{Loc luam-ai-director-log-review}" Margin="6 0 0 0" />
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-section-targeted}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-section-targeted-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                            <GridContainer Columns="3" HorizontalExpand="True">
+                                <Button Name="QuickEventButton"
+                                        Text="{Loc luam-ai-director-quick-event}"
+                                        ToolTip="{Loc luam-ai-director-tooltip-target-confirm}"
+                                        Disabled="True"
+                                        HorizontalExpand="True" />
+                                <Button Name="QuickPersonalPressureButton"
+                                        Text="{Loc luam-ai-director-quick-personal-pressure}"
+                                        ToolTip="{Loc luam-ai-director-tooltip-target-confirm}"
+                                        Disabled="True"
+                                        HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickPersonalDangerButton"
+                                                        Text="{Loc luam-ai-director-quick-personal-danger}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        ToolTip="{Loc luam-ai-director-tooltip-target-high}"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickSubspaceRiftButton"
+                                                        Text="{Loc luam-ai-director-quick-subspace-rift}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        ToolTip="{Loc luam-ai-director-tooltip-target-high}"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickSubspaceRouteButton"
+                                                        Text="{Loc luam-ai-director-quick-subspace-route}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        ToolTip="{Loc luam-ai-director-tooltip-target-high}"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                            </GridContainer>
+                        </BoxContainer>
+                    </PanelContainer>
+
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-section-conditions}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-section-conditions-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                            <GridContainer Columns="4" HorizontalExpand="True">
+                                <Button Name="QuickRadiationButton" Text="{Loc luam-ai-director-quick-radiation}" Disabled="True" HorizontalExpand="True" />
+                                <Button Name="QuickSensorDriftButton" Text="{Loc luam-ai-director-quick-sensor-drift}" Disabled="True" HorizontalExpand="True" />
+                                <Button Name="QuickCommsButton" Text="{Loc luam-ai-director-quick-comms}" Disabled="True" HorizontalExpand="True" />
+                                <Button Name="QuickMonolithButton" Text="{Loc luam-ai-director-quick-monolith}" Disabled="True" HorizontalExpand="True" />
+                            </GridContainer>
+                        </BoxContainer>
+                    </PanelContainer>
+
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-section-control}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-section-control-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                            <GridContainer Columns="3" HorizontalExpand="True">
+                                <controls:ConfirmButton Name="QuickAiPressureButton"
+                                                        Text="{Loc luam-ai-director-quick-ai-pressure}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        ToolTip="{Loc luam-ai-director-tooltip-confirm-high}"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickSyntheticControlButton"
+                                                        Text="{Loc luam-ai-director-quick-synthetic-control}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        ToolTip="{Loc luam-ai-director-tooltip-confirm-high}"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickClearConditionButton"
+                                                        Text="{Loc luam-ai-director-quick-clear-condition}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        ToolTip="{Loc luam-ai-director-tooltip-confirm-high}"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                                <Button Name="QuickResolveLeadButton" Text="{Loc luam-ai-director-quick-resolve-lead}" Disabled="True" HorizontalExpand="True" />
+                                <Button Name="QuickCleanupMarkersButton" Text="{Loc luam-ai-director-quick-cleanup-markers}" Disabled="True" HorizontalExpand="True" />
+                            </GridContainer>
+                        </BoxContainer>
+                    </PanelContainer>
+
+                    <GridContainer Columns="2" HorizontalExpand="True" Margin="0 8 0 0">
+                        <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 0 4 0">
+                            <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                                <Label Text="{Loc luam-ai-director-section-support}" StyleClasses="PdaSectionTitle" />
+                                <RichTextLabel Text="{Loc luam-ai-director-section-support-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                                <GridContainer Columns="2" HorizontalExpand="True">
+                                    <Button Name="QuickSpawnBeaconButton" Text="{Loc luam-ai-director-quick-spawn-beacon}" Disabled="True" HorizontalExpand="True" />
+                                    <Button Name="QuickSpawnScannerButton" Text="{Loc luam-ai-director-quick-spawn-scanner}" Disabled="True" HorizontalExpand="True" />
+                                    <Button Name="QuickMonolithKitButton" Text="{Loc luam-ai-director-quick-monolith-kit}" Disabled="True" HorizontalExpand="True" />
+                                    <Button Name="QuickPaperPackButton" Text="{Loc luam-ai-director-quick-paper-pack}" Disabled="True" HorizontalExpand="True" />
+                                </GridContainer>
                             </BoxContainer>
-                            <PanelContainer MinHeight="92" HorizontalExpand="True">
-                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                        </PanelContainer>
+                        <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="4 0 0 0">
+                            <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                                <Label Text="{Loc luam-ai-director-section-comms}" StyleClasses="PdaSectionTitle" />
+                                <RichTextLabel Text="{Loc luam-ai-director-section-comms-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                                <GridContainer Columns="2" HorizontalExpand="True">
+                                    <Button Name="QuickAiChatButton" Text="{Loc luam-ai-director-quick-ai-chat}" Disabled="True" HorizontalExpand="True" />
+                                    <controls:ConfirmButton Name="QuickAnnouncementButton"
+                                                            Text="{Loc luam-ai-director-quick-announcement}"
+                                                            ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                            StyleClasses="ButtonColorRed"
+                                                            ToolTip="{Loc luam-ai-director-tooltip-confirm-high}"
+                                                            Disabled="True"
+                                                            HorizontalExpand="True" />
+                                </GridContainer>
+                            </BoxContainer>
+                        </PanelContainer>
+                    </GridContainer>
+                </BoxContainer>
+            </ScrollContainer>
+
+            <ScrollContainer HorizontalExpand="True" VerticalExpand="True" HScrollEnabled="False" VScrollEnabled="True" ReserveScrollbarSpace="True">
+                <BoxContainer Orientation="Vertical" HorizontalExpand="True" Margin="8">
+                    <Label Text="{Loc luam-ai-director-base-title}" StyleClasses="PdaScreenTitle" />
+                    <RichTextLabel Text="{Loc luam-ai-director-base-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 8" />
+
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-section-ai-base-status}" StyleClasses="PdaSectionTitle" />
+                            <PanelContainer StyleClasses="PdaListingCard" MinHeight="116" HorizontalExpand="True" Margin="0 6 0 0">
+                                <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="8 6">
+                                    <RichTextLabel Name="AiBaseStatusLabel" />
+                                </ScrollContainer>
+                            </PanelContainer>
+                        </BoxContainer>
+                    </PanelContainer>
+
+                    <PanelContainer StyleClasses="PdaNoticeInfo" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-section-ai-base-inspect}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-section-ai-base-inspect-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                            <GridContainer Columns="2" HorizontalExpand="True">
+                                <Button Name="QuickAiBaseDiagnosticsButton"
+                                        Text="{Loc luam-ai-director-quick-ai-base-diagnostics}"
+                                        StyleClasses="ButtonColorGreen"
+                                        ToolTip="{Loc luam-ai-director-tooltip-read-only}"
+                                        Disabled="True"
+                                        HorizontalExpand="True" />
+                                <Button Name="QuickAiBasePlanButton"
+                                        Text="{Loc luam-ai-director-quick-ai-base-plan}"
+                                        StyleClasses="ButtonColorGreen"
+                                        ToolTip="{Loc luam-ai-director-tooltip-read-only}"
+                                        Disabled="True"
+                                        HorizontalExpand="True" />
+                            </GridContainer>
+                        </BoxContainer>
+                    </PanelContainer>
+
+                    <PanelContainer StyleClasses="PdaNoticeWarning" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-section-ai-base-actions}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-section-ai-base-actions-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                            <GridContainer Columns="3" HorizontalExpand="True">
+                                <controls:ConfirmButton Name="QuickAiBaseAutofixButton"
+                                                        Text="{Loc luam-ai-director-quick-ai-base-autofix}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickAiBaseAutopilotButton"
+                                                        Text="{Loc luam-ai-director-quick-ai-base-autopilot}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickAiBaseMineButton"
+                                                        Text="{Loc luam-ai-director-quick-ai-base-mine}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickAiBaseBuildButton"
+                                                        Text="{Loc luam-ai-director-quick-ai-base-build}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickAiBaseDevelopButton"
+                                                        Text="{Loc luam-ai-director-quick-ai-base-develop}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                            </GridContainer>
+                        </BoxContainer>
+                    </PanelContainer>
+
+                    <PanelContainer StyleClasses="PdaNoticeWarning" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-section-ships}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-section-ships-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 6" />
+                            <GridContainer Columns="3" HorizontalExpand="True">
+                                <Label Text="{Loc luam-ai-director-gateway-ship}" />
+                                <OptionButton Name="GatewayShipOption" HorizontalExpand="True" Disabled="True" />
+                                <controls:ConfirmButton Name="QuickGatewayShipSelectedButton"
+                                                        Text="{Loc luam-ai-director-quick-gateway-ship-selected}"
+                                                        ConfirmationText="{Loc luam-ai-director-confirm-short}"
+                                                        StyleClasses="ButtonColorRed"
+                                                        Disabled="True"
+                                                        HorizontalExpand="True" />
+                            </GridContainer>
+                            <Label Text="{Loc luam-ai-director-section-ship-presets}" StyleClasses="PdaSubsectionTitle" Margin="0 9 0 5" />
+                            <GridContainer Columns="3" HorizontalExpand="True">
+                                <controls:ConfirmButton Name="QuickGatewayShipButton" Text="{Loc luam-ai-director-quick-gateway-ship}" ConfirmationText="{Loc luam-ai-director-confirm-short}" StyleClasses="ButtonColorRed" Disabled="True" HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickGatewayShipTriageButton" Text="{Loc luam-ai-director-quick-gateway-ship-triage}" ConfirmationText="{Loc luam-ai-director-confirm-short}" StyleClasses="ButtonColorRed" Disabled="True" HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickGatewayShipHammerheadButton" Text="{Loc luam-ai-director-quick-gateway-ship-hammerhead}" ConfirmationText="{Loc luam-ai-director-confirm-short}" StyleClasses="ButtonColorRed" Disabled="True" HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickGatewayShipTziporaButton" Text="{Loc luam-ai-director-quick-gateway-ship-tzipora}" ConfirmationText="{Loc luam-ai-director-confirm-short}" StyleClasses="ButtonColorRed" Disabled="True" HorizontalExpand="True" />
+                                <controls:ConfirmButton Name="QuickGatewayShipTokarevButton" Text="{Loc luam-ai-director-quick-gateway-ship-tokarev}" ConfirmationText="{Loc luam-ai-director-confirm-short}" StyleClasses="ButtonColorRed" Disabled="True" HorizontalExpand="True" />
+                            </GridContainer>
+                        </BoxContainer>
+                    </PanelContainer>
+                </BoxContainer>
+            </ScrollContainer>
+
+            <ScrollContainer HorizontalExpand="True" VerticalExpand="True" HScrollEnabled="False" VScrollEnabled="True" ReserveScrollbarSpace="True">
+                <BoxContainer Orientation="Vertical" HorizontalExpand="True" Margin="8">
+                    <Label Text="{Loc luam-ai-director-audit-title}" StyleClasses="PdaScreenTitle" />
+                    <RichTextLabel Text="{Loc luam-ai-director-audit-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 8" />
+
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <BoxContainer Orientation="Horizontal" HorizontalExpand="True">
+                                <Label Text="{Loc luam-ai-director-review-history}" StyleClasses="PdaSectionTitle" />
+                                <Control HorizontalExpand="True" />
+                                <Button Name="CopyReviewButton" Text="{Loc luam-ai-director-copy-review}" Disabled="True" />
+                                <Button Name="LogReviewButton" Text="{Loc luam-ai-director-log-review}" Disabled="True" Margin="6 0 0 0" />
+                            </BoxContainer>
+                            <RichTextLabel Text="{Loc luam-ai-director-review-history-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 5" />
+                            <PanelContainer StyleClasses="PdaListingCard" MinHeight="120" HorizontalExpand="True">
+                                <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="8 6">
                                     <RichTextLabel Name="ReviewHistoryLabel" />
                                 </ScrollContainer>
                             </PanelContainer>
+                        </BoxContainer>
+                    </PanelContainer>
 
-                            <BoxContainer Orientation="Horizontal" Margin="0 6 0 2">
-                                <Label Text="{Loc luam-ai-director-action-history}" />
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <BoxContainer Orientation="Horizontal" HorizontalExpand="True">
+                                <Label Text="{Loc luam-ai-director-action-history}" StyleClasses="PdaSectionTitle" />
                                 <Control HorizontalExpand="True" />
-                                <Button Name="CopyActionHistoryButton" Text="{Loc luam-ai-director-copy-action-history}" Margin="0 0 6 0" />
-                                <Label Text="{Loc luam-ai-director-action-history-filter}" Margin="0 0 6 0" />
-                                <OptionButton Name="ActionHistoryFilterOption" MinWidth="180" />
+                                <Label Text="{Loc luam-ai-director-action-history-filter}" Margin="0 2 6 0" />
+                                <OptionButton Name="ActionHistoryFilterOption" MinWidth="190" />
+                                <Button Name="CopyActionHistoryButton" Text="{Loc luam-ai-director-copy-action-history}" Disabled="True" Margin="6 0 0 0" />
                             </BoxContainer>
-                            <PanelContainer MinHeight="82" HorizontalExpand="True">
-                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                            <RichTextLabel Text="{Loc luam-ai-director-action-history-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 5" />
+                            <PanelContainer StyleClasses="PdaListingCard" MinHeight="140" HorizontalExpand="True">
+                                <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="8 6">
                                     <RichTextLabel Name="ActionHistoryLabel" />
                                 </ScrollContainer>
                             </PanelContainer>
+                        </BoxContainer>
+                    </PanelContainer>
 
-                            <Label Text="{Loc luam-ai-director-round-audit-footer}" Margin="0 6 0 2"/>
-                            <PanelContainer MinHeight="48" HorizontalExpand="True">
-                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-round-audit-footer}" StyleClasses="PdaSectionTitle" />
+                            <PanelContainer StyleClasses="PdaListingCard" MinHeight="82" HorizontalExpand="True" Margin="0 6 0 0">
+                                <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="8 6">
                                     <RichTextLabel Name="RoundAuditFooterLabel" />
                                 </ScrollContainer>
                             </PanelContainer>
+                        </BoxContainer>
+                    </PanelContainer>
 
-                            <Label Text="{Loc luam-ai-director-privacy}" Margin="0 8 0 2"/>
-                            <PanelContainer MinHeight="82" HorizontalExpand="True" Margin="0 0 0 6">
-                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                    <PanelContainer StyleClasses="PdaNoticeInfo" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-privacy}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-privacy-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 5" />
+                            <PanelContainer StyleClasses="PdaListingCard" MinHeight="130" HorizontalExpand="True">
+                                <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="8 6">
                                     <RichTextLabel Name="PrivacyLabel" />
                                 </ScrollContainer>
                             </PanelContainer>
+                        </BoxContainer>
+                    </PanelContainer>
 
-                            <BoxContainer Orientation="Horizontal" Margin="0 0 0 2">
-                                <Label Text="{Loc luam-ai-director-operations-audit}" />
-                                <Control HorizontalExpand="True" />
-                            </BoxContainer>
-                            <PanelContainer MinHeight="82" HorizontalExpand="True" Margin="0 0 0 6">
-                                <ScrollContainer VerticalExpand="True" HorizontalExpand="True" HScrollEnabled="False" Margin="6">
+                    <PanelContainer StyleClasses="PdaSectionPanel" HorizontalExpand="True" Margin="0 8 0 0">
+                        <BoxContainer Orientation="Vertical" Margin="10 8" HorizontalExpand="True">
+                            <Label Text="{Loc luam-ai-director-operations-audit}" StyleClasses="PdaSectionTitle" />
+                            <RichTextLabel Text="{Loc luam-ai-director-operations-audit-hint}" StyleClasses="PdaSectionHint" Margin="0 2 0 5" />
+                            <PanelContainer StyleClasses="PdaListingCard" MinHeight="130" HorizontalExpand="True">
+                                <ScrollContainer HorizontalExpand="True" HScrollEnabled="False" Margin="8 6">
                                     <RichTextLabel Name="OperationsAuditLabel" />
                                 </ScrollContainer>
                             </PanelContainer>
-
-                            <GridContainer Columns="3" HorizontalExpand="True" Margin="0 8 0 2">
-                                <Label Text="{Loc luam-ai-director-gateway-ship}" />
-                                <OptionButton Name="GatewayShipOption" HorizontalExpand="True" />
-                                <Button Name="QuickGatewayShipSelectedButton" Text="{Loc luam-ai-director-quick-gateway-ship-selected}" />
-                            </GridContainer>
-
-                            <GridContainer Columns="3" HorizontalExpand="True" Margin="0 8 0 0">
-                                <Button Name="QuickPersonalPressureButton" Text="{Loc luam-ai-director-quick-personal-pressure}" HorizontalExpand="True" />
-                                <Button Name="QuickPersonalDangerButton" Text="{Loc luam-ai-director-quick-personal-danger}" HorizontalExpand="True" />
-                                <Button Name="QuickAiPressureButton" Text="{Loc luam-ai-director-quick-ai-pressure}" HorizontalExpand="True" />
-                                <Button Name="QuickSyntheticControlButton" Text="{Loc luam-ai-director-quick-synthetic-control}" HorizontalExpand="True" />
-                                <Button Name="QuickSubspaceRiftButton" Text="{Loc luam-ai-director-quick-subspace-rift}" HorizontalExpand="True" />
-                                <Button Name="QuickSubspaceRouteButton" Text="{Loc luam-ai-director-quick-subspace-route}" HorizontalExpand="True" />
-                                <Button Name="QuickRadiationButton" Text="{Loc luam-ai-director-quick-radiation}" HorizontalExpand="True" />
-                                <Button Name="QuickSensorDriftButton" Text="{Loc luam-ai-director-quick-sensor-drift}" HorizontalExpand="True" />
-                                <Button Name="QuickCommsButton" Text="{Loc luam-ai-director-quick-comms}" HorizontalExpand="True" />
-                                <Button Name="QuickMonolithButton" Text="{Loc luam-ai-director-quick-monolith}" HorizontalExpand="True" />
-                                <Button Name="QuickClearConditionButton" Text="{Loc luam-ai-director-quick-clear-condition}" HorizontalExpand="True" />
-                                <Button Name="QuickResolveLeadButton" Text="{Loc luam-ai-director-quick-resolve-lead}" HorizontalExpand="True" />
-                                <Button Name="QuickCleanupMarkersButton" Text="{Loc luam-ai-director-quick-cleanup-markers}" HorizontalExpand="True" />
-                                <Button Name="QuickSpawnBeaconButton" Text="{Loc luam-ai-director-quick-spawn-beacon}" HorizontalExpand="True" />
-                                <Button Name="QuickSpawnScannerButton" Text="{Loc luam-ai-director-quick-spawn-scanner}" HorizontalExpand="True" />
-                                <Button Name="QuickMonolithKitButton" Text="{Loc luam-ai-director-quick-monolith-kit}" HorizontalExpand="True" />
-                                <Button Name="QuickPaperPackButton" Text="{Loc luam-ai-director-quick-paper-pack}" HorizontalExpand="True" />
-                                <Button Name="QuickAiChatButton" Text="{Loc luam-ai-director-quick-ai-chat}" HorizontalExpand="True" />
-                                <Button Name="QuickAnnouncementButton" Text="{Loc luam-ai-director-quick-announcement}" HorizontalExpand="True" />
-                                <Button Name="QuickAiBaseDiagnosticsButton" Text="{Loc luam-ai-director-quick-ai-base-diagnostics}" HorizontalExpand="True" />
-                                <Button Name="QuickAiBasePlanButton" Text="{Loc luam-ai-director-quick-ai-base-plan}" HorizontalExpand="True" />
-                                <Button Name="QuickAiBaseAutofixButton" Text="{Loc luam-ai-director-quick-ai-base-autofix}" HorizontalExpand="True" />
-                                <Button Name="QuickAiBaseAutopilotButton" Text="{Loc luam-ai-director-quick-ai-base-autopilot}" HorizontalExpand="True" />
-                                <Button Name="QuickAiBaseMineButton" Text="{Loc luam-ai-director-quick-ai-base-mine}" HorizontalExpand="True" />
-                                <Button Name="QuickAiBaseBuildButton" Text="{Loc luam-ai-director-quick-ai-base-build}" HorizontalExpand="True" />
-                                <Button Name="QuickAiBaseDevelopButton" Text="{Loc luam-ai-director-quick-ai-base-develop}" HorizontalExpand="True" />
-                                <Button Name="QuickGatewayShipButton" Text="{Loc luam-ai-director-quick-gateway-ship}" HorizontalExpand="True" />
-                                <Button Name="QuickGatewayShipTriageButton" Text="{Loc luam-ai-director-quick-gateway-ship-triage}" HorizontalExpand="True" />
-                                <Button Name="QuickGatewayShipHammerheadButton" Text="{Loc luam-ai-director-quick-gateway-ship-hammerhead}" HorizontalExpand="True" />
-                                <Button Name="QuickGatewayShipTziporaButton" Text="{Loc luam-ai-director-quick-gateway-ship-tzipora}" HorizontalExpand="True" />
-                                <Button Name="QuickGatewayShipTokarevButton" Text="{Loc luam-ai-director-quick-gateway-ship-tokarev}" HorizontalExpand="True" />
-                            </GridContainer>
                         </BoxContainer>
-                    </CollapsibleBody>
-                </Collapsible>
-            </PanelContainer>
-        </BoxContainer>
-    </ScrollContainer>
+                    </PanelContainer>
+                </BoxContainer>
+            </ScrollContainer>
+        </TabContainer>
+    </BoxContainer>
 </DefaultWindow>

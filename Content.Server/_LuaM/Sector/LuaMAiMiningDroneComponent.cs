@@ -76,6 +76,9 @@ public sealed partial class LuaMAiMiningDroneComponent : Component
     public TimeSpan NextMove = TimeSpan.Zero;
 
     [DataField]
+    public TimeSpan NextBehaviorEvaluation = TimeSpan.Zero;
+
+    [DataField]
     public TimeSpan NextMine = TimeSpan.Zero;
 
     [DataField]

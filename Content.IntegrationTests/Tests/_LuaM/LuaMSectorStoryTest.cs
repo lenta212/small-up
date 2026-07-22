@@ -1,4 +1,6 @@
 ﻿using System.Collections.Generic;
+#nullable enable annotations
+
 using System.Linq;
 using System.Numerics;
 using Content.Server.Power.Components;
@@ -7,6 +9,7 @@ using Content.Server._NF.BountyContracts;
 using Content.Server._NF.Bank;
 using Content.Server._NF.SectorServices;
 using Content.Shared.Damage;
+using Content.Shared.CCVar;
 using Content.Shared.Examine;
 using Content.Shared.Item;
 using Content.Shared.Mobs.Components;
@@ -24,6 +27,7 @@ using Content.Shared.Storage;
 using Robust.Server.Console;
 using Robust.Server.GameObjects;
 using Robust.Shared.ContentPack;
+using Robust.Shared.Configuration;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Localization;
 using Robust.Shared.Map;
@@ -303,7 +307,8 @@ public sealed class LuaMSectorStoryTest
             Assert.That(adminState.AiBaseSummary, Does.Contain("roles"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("improvement"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("physical beacons 0"));
-            Assert.That(adminState.AiBaseSummary, Does.Contain("logistics ships 1"));
+            Assert.That(adminState.AiBaseSummary, Does.Contain("logistics ships 0"));
+            Assert.That(adminState.AiBaseSummary, Does.Contain("no physical logistics ships"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("drones 0"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("supply drops 0"));
             Assert.That(adminState.AiBaseSummary, Does.Contain("compensate"));
@@ -371,7 +376,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiLogisticsShipSystemCreatesVisibleSupplyDrop()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -379,21 +383,24 @@ public sealed class LuaMSectorStoryTest
 
         var entManager = server.ResolveDependency<IEntityManager>();
         var resources = server.ResolveDependency<IResourceManager>();
+        var mapSystem = entManager.System<MapSystem>();
         var storySystem = entManager.System<LuaMSectorStorySystem>();
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             ClearPersistedSectorMemory(resources);
             SectorNewsComponent.Articles.Clear();
 
-            var host = entManager.SpawnEntity(null, MapCoordinates.Nullspace);
+            mapSystem.CreateMap(out var mapId);
+            var host = entManager.SpawnEntity(null, new MapCoordinates(new Vector2(-4f, 0f), mapId));
             entManager.AddComponent<StationSectorServiceHostComponent>(host);
             entManager.AddComponent<SectorNewsComponent>(host);
 
-            var aiBaseBeacon = entManager.SpawnEntity("LuaMAiBaseBeacon", MapCoordinates.Nullspace);
+            var aiBaseBeacon = entManager.SpawnEntity("LuaMAiBaseBeacon", new MapCoordinates(Vector2.Zero, mapId));
             Assert.That(entManager.HasComponent<LuaMAiBaseAnchorComponent>(aiBaseBeacon), Is.True);
 
-            var aiShip = entManager.SpawnEntity(null, MapCoordinates.Nullspace);
+            var aiShip = entManager.SpawnEntity(null, new MapCoordinates(new Vector2(4f, 0f), mapId));
             var logistics = entManager.AddComponent<LuaMAiLogisticsShipComponent>(aiShip);
             logistics.Role = "hauler";
             logistics.VesselId = "Baeg";
@@ -403,7 +410,7 @@ public sealed class LuaMSectorStoryTest
             Assert.That(storySystem.EnsureAiBase("integration-test"), Does.Contain("AI base deployed"));
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -431,7 +438,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiLogisticsShipSpawnsRoleManifestCrew()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -446,6 +452,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             mapSystem.CreateMap(out var mapId);
 
             aiShip = entManager.SpawnEntity(null, new MapCoordinates(Vector2.Zero, mapId));
@@ -481,7 +488,7 @@ public sealed class LuaMSectorStoryTest
             Assert.That(qjProfile.StationPlan.Any(station => station.Contains("hangar", StringComparison.OrdinalIgnoreCase)), Is.True);
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -591,7 +598,7 @@ public sealed class LuaMSectorStoryTest
             }
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -616,7 +623,7 @@ public sealed class LuaMSectorStoryTest
             }
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -708,7 +715,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiLogisticsShipUsesMappedCrewMarkers()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -723,6 +729,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             mapSystem.CreateMap(out var mapId);
             var grid = mapManager.CreateGridEntity(mapId);
             aiShip = grid.Owner;
@@ -753,7 +760,7 @@ public sealed class LuaMSectorStoryTest
             logistics.NextCycle = TimeSpan.FromDays(1);
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -793,7 +800,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiLogisticsShipWithoutMarkersUsesInternalGridTiles()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -808,6 +814,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             mapSystem.CreateMap(out var mapId);
             var grid = mapManager.CreateGridEntity(mapId);
             aiShip = grid.Owner;
@@ -827,7 +834,7 @@ public sealed class LuaMSectorStoryTest
             logistics.NextCycle = TimeSpan.FromDays(1);
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -869,7 +876,7 @@ public sealed class LuaMSectorStoryTest
             }
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -898,7 +905,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneMovesAndDeliversOreToAiBase()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -914,6 +920,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             ClearPersistedSectorMemory(resources);
             SectorNewsComponent.Articles.Clear();
 
@@ -937,7 +944,7 @@ public sealed class LuaMSectorStoryTest
             Assert.That(storySystem.EnsureAiBase("integration-test"), Does.Contain("AI base deployed"));
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -968,7 +975,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneReactsToNearbyPeople()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -983,6 +989,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             mapSystem.CreateMap(out var mapId);
 
             droneUid = entManager.SpawnEntity("LuaMAiMiningDrone", new MapCoordinates(Vector2.Zero, mapId));
@@ -999,7 +1006,7 @@ public sealed class LuaMSectorStoryTest
             metaData.SetEntityName(crew, "LuaM test technician");
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -1023,7 +1030,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneWarnsAndBacksOffWhenPeopleAreTooClose()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1039,6 +1045,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             mapSystem.CreateMap(out var mapId);
 
             droneUid = entManager.SpawnEntity("LuaMAiMiningDrone", new MapCoordinates(Vector2.Zero, mapId));
@@ -1058,7 +1065,7 @@ public sealed class LuaMSectorStoryTest
             startDistance = Vector2.Distance(dronePosition, crewPosition);
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -1081,7 +1088,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneRolesProduceDifferentSocialStates()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1097,6 +1103,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             mapSystem.CreateMap(out var mapId);
 
             var crew = entManager.SpawnEntity(null, new MapCoordinates(Vector2.Zero, mapId));
@@ -1108,7 +1115,7 @@ public sealed class LuaMSectorStoryTest
             logisticsDrone = SpawnRoleDrone("logistics", new Vector2(2.5f, 0), mapId);
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -1145,7 +1152,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneLeavesWorldTraceWithoutSpam()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1159,6 +1165,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             mapSystem.CreateMap(out var mapId);
 
             var crew = entManager.SpawnEntity(null, new MapCoordinates(new Vector2(2.4f, 0), mapId));
@@ -1176,7 +1183,7 @@ public sealed class LuaMSectorStoryTest
             drone.NextWorldTrace = TimeSpan.FromTicks(1);
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -1213,7 +1220,7 @@ public sealed class LuaMSectorStoryTest
             Assert.That(traces, Is.EqualTo(1));
         });
 
-        await pair.RunTicksSync(20);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -1234,7 +1241,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiMiningDroneRemembersRepeatedHumanContacts()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1248,6 +1254,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             mapSystem.CreateMap(out var mapId);
 
             var crew = entManager.SpawnEntity(null, new MapCoordinates(new Vector2(2.4f, 0), mapId));
@@ -1265,7 +1272,7 @@ public sealed class LuaMSectorStoryTest
             drone.NextWorldTrace = TimeSpan.FromDays(1);
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -1285,7 +1292,7 @@ public sealed class LuaMSectorStoryTest
             drone.NextSpeech = TimeSpan.FromTicks(1);
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -1302,7 +1309,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiBaseCreatesWorkZonesAndAssignsDroneTasks()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1314,9 +1320,11 @@ public sealed class LuaMSectorStoryTest
         var storySystem = entManager.System<LuaMSectorStorySystem>();
 
         EntityUid droneUid = EntityUid.Invalid;
+        var assignedDistance = 0f;
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             ClearPersistedSectorMemory(resources);
             SectorNewsComponent.Articles.Clear();
 
@@ -1335,12 +1343,14 @@ public sealed class LuaMSectorStoryTest
             var drone = entManager.EnsureComponent<LuaMAiMiningDroneComponent>(droneUid);
             drone.DroneRole = "logistics";
             drone.DroneId = "zone-task-test";
-            drone.NextMove = TimeSpan.FromTicks(1);
+            // Keep patrol movement out of the assignment phase. Movement toward the selected
+            // task is triggered explicitly below so system update order cannot randomize it.
+            drone.NextMove = TimeSpan.FromDays(1);
             drone.NextMine = TimeSpan.FromDays(1);
             drone.NextSocialScan = TimeSpan.FromDays(1);
         });
 
-        await pair.RunTicksSync(20);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -1380,17 +1390,31 @@ public sealed class LuaMSectorStoryTest
             Assert.That(task.Compensation, Is.Not.Empty);
             Assert.That(task.CompensationRole, Is.Not.Empty);
             Assert.That(task.CompensationSeverity, Is.GreaterThan(0));
+        });
 
+        await server.WaitPost(() =>
+        {
+            var task = entManager.GetComponent<LuaMAiDroneTaskComponent>(droneUid);
             var dronePosition = entManager.GetComponent<TransformComponent>(droneUid).MapPosition.Position;
             var zonePosition = entManager.GetComponent<TransformComponent>(task.TargetZone).MapPosition.Position;
-            Assert.That(Vector2.Distance(dronePosition, zonePosition), Is.LessThan(9.8f));
+            assignedDistance = Vector2.Distance(dronePosition, zonePosition);
+            entManager.GetComponent<LuaMAiMiningDroneComponent>(droneUid).NextMove = TimeSpan.FromTicks(1);
+        });
+
+        await pair.RunSeconds(0.5f);
+
+        await server.WaitAssertion(() =>
+        {
+            var task = entManager.GetComponent<LuaMAiDroneTaskComponent>(droneUid);
+            var dronePosition = entManager.GetComponent<TransformComponent>(droneUid).MapPosition.Position;
+            var zonePosition = entManager.GetComponent<TransformComponent>(task.TargetZone).MapPosition.Position;
+            Assert.That(Vector2.Distance(dronePosition, zonePosition), Is.LessThan(assignedDistance));
         });
 
         await pair.CleanReturnAsync();
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiBaseRoleDronesProduceDifferentTaskContributions()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1405,6 +1429,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             ClearPersistedSectorMemory(resources);
             SectorNewsComponent.Articles.Clear();
 
@@ -1419,7 +1444,7 @@ public sealed class LuaMSectorStoryTest
             entManager.SpawnEntity("LuaMAiBaseBeacon", new MapCoordinates(Vector2.Zero, mapId));
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -1441,7 +1466,7 @@ public sealed class LuaMSectorStoryTest
             SpawnRoleDrone("service", "service-task-test", zones[LuaMAiBaseEcologySystem.ZoneContact]);
         });
 
-        await pair.RunTicksSync(10);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -1500,7 +1525,6 @@ public sealed class LuaMSectorStoryTest
     }
 
     [Test]
-    [Ignore("Physical AI base, drones and supply drops are disabled due performance cost.")]
     public async Task AiBaseDroneAndTraceExamineExplainCurrentWork()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
@@ -1517,6 +1541,7 @@ public sealed class LuaMSectorStoryTest
 
         await server.WaitPost(() =>
         {
+            ApplyPhysicalAiTestPreset(server.CfgMan, entManager);
             ClearPersistedSectorMemory(resources);
             SectorNewsComponent.Articles.Clear();
 
@@ -1553,7 +1578,7 @@ public sealed class LuaMSectorStoryTest
             trace.Summary = "supply corridor hint #2 near LuaM examine technician";
         });
 
-        await pair.RunTicksSync(20);
+        await pair.RunSeconds(1f);
 
         await server.WaitAssertion(() =>
         {
@@ -5534,6 +5559,18 @@ public sealed class LuaMSectorStoryTest
         });
 
         await pair.CleanReturnAsync();
+    }
+
+    private static void ApplyPhysicalAiTestPreset(
+        IConfigurationManager configuration,
+        IEntityManager entManager)
+    {
+        // A recycled integration-test pair is not a new game round. Give each scenario an
+        // explicit round boundary without making the production feature toggle resettable.
+        entManager.EventBus.RaiseEvent(EventSource.Local, new RoundRestartCleanupEvent());
+        configuration.SetCVar(CCVars.LuaMAiDirectorEnabled, false);
+        configuration.SetCVar(CCVars.LuaMAiDirectorWorldPulseEnabled, false);
+        configuration.SetCVar(CCVars.LuaMAiPhysicalBaseEnabled, true);
     }
 
     private static void ClearPersistedSectorMemory(IResourceManager resources)

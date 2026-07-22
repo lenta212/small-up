@@ -36,6 +36,7 @@ using Content.Shared.Prying.Systems;
 using Microsoft.Extensions.ObjectPool;
 using Robust.Server.Player;
 using Prometheus;
+using Content.Shared.Access.Systems;
 
 namespace Content.Server.NPC.Systems;
 
@@ -68,6 +69,7 @@ public sealed partial class NPCSteeringSystem : SharedNPCSteeringSystem
     [Dependency] private PryingSystem _pryingSystem = default!;
     [Dependency] private SharedMapSystem _mapSystem = default!;
     [Dependency] private SharedInteractionSystem _interaction = default!;
+    [Dependency] private AccessReaderSystem _accessReader = default!;
     [Dependency] private SharedMeleeWeaponSystem _melee = default!;
     [Dependency] private SharedMoverController _mover = default!;
     [Dependency] private SharedPhysicsSystem _physics = default!;
@@ -495,19 +497,35 @@ public sealed partial class NPCSteeringSystem : SharedNPCSteeringSystem
             return;
         }
 
-        steering.PathfindToken = new CancellationTokenSource();
+        var pathfindToken = new CancellationTokenSource();
+        steering.PathfindToken = pathfindToken;
 
         var flags = _pathfindingSystem.GetFlags(uid);
+        PathResultEvent result;
+        try
+        {
+            result = await _pathfindingSystem.GetPathSafe(
+                uid,
+                xform.Coordinates,
+                steering.Coordinates,
+                steering.Range,
+                pathfindToken.Token,
+                flags);
+        }
+        catch (OperationCanceledException) when (pathfindToken.IsCancellationRequested)
+        {
+            return;
+        }
+        finally
+        {
+            // Cancellation clears the component field immediately and can allow a
+            // replacement request to start before this continuation runs. Never
+            // erase that newer request from the old request's finally block.
+            if (ReferenceEquals(steering.PathfindToken, pathfindToken))
+                steering.PathfindToken = null;
 
-        var result = await _pathfindingSystem.GetPathSafe(
-            uid,
-            xform.Coordinates,
-            steering.Coordinates,
-            steering.Range,
-            steering.PathfindToken.Token,
-            flags);
-
-        steering.PathfindToken = null;
+            pathfindToken.Dispose();
+        }
 
         if (result.Result == PathResult.NoPath)
         {

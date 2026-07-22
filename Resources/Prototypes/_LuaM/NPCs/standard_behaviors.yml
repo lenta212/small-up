@@ -1,0 +1,101 @@
+# Decision-bound executors for standard SS14 NPCs. Target selection remains in
+# LuaMBehaviorArbiter; these compounds only carry out the validated intent.
+- type: htnCompound
+  id: LuaMBehaviorRetreatCompound
+  branches:
+  - tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:LuaMPickRetreatOperator
+        range: 7
+        candidateCount: 6
+    - !type:HTNPrimitiveTask
+      operator: !type:MoveToOperator
+        pathfindInPlanning: false
+        removeKeyOnFinish: true
+        targetKey: TargetCoordinates
+        pathfindKey: TargetPathfind
+        rangeKey: MovementRange
+
+- type: htnCompound
+  id: LuaMBehaviorNavigateDecisionCompound
+  branches:
+  - preconditions:
+    - !type:KeyExistsPrecondition
+      key: TargetCoordinates
+    tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:MoveToOperator
+        shutdownState: PlanFinished
+        pathfindInPlanning: true
+        removeKeyOnFinish: false
+        targetKey: TargetCoordinates
+        pathfindKey: TargetPathfind
+        rangeKey: InteractRange
+
+- type: htnCompound
+  id: LuaMBehaviorMeleeDecisionCompound
+  branches:
+  - preconditions:
+    - !type:KeyExistsPrecondition
+      key: Target
+    - !type:KeyExistsPrecondition
+      key: TargetCoordinates
+    tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:MoveToOperator
+        shutdownState: PlanFinished
+        pathfindInPlanning: true
+        removeKeyOnFinish: false
+        brakeMaxVelocity: null
+        targetKey: TargetCoordinates
+        pathfindKey: TargetPathfind
+        rangeKey: MeleeRange
+    - !type:HTNPrimitiveTask
+      operator: !type:JukeOperator
+        jukeType: Away
+    - !type:HTNPrimitiveTask
+      preconditions:
+      - !type:TargetInRangePrecondition
+        targetKey: Target
+        rangeKey: MeleeRange
+      operator: !type:MeleeOperator
+        targetKey: Target
+
+- type: htnCompound
+  id: LuaMBehaviorRangedDecisionCompound
+  branches:
+  - preconditions:
+    - !type:KeyExistsPrecondition
+      key: Target
+    - !type:KeyExistsPrecondition
+      key: TargetCoordinates
+    - !type:GunAmmoPrecondition
+      minPercent: 0.001
+    tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:MoveToOperator
+        shutdownState: PlanFinished
+        pathfindInPlanning: true
+        removeKeyOnFinish: false
+        targetKey: TargetCoordinates
+        pathfindKey: TargetPathfind
+        stopOnLineOfSight: true
+        rangeKey: RangedRange
+    - !type:HTNPrimitiveTask
+      operator: !type:GunOperator
+        targetKey: Target
+        requireLOS: true
+
+- type: htnCompound
+  id: LuaMBehaviorTurretDecisionCompound
+  branches:
+  - preconditions:
+    - !type:KeyExistsPrecondition
+      key: Target
+    - !type:GunAmmoPrecondition
+      minPercent: 0.001
+    tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:GunOperator
+        targetKey: Target
+        requireLOS: true

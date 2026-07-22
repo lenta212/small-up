@@ -2,15 +2,18 @@
 using System.Collections.Generic;
 using System.Numerics;
 using Content.Server.Chat.Systems;
+using Content.Server._LuaM.AI;
 using Content.Shared.Chat;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
+using Content.Shared._LuaM.AI;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
 using Robust.Shared.Maths;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
 using Robust.Shared.Timing;
+using DiagnosticsStopwatch = System.Diagnostics.Stopwatch;
 
 namespace Content.Server._LuaM.Sector;
 
@@ -30,6 +33,7 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
     private const int WorldTraceCooldownMinSeconds = 70;
     private const int WorldTraceCooldownMaxSeconds = 130;
     private const int ContactMemoryLimit = 24;
+    private const double UpdateTimeBudgetMilliseconds = 1.0;
     private const string RoleMiner = "miner";
     private const string RoleGuard = "guard";
     private const string RoleScout = "scout";
@@ -53,6 +57,7 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
     private static readonly Color ObservingLightColor = Color.FromHex("#ffe66d");
     private static readonly Color WarningLightColor = Color.FromHex("#ff8f3d");
     private static readonly TimeSpan DisabledCleanupInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(250);
 
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private ILogManager _log = default!;
@@ -65,25 +70,31 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
     [Dependency] private ChatSystem _chat = default!;
     [Dependency] private LuaMSectorStorySystem _stories = default!;
     [Dependency] private LuaMAiSupplyDropSystem _supplyDrops = default!;
+    [Dependency] private LuaMAiPhysicalBaseBudgetSystem _physical = default!;
+    [Dependency] private LuaMAiDroneBehaviorAdapterSystem _behaviorAdapter = default!;
+    [Dependency] private LuaMBehaviorSystem _behavior = default!;
 
     private ISawmill _sawmill = default!;
     private TimeSpan _nextDisabledCleanup;
+    private TimeSpan _nextUpdate;
+    private int _droneCursor;
 
     public override void Initialize()
     {
         base.Initialize();
         _sawmill = _log.GetSawmill("luam.ai_mining_drone");
 
-        SubscribeLocalEvent<LuaMAiMiningDroneComponent, ComponentStartup>(OnDisabledDroneStartup);
-        SubscribeLocalEvent<LuaMAiDroneTraceComponent, ComponentStartup>(OnDisabledTraceStartup);
+        SubscribeLocalEvent<LuaMAiMiningDroneComponent, ComponentStartup>(OnDroneStartup);
+        SubscribeLocalEvent<LuaMAiDroneTraceComponent, ComponentStartup>(OnTraceStartup);
     }
 
     public override void Update(float frameTime)
     {
         base.Update(frameTime);
 
-        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        if (!_physical.Enabled)
         {
+            _nextUpdate = TimeSpan.Zero;
             if (_nextDisabledCleanup == TimeSpan.Zero || _timing.CurTime >= _nextDisabledCleanup)
             {
                 CleanupDisabledDrones();
@@ -94,14 +105,30 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
         }
 
         var now = _timing.CurTime;
-        var query = EntityQueryEnumerator<LuaMAiMiningDroneComponent>();
-        while (query.MoveNext(out var uid, out var drone))
+        if (_nextUpdate != TimeSpan.Zero && now < _nextUpdate)
+            return;
+
+        _nextUpdate = now + UpdateInterval;
+        var started = DiagnosticsStopwatch.GetTimestamp();
+        var available = _physical.GetLiveCount(LuaMAiPhysicalEntityKind.Drone);
+        var visited = 0;
+        var actions = 0;
+        var exhausted = false;
+
+        while (visited < available)
         {
-            if (TerminatingOrDeleted(uid))
+            var slice = _physical.GetEntitySlice(LuaMAiPhysicalEntityKind.Drone, ref _droneCursor, 1);
+            if (slice.Count == 0)
+                break;
+
+            visited++;
+            var uid = slice[0];
+            if (TerminatingOrDeleted(uid) || !TryComp<LuaMAiMiningDroneComponent>(uid, out var drone))
                 continue;
 
             var role = NormalizeDroneRole(drone.DroneRole);
             drone.DroneRole = role;
+            _behaviorAdapter.RefreshNow(uid, drone);
 
             if (drone.NextMove == TimeSpan.Zero)
                 drone.NextMove = now + TimeSpan.FromSeconds(InitialMoveDelaySeconds);
@@ -116,6 +143,13 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
 
             if (now >= drone.NextMove)
             {
+                if (!CanRunAction(started, actions))
+                {
+                    exhausted = true;
+                    break;
+                }
+
+                actions++;
                 if (!HasComp<LuaMAiDroneTaskComponent>(uid))
                     drone.State = drone.State == "mining" ? "returning" : "flying";
                 drone.NextMove = now + TimeSpan.FromSeconds(MoveDelaySeconds);
@@ -124,6 +158,13 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
 
             if (role == RoleMiner && now >= drone.NextMine)
             {
+                if (!CanRunAction(started, actions))
+                {
+                    exhausted = true;
+                    break;
+                }
+
+                actions++;
                 drone.OreCycles++;
                 drone.LastOreAmount = _random.Next(8, 18);
                 drone.State = "mining";
@@ -148,34 +189,58 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
 
             if (drone.ParentShip.IsValid() && now >= drone.NextCrewDuty)
             {
+                if (!CanRunAction(started, actions))
+                {
+                    exhausted = true;
+                    break;
+                }
+
+                actions++;
                 drone.NextCrewDuty = now + TimeSpan.FromSeconds(CrewDutyDelaySeconds + Math.Min(drone.CrewDutyCycles, 5) * 4);
                 TryRunShipCrewDuty(uid, drone, role);
             }
 
             if (now >= drone.NextSocialScan)
             {
+                if (!CanRunAction(started, actions))
+                {
+                    exhausted = true;
+                    break;
+                }
+
+                actions++;
                 drone.NextSocialScan = now + TimeSpan.FromSeconds(SocialScanDelaySeconds);
                 TryRunSocialScan(uid, drone, now);
             }
+
+            if (DiagnosticsStopwatch.GetElapsedTime(started).TotalMilliseconds >= UpdateTimeBudgetMilliseconds)
+            {
+                exhausted = true;
+                break;
+            }
         }
+
+        if (actions >= LuaMAiPhysicalBaseBudgetSystem.MiningActionsPerSlice && visited < available)
+            exhausted = true;
+
+        _physical.RecordSlice("mining", actions, exhausted);
     }
 
-    private void OnDisabledDroneStartup(EntityUid uid, LuaMAiMiningDroneComponent component, ComponentStartup args)
+    private static bool CanRunAction(long started, int actions)
     {
-        QueueDisabledDroneEntity(uid);
+        return actions < LuaMAiPhysicalBaseBudgetSystem.MiningActionsPerSlice &&
+               DiagnosticsStopwatch.GetElapsedTime(started).TotalMilliseconds < UpdateTimeBudgetMilliseconds;
     }
 
-    private void OnDisabledTraceStartup(EntityUid uid, LuaMAiDroneTraceComponent component, ComponentStartup args)
+    private void OnDroneStartup(EntityUid uid, LuaMAiMiningDroneComponent component, ComponentStartup args)
     {
-        QueueDisabledDroneEntity(uid);
+        _physical.AdmitOrReject(uid, LuaMAiPhysicalEntityKind.Drone);
+        _behaviorAdapter.RefreshNow(uid, component, force: true);
     }
 
-    private void QueueDisabledDroneEntity(EntityUid uid)
+    private void OnTraceStartup(EntityUid uid, LuaMAiDroneTraceComponent component, ComponentStartup args)
     {
-        if (LuaMAiPhysicalBaseFeature.Enabled || TerminatingOrDeleted(uid))
-            return;
-
-        QueueDel(uid);
+        _physical.AdmitOrReject(uid, LuaMAiPhysicalEntityKind.Trace);
     }
 
     private void CleanupDisabledDrones()
@@ -197,6 +262,9 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
 
     private void TryMoveDrone(EntityUid uid, LuaMAiMiningDroneComponent drone)
     {
+        if (TryExecuteBehaviorMovement(uid, drone))
+            return;
+
         if (TryMoveWithinParentShip(uid, drone, updateState: true))
             return;
 
@@ -209,6 +277,104 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
 
         var offset = _random.NextAngle().ToVec() * _random.NextFloat(MoveRadiusMin, MoveRadiusMax);
         _transform.SetMapCoordinates(uid, new MapCoordinates(coordinates.Position + offset, coordinates.MapId));
+    }
+
+    public bool TryExecuteBehaviorMovement(EntityUid uid, LuaMAiMiningDroneComponent drone)
+    {
+        if (!_behavior.GetDecision(uid, out var decision))
+            return false;
+
+        switch (decision.Intent)
+        {
+            case LuaMBehaviorIntent.AwaitRescue:
+            case LuaMBehaviorIntent.HoldPosition:
+                drone.State = "holding_position";
+                return true;
+            case LuaMBehaviorIntent.Recharge:
+            case LuaMBehaviorIntent.ReturnCargo:
+            case LuaMBehaviorIntent.ReturnHome:
+            case LuaMBehaviorIntent.Resupply:
+                if (TryMoveWithinParentShip(uid, drone, updateState: true))
+                    return true;
+                drone.State = "awaiting_recovery_route";
+                return true;
+            case LuaMBehaviorIntent.Flee:
+            case LuaMBehaviorIntent.Retreat:
+            case LuaMBehaviorIntent.TakeCover:
+            case LuaMBehaviorIntent.EvadeProjectile:
+            case LuaMBehaviorIntent.EvacuateHazard:
+                return TryMoveAwayFromDecision(uid, drone, decision);
+            case LuaMBehaviorIntent.ReplanRoute:
+                return TryMoveDroneDetour(uid, drone);
+            default:
+                return false;
+        }
+    }
+
+    private bool TryMoveAwayFromDecision(
+        EntityUid uid,
+        LuaMAiMiningDroneComponent drone,
+        LuaMBehaviorDecision decision)
+    {
+        var coordinates = _transform.ToMapCoordinates(Transform(uid).Coordinates, logError: false);
+        if (coordinates == MapCoordinates.Nullspace)
+            return true;
+
+        var away = _random.NextAngle().ToVec();
+        MapCoordinates hazard = MapCoordinates.Nullspace;
+        if (decision.Target is { } target && !TerminatingOrDeleted(target))
+            hazard = _transform.ToMapCoordinates(Transform(target).Coordinates, logError: false);
+        else if (decision.Destination is { } destination)
+            hazard = _transform.ToMapCoordinates(destination, logError: false);
+
+        if (hazard != MapCoordinates.Nullspace && hazard.MapId == coordinates.MapId)
+        {
+            var delta = coordinates.Position - hazard.Position;
+            if (delta.LengthSquared() > 0.0001f)
+                away = Vector2.Normalize(delta);
+        }
+
+        _transform.SetMapCoordinates(
+            uid,
+            new MapCoordinates(coordinates.Position + away * TaskMoveStep, coordinates.MapId));
+        drone.State = "evasive";
+        return true;
+    }
+
+    private bool TryMoveDroneDetour(EntityUid uid, LuaMAiMiningDroneComponent drone)
+    {
+        if (!TryComp<LuaMAiDroneTaskComponent>(uid, out var task) ||
+            !task.TargetZone.IsValid() ||
+            TerminatingOrDeleted(task.TargetZone))
+        {
+            drone.State = "awaiting_route";
+            return true;
+        }
+
+        var coordinates = _transform.ToMapCoordinates(Transform(uid).Coordinates, logError: false);
+        var target = _transform.ToMapCoordinates(Transform(task.TargetZone).Coordinates, logError: false);
+        if (coordinates == MapCoordinates.Nullspace ||
+            target == MapCoordinates.Nullspace ||
+            coordinates.MapId != target.MapId)
+        {
+            drone.State = "awaiting_route";
+            return true;
+        }
+
+        var delta = target.Position - coordinates.Position;
+        if (delta.LengthSquared() < 0.0001f)
+            return false;
+
+        var direction = Vector2.Normalize(delta);
+        var lateral = new Vector2(-direction.Y, direction.X);
+        if (_random.Prob(0.5f))
+            lateral = -lateral;
+
+        var step = lateral * TaskMoveStep + direction * (TaskMoveStep * 0.25f);
+        _transform.SetMapCoordinates(uid, new MapCoordinates(coordinates.Position + step, coordinates.MapId));
+        task.TaskStage = "replanning";
+        drone.State = "replanning_route";
+        return true;
     }
 
     private bool TryMoveWithinParentShip(EntityUid uid, LuaMAiMiningDroneComponent drone, bool updateState)
@@ -319,6 +485,13 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
     {
         if (!_prototypes.HasIndex<EntityPrototype>(DroneTracePrototype))
             return;
+
+        var traceCoordinates = _transform.ToMapCoordinates(Transform(uid).Coordinates, logError: false);
+        if (traceCoordinates == MapCoordinates.Nullspace ||
+            !_physical.CanSpawn(LuaMAiPhysicalEntityKind.Trace, traceCoordinates.MapId, out _))
+        {
+            return;
+        }
 
         var offset = _random.NextAngle().ToVec() * _random.NextFloat(0.15f, 0.65f);
         var traceUid = Spawn(DroneTracePrototype, Transform(uid).Coordinates.Offset(offset));
@@ -567,6 +740,9 @@ public sealed partial class LuaMAiMiningDroneSystem : EntitySystem
         drone.NextWorldTrace = now + TimeSpan.FromSeconds(_random.Next(WorldTraceCooldownMinSeconds, WorldTraceCooldownMaxSeconds));
 
         if (!_prototypes.HasIndex<EntityPrototype>(DroneTracePrototype))
+            return;
+
+        if (!_physical.CanSpawn(LuaMAiPhysicalEntityKind.Trace, targetCoordinates.MapId, out _))
             return;
 
         var offset = _random.NextAngle().ToVec() * _random.NextFloat(0.7f, 1.8f);

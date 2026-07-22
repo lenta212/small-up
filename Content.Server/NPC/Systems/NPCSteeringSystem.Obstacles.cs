@@ -5,6 +5,8 @@ using Content.Shared.Climbing;
 using Content.Shared.CombatMode;
 using Content.Shared.DoAfter;
 using Content.Shared.Doors.Components;
+using Content.Shared.Access.Components;
+using Content.Shared.Access.Systems;
 using Content.Shared.NPC;
 using Robust.Shared.Map.Components;
 using Robust.Shared.Physics;
@@ -102,6 +104,37 @@ public sealed partial class NPCSteeringSystem
                 }
 
                 // If we get to here then didn't succeed for reasons.
+            }
+
+            // Access traversal is opt-in and is never equivalent to prying. The access
+            // reader remains authoritative and inspects the NPC's real carried ID/PDA.
+            if (isDoor && isAccessRequired && (component.Flags & PathFlags.Access) != 0x0)
+            {
+                var doorQuery = GetEntityQuery<DoorComponent>();
+                var accessQuery = GetEntityQuery<AccessReaderComponent>();
+
+                foreach (var ent in obstacleEnts)
+                {
+                    if (!doorQuery.TryGetComponent(ent, out var door) ||
+                        !accessQuery.TryGetComponent(ent, out var access))
+                    {
+                        continue;
+                    }
+
+                    if (!_accessReader.IsAllowed(uid, ent, access))
+                        return SteeringObstacleStatus.Failed;
+
+                    if (door.State == DoorState.Open)
+                        continue;
+
+                    if (door.State != DoorState.Opening)
+                        _interaction.InteractionActivate(uid, ent);
+
+                    return SteeringObstacleStatus.Continuing;
+                }
+
+                if (obstacleEnts.Count == 0)
+                    return SteeringObstacleStatus.Completed;
             }
 
             if ((component.Flags & PathFlags.Prying) != 0x0 && isDoor)

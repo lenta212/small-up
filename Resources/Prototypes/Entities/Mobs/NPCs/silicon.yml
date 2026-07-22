@@ -155,6 +155,11 @@
   - type: Construction
     graph: TaxiBot
     node: bot
+  - type: HTN
+    rootTask:
+      task: IdleCompound
+  - type: LuaMServiceBotBehaviorAdapter
+    role: Taxi
   - type: VehicleHorn # Frontier: beep beep
 
 - type: entity
@@ -172,6 +177,8 @@
   - type: HTN
     rootTask:
       task: FirebotCompound
+  - type: LuaMServiceBotBehaviorAdapter
+    role: Fire
   - type: SolutionContainerManager
     solutions:
       spray:
@@ -223,6 +230,8 @@
   - type: HTN
     rootTask:
       task: HonkbotCompound
+  - type: LuaMServiceBotBehaviorAdapter
+    role: General
   - type: Slippery
     slipData:
       launchForwardsMultiplier: 2
@@ -345,6 +354,8 @@
   - type: HTN
     rootTask:
       task: CleanbotCompound
+  - type: LuaMServiceBotBehaviorAdapter
+    role: Cleaning
   - type: DrainableSolution
     solution: drainBuffer
   - type: InteractionPopup
@@ -388,6 +399,8 @@
   - type: HTN
     rootTask:
       task: MedibotCompound
+  - type: LuaMServiceBotBehaviorAdapter
+    role: Medical
   - type: Construction
     graph: MediBot
     node: bot
@@ -420,6 +433,11 @@
   - type: Construction
     graph: MimeBot
     node: bot
+  - type: HTN
+    rootTask:
+      task: IdleCompound
+  - type: LuaMServiceBotBehaviorAdapter
+    role: Entertainment
   - type: GhostRole
     makeSentient: true
     name: ghost-role-information-mimebot-name
@@ -467,6 +485,11 @@
   - type: Construction
     graph: SupplyBot
     node: bot
+  - type: HTN
+    rootTask:
+      task: IdleCompound
+  - type: LuaMServiceBotBehaviorAdapter
+    role: Supply
   - type: Access
     tags:
     - Cargo

@@ -1,0 +1,7 @@
+- type: entity
+  id: LuaMCriticalAsteroidBeltCoordinatesDisk
+  parent: CoordinatesDisk
+  name: luam-asteroid-belt-disk-name
+  description: luam-asteroid-belt-disk-description
+  components:
+  - type: LuaMAsteroidBeltCoordinatesDisk

@@ -305,6 +305,13 @@ public sealed partial class NPCBlackboard : IEnumerable<KeyValuePair<string, obj
     public const string NavInteract = "NavInteract";
 
     /// <summary>
+    /// Can the NPC traverse access-controlled doors when its carried ID is accepted.
+    /// This is deliberately separate from <see cref="NavInteract"/> so ordinary NPCs do not
+    /// assume that every access door is traversable.
+    /// </summary>
+    public const string NavAccess = "NavAccess";
+
+    /// <summary>
     /// Can the NPC pry open doors for steering.
     /// </summary>
     public const string NavPry = "NavPry";

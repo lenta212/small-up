@@ -426,11 +426,15 @@ public sealed partial class PathfindingSystem
                 tilePolys.Clear();
 
                 var tile = _maps.GetTileRef(grid.Owner, grid.Comp, tilePos);
-                var flags = tile.Tile.IsEmpty ? PathfindingBreadcrumbFlag.Space : PathfindingBreadcrumbFlag.None;
+                var tileFlags = tile.Tile.IsEmpty
+                    ? PathfindingBreadcrumbFlag.Space
+                    : PathfindingBreadcrumbFlag.None;
                 // var isBorder = x < 0 || y < 0 || x == ChunkSize - 1 || y == ChunkSize - 1;
 
                 tileEntities.Clear();
-                var available = _lookup.GetLocalEntitiesIntersecting(tile, flags: LookupFlags.Dynamic | LookupFlags.Static);
+                var available = _lookup.GetLocalEntitiesIntersecting(
+                    tile,
+                    flags: LookupFlags.Dynamic | LookupFlags.Static);
 
                 foreach (var ent in available)
                 {
@@ -464,6 +468,10 @@ public sealed partial class PathfindingSystem
                         var collisionMask = 0x0;
                         var collisionLayer = 0x0;
                         var damage = 0f;
+                        // Collision metadata belongs to this sample point. Carrying
+                        // Door/Access from a previous subtile makes unrelated space
+                        // traversable with the earlier door's credentials.
+                        var flags = tileFlags;
 
                         foreach (var ent in tileEntities)
                         {

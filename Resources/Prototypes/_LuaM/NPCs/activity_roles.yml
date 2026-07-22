@@ -1,0 +1,64 @@
+# Generic lifecycle vocabulary for sector service NPCs. Executors remain separate:
+# this prototype only owns allowed transitions, deadlines and retry bounds.
+- type: luamNpcRoleActivity
+  id: LuaMSectorServiceWorkerLifecycle
+  roleId: sector-service-worker
+  allowedActivities:
+  - standby
+  - observing
+  - dispatching
+  - planning-route
+  - approaching
+  - interacting
+  - delivering
+  - returning
+  activityPolicies:
+  - activity: standby
+    timeoutSeconds: 300
+    timeoutFallback: standby
+  - activity: observing
+    timeoutSeconds: 120
+    timeoutFallback: standby
+  - activity: dispatching
+    timeoutSeconds: 20
+    timeoutFallback: standby
+  - activity: planning-route
+    timeoutSeconds: 30
+    timeoutFallback: standby
+  - activity: approaching
+    timeoutSeconds: 90
+    timeoutFallback: standby
+  - activity: interacting
+    timeoutSeconds: 20
+    timeoutFallback: standby
+  - activity: delivering
+    timeoutSeconds: 120
+    timeoutFallback: standby
+  - activity: returning
+    timeoutSeconds: 120
+    timeoutFallback: standby
+  universalTransitionTargets:
+  - standby
+  - observing
+  - returning
+  transitions:
+  - from: standby
+    to: dispatching
+  - from: observing
+    to: dispatching
+  - from: dispatching
+    to: planning-route
+  - from: planning-route
+    to: approaching
+  - from: approaching
+    to: interacting
+  - from: interacting
+    to: delivering
+  - from: delivering
+    to: returning
+  - from: returning
+    to: standby
+  attemptLimit: 3
+  baseRetryBackoffSeconds: 1
+  maxRetryBackoffSeconds: 30
+  distanceProgressTolerance: 0.25

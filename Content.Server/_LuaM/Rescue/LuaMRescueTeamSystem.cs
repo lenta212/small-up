@@ -14,8 +14,10 @@ using Content.Server.NPC.Systems;
 using Content.Shared.Buckle.Components;
 using Content.Shared.Chat;
 using Content.Shared.CombatMode;
+using Content.Shared.Examine;
 using Content.Shared.Hands.Components;
 using Content.Shared.Inventory;
+using Content.Shared.Interaction;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
 using Content.Shared.Movement.Pulling.Components;
@@ -28,6 +30,7 @@ using Content.Shared.Storage.EntitySystems;
 using Content.Shared.Tag;
 using Content.Shared.Weapons.Ranged.Components;
 using Robust.Server.GameObjects;
+using Robust.Shared.Containers;
 using Robust.Shared.Map;
 using Robust.Shared.Physics;
 using Robust.Shared.Physics.Components;
@@ -38,6 +41,11 @@ namespace Content.Server._LuaM.Rescue;
 
 public sealed class LuaMRescueTeamSystem : EntitySystem
 {
+    // Team coordination/telemetry components are server-authoritative.
+    private static void Dirty(EntityUid _, LuaMRescueTeamComponent __) { }
+    private static void Dirty(EntityUid _, LuaMRescueEscortComponent __) { }
+    private static void Dirty(EntityUid _, LuaMRescueActivityCarrierComponent __) { }
+
     private const string EscortPrototype = "LuaMRescueEscort";
     private const float SceneScanRange = 6f;
     private const int CrowdPressureThreshold = 4;
@@ -60,8 +68,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private const float EscortDutyActionRange = 1.75f;
     private const float EscortThreatScreenRange = 7f;
     private const float EscortThreatLeashRange = 8.5f;
+    private const float EscortActivityArrivalRange = 2.5f;
     private const float EscortPatientAssistRange = 1.5f;
     private const float EscortCrowdControlRange = 3f;
+    private const double EscortTerminalRecoveryPollSeconds = 0.25;
+    private const double EscortTerminalRecoveryProbeTimeoutSeconds = 5;
+    private const double EscortTerminalDormantObservationSeconds = 15;
     private const float RouteBlockerDropoffDistance = 3.5f;
     private const float RouteBlockerReleaseDistance = 3.25f;
     private const float RouteBlockerReleaseDistanceSquared = RouteBlockerReleaseDistance * RouteBlockerReleaseDistance;
@@ -69,9 +81,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
     private static readonly (LuaMRescueEscortRole Role, Vector2 Offset)[] EscortFormation =
     [
-        (LuaMRescueEscortRole.Tourniquet, new Vector2(0f, 0.5f)),
-        (LuaMRescueEscortRole.Kostyl, new Vector2(-0.5f, 0f)),
-        (LuaMRescueEscortRole.Zaslon, new Vector2(0f, -0.5f)),
+        (LuaMRescueEscortRole.Tourniquet, new Vector2(0f, 1.5f)),
+        (LuaMRescueEscortRole.Kostyl, new Vector2(-1f, 0f)),
+        (LuaMRescueEscortRole.Zaslon, new Vector2(0f, -1.5f)),
     ];
 
     private static readonly string[] EscortCombatStorageSlotPriority =
@@ -83,6 +95,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     ];
 
     [Dependency] private readonly NPCSystem _npc = default!;
+    [Dependency] private readonly HTNSystem _htnSystem = default!;
     [Dependency] private readonly ChatSystem _chat = default!;
     [Dependency] private readonly MetaDataSystem _metaData = default!;
     [Dependency] private readonly EntityLookupSystem _lookup = default!;
@@ -90,6 +103,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     [Dependency] private readonly HandsSystem _hands = default!;
     [Dependency] private readonly InventorySystem _inventory = default!;
     [Dependency] private readonly PullingSystem _pulling = default!;
+    [Dependency] private readonly SharedContainerSystem _container = default!;
+    [Dependency] private readonly SharedInteractionSystem _interaction = default!;
+    [Dependency] private readonly ExamineSystemShared _examine = default!;
+    [Dependency] private readonly LuaMRescueActivityCoordinatorSystem _activity = default!;
+    [Dependency] private readonly LuaMRescueNavigationSystem _rescueNavigation = default!;
     [Dependency] private readonly SharedCombatModeSystem _combatMode = default!;
     [Dependency] private readonly SharedStorageSystem _storage = default!;
     [Dependency] private readonly LuaMSectorStorySystem _sectorStory = default!;
@@ -122,6 +140,303 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             escort.DutyRefreshAccumulator = 0f;
             UpdateEscortDuty(uid, escort, htn);
         }
+    }
+
+    public bool RefreshEscortBehaviorExecution(EntityUid uid)
+    {
+        if (HasComp<ActorComponent>(uid) ||
+            !TryComp<LuaMRescueEscortComponent>(uid, out var escort) ||
+            !TryComp<HTNComponent>(uid, out var htn))
+        {
+            return false;
+        }
+
+        escort.DutyRefreshAccumulator = 0f;
+        UpdateEscortDuty(uid, escort, htn);
+        return true;
+    }
+
+    public void PurgeMedicalTargetState(EntityUid target, string reason)
+    {
+        var teamQuery = EntityQueryEnumerator<LuaMRescueTeamComponent>();
+        while (teamQuery.MoveNext(out var teamUid, out var team))
+        {
+            var changed = false;
+            if (team.Leader == target)
+            {
+                team.Leader = null;
+                changed = true;
+            }
+
+            if (team.Patient == target)
+            {
+                team.Patient = TryComp<LuaMRescueAgentComponent>(teamUid, out var leaderRescue)
+                    ? GetActiveRescuePatient(leaderRescue)
+                    : null;
+                if (team.Patient == target)
+                    team.Patient = null;
+                changed = true;
+            }
+
+            if (team.Shuttle == target)
+            {
+                team.Shuttle = null;
+                changed = true;
+            }
+
+            if (team.ShuttleAnchor == target)
+            {
+                team.ShuttleAnchor = null;
+                changed = true;
+            }
+
+            if (team.TriageCoverConfirmedPatient == target)
+            {
+                team.TriageCoverConfirmedPatient = null;
+                changed = true;
+            }
+
+            if (team.LastHandoffPatient == target)
+            {
+                team.LastHandoffPatient = null;
+                changed = true;
+            }
+
+            if (team.LastThreatNeutralizedTarget == target)
+            {
+                team.LastThreatNeutralizedTarget = null;
+                changed = true;
+            }
+
+            if (team.LastThreatNeutralizedBy == target)
+            {
+                team.LastThreatNeutralizedBy = null;
+                changed = true;
+            }
+
+            if (team.SceneAnchor == target)
+            {
+                team.SceneAnchor = null;
+                changed = true;
+            }
+
+            if (team.ThreatTarget == target)
+            {
+                team.ThreatTarget = null;
+                changed = true;
+            }
+
+            if (team.CrowdTarget == target)
+            {
+                team.CrowdTarget = null;
+                changed = true;
+            }
+
+            if (team.RouteBlockerTarget == target)
+            {
+                team.RouteBlockerTarget = null;
+                changed = true;
+            }
+
+            if (team.SceneMemory.RemoveAll(memory =>
+                    memory.Anchor == target || memory.ThreatTarget == target) > 0)
+            {
+                RefreshSceneMemoryDigest(team);
+                changed = true;
+            }
+
+            if (team.Escorts.Remove(target))
+                changed = true;
+
+            if (!changed)
+                continue;
+
+            team.LastStatus =
+                $"patient identity purged: target={FormatEntityRef(target)}; reason={reason}";
+            Dirty(teamUid, team);
+        }
+
+        var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
+        while (escortQuery.MoveNext(out var escortUid, out var escort))
+            PurgeEscortMedicalTargetState(escortUid, escort, target, reason);
+    }
+
+    private void PurgeEscortMedicalTargetState(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        EntityUid target,
+        string reason)
+    {
+        TryComp<LuaMRescueActivityCarrierComponent>(uid, out var carrier);
+        TryComp<HTNComponent>(uid, out var htn);
+
+        var carrierReferencesTarget = carrier != null &&
+                                      (carrier.ActivityContext.Target == target ||
+                                       carrier.ActivityContext.Destination is { } destination &&
+                                       destination.EntityId == target);
+        var htnReferencesTarget = false;
+        if (htn != null)
+        {
+            htnReferencesTarget =
+                (htn.Blackboard.TryGetValue<EntityCoordinates>(
+                     NPCBlackboard.FollowTarget,
+                     out var followTarget,
+                     EntityManager) &&
+                 followTarget.EntityId == target) ||
+                (htn.Blackboard.TryGetValue<EntityUid>(
+                     NPCBlackboard.CurrentOrderedTarget,
+                     out var orderedTarget,
+                     EntityManager) &&
+                 orderedTarget == target);
+        }
+
+        EntityUid? pulledTarget = null;
+        if (TryComp<PullerComponent>(uid, out var puller) &&
+            puller.Pulling is { Valid: true } pulled)
+        {
+            pulledTarget = pulled;
+        }
+
+        var activeTarget = escort.CurrentFollowTarget == target ||
+                           carrierReferencesTarget ||
+                           htnReferencesTarget ||
+                           pulledTarget == target;
+        var changed = false;
+        if (escort.Leader == target)
+        {
+            escort.Leader = null;
+            changed = true;
+        }
+
+        if (escort.Patient == target)
+        {
+            escort.Patient = null;
+            changed = true;
+        }
+
+        if (escort.Shuttle == target)
+        {
+            escort.Shuttle = null;
+            changed = true;
+        }
+
+        if (escort.ShuttleAnchor == target)
+        {
+            escort.ShuttleAnchor = null;
+            changed = true;
+        }
+
+        if (escort.SceneAnchor == target)
+        {
+            escort.SceneAnchor = null;
+            changed = true;
+        }
+
+        if (escort.ThreatTarget == target)
+        {
+            escort.ThreatTarget = null;
+            changed = true;
+        }
+
+        if (escort.CrowdTarget == target)
+        {
+            escort.CrowdTarget = null;
+            changed = true;
+        }
+
+        if (escort.RouteBlockerTarget == target)
+        {
+            escort.RouteBlockerTarget = null;
+            changed = true;
+        }
+
+        if (escort.PatientAssistAttemptTarget == target)
+        {
+            ResetPatientAssistAttempts(escort);
+            changed = true;
+        }
+
+        if (escort.PatientHandoffAttemptTarget == target)
+        {
+            ResetPatientHandoffAttempts(escort);
+            changed = true;
+        }
+
+        if (escort.ClearRoutePullAttemptTarget == target)
+        {
+            ResetClearRoutePullAttempts(escort);
+            changed = true;
+        }
+
+        if (escort.ClearRouteReleaseAttemptTarget == target)
+        {
+            ResetClearRouteReleaseAttempts(escort);
+            changed = true;
+        }
+
+        if (activeTarget)
+        {
+            if (pulledTarget == target &&
+                TryComp<PullableComponent>(target, out var pullable))
+            {
+                _pulling.TryStopPull(target, pullable, uid);
+            }
+
+            escort.CurrentFollowTarget = null;
+            escort.CurrentDuty = LuaMRescueEscortDuty.Standby;
+            escort.PendingDuty = LuaMRescueEscortDuty.Standby;
+            escort.DutyUpdatedAt = _timing.CurTime;
+            escort.PendingDutySince = _timing.CurTime;
+            escort.SortiePlan = LuaMRescueSortiePlan.Standby;
+
+            // Force the carrier through its own role-aware Standby mapping so
+            // the old target/destination and terminal recovery generation are
+            // replaced atomically before HTN replans.
+            if (carrier != null)
+            {
+                var previousGeneration = carrier.ActivityContext.Generation;
+                carrier.ActivityContext = new LuaMRescueActivityContext
+                {
+                    Activity = LuaMRescueActivity.None,
+                    TerminalStatus = LuaMRescueTerminalStatus.Cancelled,
+                    Generation = previousGeneration,
+                };
+            }
+
+            UpdateEscortActivityCarrier(
+                uid,
+                escort,
+                LuaMRescueEscortDuty.Standby,
+                followTarget: null);
+
+            if (htn != null)
+            {
+                EntityUid? preservedPulledTarget =
+                    pulledTarget is { Valid: true } other && other != target
+                        ? other
+                        : null;
+                CancelEscortIntent(
+                    uid,
+                    htn,
+                    preservedPulledTarget,
+                    cancelRoute: true,
+                    replan: false);
+                _htnSystem.Replan(htn);
+            }
+            else
+            {
+                _rescueNavigation.CancelRoute(uid, target);
+            }
+
+            changed = true;
+        }
+
+        if (!changed)
+            return;
+
+        escort.LastDutyStatus =
+            $"patient identity purged: target={FormatEntityRef(target)}; reason={reason}";
+        Dirty(uid, escort);
     }
 
     public List<EntityUid> SpawnEscortTeam(
@@ -159,6 +474,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         team.NextSharedSpeechAt = _timing.CurTime;
         team.LastReturnOrExtractReasonStatus = "none";
         team.LastEvacuationFormationStatus = "none";
+        team.LastEscortActivityDigest = "none";
         team.LastCrewHelpAcknowledgementStatus = "none";
         team.LastThreatNeutralizedTarget = null;
         team.LastThreatNeutralizedBy = null;
@@ -218,6 +534,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"blockers={team.NearbyBlockers}; blockerTarget={FormatEntityRef(team.RouteBlockerTarget)}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffRecord}; returnReason={team.LastReturnOrExtractReasonStatus}; " +
                 $"evacFormation={team.LastEvacuationFormationStatus}; " +
+                $"escortActivities={team.LastEscortActivityDigest}; " +
                 $"crewHelpAck={team.LastCrewHelpAcknowledgementStatus}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
                 $"threatClear={team.LastThreatNeutralizedStatus}; " +
@@ -228,6 +545,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
         while (escortQuery.MoveNext(out var uid, out var escort))
         {
+            var activityTelemetry = TryComp<LuaMRescueActivityCarrierComponent>(uid, out var activityCarrier)
+                ? BuildEscortActivityTelemetry(activityCarrier)
+                : "activityRole=none; activity=none; activityTerminal=none; activityGeneration=0; activityTarget=none";
             lines.Add(
                 $"escort={FormatEntityRef(uid)}; team={escort.TeamId}; role={FormatRole(escort.Role)}; " +
                 $"plan={FormatPlan(escort.SortiePlan)}; duty={FormatDuty(escort.CurrentDuty)}; " +
@@ -236,6 +556,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"leader={FormatEntityRef(escort.Leader)}; patient={FormatEntityRef(escort.Patient)}; " +
                 $"threat={FormatEntityRef(escort.ThreatTarget)}; crowdTarget={FormatEntityRef(escort.CrowdTarget)}; " +
                 $"blockerTarget={FormatEntityRef(escort.RouteBlockerTarget)}; " +
+                $"{activityTelemetry}; " +
                 $"scene={escort.LastSceneStatus}; weapon={escort.LastWeaponReadinessStatus}; action={escort.LastDutyActionStatus}; " +
                 $"crewHelp={escort.LastCrewHelpStatus}; memory={escort.LastMemoryDigest}; last={escort.LastDutyStatus}");
         }
@@ -259,6 +580,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"pressure(threat/crowd/route)={team.RecentThreatMemories}/{team.RecentCrowdMemories}/{team.RecentRouteMemories}; " +
                 $"memory={team.LastMemoryDigest}; handoff={team.LastHandoffDigest}; returnReason={team.LastReturnOrExtractReasonStatus}; " +
                 $"evacFormation={team.LastEvacuationFormationStatus}; " +
+                $"escortActivities={team.LastEscortActivityDigest}; " +
                 $"crewHelpAck={team.LastCrewHelpAcknowledgementStatus}; " +
                 $"planStatus={team.LastSortiePlanStatus}; triageCover={team.LastTriageCoverStatus}; " +
                 $"threatClear={team.LastThreatNeutralizedStatus}; " +
@@ -430,11 +752,34 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         escort.NextDutyActionAt = _timing.CurTime;
         escort.NextSpeechTime = _timing.CurTime;
         escort.NextCrewHelpRequestAt = _timing.CurTime;
+        escort.PatientAssistAttemptTarget = null;
+        escort.PatientAssistAttempts = 0;
+        escort.NextPatientAssistAttemptAt = TimeSpan.Zero;
+        escort.PatientHandoffAttemptTarget = null;
+        escort.PatientHandoffAttempts = 0;
+        escort.NextPatientHandoffAttemptAt = TimeSpan.Zero;
+        escort.ClearRoutePullAttemptTarget = null;
+        escort.ClearRoutePullAttempts = 0;
+        escort.NextClearRoutePullAttemptAt = TimeSpan.Zero;
+        escort.ClearRouteReleaseAttemptTarget = null;
+        escort.ClearRouteReleaseAttempts = 0;
+        escort.NextClearRouteReleaseAttemptAt = TimeSpan.Zero;
+
+        var activityCarrier = EnsureComp<LuaMRescueActivityCarrierComponent>(uid);
+        activityCarrier.ActivityRole = LuaMRescueRole.None;
+        activityCarrier.ActivityRoleProfile = new LuaMRescueRoleProfile();
+        activityCarrier.ActivityContext = new LuaMRescueActivityContext();
+        activityCarrier.SourceDuty = LuaMRescueEscortDuty.Standby;
+        activityCarrier.IntentTransitions = 0;
+        ResetEscortTerminalRecovery(activityCarrier, "not-evaluated");
+        activityCarrier.LastStatus = "role=None; activity=None; terminal=None; generation=0; target=none";
 
         _metaData.SetEntityName(uid, GetRoleName(role));
 
         if (TryComp<HTNComponent>(uid, out var htn))
             UpdateEscortDuty(uid, escort, htn, forceSpeech: true);
+        else
+            UpdateEscortActivityCarrier(uid, escort, LuaMRescueEscortDuty.Standby, followTarget: null);
 
         Dirty(uid, escort);
     }
@@ -498,6 +843,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         changed |= UpdateEvacuationFormationStatus(team, phase, patient);
         changed |= PruneTeamEscorts(team);
+        changed |= UpdateEscortActivityDigest(team);
         var somberScene = IsSomberTeamScene(team, rescue, patient);
         changed |= TrySayTeamPhaseLine(uid, team, phase, somberScene, returnOrExtractReason);
         team.SceneScanAccumulator += frameTime;
@@ -560,22 +906,52 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     {
         SyncEscortContextFromLeader(escort);
 
-        var candidateDuty = GetEscortDuty(escort);
+        var candidateDuty = GetEscortDuty(uid, escort);
         var dutyChanged = UpdateEscortDutySelection(escort, candidateDuty, _timing.CurTime);
         var duty = escort.CurrentDuty;
         var followTarget = GetEscortFollowTarget(uid, escort, duty);
-        var followChanged = escort.CurrentFollowTarget != followTarget;
+        var intentReplacement = IsEscortActivityIntentReplacement(
+            uid,
+            escort,
+            duty,
+            followTarget,
+            out var primaryTarget);
+        if (intentReplacement)
+            CancelEscortIntent(uid, htn, primaryTarget);
 
-        escort.CurrentFollowTarget = followTarget;
+        UpdateEscortActivityCarrier(uid, escort, duty, followTarget);
+        ResolveEscortActivityExecution(
+            uid,
+            escort,
+            duty,
+            followTarget,
+            out var executionDuty,
+            out var executionTarget);
+        var followChanged = escort.CurrentFollowTarget != executionTarget;
 
-        SetEscortFollowTarget(uid, escort, htn, followTarget, duty);
-        TryRunEscortDutyAction(uid, escort, htn, duty, followTarget);
-        escort.LastDutyStatus = BuildEscortDutyStatus(escort, candidateDuty, followTarget, _timing.CurTime);
+        if (!intentReplacement && followChanged)
+        {
+            var preservedPrimaryTarget = TryComp<LuaMRescueActivityCarrierComponent>(uid, out var carrier)
+                ? IsEscortActivityTerminal(carrier.ActivityContext.TerminalStatus)
+                    ? null
+                    : carrier.ActivityContext.Target
+                : primaryTarget;
+            CancelEscortIntent(uid, htn, preservedPrimaryTarget);
+        }
+
+        escort.CurrentFollowTarget = executionTarget;
+
+        var preserveClearRouteDropoff = executionDuty == LuaMRescueEscortDuty.ClearRoute &&
+                                        IsEscortPullingRouteBlocker(uid, escort);
+        if (!preserveClearRouteDropoff)
+            SetEscortFollowTarget(uid, escort, htn, executionTarget, executionDuty);
+        TryRunEscortDutyAction(uid, escort, htn, executionDuty, executionTarget);
+        escort.LastDutyStatus = BuildEscortDutyStatus(escort, candidateDuty, executionTarget, _timing.CurTime);
 
         if ((dutyChanged || followChanged || forceSpeech) &&
             _timing.CurTime >= escort.NextSpeechTime)
         {
-            TrySayDutyLine(uid, escort, duty);
+            TrySayDutyLine(uid, escort, executionDuty);
             escort.NextSpeechTime = _timing.CurTime + TimeSpan.FromSeconds(EscortSpeechCooldownSeconds);
         }
 
@@ -671,6 +1047,940 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         }
 
         return $"{status}; {escort.LastSceneStatus}; {escort.LastMemoryDigest}";
+    }
+
+    private bool IsEscortActivityIntentReplacement(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty duty,
+        EntityUid? followTarget,
+        out EntityUid? primaryTarget)
+    {
+        if (!TryComp<LuaMRescueActivityCarrierComponent>(uid, out var carrier))
+        {
+            primaryTarget = ValidOrNull(followTarget);
+            return true;
+        }
+
+        var role = GetActivityRole(escort.Role);
+        var activity = GetEscortActivity(role, duty);
+        if (!carrier.ActivityRoleProfile.Allows(activity))
+            activity = LuaMRescueActivity.Observing;
+
+        var routeTarget = ValidOrNull(followTarget);
+        primaryTarget = GetEscortActivityTarget(uid, escort, activity, routeTarget);
+        var current = carrier.ActivityContext;
+        return carrier.ActivityRole != role ||
+               carrier.SourceDuty != duty ||
+               current.Activity != activity ||
+               current.Target != primaryTarget;
+    }
+
+    private void CancelEscortIntent(
+        EntityUid uid,
+        HTNComponent htn,
+        EntityUid? preservedPrimaryTarget,
+        bool cancelRoute = true,
+        bool replan = true)
+    {
+        _npc.SleepNPC(uid, htn);
+        htn.PlanningToken?.Cancel();
+        htn.PlanningToken = null;
+        htn.PlanningJob = null;
+
+        if (htn.Plan != null)
+        {
+            _htnSystem.ShutdownTask(htn.Plan.CurrentOperator, htn.Blackboard, HTNOperatorStatus.Failed);
+            _htnSystem.ShutdownPlan(htn);
+        }
+
+        if (cancelRoute)
+            _rescueNavigation.CancelRoute(uid);
+        htn.Blackboard.Remove<EntityCoordinates>(NPCBlackboard.FollowTarget);
+        htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
+
+        if (TryComp<PullerComponent>(uid, out var puller) &&
+            puller.Pulling is { Valid: true } pulled &&
+            pulled != preservedPrimaryTarget &&
+            TryComp<PullableComponent>(pulled, out var pullable))
+        {
+            _pulling.TryStopPull(pulled, pullable, uid);
+        }
+
+        if (replan)
+            _htnSystem.Replan(htn);
+    }
+
+    private void UpdateEscortActivityCarrier(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty duty,
+        EntityUid? followTarget)
+    {
+        var carrier = EnsureComp<LuaMRescueActivityCarrierComponent>(uid);
+        var role = GetActivityRole(escort.Role);
+        if (carrier.ActivityRole != role || carrier.ActivityRoleProfile.Role != role)
+            carrier.ActivityRoleProfile = LuaMRescueRoleProfile.CreateDefault(role);
+
+        var activity = GetEscortActivity(role, duty);
+        if (!carrier.ActivityRoleProfile.Allows(activity))
+            activity = LuaMRescueActivity.Observing;
+
+        if (!carrier.ActivityRoleProfile.TryGetPolicy(activity, out var policy) ||
+            policy.Timeout <= TimeSpan.Zero)
+        {
+            activity = LuaMRescueActivity.Observing;
+            policy = carrier.ActivityRoleProfile.TryGetPolicy(activity, out var observingPolicy) &&
+                     observingPolicy.Timeout > TimeSpan.Zero
+                ? observingPolicy
+                : LuaMRescueActivityPolicy.CreateDefault(activity);
+        }
+
+        var routeTarget = ValidOrNull(followTarget);
+        var target = GetEscortActivityTarget(uid, escort, activity, routeTarget);
+        var destination = routeTarget is { Valid: true } routeTargetUid
+            ? new EntityCoordinates(routeTargetUid, GetEscortFormationOffset(uid, escort, duty, routeTargetUid))
+            : (EntityCoordinates?) null;
+        var current = carrier.ActivityContext;
+        var fallback = ResolveEscortActivityFallback(escort, carrier.ActivityRoleProfile, policy.TimeoutFallback);
+        var intentChanged = carrier.ActivityRole != role ||
+                            carrier.SourceDuty != duty ||
+                            current.Activity != activity ||
+                            current.Target != target;
+        var now = _timing.CurTime;
+
+        if (intentChanged)
+        {
+            carrier.ActivityRole = role;
+            carrier.SourceDuty = duty;
+            carrier.IntentTransitions++;
+            ResetEscortTerminalRecovery(carrier, "intent-changed");
+            carrier.ActivityContext = new LuaMRescueActivityContext
+            {
+                Activity = activity,
+                TerminalStatus = LuaMRescueTerminalStatus.Active,
+                Target = target,
+                Destination = destination,
+                StartedAt = now,
+                LastProgressAt = now,
+                Generation = NextEscortActivityGeneration(current.Generation),
+                Fallback = fallback,
+                RouteStatus = routeTarget == null
+                    ? LuaMRescueRouteStatus.Arrived
+                    : LuaMRescueRouteStatus.Pending,
+                LastTransitionAt = now,
+                Deadline = AddEscortActivityTimeout(now, policy.Timeout),
+            };
+            current = carrier.ActivityContext;
+        }
+        else if (IsEscortActivityTerminal(current.TerminalStatus))
+        {
+            // A terminal activity stays immutable during fallback updates. Route failures get a
+            // separate bounded reprobe budget; only a confirmed reachable route creates one fresh
+            // generation and explicitly cancels the fallback HTN execution.
+            if (TryRecoverTerminalEscortActivity(
+                    uid,
+                    escort,
+                    carrier,
+                    duty,
+                    routeTarget,
+                    destination,
+                    policy,
+                    fallback,
+                    now))
+            {
+                UpdateEscortActivityTelemetry(uid, carrier, escort, routeTarget);
+                return;
+            }
+
+            UpdateEscortActivityTelemetry(uid, carrier, escort, routeTarget);
+            return;
+        }
+        else
+        {
+            current.Destination = destination;
+            current.Fallback = fallback;
+        }
+
+        var previousRoute = current.RouteStatus;
+        var wasTerminal = IsEscortActivityTerminal(current.TerminalStatus);
+        if (routeTarget is { Valid: true } movementTarget)
+        {
+            var actionRange = GetEscortActivityActionRange(uid, escort, duty);
+            var route = _rescueNavigation.ProbeRoute(uid, movementTarget, actionRange);
+            var distance = Math.Max(0f, route.Distance);
+            current.RouteStatus = route.State switch
+            {
+                LuaMRescuePathProbeState.Pending => LuaMRescueRouteStatus.Planning,
+                LuaMRescuePathProbeState.Reachable when distance <= actionRange => LuaMRescueRouteStatus.Arrived,
+                LuaMRescuePathProbeState.Reachable => LuaMRescueRouteStatus.Moving,
+                LuaMRescuePathProbeState.AccessDenied => LuaMRescueRouteStatus.Blocked,
+                LuaMRescuePathProbeState.NoLineOfSight => LuaMRescueRouteStatus.Blocked,
+                LuaMRescuePathProbeState.NoPath or
+                    LuaMRescuePathProbeState.DifferentGrid or
+                    LuaMRescuePathProbeState.Invalid => LuaMRescueRouteStatus.NoPath,
+                _ => LuaMRescueRouteStatus.InvalidDestination,
+            };
+
+            var madeProgress = current.LastProgressDistance == null ||
+                distance + Math.Max(0f, carrier.ActivityRoleProfile.ProgressTolerance) < current.LastProgressDistance.Value;
+            var arrivedNow = current.RouteStatus == LuaMRescueRouteStatus.Arrived &&
+                             previousRoute != LuaMRescueRouteStatus.Arrived;
+            if (route.State == LuaMRescuePathProbeState.Reachable && (madeProgress || arrivedNow))
+            {
+                current.LastProgressAt = now;
+                current.Attempts = 0;
+                current.Blocked = false;
+                current.FailureReason = LuaMRescueFailureReason.None;
+                current.RetryNotBefore = TimeSpan.Zero;
+                current.Deadline = AddEscortActivityTimeout(now, policy.Timeout);
+            }
+            else if (route.State == LuaMRescuePathProbeState.Reachable && current.Blocked)
+            {
+                // The route is usable again. Preserve the attempt history until actual progress,
+                // but stop executing the fallback while the escort gets another chance to move.
+                current.Blocked = false;
+                current.FailureReason = LuaMRescueFailureReason.None;
+                current.RetryNotBefore = TimeSpan.Zero;
+            }
+
+            current.LastProgressDistance = float.IsFinite(distance) ? distance : null;
+            var routeFailure = route.State switch
+            {
+                LuaMRescuePathProbeState.AccessDenied => LuaMRescueFailureReason.AccessDenied,
+                LuaMRescuePathProbeState.NoLineOfSight => LuaMRescueFailureReason.NoLineOfSight,
+                LuaMRescuePathProbeState.NoPath or
+                    LuaMRescuePathProbeState.DifferentGrid or
+                    LuaMRescuePathProbeState.Invalid => LuaMRescueFailureReason.NoPath,
+                _ => LuaMRescueFailureReason.None,
+            };
+
+            if (routeFailure != LuaMRescueFailureReason.None && now < current.Deadline)
+            {
+                RecordEscortRouteFailure(
+                    carrier.ActivityRoleProfile,
+                    current,
+                    routeFailure,
+                    fallback,
+                    now);
+            }
+            else if (current.RouteStatus != LuaMRescueRouteStatus.Arrived && now >= current.Deadline)
+            {
+                SetEscortActivityTerminal(
+                    current,
+                    LuaMRescueTerminalStatus.Failed,
+                    LuaMRescueFailureReason.DeadlineExceeded,
+                    fallback,
+                    now);
+            }
+        }
+        else
+        {
+            current.RouteStatus = routeTarget == null
+                ? LuaMRescueRouteStatus.Arrived
+                : LuaMRescueRouteStatus.InvalidDestination;
+
+            if (routeTarget == null)
+            {
+                current.LastProgressDistance = null;
+                current.Blocked = false;
+                current.FailureReason = LuaMRescueFailureReason.None;
+                current.RetryNotBefore = TimeSpan.Zero;
+            }
+            else if (now >= current.Deadline)
+            {
+                SetEscortActivityTerminal(
+                    current,
+                    LuaMRescueTerminalStatus.Failed,
+                    LuaMRescueFailureReason.DeadlineExceeded,
+                    fallback,
+                    now);
+            }
+            else
+            {
+                RecordEscortRouteFailure(
+                    carrier.ActivityRoleProfile,
+                    current,
+                    LuaMRescueFailureReason.NoPath,
+                    fallback,
+                    now);
+            }
+        }
+
+        if (!intentChanged && previousRoute != current.RouteStatus)
+            current.LastTransitionAt = now;
+
+        if (current.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+            now >= current.Deadline &&
+            (current.RouteStatus != LuaMRescueRouteStatus.Arrived || EscortDutyRequiresActionCompletion(duty)))
+        {
+            SetEscortActivityTerminal(
+                current,
+                LuaMRescueTerminalStatus.Failed,
+                LuaMRescueFailureReason.DeadlineExceeded,
+                fallback,
+                now);
+        }
+
+        if (!wasTerminal && IsEscortActivityTerminal(current.TerminalStatus))
+        {
+            ArmEscortTerminalRecovery(uid, carrier, current, routeTarget, now);
+            ReportEscortActivityTerminal(uid, escort, current);
+        }
+
+        UpdateEscortActivityTelemetry(uid, carrier, escort, routeTarget);
+    }
+
+    private void ResolveEscortActivityExecution(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty requestedDuty,
+        EntityUid? requestedTarget,
+        out LuaMRescueEscortDuty executionDuty,
+        out EntityUid? executionTarget)
+    {
+        executionDuty = requestedDuty;
+        executionTarget = requestedTarget;
+        if (!TryComp<LuaMRescueActivityCarrierComponent>(uid, out var carrier))
+            return;
+
+        var current = carrier.ActivityContext;
+        if (!current.Blocked && !IsEscortActivityTerminal(current.TerminalStatus))
+            return;
+
+        if (current.Fallback == LuaMRescueActivity.Returning)
+        {
+            var returnTarget = GetEscortFollowTarget(uid, escort, LuaMRescueEscortDuty.ReturnToShuttle);
+            if (returnTarget is { Valid: true })
+            {
+                executionDuty = LuaMRescueEscortDuty.ReturnToShuttle;
+                executionTarget = returnTarget;
+                return;
+            }
+        }
+
+        executionDuty = LuaMRescueEscortDuty.Standby;
+        executionTarget = GetEscortFollowTarget(uid, escort, LuaMRescueEscortDuty.Standby);
+    }
+
+    private LuaMRescueActivity ResolveEscortActivityFallback(
+        LuaMRescueEscortComponent escort,
+        LuaMRescueRoleProfile profile,
+        LuaMRescueActivity requestedFallback)
+    {
+        var hasShuttle = ValidOrNull(escort.ShuttleAnchor) != null || ValidOrNull(escort.Shuttle) != null;
+        if (hasShuttle &&
+            profile.Allows(LuaMRescueActivity.Returning) &&
+            requestedFallback is not LuaMRescueActivity.Observing)
+        {
+            return LuaMRescueActivity.Returning;
+        }
+
+        if (profile.Allows(LuaMRescueActivity.Observing))
+            return LuaMRescueActivity.Observing;
+
+        return hasShuttle && profile.Allows(LuaMRescueActivity.Returning)
+            ? LuaMRescueActivity.Returning
+            : LuaMRescueActivity.None;
+    }
+
+    private void ArmEscortTerminalRecovery(
+        EntityUid uid,
+        LuaMRescueActivityCarrierComponent carrier,
+        LuaMRescueActivityContext current,
+        EntityUid? routeTarget,
+        TimeSpan now)
+    {
+        carrier.TerminalRecoveryEvaluated = true;
+        carrier.TerminalRecoveryArmed = IsRecoverableEscortRouteTerminal(current, routeTarget);
+        carrier.TerminalRecoveryDormant = false;
+        carrier.TerminalRecoveryAttempts = 0;
+        carrier.TerminalRecoveryProbeInFlight = false;
+        carrier.TerminalRecoveryProbeStartedAt = TimeSpan.Zero;
+
+        if (!carrier.TerminalRecoveryArmed)
+        {
+            carrier.NextTerminalRecoveryAt = TimeSpan.Zero;
+            carrier.LastTerminalRecoveryStatus = "not-recoverable";
+            return;
+        }
+
+        carrier.NextTerminalRecoveryAt = now + CalculateEscortTerminalRecoveryBackoff(
+            carrier.ActivityRoleProfile,
+            nextAttempt: 1);
+        carrier.LastTerminalRecoveryStatus =
+            $"scheduled attempt=1/{Math.Max(1, carrier.ActivityRoleProfile.MaxAttempts)} at " +
+            $"{carrier.NextTerminalRecoveryAt.TotalSeconds:0.0}s";
+        _rescueNavigation.CancelRoute(uid, routeTarget);
+    }
+
+    private bool TryRecoverTerminalEscortActivity(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueActivityCarrierComponent carrier,
+        LuaMRescueEscortDuty duty,
+        EntityUid? routeTarget,
+        EntityCoordinates? destination,
+        LuaMRescueActivityPolicy policy,
+        LuaMRescueActivity fallback,
+        TimeSpan now)
+    {
+        var current = carrier.ActivityContext;
+        if (!carrier.TerminalRecoveryEvaluated)
+            ArmEscortTerminalRecovery(uid, carrier, current, routeTarget, now);
+
+        var maxAttempts = Math.Max(1, carrier.ActivityRoleProfile.MaxAttempts);
+        if (!carrier.TerminalRecoveryArmed ||
+            now < carrier.NextTerminalRecoveryAt)
+        {
+            return false;
+        }
+
+        if (routeTarget is not { Valid: true } target || Deleted(target))
+        {
+            carrier.TerminalRecoveryArmed = false;
+            carrier.TerminalRecoveryDormant = false;
+            carrier.TerminalRecoveryProbeInFlight = false;
+            carrier.NextTerminalRecoveryAt = TimeSpan.Zero;
+            carrier.LastTerminalRecoveryStatus = "cancelled: target-lost";
+            return false;
+        }
+
+        if (!carrier.TerminalRecoveryProbeInFlight)
+        {
+            if (!carrier.TerminalRecoveryDormant)
+            {
+                if (carrier.TerminalRecoveryAttempts >= maxAttempts)
+                    return false;
+
+                carrier.TerminalRecoveryAttempts++;
+            }
+
+            carrier.TerminalRecoveryProbeInFlight = true;
+            carrier.TerminalRecoveryProbeStartedAt = now;
+        }
+
+        var actionRange = GetEscortActivityActionRange(uid, escort, duty);
+        var route = _rescueNavigation.ProbeRoute(uid, target, actionRange);
+        if (route.State == LuaMRescuePathProbeState.Pending)
+        {
+            if (now - carrier.TerminalRecoveryProbeStartedAt >=
+                TimeSpan.FromSeconds(EscortTerminalRecoveryProbeTimeoutSeconds))
+            {
+                FinishEscortTerminalRecoveryFailure(
+                    uid,
+                    escort,
+                    carrier,
+                    current,
+                    target,
+                    LuaMRescueRouteStatus.NoPath,
+                    LuaMRescueFailureReason.NoPath,
+                    now);
+            }
+            else
+            {
+                carrier.NextTerminalRecoveryAt = now +
+                    TimeSpan.FromSeconds(EscortTerminalRecoveryPollSeconds);
+                carrier.LastTerminalRecoveryStatus =
+                    $"probing attempt={carrier.TerminalRecoveryAttempts}/{maxAttempts}";
+            }
+
+            return false;
+        }
+
+        var distance = Math.Max(0f, route.Distance);
+        if (route.State == LuaMRescuePathProbeState.Reachable)
+        {
+            var recoveryAttempt = carrier.TerminalRecoveryAttempts;
+            if (TryComp<HTNComponent>(uid, out var htn))
+                CancelEscortIntent(uid, htn, current.Target, cancelRoute: false);
+
+            carrier.IntentTransitions++;
+            current.TerminalStatus = LuaMRescueTerminalStatus.Active;
+            current.Blocked = false;
+            current.FailureReason = LuaMRescueFailureReason.None;
+            current.RetryNotBefore = TimeSpan.Zero;
+            current.Attempts = 0;
+            current.Generation = NextEscortActivityGeneration(current.Generation);
+            current.Destination = destination;
+            current.RouteStatus = distance <= actionRange
+                ? LuaMRescueRouteStatus.Arrived
+                : LuaMRescueRouteStatus.Moving;
+            current.StartedAt = now;
+            current.LastProgressAt = now;
+            current.LastProgressDistance = float.IsFinite(distance) ? distance : null;
+            current.LastTransitionAt = now;
+            current.Deadline = AddEscortActivityTimeout(now, policy.Timeout);
+            current.Fallback = fallback;
+            current.DoAfterStatus = LuaMRescueDoAfterStatus.None;
+
+            ResetEscortTerminalRecovery(
+                carrier,
+                $"recovered attempt={recoveryAttempt}/{maxAttempts}; generation={current.Generation}");
+            return true;
+        }
+
+        var routeStatus = route.State is LuaMRescuePathProbeState.AccessDenied or
+            LuaMRescuePathProbeState.NoLineOfSight
+            ? LuaMRescueRouteStatus.Blocked
+            : LuaMRescueRouteStatus.NoPath;
+        var failure = route.State switch
+        {
+            LuaMRescuePathProbeState.AccessDenied => LuaMRescueFailureReason.AccessDenied,
+            LuaMRescuePathProbeState.NoLineOfSight => LuaMRescueFailureReason.NoLineOfSight,
+            _ => LuaMRescueFailureReason.NoPath,
+        };
+        FinishEscortTerminalRecoveryFailure(
+            uid,
+            escort,
+            carrier,
+            current,
+            target,
+            routeStatus,
+            failure,
+            now);
+        return false;
+    }
+
+    private void FinishEscortTerminalRecoveryFailure(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueActivityCarrierComponent carrier,
+        LuaMRescueActivityContext current,
+        EntityUid routeTarget,
+        LuaMRescueRouteStatus routeStatus,
+        LuaMRescueFailureReason failure,
+        TimeSpan now)
+    {
+        carrier.TerminalRecoveryProbeInFlight = false;
+        carrier.TerminalRecoveryProbeStartedAt = TimeSpan.Zero;
+        current.RouteStatus = routeStatus;
+        current.FailureReason = failure;
+        current.Blocked = true;
+        current.LastTransitionAt = now;
+
+        var maxAttempts = Math.Max(1, carrier.ActivityRoleProfile.MaxAttempts);
+        if (carrier.TerminalRecoveryDormant || carrier.TerminalRecoveryAttempts >= maxAttempts)
+        {
+            var enteringDormant = !carrier.TerminalRecoveryDormant;
+            carrier.TerminalRecoveryDormant = true;
+            carrier.NextTerminalRecoveryAt = now +
+                TimeSpan.FromSeconds(EscortTerminalDormantObservationSeconds);
+            carrier.LastTerminalRecoveryStatus =
+                $"dormant attempts={carrier.TerminalRecoveryAttempts}/{maxAttempts}; reason={failure}; " +
+                $"observeAt={carrier.NextTerminalRecoveryAt.TotalSeconds:0.0}s";
+            _rescueNavigation.CancelRoute(uid, routeTarget);
+            if (enteringDormant)
+            {
+                TryRequestCrewHelp(
+                    uid,
+                    escort,
+                    $"activity-recovery-exhausted:{current.Generation}:{failure}",
+                    $"escort route recovery exhausted: {failure}; fallback={current.Fallback}",
+                    "Маршрут всё ещё заблокирован после повторной проверки. Нужна помощь экипажа.");
+            }
+
+            return;
+        }
+
+        carrier.NextTerminalRecoveryAt = now + CalculateEscortTerminalRecoveryBackoff(
+            carrier.ActivityRoleProfile,
+            carrier.TerminalRecoveryAttempts + 1);
+        carrier.LastTerminalRecoveryStatus =
+            $"failed attempt={carrier.TerminalRecoveryAttempts}/{maxAttempts}; reason={failure}; " +
+            $"retryAt={carrier.NextTerminalRecoveryAt.TotalSeconds:0.0}s";
+        _rescueNavigation.CancelRoute(uid, routeTarget);
+    }
+
+    private static bool IsRecoverableEscortRouteTerminal(
+        LuaMRescueActivityContext current,
+        EntityUid? routeTarget)
+    {
+        if (routeTarget is not { Valid: true } ||
+            current.TerminalStatus is not (LuaMRescueTerminalStatus.Blocked or LuaMRescueTerminalStatus.Failed))
+        {
+            return false;
+        }
+
+        if (current.FailureReason is LuaMRescueFailureReason.NoPath or
+            LuaMRescueFailureReason.AccessDenied or
+            LuaMRescueFailureReason.NoLineOfSight or
+            LuaMRescueFailureReason.RouteBlocked)
+        {
+            return true;
+        }
+
+        return current.FailureReason == LuaMRescueFailureReason.DeadlineExceeded &&
+               current.RouteStatus != LuaMRescueRouteStatus.Arrived;
+    }
+
+    private static TimeSpan CalculateEscortTerminalRecoveryBackoff(
+        LuaMRescueRoleProfile profile,
+        int nextAttempt)
+    {
+        var configured = CalculateEscortActivityBackoff(profile, Math.Max(1, nextAttempt));
+        var minimum = TimeSpan.FromSeconds(EscortTerminalRecoveryPollSeconds);
+        return configured < minimum ? minimum : configured;
+    }
+
+    private static void ResetEscortTerminalRecovery(
+        LuaMRescueActivityCarrierComponent carrier,
+        string status)
+    {
+        carrier.TerminalRecoveryEvaluated = false;
+        carrier.TerminalRecoveryArmed = false;
+        carrier.TerminalRecoveryDormant = false;
+        carrier.TerminalRecoveryAttempts = 0;
+        carrier.NextTerminalRecoveryAt = TimeSpan.Zero;
+        carrier.TerminalRecoveryProbeInFlight = false;
+        carrier.TerminalRecoveryProbeStartedAt = TimeSpan.Zero;
+        carrier.LastTerminalRecoveryStatus = status;
+    }
+
+    private static void RecordEscortRouteFailure(
+        LuaMRescueRoleProfile profile,
+        LuaMRescueActivityContext current,
+        LuaMRescueFailureReason reason,
+        LuaMRescueActivity fallback,
+        TimeSpan now)
+    {
+        if (current.RetryNotBefore > now)
+            return;
+
+        current.Attempts++;
+        current.Blocked = true;
+        current.FailureReason = reason;
+        current.LastTransitionAt = now;
+
+        if (current.Attempts >= Math.Max(1, profile.MaxAttempts))
+        {
+            SetEscortActivityTerminal(
+                current,
+                LuaMRescueTerminalStatus.Blocked,
+                reason,
+                fallback,
+                now);
+            return;
+        }
+
+        current.RetryNotBefore = now + CalculateEscortActivityBackoff(profile, current.Attempts);
+    }
+
+    private void ReportEscortActivityTerminal(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueActivityContext current)
+    {
+        if (TryComp<PullerComponent>(uid, out var puller) &&
+            puller.Pulling is { Valid: true } pulled &&
+            TryComp<PullableComponent>(pulled, out var pullable) &&
+            !_pulling.TryStopPull(pulled, pullable, uid))
+        {
+            escort.LastDutyActionStatus =
+                $"terminal handoff could not release {FormatEntityRef(pulled)}; reason={current.FailureReason}";
+        }
+
+        var reason = current.FailureReason;
+        TryRequestCrewHelp(
+            uid,
+            escort,
+            $"activity-terminal:{current.Generation}:{reason}",
+            $"escort activity {current.Activity} blocked: {reason}; fallback={current.Fallback}",
+            reason == LuaMRescueFailureReason.AccessDenied
+                ? "Нужен сотрудник с доступом. Маршрут спасательной группы закрыт."
+                : "Маршрут спасательной группы заблокирован. Нужна помощь с безопасным обходом.");
+    }
+
+    private float GetEscortActivityActionRange(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty duty)
+    {
+        var fallback = duty switch
+        {
+            LuaMRescueEscortDuty.ClearRoute => EscortDutyActionRange,
+            LuaMRescueEscortDuty.PatientSupport => EscortPatientAssistRange,
+            LuaMRescueEscortDuty.CrowdControl => EscortCrowdControlRange,
+            LuaMRescueEscortDuty.ThreatScreen => Math.Min(EscortThreatScreenRange, EscortThreatLeashRange),
+            LuaMRescueEscortDuty.SecureScene => 5.5f,
+            LuaMRescueEscortDuty.EvacuationCorridor => 6f,
+            LuaMRescueEscortDuty.ReturnToShuttle => 5f,
+            LuaMRescueEscortDuty.Standby => Math.Max(0.05f, escort.FollowRange),
+            _ => EscortActivityArrivalRange,
+        };
+
+        // Carrier formation arrival ranges are duty-specific (secure scene and
+        // evacuation corridor intentionally differ although both map to
+        // Protecting). Direct actions are profile-driven and therefore reusable
+        // by future escort professions without another monolithic AI branch.
+        if (duty is LuaMRescueEscortDuty.SecureScene or
+            LuaMRescueEscortDuty.EvacuationCorridor or
+            LuaMRescueEscortDuty.Standby)
+        {
+            return fallback;
+        }
+
+        var profile = GetEscortRoleProfile(uid, escort);
+        var activity = GetEscortActivity(profile.Role, duty);
+        return profile.GetActionRange(activity, fallback);
+    }
+
+    private static bool EscortDutyRequiresActionCompletion(LuaMRescueEscortDuty duty)
+    {
+        return duty is LuaMRescueEscortDuty.PatientSupport
+            or LuaMRescueEscortDuty.ClearRoute
+            or LuaMRescueEscortDuty.CrowdControl
+            or LuaMRescueEscortDuty.ThreatScreen;
+    }
+
+    private static void SetEscortActivityTerminal(
+        LuaMRescueActivityContext current,
+        LuaMRescueTerminalStatus terminalStatus,
+        LuaMRescueFailureReason failureReason,
+        LuaMRescueActivity fallback,
+        TimeSpan now)
+    {
+        current.TerminalStatus = terminalStatus;
+        current.Blocked = terminalStatus == LuaMRescueTerminalStatus.Blocked;
+        current.FailureReason = failureReason;
+        current.Fallback = fallback;
+        current.RetryNotBefore = TimeSpan.Zero;
+        current.LastTransitionAt = now;
+    }
+
+    private static TimeSpan CalculateEscortActivityBackoff(LuaMRescueRoleProfile profile, int attempts)
+    {
+        var exponent = Math.Clamp(attempts - 1, 0, 20);
+        var multiplier = 1L << exponent;
+        var baseTicks = Math.Max(0L, profile.BaseRetryBackoff.Ticks);
+        var maxTicks = Math.Max(baseTicks, profile.MaxRetryBackoff.Ticks);
+        var scaledTicks = baseTicks > long.MaxValue / multiplier
+            ? long.MaxValue
+            : baseTicks * multiplier;
+        return TimeSpan.FromTicks(Math.Min(maxTicks, scaledTicks));
+    }
+
+    private static TimeSpan AddEscortActivityTimeout(TimeSpan now, TimeSpan timeout)
+    {
+        if (timeout <= TimeSpan.Zero)
+            return now;
+
+        return now.Ticks > TimeSpan.MaxValue.Ticks - timeout.Ticks
+            ? TimeSpan.MaxValue
+            : now + timeout;
+    }
+
+    private static bool IsEscortActivityTerminal(LuaMRescueTerminalStatus status)
+    {
+        return status is LuaMRescueTerminalStatus.Blocked
+            or LuaMRescueTerminalStatus.Succeeded
+            or LuaMRescueTerminalStatus.Failed
+            or LuaMRescueTerminalStatus.Cancelled;
+    }
+
+    private void UpdateEscortActivityTelemetry(
+        EntityUid uid,
+        LuaMRescueActivityCarrierComponent carrier,
+        LuaMRescueEscortComponent escort,
+        EntityUid? routeTarget)
+    {
+        var current = carrier.ActivityContext;
+        var status =
+            $"role={FormatActivityRole(carrier.ActivityRole)}; sourceDuty={FormatDuty(carrier.SourceDuty)}; " +
+            $"activity={FormatEscortActivity(current.Activity)}; terminal={current.TerminalStatus}; " +
+            $"generation={current.Generation}; target={FormatEntityRef(current.Target)}; " +
+            $"destination={FormatEntityRef(routeTarget)}; route={current.RouteStatus}; " +
+            $"distance={(current.LastProgressDistance is { } remaining ? $"{remaining:0.0}" : "none")}; " +
+            $"attempts={current.Attempts}/{Math.Max(1, carrier.ActivityRoleProfile.MaxAttempts)}; " +
+            $"blocked={current.Blocked}; failure={current.FailureReason}; fallback={FormatEscortActivity(current.Fallback)}; " +
+            $"retryAt={current.RetryNotBefore.TotalSeconds:0.0}s; deadline={current.Deadline.TotalSeconds:0.0}s; " +
+            $"recovery={carrier.TerminalRecoveryAttempts}/{Math.Max(1, carrier.ActivityRoleProfile.MaxAttempts)}; " +
+            $"recoveryDormant={carrier.TerminalRecoveryDormant}; " +
+            $"recoveryAt={carrier.NextTerminalRecoveryAt.TotalSeconds:0.0}s; " +
+            $"recoveryStatus={carrier.LastTerminalRecoveryStatus}; " +
+            $"lastProgress={current.LastProgressAt.TotalSeconds:0.0}s; " +
+            $"startedAt={current.StartedAt.TotalSeconds:0.0}s; transitions={carrier.IntentTransitions}";
+        if (string.Equals(carrier.LastStatus, status, StringComparison.Ordinal))
+            return;
+
+        carrier.LastStatus = status;
+        Dirty(uid, carrier);
+    }
+
+    private bool UpdateEscortActivityDigest(LuaMRescueTeamComponent team)
+    {
+        var entries = new List<string>();
+        foreach (var escortUid in team.Escorts)
+        {
+            if (!escortUid.Valid || Deleted(escortUid) ||
+                !TryComp<LuaMRescueActivityCarrierComponent>(escortUid, out var carrier))
+            {
+                continue;
+            }
+
+            entries.Add(
+                $"{FormatActivityRole(carrier.ActivityRole)}:{FormatDuty(carrier.SourceDuty)}:" +
+                $"{FormatEscortActivity(carrier.ActivityContext.Activity)}" +
+                $"@g{carrier.ActivityContext.Generation}:{carrier.ActivityContext.RouteStatus}:" +
+                $"{carrier.ActivityContext.TerminalStatus}:{carrier.ActivityContext.FailureReason}:" +
+                $"fallback={FormatEscortActivity(carrier.ActivityContext.Fallback)}:" +
+                $"recovery={carrier.TerminalRecoveryAttempts}/{Math.Max(1, carrier.ActivityRoleProfile.MaxAttempts)}:" +
+                $"dormant={carrier.TerminalRecoveryDormant}");
+        }
+
+        var digest = entries.Count == 0
+            ? "none"
+            : $"[{string.Join('|', entries)}]";
+        if (string.Equals(team.LastEscortActivityDigest, digest, StringComparison.Ordinal))
+            return false;
+
+        team.LastEscortActivityDigest = digest;
+        return true;
+    }
+
+    private string BuildEscortActivityTelemetry(LuaMRescueActivityCarrierComponent carrier)
+    {
+        var context = carrier.ActivityContext;
+        return $"activityRole={FormatActivityRole(carrier.ActivityRole)}; " +
+               $"activity={FormatEscortActivity(context.Activity)}; activityDuty={FormatDuty(carrier.SourceDuty)}; " +
+               $"activityTerminal={context.TerminalStatus}; activityGeneration={context.Generation}; " +
+               $"activityTarget={FormatEntityRef(context.Target)}; activityRoute={context.RouteStatus}; " +
+               $"activityAttempts={context.Attempts}/{Math.Max(1, carrier.ActivityRoleProfile.MaxAttempts)}; " +
+               $"activityFailure={context.FailureReason}; activityFallback={FormatEscortActivity(context.Fallback)}; " +
+               $"activityRetryAt={context.RetryNotBefore.TotalSeconds:0.0}s; " +
+               $"activityRecovery={carrier.TerminalRecoveryAttempts}/{Math.Max(1, carrier.ActivityRoleProfile.MaxAttempts)}; " +
+               $"activityRecoveryDormant={carrier.TerminalRecoveryDormant}; " +
+               $"activityRecoveryAt={carrier.NextTerminalRecoveryAt.TotalSeconds:0.0}s; " +
+               $"activityDeadline={context.Deadline.TotalSeconds:0.0}s; " +
+               $"activityLastProgress={context.LastProgressAt.TotalSeconds:0.0}s; " +
+               $"activityStartedAt={context.StartedAt.TotalSeconds:0.0}s; " +
+               $"activityTransitions={carrier.IntentTransitions}; activityStatus={carrier.LastStatus}";
+    }
+
+    private static LuaMRescueRole GetActivityRole(LuaMRescueEscortRole role)
+    {
+        return role switch
+        {
+            LuaMRescueEscortRole.Tourniquet => LuaMRescueRole.Tourniquet,
+            LuaMRescueEscortRole.Kostyl => LuaMRescueRole.Kostyl,
+            LuaMRescueEscortRole.Zaslon => LuaMRescueRole.Zaslon,
+            _ => LuaMRescueRole.None,
+        };
+    }
+
+    private LuaMRescueRoleProfile GetEscortRoleProfile(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort)
+    {
+        var carrier = EnsureComp<LuaMRescueActivityCarrierComponent>(uid);
+        var role = GetActivityRole(escort.Role);
+        if (carrier.ActivityRoleProfile.Role != role)
+            carrier.ActivityRoleProfile = LuaMRescueRoleProfile.CreateDefault(role);
+        return carrier.ActivityRoleProfile;
+    }
+
+    private float GetObservationRange(EntityUid observer)
+    {
+        if (TryComp<LuaMRescueAgentComponent>(observer, out var rescue))
+        {
+            var role = rescue.ActivityRole == LuaMRescueRole.None
+                ? LuaMRescueRole.Aibolit
+                : rescue.ActivityRole;
+            if (rescue.ActivityRoleProfile.Role != role)
+                rescue.ActivityRoleProfile = LuaMRescueRoleProfile.CreateDefault(role);
+            return Math.Max(0.05f, rescue.ActivityRoleProfile.ThreatPolicy.ObservationRange);
+        }
+
+        if (TryComp<LuaMRescueEscortComponent>(observer, out var escort))
+            return Math.Max(0.05f, GetEscortRoleProfile(observer, escort).ThreatPolicy.ObservationRange);
+
+        return SceneScanRange;
+    }
+
+    private static LuaMRescueActivity GetEscortActivity(LuaMRescueRole role, LuaMRescueEscortDuty duty)
+    {
+        return (role, duty) switch
+        {
+            (_, LuaMRescueEscortDuty.Standby) => LuaMRescueActivity.Observing,
+            (_, LuaMRescueEscortDuty.ReturnToShuttle) => LuaMRescueActivity.Returning,
+            (LuaMRescueRole.Zaslon, LuaMRescueEscortDuty.ThreatScreen) => LuaMRescueActivity.ThreatScreen,
+            (LuaMRescueRole.Tourniquet, LuaMRescueEscortDuty.CrowdControl) => LuaMRescueActivity.CrowdControl,
+            (LuaMRescueRole.Tourniquet or LuaMRescueRole.Zaslon, LuaMRescueEscortDuty.ClearRoute) =>
+                LuaMRescueActivity.ClearRoute,
+            (LuaMRescueRole.Kostyl, LuaMRescueEscortDuty.PatientSupport or LuaMRescueEscortDuty.EvacuationCorridor) =>
+                LuaMRescueActivity.PreparingEvacuation,
+            (LuaMRescueRole.Tourniquet, LuaMRescueEscortDuty.EvacuationCorridor) => LuaMRescueActivity.ClearRoute,
+            (LuaMRescueRole.Zaslon, LuaMRescueEscortDuty.EvacuationCorridor) => LuaMRescueActivity.Protecting,
+            (LuaMRescueRole.Tourniquet or LuaMRescueRole.Zaslon, LuaMRescueEscortDuty.SecureScene) =>
+                LuaMRescueActivity.Protecting,
+            (LuaMRescueRole.Tourniquet or LuaMRescueRole.Zaslon, LuaMRescueEscortDuty.PatientSupport) =>
+                LuaMRescueActivity.Protecting,
+            _ => LuaMRescueActivity.Observing,
+        };
+    }
+
+    private EntityUid? GetEscortActivityTarget(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueActivity activity,
+        EntityUid? routeTarget)
+    {
+        switch (activity)
+        {
+            case LuaMRescueActivity.ThreatScreen:
+                if (ValidOrNull(escort.ThreatTarget) is { Valid: true } threat &&
+                    IsThreatWithinRescueLeash(uid, escort, threat))
+                {
+                    return threat;
+                }
+                break;
+            case LuaMRescueActivity.CrowdControl:
+                return ValidOrNull(escort.CrowdTarget) ?? routeTarget;
+            case LuaMRescueActivity.ClearRoute:
+                return ValidOrNull(escort.RouteBlockerTarget) ?? routeTarget;
+            case LuaMRescueActivity.PreparingEvacuation:
+                return GetEligibleEscortPatient(uid, escort.Patient) ?? routeTarget;
+            case LuaMRescueActivity.Returning:
+                return ValidOrNull(escort.ShuttleAnchor) ?? ValidOrNull(escort.Shuttle) ?? routeTarget;
+        }
+
+        return TryGetEscortFormationAnchor(escort, out var formationAnchor)
+            ? formationAnchor
+            : routeTarget;
+    }
+
+    private static uint NextEscortActivityGeneration(uint generation)
+    {
+        var next = unchecked(generation + 1);
+        return next == 0 ? 1u : next;
+    }
+
+    private static string FormatActivityRole(LuaMRescueRole role)
+    {
+        return role switch
+        {
+            LuaMRescueRole.Tourniquet => "tourniquet",
+            LuaMRescueRole.Kostyl => "kostyl",
+            LuaMRescueRole.Zaslon => "zaslon",
+            LuaMRescueRole.Aibolit => "aibolit",
+            _ => "none",
+        };
+    }
+
+    private static string FormatEscortActivity(LuaMRescueActivity activity)
+    {
+        return activity switch
+        {
+            LuaMRescueActivity.Observing => "formation",
+            LuaMRescueActivity.Protecting => "protection",
+            LuaMRescueActivity.ThreatScreen => "threat-screen",
+            LuaMRescueActivity.CrowdControl => "crowd-control",
+            LuaMRescueActivity.ClearRoute => "clear-route",
+            LuaMRescueActivity.PreparingEvacuation => "evacuation-assist",
+            LuaMRescueActivity.Returning => "return",
+            LuaMRescueActivity.Approaching => "approach",
+            _ => activity.ToString().ToLowerInvariant(),
+        };
     }
 
     private bool TryConfirmTriageCover(
@@ -1227,6 +2537,14 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         LuaMRescueEscortComponent escort,
         LuaMRescueEscortDuty duty)
     {
+        var equipmentPolicy = GetEscortRoleProfile(uid, escort).EquipmentPolicy;
+        if (!equipmentPolicy.Allows(LuaMRescueEquipmentKind.Weapon))
+        {
+            escort.LastWeaponReadinessStatus =
+                $"weapon-ready denied by {GetActivityRole(escort.Role)} equipment policy";
+            return false;
+        }
+
         if (!TryComp<HandsComponent>(uid, out var hands))
         {
             escort.LastWeaponReadinessStatus = $"weapon-ready failed for {FormatDuty(duty)}: no hands";
@@ -1307,7 +2625,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         EntityUid weaponStorageUid = default;
         StorageComponent weaponStorage = default!;
 
-        foreach (var slot in EscortCombatStorageSlotPriority)
+        foreach (var slot in GetEscortCombatStorageSlots(uid))
         {
             if (!TryResolveEscortStorageSlot(uid, slot, out var storageUid, out var storage, out status))
                 continue;
@@ -1366,7 +2684,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 continue;
             }
 
-            foreach (var slot in EscortCombatStorageSlotPriority)
+            foreach (var slot in GetEscortCombatStorageSlots(uid))
             {
                 if (!TryResolveEscortStorageSlot(uid, slot, out var storageUid, out var storage, out _))
                     continue;
@@ -1545,6 +2863,14 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         HTNComponent htn,
         EntityUid? followTarget)
     {
+        var threatPolicy = GetEscortRoleProfile(uid, escort).ThreatPolicy;
+        if (!threatPolicy.EngageHostiles)
+        {
+            htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
+            escort.LastDutyActionStatus = "threat-screen role policy forbids engagement";
+            return;
+        }
+
         var target = ValidOrNull(escort.ThreatTarget) ?? ValidOrNull(followTarget);
         if (target is not { Valid: true } threatUid ||
             Deleted(threatUid))
@@ -1565,10 +2891,28 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             return;
         }
 
-        if (!IsThreatWithinRescueLeash(escort, threatUid))
+        if (!IsThreatWithinRescueLeash(uid, escort, threatUid))
         {
             htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
             escort.LastDutyActionStatus = $"threat-screen leash holding rescue perimeter; threat={FormatEntityRef(threatUid)}";
+            return;
+        }
+
+        if (escort.NearbyHostiles > Math.Max(0, threatPolicy.SelfPreservationHostileLimit))
+        {
+            htn.Blackboard.Remove<EntityUid>(NPCBlackboard.CurrentOrderedTarget);
+            if (threatPolicy.RequestHelpWhenOverwhelmed)
+            {
+                TryRequestCrewHelp(
+                    uid,
+                    escort,
+                    $"threat-overwhelmed:{escort.TeamId}",
+                    $"threat screen holding: {escort.NearbyHostiles} hostiles exceed profile limit {threatPolicy.SelfPreservationHostileLimit}",
+                    "Спасательная группа под сильным огнём. Требуется поддержка охраны.");
+            }
+
+            escort.LastDutyActionStatus =
+                $"threat-screen self-preservation hold {escort.NearbyHostiles}/{threatPolicy.SelfPreservationHostileLimit}";
             return;
         }
 
@@ -1745,6 +3089,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (!TryComp<PullableComponent>(blockerUid, out var pullable))
         {
+            TerminalizeEscortAction(uid, escort, LuaMRescueFailureReason.TargetNotPullable);
             TryRequestCrewHelp(
                 uid,
                 escort,
@@ -1757,12 +3102,21 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (!TryComp<PullerComponent>(uid, out var puller))
         {
+            TerminalizeEscortAction(uid, escort, LuaMRescueFailureReason.NoFreeHand);
             escort.LastDutyActionStatus = "clear-route escort cannot pull";
             return;
         }
 
         if (TryFinishClearRouteBlockerAtDropoff(uid, escort, htn, blockerUid, puller, pullable))
             return;
+
+        if (puller.Pulling == blockerUid)
+        {
+            escort.LastDutyActionStatus = TrySetClearRouteDropoffTarget(uid, escort, htn, blockerUid)
+                ? $"clear-route dragging {FormatEntityRef(blockerUid)} to dropoff"
+                : $"clear-route pulling {FormatEntityRef(blockerUid)}";
+            return;
+        }
 
         if (!IsWithinRange(uid, blockerUid, EscortDutyActionRange))
         {
@@ -1776,8 +3130,27 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             return;
         }
 
+        if (escort.ClearRoutePullAttemptTarget != blockerUid)
+            ResetClearRoutePullAttempts(escort);
+        if (escort.ClearRoutePullAttemptTarget == blockerUid &&
+            escort.NextClearRoutePullAttemptAt > _timing.CurTime)
+        {
+            escort.LastDutyActionStatus =
+                $"clear-route pull backoff {FormatEntityRef(blockerUid)} until " +
+                $"{escort.NextClearRoutePullAttemptAt.TotalSeconds:0.0}s";
+            return;
+        }
+
+        if (!TryPrepareEscortPull(uid, escort, out var pullFailure, out var pullPreparation))
+        {
+            TerminalizeEscortAction(uid, escort, pullFailure);
+            escort.LastDutyActionStatus = $"clear-route pull blocked: {pullPreparation}";
+            return;
+        }
+
         if (_pulling.TryStartPull(uid, blockerUid, puller, pullable))
         {
+            ResetClearRoutePullAttempts(escort);
             escort.DutyActions++;
             escort.LastDutyActionStatus = TrySetClearRouteDropoffTarget(uid, escort, htn, blockerUid)
                 ? $"clear-route dragging {FormatEntityRef(blockerUid)} to dropoff"
@@ -1791,13 +3164,128 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             return;
         }
 
+        var terminalPullFailure = RecordClearRoutePullFailure(uid, escort, blockerUid);
+
         TryRequestCrewHelp(
             uid,
             escort,
             $"remove-blocker:{blockerUid}",
             $"manual removal needed for {FormatEntityRef(blockerUid)}",
             "\u041d\u0443\u0436\u043d\u0430 \u043f\u043e\u043c\u043e\u0449\u044c: \u0443\u0431\u0435\u0440\u0438\u0442\u0435 \u044d\u0442\u0443 \u043f\u043e\u043c\u0435\u0445\u0443 \u0438 \u0434\u0435\u0440\u0436\u0438\u0442\u0435 \u0434\u0432\u0435\u0440\u0438 \u043e\u0442\u043a\u0440\u044b\u0442\u044b\u043c\u0438.");
-        escort.LastDutyActionStatus = $"clear-route pull blocked {FormatEntityRef(blockerUid)}";
+        escort.LastDutyActionStatus = terminalPullFailure
+            ? $"clear-route terminal pull failure {FormatEntityRef(blockerUid)}"
+            : $"clear-route pull blocked {FormatEntityRef(blockerUid)}; " +
+              $"attempt={escort.ClearRoutePullAttempts}; retryAt={escort.NextClearRoutePullAttemptAt.TotalSeconds:0.0}s";
+    }
+
+    private bool RecordClearRoutePullFailure(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        EntityUid blocker)
+    {
+        if (escort.ClearRoutePullAttemptTarget != blocker)
+        {
+            escort.ClearRoutePullAttemptTarget = blocker;
+            escort.ClearRoutePullAttempts = 0;
+            escort.NextClearRoutePullAttemptAt = TimeSpan.Zero;
+        }
+
+        escort.ClearRoutePullAttempts++;
+        var profile = TryComp<LuaMRescueActivityCarrierComponent>(uid, out var carrier)
+            ? carrier.ActivityRoleProfile
+            : LuaMRescueRoleProfile.CreateDefault(GetActivityRole(escort.Role));
+        if (escort.ClearRoutePullAttempts >= Math.Max(1, profile.MaxAttempts))
+        {
+            escort.NextClearRoutePullAttemptAt = TimeSpan.Zero;
+            TerminalizeEscortAction(uid, escort, LuaMRescueFailureReason.ActionCancelled);
+            return true;
+        }
+
+        escort.NextClearRoutePullAttemptAt = _timing.CurTime +
+            CalculateEscortActivityBackoff(profile, escort.ClearRoutePullAttempts);
+        return false;
+    }
+
+    private IReadOnlyList<string> GetEscortCombatStorageSlots(EntityUid uid)
+    {
+        if (TryComp<LuaMRescueEscortComponent>(uid, out var escort))
+        {
+            var slots = GetEscortRoleProfile(uid, escort).EquipmentPolicy.InventorySearchSlots;
+            if (slots.Count > 0)
+                return slots;
+        }
+
+        return EscortCombatStorageSlotPriority;
+    }
+
+    private bool TryPrepareEscortPull(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        out LuaMRescueFailureReason failure,
+        out string status)
+    {
+        var policy = GetEscortRoleProfile(uid, escort).EquipmentPolicy;
+        if (!policy.Allows(LuaMRescueEquipmentKind.Pulling))
+        {
+            failure = LuaMRescueFailureReason.RoleDisallowed;
+            status = $"{GetActivityRole(escort.Role)} equipment policy forbids pulling";
+            return false;
+        }
+
+        failure = LuaMRescueFailureReason.None;
+        if (!policy.RequireFreeHandForPull)
+        {
+            status = "profile does not require a free pull hand";
+            return true;
+        }
+
+        if (!TryComp<HandsComponent>(uid, out var hands))
+        {
+            failure = LuaMRescueFailureReason.NoFreeHand;
+            status = "escort has no hands";
+            return false;
+        }
+
+        if (_hands.TryGetEmptyHand(uid, out _, hands))
+        {
+            status = "free pull hand ready";
+            return true;
+        }
+
+        foreach (var hand in EnumerateEscortHandsForStow(hands))
+        {
+            if (hand.HeldEntity is not { Valid: true } held)
+                continue;
+
+            foreach (var slot in GetEscortCombatStorageSlots(uid))
+            {
+                if (!TryResolveEscortStorageSlot(uid, slot, out var storageUid, out var storage, out _) ||
+                    !_storage.CanInsert(storageUid, held, out _, storage) ||
+                    !_hands.TryDrop(uid, hand, handsComp: hands))
+                {
+                    continue;
+                }
+
+                if (_storage.Insert(storageUid, held, out _, out _, user: uid, storageComp: storage))
+                {
+                    status = $"stowed {FormatEntityRef(held)} in {FormatEntityRef(storageUid)} for pulling";
+                    return true;
+                }
+
+                _hands.TryPickup(uid, held, hand, handsComp: hands);
+            }
+        }
+
+        failure = LuaMRescueFailureReason.NoFreeHand;
+        status = "all hands occupied and no carried storage accepted an item";
+        return false;
+    }
+
+    private static void ResetClearRoutePullAttempts(LuaMRescueEscortComponent escort)
+    {
+        escort.ClearRoutePullAttemptTarget = null;
+        escort.ClearRoutePullAttempts = 0;
+        escort.NextClearRoutePullAttemptAt = TimeSpan.Zero;
     }
 
     private bool TryFinishClearRouteBlockerAtDropoff(
@@ -1811,21 +3299,36 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (!IsRouteBlockerClearOfRescueCorridor(escort, blockerUid, out var clearanceStatus))
             return false;
 
-        escort.RouteBlockerTarget = null;
-
         if (puller.Pulling != blockerUid)
         {
+            escort.RouteBlockerTarget = null;
+            ResetClearRouteReleaseAttempts(escort);
+            CompleteEscortActivity(uid, escort);
             escort.LastDutyActionStatus = $"clear-route blocker already clear {FormatEntityRef(blockerUid)}; {clearanceStatus}";
+            return true;
+        }
+
+        if (escort.ClearRouteReleaseAttemptTarget == blockerUid &&
+            escort.NextClearRouteReleaseAttemptAt > _timing.CurTime)
+        {
+            escort.LastDutyActionStatus =
+                $"clear-route release backoff {FormatEntityRef(blockerUid)} until " +
+                $"{escort.NextClearRouteReleaseAttemptAt.TotalSeconds:0.0}s; {clearanceStatus}";
             return true;
         }
 
         if (_pulling.TryStopPull(blockerUid, pullable, uid))
         {
+            escort.RouteBlockerTarget = null;
+            ResetClearRouteReleaseAttempts(escort);
             htn.Blackboard.Remove<EntityCoordinates>(NPCBlackboard.FollowTarget);
+            CompleteEscortActivity(uid, escort);
             escort.DutyActions++;
             escort.LastDutyActionStatus = $"clear-route dropped {FormatEntityRef(blockerUid)} at dropoff; {clearanceStatus}";
             return true;
         }
+
+        var terminal = RecordClearRouteReleaseFailure(uid, escort, blockerUid);
 
         TryRequestCrewHelp(
             uid,
@@ -1833,8 +3336,46 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             $"drop-blocker:{blockerUid}",
             $"dropoff reached but release failed for {FormatEntityRef(blockerUid)}; {clearanceStatus}",
             "\u041f\u043e\u043c\u0435\u0445\u0430 \u043e\u0442\u0442\u0430\u0449\u0435\u043d\u0430. \u041e\u0441\u0432\u043e\u0431\u043e\u0434\u0438\u0442\u0435 \u043c\u0435\u0441\u0442\u043e \u0441\u0431\u0440\u043e\u0441\u0430 \u0438 \u0434\u0435\u0440\u0436\u0438\u0442\u0435 \u043f\u0440\u043e\u0445\u043e\u0434.");
-        escort.LastDutyActionStatus = $"clear-route drop blocked {FormatEntityRef(blockerUid)}; {clearanceStatus}";
+        escort.LastDutyActionStatus = terminal
+            ? $"clear-route terminal release failure {FormatEntityRef(blockerUid)}; {clearanceStatus}"
+            : $"clear-route drop blocked {FormatEntityRef(blockerUid)}; " +
+              $"attempt={escort.ClearRouteReleaseAttempts}; {clearanceStatus}";
         return true;
+    }
+
+    private bool RecordClearRouteReleaseFailure(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        EntityUid blocker)
+    {
+        if (escort.ClearRouteReleaseAttemptTarget != blocker)
+        {
+            escort.ClearRouteReleaseAttemptTarget = blocker;
+            escort.ClearRouteReleaseAttempts = 0;
+            escort.NextClearRouteReleaseAttemptAt = TimeSpan.Zero;
+        }
+
+        escort.ClearRouteReleaseAttempts++;
+        var profile = TryComp<LuaMRescueActivityCarrierComponent>(uid, out var carrier)
+            ? carrier.ActivityRoleProfile
+            : LuaMRescueRoleProfile.CreateDefault(GetActivityRole(escort.Role));
+        if (escort.ClearRouteReleaseAttempts >= Math.Max(1, profile.MaxAttempts))
+        {
+            escort.NextClearRouteReleaseAttemptAt = TimeSpan.Zero;
+            TerminalizeEscortAction(uid, escort, LuaMRescueFailureReason.ActionCancelled);
+            return true;
+        }
+
+        escort.NextClearRouteReleaseAttemptAt = _timing.CurTime +
+            CalculateEscortActivityBackoff(profile, escort.ClearRouteReleaseAttempts);
+        return false;
+    }
+
+    private static void ResetClearRouteReleaseAttempts(LuaMRescueEscortComponent escort)
+    {
+        escort.ClearRouteReleaseAttemptTarget = null;
+        escort.ClearRouteReleaseAttempts = 0;
+        escort.NextClearRouteReleaseAttemptAt = TimeSpan.Zero;
     }
 
     private bool IsRouteBlockerClearOfRescueCorridor(
@@ -1987,6 +3528,39 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             return;
         }
 
+        if (!_activity.IsEligibleRescuePatient(
+                uid,
+                patientUid,
+                LuaMRescuePatientRequestKind.AutomaticEvacuation,
+                manualOverride: false,
+                out var eligibilityFailure))
+        {
+            TerminalizeEscortAction(uid, escort, eligibilityFailure);
+            escort.LastDutyActionStatus =
+                $"patient-assist invalid patient {FormatEntityRef(patientUid)}: {eligibilityFailure}";
+            return;
+        }
+
+        if (_container.IsEntityOrParentInContainer(patientUid) ||
+            !_container.IsInSameOrNoContainer((uid, null, null), (patientUid, null, null)))
+        {
+            TerminalizeEscortAction(uid, escort, LuaMRescueFailureReason.ContainedTarget);
+            escort.LastDutyActionStatus =
+                $"patient-assist contained patient {FormatEntityRef(patientUid)}";
+            return;
+        }
+
+        if (escort.PatientAssistAttemptTarget != patientUid)
+            ResetPatientAssistAttempts(escort);
+        if (escort.PatientAssistAttemptTarget == patientUid &&
+            escort.NextPatientAssistAttemptAt > _timing.CurTime)
+        {
+            escort.LastDutyActionStatus =
+                $"patient-assist backoff {FormatEntityRef(patientUid)} until " +
+                $"{escort.NextPatientAssistAttemptAt.TotalSeconds:0.0}s";
+            return;
+        }
+
         if (TryComp<BuckleComponent>(patientUid, out var buckle) &&
             buckle.BuckledTo is { Valid: true })
         {
@@ -1996,6 +3570,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (!TryComp<PullableComponent>(patientUid, out var pullable))
         {
+            TerminalizeEscortAction(uid, escort, LuaMRescueFailureReason.TargetNotPullable);
             TryRequestCrewHelp(
                 uid,
                 escort,
@@ -2011,6 +3586,45 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             var evacuationTarget = ValidOrNull(escort.ShuttleAnchor) ??
                                    ValidOrNull(escort.Shuttle) ??
                                    ValidOrNull(escort.Leader);
+            if (evacuationTarget is { Valid: true } handoffTarget &&
+                IsWithinRange(patientUid, handoffTarget, EscortPatientAssistRange))
+            {
+                if (escort.PatientHandoffAttemptTarget != patientUid)
+                    ResetPatientHandoffAttempts(escort);
+                if (escort.PatientHandoffAttemptTarget == patientUid &&
+                    escort.NextPatientHandoffAttemptAt > _timing.CurTime)
+                {
+                    escort.LastDutyActionStatus =
+                        $"patient-assist handoff backoff {FormatEntityRef(patientUid)} until " +
+                        $"{escort.NextPatientHandoffAttemptAt.TotalSeconds:0.0}s";
+                    return;
+                }
+
+                if (_pulling.TryStopPull(patientUid, pullable, uid))
+                {
+                    ResetPatientHandoffAttempts(escort);
+                    ResetPatientAssistAttempts(escort);
+                    CompleteEscortActivity(uid, escort);
+                    escort.DutyActions++;
+                    escort.LastDutyActionStatus =
+                        $"patient-assist handoff complete {FormatEntityRef(patientUid)} at {FormatEntityRef(handoffTarget)}";
+                    return;
+                }
+
+                var terminalHandoff = RecordPatientHandoffFailure(uid, escort, patientUid);
+                TryRequestCrewHelp(
+                    uid,
+                    escort,
+                    $"handoff-blocked:{patientUid}",
+                    $"patient handoff release blocked for {FormatEntityRef(patientUid)}",
+                    "Пациент у шаттла, но передача заблокирована. Нужна помощь с безопасным освобождением.");
+                escort.LastDutyActionStatus = terminalHandoff
+                    ? $"patient-assist terminal handoff failure {FormatEntityRef(patientUid)}"
+                    : $"patient-assist handoff release blocked {FormatEntityRef(patientUid)}; " +
+                      $"attempt={escort.PatientHandoffAttempts}; retryAt={escort.NextPatientHandoffAttemptAt.TotalSeconds:0.0}s";
+                return;
+            }
+
             TryRequestCrewHelp(
                 uid,
                 escort,
@@ -2037,6 +3651,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         if (!TryComp<PullerComponent>(uid, out var pullerComp))
         {
+            TerminalizeEscortAction(uid, escort, LuaMRescueFailureReason.NoFreeHand);
             escort.LastDutyActionStatus = "patient-assist escort cannot pull";
             return;
         }
@@ -2053,8 +3668,16 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             return;
         }
 
+        if (!TryPrepareEscortPull(uid, escort, out var pullFailure, out var pullPreparation))
+        {
+            TerminalizeEscortAction(uid, escort, pullFailure);
+            escort.LastDutyActionStatus = $"patient-assist pull blocked: {pullPreparation}";
+            return;
+        }
+
         if (_pulling.TryStartPull(uid, patientUid, pullerComp, pullable))
         {
+            ResetPatientAssistAttempts(escort);
             escort.DutyActions++;
             TryRequestCrewHelp(
                 uid,
@@ -2066,13 +3689,147 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             return;
         }
 
+        var terminal = RecordPatientAssistFailure(
+            uid,
+            escort,
+            patientUid,
+            LuaMRescueFailureReason.ActionCancelled);
+
         TryRequestCrewHelp(
             uid,
             escort,
             $"stretcher-blocked:{patientUid}",
             $"patient assist pull blocked for {FormatEntityRef(patientUid)}",
             "\u041d\u0443\u0436\u043d\u0430 \u0440\u0443\u0447\u043d\u0430\u044f \u043f\u043e\u043c\u043e\u0449\u044c \u0441 \u043d\u043e\u0441\u0438\u043b\u043a\u0430\u043c\u0438. \u041f\u043e\u0434\u043e\u0439\u0434\u0438\u0442\u0435 \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443.");
-        escort.LastDutyActionStatus = $"patient-assist pull blocked {FormatEntityRef(patientUid)}";
+        escort.LastDutyActionStatus = terminal
+            ? $"patient-assist terminal pull failure {FormatEntityRef(patientUid)}"
+            : $"patient-assist pull blocked {FormatEntityRef(patientUid)}; " +
+              $"attempt={escort.PatientAssistAttempts}; retryAt={escort.NextPatientAssistAttemptAt.TotalSeconds:0.0}s";
+    }
+
+    private bool RecordPatientHandoffFailure(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        EntityUid patient)
+    {
+        if (escort.PatientHandoffAttemptTarget != patient)
+        {
+            escort.PatientHandoffAttemptTarget = patient;
+            escort.PatientHandoffAttempts = 0;
+            escort.NextPatientHandoffAttemptAt = TimeSpan.Zero;
+        }
+
+        escort.PatientHandoffAttempts++;
+        var profile = TryComp<LuaMRescueActivityCarrierComponent>(uid, out var carrier)
+            ? carrier.ActivityRoleProfile
+            : LuaMRescueRoleProfile.CreateDefault(LuaMRescueRole.Kostyl);
+        if (escort.PatientHandoffAttempts >= Math.Max(1, profile.MaxAttempts))
+        {
+            escort.NextPatientHandoffAttemptAt = TimeSpan.Zero;
+            TerminalizeEscortAction(uid, escort, LuaMRescueFailureReason.ActionCancelled);
+            return true;
+        }
+
+        escort.NextPatientHandoffAttemptAt = _timing.CurTime +
+            CalculateEscortActivityBackoff(profile, escort.PatientHandoffAttempts);
+        return false;
+    }
+
+    private static void ResetPatientHandoffAttempts(LuaMRescueEscortComponent escort)
+    {
+        escort.PatientHandoffAttemptTarget = null;
+        escort.PatientHandoffAttempts = 0;
+        escort.NextPatientHandoffAttemptAt = TimeSpan.Zero;
+    }
+
+    private void CompleteEscortActivity(EntityUid uid, LuaMRescueEscortComponent escort)
+    {
+        if (!TryComp<LuaMRescueActivityCarrierComponent>(uid, out var carrier) ||
+            carrier.ActivityContext.TerminalStatus != LuaMRescueTerminalStatus.Active)
+        {
+            return;
+        }
+
+        var current = carrier.ActivityContext;
+        current.TerminalStatus = LuaMRescueTerminalStatus.Succeeded;
+        current.Blocked = false;
+        current.FailureReason = LuaMRescueFailureReason.None;
+        current.RetryNotBefore = TimeSpan.Zero;
+        current.LastProgressAt = _timing.CurTime;
+        current.LastTransitionAt = _timing.CurTime;
+        ResetEscortTerminalRecovery(carrier, "activity-completed");
+        UpdateEscortActivityTelemetry(uid, carrier, escort, ValidOrNull(escort.CurrentFollowTarget));
+    }
+
+    private bool RecordPatientAssistFailure(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        EntityUid patient,
+        LuaMRescueFailureReason reason)
+    {
+        if (escort.PatientAssistAttemptTarget != patient)
+        {
+            escort.PatientAssistAttemptTarget = patient;
+            escort.PatientAssistAttempts = 0;
+            escort.NextPatientAssistAttemptAt = TimeSpan.Zero;
+        }
+
+        var now = _timing.CurTime;
+        if (escort.NextPatientAssistAttemptAt > now)
+            return false;
+
+        escort.PatientAssistAttempts++;
+        var profile = TryComp<LuaMRescueActivityCarrierComponent>(uid, out var carrier)
+            ? carrier.ActivityRoleProfile
+            : LuaMRescueRoleProfile.CreateDefault(LuaMRescueRole.Kostyl);
+        if (escort.PatientAssistAttempts >= Math.Max(1, profile.MaxAttempts))
+        {
+            escort.NextPatientAssistAttemptAt = TimeSpan.Zero;
+            TerminalizeEscortAction(uid, escort, reason);
+            return true;
+        }
+
+        escort.NextPatientAssistAttemptAt = now +
+            CalculateEscortActivityBackoff(profile, escort.PatientAssistAttempts);
+        return false;
+    }
+
+    private static void ResetPatientAssistAttempts(LuaMRescueEscortComponent escort)
+    {
+        escort.PatientAssistAttemptTarget = null;
+        escort.PatientAssistAttempts = 0;
+        escort.NextPatientAssistAttemptAt = TimeSpan.Zero;
+    }
+
+    private void TerminalizeEscortAction(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueFailureReason reason)
+    {
+        if (!TryComp<LuaMRescueActivityCarrierComponent>(uid, out var carrier) ||
+            IsEscortActivityTerminal(carrier.ActivityContext.TerminalStatus))
+        {
+            return;
+        }
+
+        var current = carrier.ActivityContext;
+        current.Attempts = Math.Max(current.Attempts, Math.Max(1, carrier.ActivityRoleProfile.MaxAttempts));
+        SetEscortActivityTerminal(
+            current,
+            LuaMRescueTerminalStatus.Blocked,
+            reason,
+            current.Fallback,
+            _timing.CurTime);
+        ArmEscortTerminalRecovery(
+            uid,
+            carrier,
+            current,
+            current.Destination is { } destination
+                ? ValidOrNull(destination.EntityId)
+                : ValidOrNull(escort.CurrentFollowTarget),
+            _timing.CurTime);
+        ReportEscortActivityTerminal(uid, escort, current);
+        UpdateEscortActivityTelemetry(uid, carrier, escort, ValidOrNull(escort.CurrentFollowTarget));
     }
 
     private static bool ShouldEscortCrowdControl(
@@ -2273,7 +4030,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     private void SyncEscortContextFromLeader(LuaMRescueEscortComponent escort)
     {
         if (escort.Leader is not { Valid: true } leader ||
-            Deleted(leader))
+            Deleted(leader) ||
+            !IsLivingFormationEntity(leader))
         {
             escort.Leader = null;
             escort.Patient = null;
@@ -2363,12 +4121,22 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var routeBlockerDistance = float.MaxValue;
 
         _sceneEntities.Clear();
-        _lookup.GetEntitiesInRange(anchorUid, SceneScanRange, _sceneEntities, LookupFlags.Dynamic | LookupFlags.Sundries | LookupFlags.Approximate);
+        // Threat knowledge belongs to the observing actor. The patient remains
+        // the formation/route anchor, but it must not act as a remote omniscient
+        // sensor for an escort on the other side of a wall.
+        var observationRange = GetObservationRange(observer);
+        _lookup.GetEntitiesInRange(observer, observationRange, _sceneEntities, LookupFlags.Dynamic | LookupFlags.Sundries | LookupFlags.Approximate);
 
         foreach (var candidate in _sceneEntities)
         {
             if (ShouldIgnoreSceneEntity(candidate, teamId, leader, patient, shuttle, shuttleAnchor))
                 continue;
+
+            if (_container.IsEntityOrParentInContainer(candidate) ||
+                !_examine.CanExamine(observer, candidate))
+            {
+                continue;
+            }
 
             if (!TryComp(candidate, out TransformComponent? candidateXform) ||
                 candidateXform.MapID != origin.MapId)
@@ -2761,7 +4529,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (_factions.IsEntityFriendly((observer, observerFaction), (candidate, candidateFaction)))
             return false;
 
-        return observerFaction.Factions.Any(faction => _factions.IsFactionHostile(faction, (candidate, candidateFaction)));
+        return _factions.IsEntityHostile((observer, observerFaction), (candidate, candidateFaction));
     }
 
     private bool IsActiveCombatant(EntityUid observer, EntityUid candidate)
@@ -2992,11 +4760,18 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         };
     }
 
-    private LuaMRescueEscortDuty GetEscortDuty(LuaMRescueEscortComponent escort)
+    private LuaMRescueEscortDuty GetEscortDuty(EntityUid uid, LuaMRescueEscortComponent escort)
     {
-        var patient = escort.Patient is { Valid: true } patientUid && !Deleted(patientUid)
-            ? patientUid
-            : (EntityUid?) null;
+        if (TryComp<LuaMRescueBehaviorAdapterComponent>(uid, out var behavior) &&
+            behavior.EscortDutyOverride is { } behaviorDuty)
+        {
+            return behaviorDuty;
+        }
+
+        if (!TryGetEscortFormationAnchor(escort, out _))
+            return LuaMRescueEscortDuty.Standby;
+
+        var patient = GetEligibleEscortPatient(uid, escort.Patient);
 
         if (patient == null)
             return escort.ShuttleAnchor is { Valid: true } || escort.Shuttle is { Valid: true }
@@ -3075,12 +4850,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
     private EntityUid? GetEscortFollowTarget(EntityUid uid, LuaMRescueEscortComponent escort, LuaMRescueEscortDuty duty)
     {
-        var patient = escort.Patient is { Valid: true } patientUid && !Deleted(patientUid)
-            ? patientUid
-            : (EntityUid?) null;
-        var leader = escort.Leader is { Valid: true } leaderUid && !Deleted(leaderUid)
-            ? leaderUid
-            : (EntityUid?) null;
+        var patient = GetEligibleEscortPatient(uid, escort.Patient);
+        var leader = GetLivingFormationEntity(escort.Leader);
         var shuttleAnchor = escort.ShuttleAnchor is { Valid: true } anchorUid && !Deleted(anchorUid)
             ? anchorUid
             : (EntityUid?) null;
@@ -3096,13 +4867,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var routeBlocker = escort.RouteBlockerTarget is { Valid: true } blockerUid && !Deleted(blockerUid)
             ? blockerUid
             : (EntityUid?) null;
-        var sceneAnchor = escort.SceneAnchor is { Valid: true } sceneAnchorUid && !Deleted(sceneAnchorUid)
-            ? sceneAnchorUid
-            : (EntityUid?) null;
+        var sceneAnchor = GetLivingFormationEntity(escort.SceneAnchor);
 
         return duty switch
         {
-            LuaMRescueEscortDuty.ThreatScreen => GetThreatScreenFollowTarget(escort, threat, sceneAnchor, patient, leader, shuttleAnchor, shuttle),
+            LuaMRescueEscortDuty.ThreatScreen => GetThreatScreenFollowTarget(uid, escort, threat),
             LuaMRescueEscortDuty.CrowdControl => crowd ?? sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle,
             LuaMRescueEscortDuty.ClearRoute => routeBlocker ?? sceneAnchor ?? leader ?? shuttleAnchor ?? patient ?? shuttle,
             LuaMRescueEscortDuty.SecureScene => escort.Role == LuaMRescueEscortRole.Zaslon
@@ -3118,47 +4887,57 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     }
 
     private EntityUid? GetThreatScreenFollowTarget(
+        EntityUid uid,
         LuaMRescueEscortComponent escort,
-        EntityUid? threat,
-        EntityUid? sceneAnchor,
-        EntityUid? patient,
-        EntityUid? leader,
-        EntityUid? shuttleAnchor,
-        EntityUid? shuttle)
+        EntityUid? threat)
     {
         if (threat is { Valid: true } threatUid &&
             !Deleted(threatUid) &&
-            IsThreatWithinRescueLeash(escort, threatUid))
+            IsThreatWithinRescueLeash(uid, escort, threatUid))
         {
             return threatUid;
         }
 
-        return sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle;
+        return TryGetEscortFormationAnchor(escort, out var formationAnchor)
+            ? formationAnchor
+            : null;
     }
 
-    private bool IsThreatWithinRescueLeash(LuaMRescueEscortComponent escort, EntityUid threat)
+    private bool IsThreatWithinRescueLeash(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        EntityUid threat)
     {
-        return !TryGetThreatLeashAnchor(escort, out var anchor) ||
-               IsWithinRange(anchor, threat, EscortThreatLeashRange);
+        var policy = GetEscortRoleProfile(uid, escort).ThreatPolicy;
+        if (!policy.EngageHostiles || policy.PursuitLeashRange <= 0f)
+            return false;
+
+        return TryGetThreatLeashAnchor(escort, out var anchor) &&
+               IsWithinRange(anchor, threat, policy.PursuitLeashRange);
     }
 
     private bool TryGetThreatLeashAnchor(LuaMRescueEscortComponent escort, out EntityUid anchor)
     {
-        if (ValidOrNull(escort.SceneAnchor) is { Valid: true } sceneAnchor)
+        return TryGetEscortFormationAnchor(escort, out anchor);
+    }
+
+    private bool TryGetEscortFormationAnchor(LuaMRescueEscortComponent escort, out EntityUid anchor)
+    {
+        if (GetLivingFormationEntity(escort.SceneAnchor) is { Valid: true } sceneAnchor)
         {
             anchor = sceneAnchor;
             return true;
         }
 
-        if (ValidOrNull(escort.Patient) is { Valid: true } patient)
+        if (GetLivingFormationEntity(escort.Leader) is { Valid: true } leader)
         {
-            anchor = patient;
+            anchor = leader;
             return true;
         }
 
-        if (ValidOrNull(escort.Leader) is { Valid: true } leader)
+        if (GetLivingFormationEntity(escort.Patient) is { Valid: true } patient)
         {
-            anchor = leader;
+            anchor = patient;
             return true;
         }
 
@@ -3176,6 +4955,34 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
         anchor = default;
         return false;
+    }
+
+    private EntityUid? GetLivingFormationEntity(EntityUid? entity)
+    {
+        return entity is { Valid: true } uid && IsLivingFormationEntity(uid)
+            ? uid
+            : null;
+    }
+
+    private EntityUid? GetEligibleEscortPatient(EntityUid escortUid, EntityUid? entity)
+    {
+        if (entity is not { Valid: true } patient || Deleted(patient))
+            return null;
+
+        return _activity.IsEligibleRescuePatient(
+            escortUid,
+            patient,
+            LuaMRescuePatientRequestKind.AutomaticEvacuation,
+            manualOverride: false,
+            out _)
+                ? patient
+                : null;
+    }
+
+    private bool IsLivingFormationEntity(EntityUid uid)
+    {
+        return !Deleted(uid) &&
+               (!TryComp<MobStateComponent>(uid, out var mobState) || mobState.CurrentState != MobState.Dead);
     }
 
     private EntityUid? GetPatientSupportFollowTarget(
@@ -3204,6 +5011,14 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             puller.Pulling == patientUid;
     }
 
+    private bool IsEscortPullingRouteBlocker(EntityUid uid, LuaMRescueEscortComponent escort)
+    {
+        return escort.RouteBlockerTarget is { Valid: true } blocker &&
+               !Deleted(blocker) &&
+               TryComp<PullerComponent>(uid, out var puller) &&
+               puller.Pulling == blocker;
+    }
+
     private void SetEscortFollowTarget(
         EntityUid uid,
         LuaMRescueEscortComponent escort,
@@ -3222,7 +5037,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         {
             LuaMRescueEscortDuty.ThreatScreen => 2.75f,
             LuaMRescueEscortDuty.CrowdControl => 2.25f,
-            LuaMRescueEscortDuty.ClearRoute => 2.5f,
+            LuaMRescueEscortDuty.ClearRoute => 1.5f,
             LuaMRescueEscortDuty.SecureScene => escort.Role == LuaMRescueEscortRole.Zaslon ? 1.0f : 2.0f,
             LuaMRescueEscortDuty.EvacuationCorridor => escort.Role == LuaMRescueEscortRole.Kostyl ? 1.25f : 2.25f,
             LuaMRescueEscortDuty.PatientSupport => 1.25f,
@@ -3230,22 +5045,64 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             _ => escort.FollowCloseRange,
         };
 
-        var followRange = duty switch
-        {
-            LuaMRescueEscortDuty.ThreatScreen => 7f,
-            LuaMRescueEscortDuty.CrowdControl => 5.5f,
-            LuaMRescueEscortDuty.ClearRoute => 6.5f,
-            LuaMRescueEscortDuty.SecureScene => 5.5f,
-            LuaMRescueEscortDuty.EvacuationCorridor => 6f,
-            LuaMRescueEscortDuty.PatientSupport => 4f,
-            LuaMRescueEscortDuty.ReturnToShuttle => 5f,
-            _ => escort.FollowRange,
-        };
+        var followRange = GetEscortActivityActionRange(uid, escort, duty);
 
-        _npc.SetBlackboard(uid, NPCBlackboard.FollowTarget, new EntityCoordinates(target, Vector2.Zero), htn);
+        if (IsDirectEscortActionDuty(duty) &&
+            Transform(uid).Coordinates.TryDistance(EntityManager, Transform(target).Coordinates, out var directDistance) &&
+            directDistance <= followRange &&
+            !_interaction.InRangeUnobstructed(uid, target, followRange))
+        {
+            followRange = Math.Min(followRange, 0.25f);
+            closeRange = Math.Min(closeRange, followRange);
+        }
+
+        _npc.SetBlackboard(
+            uid,
+            NPCBlackboard.FollowTarget,
+            new EntityCoordinates(target, GetEscortFormationOffset(uid, escort, duty, target)),
+            htn);
         _npc.SetBlackboard(uid, "FollowCloseRange", closeRange, htn);
         _npc.SetBlackboard(uid, "FollowRange", followRange, htn);
         _npc.WakeNPC(uid, htn);
+    }
+
+    private static bool IsDirectEscortActionDuty(LuaMRescueEscortDuty duty)
+    {
+        return duty is LuaMRescueEscortDuty.PatientSupport
+            or LuaMRescueEscortDuty.ClearRoute
+            or LuaMRescueEscortDuty.CrowdControl
+            or LuaMRescueEscortDuty.ThreatScreen;
+    }
+
+    private Vector2 GetEscortFormationOffset(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty duty,
+        EntityUid followTarget)
+    {
+        var directActionTarget = duty switch
+        {
+            LuaMRescueEscortDuty.ThreatScreen => escort.ThreatTarget == followTarget,
+            LuaMRescueEscortDuty.CrowdControl => escort.CrowdTarget == followTarget,
+            LuaMRescueEscortDuty.ClearRoute => escort.RouteBlockerTarget == followTarget,
+            LuaMRescueEscortDuty.PatientSupport => true,
+            _ => false,
+        };
+        if (directActionTarget)
+        {
+            return Vector2.Zero;
+        }
+
+        var offset = escort.Role switch
+        {
+            LuaMRescueEscortRole.Tourniquet => new Vector2(0f, 1.5f),
+            LuaMRescueEscortRole.Kostyl => new Vector2(-1f, 0f),
+            LuaMRescueEscortRole.Zaslon => new Vector2(0f, -1.5f),
+            _ => Vector2.Zero,
+        };
+
+        var formationRange = GetEscortRoleProfile(uid, escort).ThreatPolicy.FormationRange;
+        return offset * (Math.Max(0.05f, formationRange) / 1.75f);
     }
 
     private LuaMRescueTeamPhase GetTeamPhase(

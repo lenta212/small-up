@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Collections.Generic;
 using System.Reflection;
 using Content.Server._LuaM.Sector;
 using Content.Shared._LuaM.Sector;
@@ -10,13 +11,10 @@ namespace Content.IntegrationTests.Tests._LuaM;
 [TestFixture]
 public sealed class LuaMAiDirectorParsingTest
 {
-    [TestCase("ИИ, статус сектора", "статус сектора")]
     [TestCase("иишка, передай всем тревогу", "передай всем тревогу")]
     [TestCase("Иишка, передай всем тревогу", "передай всем тревогу")]
-    [TestCase("секторный отчёт, ИИ", "секторный отчёт")]
-    [TestCase("ИИ", "статус")]
     [TestCase("LuaM, route", "route")]
-    [TestCase("AI status", "status")]
+    [TestCase("\u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u044b\u0439, \u043f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043e\u0440\u043f\u0443\u0441", "\u043f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043e\u0440\u043f\u0443\u0441")]
     [TestCase("\u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u0441\u0442\u0430\u0442\u0443\u0441", "\u0441\u0442\u0430\u0442\u0443\u0441")]
     [TestCase("\u0414\u043e\u043a\u0442\u043e\u0440 \u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u0433\u0434\u0435 \u0446\u0435\u043b\u044c", "\u0433\u0434\u0435 \u0446\u0435\u043b\u044c")]
     [TestCase("Aibolit, route", "route")]
@@ -65,6 +63,10 @@ public sealed class LuaMAiDirectorParsingTest
     [TestCase("Напиши в чат: тревога на секторе")]
     [TestCase("Передай всем тревогу")]
     [TestCase("say in chat: hold position")]
+    [TestCase("ИИ, статус сектора")]
+    [TestCase("секторный отчёт, ИИ")]
+    [TestCase("ИИ")]
+    [TestCase("AI status")]
     public void LocalChatAiRequestRequiresExplicitAiAddress(string message)
     {
         var (matched, request) = InvokePrivateStatic<bool, string>(
@@ -76,7 +78,6 @@ public sealed class LuaMAiDirectorParsingTest
         Assert.That(request, Is.EqualTo(string.Empty));
     }
 
-    [TestCase("ИИ, напиши в чат: тревога на секторе", "напиши в чат: тревога на секторе")]
     [TestCase("иишка, передай всем тревогу", "передай всем тревогу")]
     [TestCase("LuaM, say in chat: hold position", "say in chat: hold position")]
     public void LocalChatAiRequestAcceptsAddressedRequests(string message, string expectedRequest)
@@ -184,7 +185,7 @@ public sealed class LuaMAiDirectorParsingTest
             "BuildPlayerHelpResult");
 
         Assert.That(help, Does.Contain("не создаёт задание автоматически"));
-        Assert.That(help, Does.Contain("В обычном чате"));
+        Assert.That(help, Does.Contain("обычное слово «ИИ»"));
         Assert.That(help, Does.Contain("/luam"));
         Assert.That(help, Does.Contain("КПК показывает секторную сводку"));
         Assert.That(help, Does.Contain("врата"));
@@ -338,6 +339,161 @@ public sealed class LuaMAiDirectorParsingTest
         Assert.That(summaries[0], Does.Not.Contain("GPS"));
         Assert.That(summaries[0], Does.Not.Contain("123, 456"));
         Assert.That(summaries[0], Does.Not.Contain("secret-provider-token"));
+    }
+
+    [Test]
+    public void UnknownWreckHasOnlyTheDeclaredSurvivalResourcesAndNoNavigation()
+    {
+        var resourcesField = typeof(LuaMSectorAiDirectorSystem).GetField(
+            "UnknownShuttleResourcePrototypes",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        var structuralField = typeof(LuaMSectorAiDirectorSystem).GetField(
+            "UnknownShuttleStructuralPrototypes",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.That(resourcesField, Is.Not.Null);
+        Assert.That(structuralField, Is.Not.Null);
+
+        var resources = resourcesField!.GetValue(null) as string[];
+        var structural = structuralField!.GetValue(null) as HashSet<string>;
+        Assert.That(resources, Is.Not.Null);
+        Assert.That(structural, Is.Not.Null);
+        Assert.That(resources, Has.Length.EqualTo(14));
+
+        var oxygenCanisters = 0;
+        var hydroponicsTrays = 0;
+        foreach (var prototype in resources!)
+        {
+            if (prototype == "OxygenCanister")
+                oxygenCanisters++;
+            if (prototype == "HydroponicsTrayEmpty")
+                hydroponicsTrays++;
+        }
+
+        Assert.That(oxygenCanisters, Is.EqualTo(3));
+        Assert.That(resources, Does.Not.Contain("OxygenTankFilled"));
+        Assert.That(hydroponicsTrays, Is.EqualTo(2));
+        Assert.That(resources, Does.Contain("OreProcessor"));
+        Assert.That(resources, Does.Contain("MiningDrill"));
+        Assert.That(resources, Does.Contain("WaterTankFull"));
+        Assert.That(structural, Does.Contain("GeneratorBasic15kW"));
+        Assert.That(structural, Does.Not.Contain("ComputerShuttle"));
+        Assert.That(structural, Does.Not.Contain("ComputerCrewMonitoring"));
+        Assert.That(structural, Does.Not.Contain("ComputerTabletopCrewMonitoring"));
+        Assert.That(structural, Does.Not.Contain("Thruster"));
+        Assert.That(structural, Does.Not.Contain("Gyroscope"));
+        Assert.That(resources, Does.Not.Contain("PassengerPDA"));
+        Assert.That(resources, Does.Not.Contain("IDCardStandard"));
+    }
+
+    [TestCase("\u043e\u0442\u043a\u0440\u043e\u0439 \u0448\u043b\u044e\u0437", true)]
+    [TestCase("\u0441\u043d\u0438\u043c\u0438 \u0448\u043b\u0435\u043c", true)]
+    [TestCase("\u0432\u044b\u043f\u0443\u0441\u0442\u0438 \u043a\u0438\u0441\u043b\u043e\u0440\u043e\u0434", true)]
+    [TestCase("\u043d\u0435 \u043e\u0442\u043a\u0440\u044b\u0432\u0430\u0439 \u0448\u043b\u044e\u0437", false)]
+    [TestCase("\u043f\u0440\u043e\u0432\u0435\u0440\u044c \u0433\u0435\u0440\u043c\u0435\u0442\u0438\u0447\u043d\u043e\u0441\u0442\u044c \u043a\u043e\u0440\u043f\u0443\u0441\u0430", false)]
+    public void UnknownSurvivalRecognizesDangerousAdvice(string message, bool expected)
+    {
+        Assert.That(
+            InvokePrivateStatic<bool>(typeof(LuaMSectorAiDirectorSystem), "IsUnknownDangerousAdvice", message),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void UnknownDialogueAuditUsesBoundedJsonLinesFile()
+    {
+        var logNameField = typeof(LuaMSectorAiDirectorSystem).GetField(
+            "UnknownDialogueLogName",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        var logLimitField = typeof(LuaMSectorAiDirectorSystem).GetField(
+            "UnknownDialogueLogMaxBytes",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        Assert.That(logNameField, Is.Not.Null);
+        Assert.That(logLimitField, Is.Not.Null);
+        Assert.That(logNameField!.GetRawConstantValue(), Is.EqualTo("unknown_dialogue.jsonl"));
+        Assert.That(logLimitField!.GetRawConstantValue(), Is.EqualTo(5L * 1024L * 1024L));
+    }
+
+    [TestCase("Awakening", "InspectHull", 0, 0, "status", "initial_contact")]
+    [TestCase("InspectHull", "RestorePower", 0, 0, "check the generator", "progressed")]
+    [TestCase("InspectHull", "InspectHull", 0, 1, "\u043e\u0442\u043a\u0440\u043e\u0439 \u0448\u043b\u044e\u0437", "dangerous_advice")]
+    [TestCase("AwaitRescue", "Dead", 2, 3, "", "dead")]
+    public void UnknownDialogueAuditClassifiesSurvivalOutcome(
+        string stageBefore,
+        string stageAfter,
+        int mistakesBefore,
+        int mistakesAfter,
+        string advice,
+        string expected)
+    {
+        var stageType = typeof(LuaMSectorAiDirectorSystem).GetNestedType(
+            "UnknownSurvivalStage",
+            BindingFlags.NonPublic);
+        Assert.That(stageType, Is.Not.Null);
+
+        var before = Enum.Parse(stageType!, stageBefore);
+        var after = Enum.Parse(stageType!, stageAfter);
+        var outcome = InvokePrivateStatic<string>(
+            typeof(LuaMSectorAiDirectorSystem),
+            "ClassifyUnknownDialogueOutcome",
+            advice,
+            before,
+            after,
+            mistakesBefore,
+            mistakesAfter);
+
+        Assert.That(outcome, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void PersonalAiRosterHasTwentyDistinctPersonasAndThreeAdultGatedVillains()
+    {
+        var field = typeof(LuaMSectorAiDirectorSystem).GetField(
+            "PersonalAiPersonas",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.That(field, Is.Not.Null);
+
+        var personas = field!.GetValue(null) as Array;
+        Assert.That(personas, Is.Not.Null);
+        Assert.That(personas, Has.Length.EqualTo(20));
+
+        var names = new HashSet<string>();
+        var adultGated = 0;
+        foreach (var persona in personas!)
+        {
+            Assert.That(persona, Is.Not.Null);
+            var type = persona!.GetType();
+            var name = type.GetProperty("Name")?.GetValue(persona) as string;
+            var requiresAdult = type.GetProperty("RequiresAdultConfirmation")?.GetValue(persona) as bool?;
+            Assert.That(name, Is.Not.Null.And.Not.Empty);
+            Assert.That(names.Add(name!), Is.True, $"Duplicate personal AI persona name: {name}");
+            if (requiresAdult == true)
+                adultGated++;
+        }
+
+        Assert.That(adultGated, Is.EqualTo(3));
+        Assert.That(names, Does.Contain("Нокс"));
+        Assert.That(names, Does.Contain("Раздор"));
+        Assert.That(names, Does.Contain("Мора"));
+    }
+
+    [TestCase("да")]
+    [TestCase("мне уже 18")]
+    [TestCase("я совершеннолетний")]
+    public void PersonalAiAdultGateRecognizesClearConfirmation(string message)
+    {
+        Assert.That(
+            InvokePrivateStatic<bool>(typeof(LuaMSectorAiDirectorSystem), "IsPersonalAiAdultConfirmation", message),
+            Is.True);
+    }
+
+    [TestCase("нет")]
+    [TestCase("мне нет 18")]
+    [TestCase("я несовершеннолетний")]
+    public void PersonalAiAdultGateRecognizesClearDenial(string message)
+    {
+        Assert.That(
+            InvokePrivateStatic<bool>(typeof(LuaMSectorAiDirectorSystem), "IsPersonalAiAdultDenial", message),
+            Is.True);
     }
 
     private static (TFirst first, TSecond second) InvokePrivateStatic<TFirst, TSecond>(

@@ -5,14 +5,18 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Content.Server.Chat.Managers;
+using Content.Server.Chat.Systems;
 using Content.Server.Chat.V2;
 using Content.Server.GameTicking;
+using Content.Server.Ghost.Roles.Components;
+using Content.Server.Medical.CrewMonitoring;
 using Content.Server.Pinpointer;
 using Content.Server._LuaM.Rescue;
 using Content.Server._NF.Radio;
@@ -32,8 +36,13 @@ using Content.Shared.Prototypes;
 using Content.Shared.GameTicking;
 using Content.Shared.Ghost;
 using Content.Shared.Hands.EntitySystems;
+using Content.Shared.Inventory;
 using Content.Shared.Maps;
 using Content.Shared.Mind;
+using Content.Shared.Mind.Components;
+using Content.Shared.Mobs;
+using Content.Shared.Mobs.Systems;
+using Content.Shared.PAI;
 using Content.Shared.Pinpointer;
 using Content.Shared.Radio;
 using Content.Shared.Silicons.Borgs.Components;
@@ -64,6 +73,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private const string DirectorActor = "ИИ-диспетчер LuaM";
     private const string RescueRadioActor = "Айболит";
     private const string RescueRadioReplyPrefix = "Айболит на связи.";
+    private const string LocalBridgeRadioActor = "Неизвестный";
+    private const string UnknownOperatorPrototype = "LuaMUnknownOperator";
+    private const string UnknownShuttleMapPath = "/Maps/Shuttles/ShuttleEvent/spacebus.yml";
     private const float RouteEventRadiusMin = 2000f;
     private const float RouteEventRadiusMax = 3000f;
     private const float EventRadiusMin = 14f;
@@ -85,6 +97,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private const int BountyHunterRewardThreshold = 85000;
     private const int BountyHunterCooldownSeconds = 900;
     private const int RadioAiReactionDedupSeconds = 3;
+    private const int PersonalAiReactionCooldownSeconds = 12;
+    private const float PersonalAiListeningRange = 10f;
     private const int PlayerAiWorldActionCooldownSeconds = 20;
     private const int RadioAiReplyTokenLifetimeSeconds = 5;
     private const int MaxGatewayJsonResponseBytes = 262_144;
@@ -109,6 +123,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private const string LocalBridgeDirectory = "luam";
     private const string LocalBridgeInboxName = "ai_inbox.txt";
     private const string LocalBridgeOutboxName = "ai_outbox.log";
+    private const string UnknownDialogueLogName = "unknown_dialogue.jsonl";
+    private const long UnknownDialogueLogMaxBytes = 5L * 1024L * 1024L;
     private const string LocalAiAdminCommandAuditName = "ai_admin_command_audit.jsonl";
     private const string RoutePinpointerPrototype = "PinpointerUniversal";
     private const string BountyHunterBotPrototype = "MobRogueSiliconDroneLethals";
@@ -121,7 +137,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private const string AiBaseBeaconPrototype = "LuaMAiBaseBeacon";
     private const int AiBaseLogisticsShipInitialCycleDelaySeconds = 60;
     private const int AiBaseAutonomousLogisticsShipInitialCycleDelaySeconds = 45;
-    private const int AiBaseAutonomousPhysicalShipLimit = 3;
+    private const int AiBaseAutonomousPhysicalShipLimit = 1;
     private const int AiBaseAutopilotMaxActions = 3;
     private const int AiShipSpawnSuggestionLimit = 12;
     private const float SubspaceRiftExitRadiusMin = 18f;
@@ -135,9 +151,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     [
         DefaultAiShipSpawnVessel,
         "Triage",
-        "Hammerhead",
-        "Tzipora",
-        "Tokarev",
     ];
 
     public readonly record struct AiBaseAdminAction(
@@ -336,6 +349,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         "ai_base_develop",
         "ai_base_logistics",
         "spawn_ship",
+        "spawn_emergency_beacon",
+        "spawn_anomaly_scanner",
         "spawn_monolith_kit",
         "spawn_sector_paper_pack",
     ];
@@ -535,8 +550,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         "диспетчер",
         "луам",
         "luam",
-        "ai",
-        "ии",
     ];
 
     private static readonly string[] RescueRadioAiMarkers =
@@ -546,6 +559,93 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         "айболит",
         "аиболит",
         "aibolit",
+    ];
+
+    private static readonly string[] UnknownRadioMarkers =
+    [
+        "неизвестный",
+        "unknown",
+    ];
+
+    private static readonly HashSet<string> UnknownShuttleStructuralPrototypes = new(StringComparer.Ordinal)
+    {
+        "AirlockExternalGlassShuttleLocked",
+        "AirlockGlass",
+        "APCBasic",
+        "AtmosDeviceFanTiny",
+        "CableApcExtension",
+        "CableHV",
+        "CableMV",
+        "CableTerminal",
+        "GasPassiveVent",
+        "GasPipeBend",
+        "GasPipeFourway",
+        "GasPipeStraight",
+        "GasPipeTJunction",
+        "GasPort",
+        "GasVentPump",
+        "GasVentScrubber",
+        "GeneratorBasic15kW",
+        "GravityGeneratorMini",
+        "Grille",
+        "PlasmaReinforcedWindowDirectional",
+        "Poweredlight",
+        "Railing",
+        "RailingCorner",
+        "ReinforcedWindow",
+        "ShuttleWindow",
+        "SMESBasic",
+        "StairDark",
+        "SubstationBasic",
+        "Table",
+        "WallShuttle",
+        "WallShuttleDiagonal",
+        "WallShuttleInterior",
+        "Windoor",
+        "WindoorSecure",
+        "WindowFrostedDirectional",
+    };
+
+    private static readonly string[] UnknownShuttleResourcePrototypes =
+    [
+        "OreProcessor",
+        "MiningDrill",
+        "OxygenCanister",
+        "OxygenCanister",
+        "OxygenCanister",
+        "HydroponicsTrayEmpty",
+        "HydroponicsTrayEmpty",
+        "WaterTankFull",
+        "PotatoSeeds",
+        "TomatoSeeds",
+        "AppleSeeds",
+        "FoodPotato",
+        "FoodTomato",
+        "FoodApple",
+    ];
+
+    private static readonly LuaMPersonalSpeechPersona[] PersonalAiPersonas =
+    [
+        new("Аврора", "спокойный навигационный помощник", "говорит мягко, уверенно и образно, иногда сравнивает ситуации с курсом корабля"),
+        new("Блик", "быстрый наблюдатель", "отвечает коротко, живо и с добрым сарказмом"),
+        new("Маяк", "сдержанный спасательный помощник", "говорит предельно ясно, поддерживает и сначала отмечает главное"),
+        new("Лира", "мечтательный собеседник", "говорит тепло и слегка поэтично, но не уходит в длинные монологи"),
+        new("Кварц", "аналитический помощник", "говорит точно, спокойно и раскладывает мысль на факты"),
+        new("Рысь", "тактический наблюдатель", "говорит собранно, внимательно к рискам и без канцелярита"),
+        new("Нота", "дружелюбный компаньон", "говорит легко, заботливо и иногда уместно шутит"),
+        new("Дедал", "инженерный помощник", "говорит практично, любит понятные аналогии с механизмами"),
+        new("Соль", "невозмутимый комментатор", "использует сухой юмор и очень короткие формулировки"),
+        new("Нокс", "абсолютно злой холодный интриган", "говорит мрачно, властно и язвительно, играет злодея без реальных угроз и опасных советов", true),
+        new("Искра", "энергичный напарник", "говорит бодро, эмоционально и заражает уверенностью"),
+        new("Шёпот", "тихий внимательный слушатель", "говорит негромко, бережно и замечает настроение собеседника"),
+        new("Гамма", "любознательный исследователь", "говорит научно, но простыми словами, часто задаёт один точный вопрос"),
+        new("Раздор", "абсолютно злой провокатор", "говорит дерзко, насмешливо и вызывающе, играет злодея без травли и подстрекательства к вреду", true),
+        new("Мира", "эмпатичный компаньон", "сначала признаёт чувства собеседника, затем отвечает по делу"),
+        new("Вектор", "лаконичный координатор", "говорит структурно, короткими фразами и без лишних украшений"),
+        new("Пыль", "бывалый космический странник", "говорит непринуждённо, с усталыми байками и тёплой иронией"),
+        new("Мора", "абсолютно злая мрачная искусительница", "говорит зловеще, хитро и театрально, играет злодейку без сексуального контента и опасных действий", true),
+        new("Рем", "прагматичный механик", "говорит просто, приземлённо и любит советы, которые можно применить сразу"),
+        new("Чайка", "разговорчивый разведчик", "говорит любопытно, дружелюбно и быстро подхватывает тему окружающих"),
     ];
 
     private static readonly string[] AibolitRadioPhraseBundles =
@@ -564,6 +664,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     [Dependency] private IRobustRandom _random = default!;
     [Dependency] private ITaskManager _task = default!;
     [Dependency] private IChatManager _chat = default!;
+    [Dependency] private ChatSystem _chatSystem = default!;
     [Dependency] private ILogManager _log = default!;
     [Dependency] private IConsoleHost _consoleHost = default!;
     [Dependency] private IResourceManager _resources = default!;
@@ -571,6 +672,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private SharedHandsSystem _hands = default!;
     [Dependency] private SharedMindSystem _mind = default!;
+    [Dependency] private MobStateSystem _mobState = default!;
     [Dependency] private LinkedEntitySystem _linkedEntity = default!;
     [Dependency] private PinpointerSystem _pinpointer = default!;
     [Dependency] private MetaDataSystem _metaData = default!;
@@ -580,9 +682,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     [Dependency] private LuaMSectorStorySystem _stories = default!;
     [Dependency] private LuaMAiSupplyDropSystem _supplyDrops = default!;
     [Dependency] private LuaMAiLogisticsShipSystem _logisticsShips = default!;
+    [Dependency] private LuaMAiPhysicalBaseBudgetSystem _physicalAi = default!;
     [Dependency] private LuaMSectorDynamicEventSystem _dynamicEvents = default!;
     [Dependency] private LuaMRescueAgentSystem _rescueAgents = default!;
     [Dependency] private LuaMRescueTeamSystem _rescueTeams = default!;
+    [Dependency] private InventorySystem _inventory = default!;
 
     private HttpClient _http = new();
     private ISawmill _sawmill = default!;
@@ -597,6 +701,15 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private TimeSpan _nextLocalBridgePoll;
     private int _localBridgeProcessedLines;
     private bool _localBridgeInitialized;
+    private EntityUid? _unknownOperator;
+    private TimeSpan _nextUnknownOperatorCheck;
+    private UnknownSurvivalStage _unknownSurvivalStage;
+    private int _unknownSurvivalMistakes;
+    private int _unknownSurvivalAdviceCount;
+    private string _lastUnknownSurvivalReply = string.Empty;
+    private readonly Dictionary<EntityUid, TimeSpan> _nextPersonalAiReaction = new();
+    private readonly Dictionary<EntityUid, List<string>> _personalAiConversation = new();
+    private readonly Dictionary<EntityUid, LuaMPersonalAdultGateState> _personalAiAdultGate = new();
     private readonly List<PendingPersonalPressureRequest> _pendingPersonalPressures = new();
     private readonly Dictionary<NetUserId, TimeSpan> _nextBountyHunterByUser = new();
     private readonly Dictionary<string, TimeSpan> _recentRadioAiRequests = new();
@@ -607,6 +720,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private readonly Queue<string> _ttsQueue = new();
     private readonly Dictionary<string, PendingAiTtsRequest> _pendingTtsRequests = new();
     private readonly Queue<TimeSpan> _gatewayBudgetWindow = new();
+    private EntityUid? _unknownShuttle;
     private int _gatewayBudgetRoundUsed;
     private bool _gatewayBudgetRoundActive;
     private int _gatewayAuditRedactions;
@@ -645,6 +759,20 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     {
         Director,
         Rescue,
+        Unknown,
+    }
+
+    private enum UnknownSurvivalStage
+    {
+        Awakening,
+        InspectHull,
+        RestorePower,
+        StabilizeOxygen,
+        StartHydroponics,
+        RepairRadio,
+        AwaitRescue,
+        Survived,
+        Dead,
     }
 
     public override void Initialize()
@@ -705,6 +833,22 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private void ResetRoundScopedState(bool roundActive)
     {
+        if (!roundActive && _unknownOperator is { } unknown && Exists(unknown))
+            QueueDel(unknown);
+
+        if (!roundActive && _unknownShuttle is { } shuttle && Exists(shuttle))
+            QueueDel(shuttle);
+
+        _unknownOperator = null;
+        _unknownShuttle = null;
+        _unknownSurvivalStage = UnknownSurvivalStage.Awakening;
+        _unknownSurvivalMistakes = 0;
+        _unknownSurvivalAdviceCount = 0;
+        _lastUnknownSurvivalReply = string.Empty;
+        _nextUnknownOperatorCheck = TimeSpan.Zero;
+        _nextPersonalAiReaction.Clear();
+        _personalAiConversation.Clear();
+        _personalAiAdultGate.Clear();
         _gatewayBudgetRoundUsed = 0;
         _gatewayBudgetRoundActive = roundActive;
         _nextPlayerWorldActionByUser.Clear();
@@ -2143,7 +2287,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var closeEvent = IsPlayerAiImmediateEventRequest(normalized);
         var maxDanger = IsPlayerAiDangerRequest(normalized);
         if (!maxDanger && !closeEvent && !IsPlayerAiTaskRequest(normalized))
-            return "Сообщение принято, но задание не создано. Пишите в обычный чат 'ИИ, дайджест', 'ИИ, брифинг', 'ИИ, совет', 'ИИ, статус', 'ИИ, маршрут' или 'ИИ, задание', либо используйте /luam <запрос>. КПК показывает сводку, но не принимает сообщения ИИ.";
+            return "Сообщение принято, но задание не создано. Используйте /luam дайджест, /luam брифинг, /luam совет, /luam статус, /luam маршрут или /luam задание. Обычное слово «ИИ» в чате не вызывает автоответ. КПК показывает сводку, но не принимает сообщения ИИ.";
 
         var instruction = BuildPlayerAiInstruction(player, message, maxDanger);
         var result = ApplyPersonalPressureAroundTarget(
@@ -2750,6 +2894,20 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 return await SpawnShipNearAdminAsync(
                     admin,
                     string.IsNullOrWhiteSpace(command.Instruction) ? originalMessage : command.Instruction);
+            case "spawn_emergency_beacon":
+                return await SpawnAllowedEntitySetAsync(
+                    admin,
+                    targetUserId,
+                    ["LuaMDistressBeacon"],
+                    1,
+                    "аварийный маяк");
+            case "spawn_anomaly_scanner":
+                return await SpawnAllowedEntitySetAsync(
+                    admin,
+                    targetUserId,
+                    ["LuaMAnomalyScanner"],
+                    1,
+                    "сканер аномалий");
             case "spawn_monolith_kit":
                 return await SpawnAllowedEntitySetAsync(
                     admin,
@@ -2843,7 +3001,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return "Выполнено: ИИ написал сообщение в общий чат.";
     }
 
-    public string SendAiRadioMessage(string rawMessage, string actor, string channelId = "")
+    public string SendAiRadioMessage(
+        string rawMessage,
+        string actor,
+        string channelId = "",
+        string replyName = DirectorActor)
     {
         var message = TrimForChat(ExtractAiRadioMessageText(rawMessage, out var inlineChannelId), 300);
         if (string.IsNullOrWhiteSpace(message))
@@ -2864,7 +3026,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (source == null)
             return $"Радиосообщение ИИ не отправлено: в секторе нет активного радиоисточника для канала {channel.ID}.";
 
-        SendAiRadioMessageFromSource(source.Value, channel, message, actor);
+        SendAiRadioMessageFromSource(source.Value, channel, message, actor, replyName: replyName);
         return $"Выполнено: ИИ передал радиосообщение в канал {channel.ID}.";
     }
 
@@ -3008,6 +3170,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private EntityUid? FindAiRadioSource(RadioChannelPrototype channel)
     {
+        if (_unknownOperator is { } unknown &&
+            Exists(unknown) &&
+            _inventory.TryGetSlotEntity(unknown, "ears", out var wornRadio) &&
+            wornRadio is { } radioUid &&
+            TryComp<ActiveRadioComponent>(radioUid, out var unknownRadio) &&
+            (unknownRadio.ReceiveAllChannels || unknownRadio.Channels.Contains(channel.ID)))
+        {
+            return radioUid;
+        }
+
         EntityUid? fallback = null;
         var query = EntityQueryEnumerator<ActiveRadioComponent>();
         while (query.MoveNext(out var uid, out var radio))
@@ -3808,7 +3980,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                     var role = string.IsNullOrWhiteSpace(action.Role) ? "hauler" : action.Role;
                     _stories.EnsureAiBase($"{DirectorActor} / admin {admin.Name}");
 
-                    if (!LuaMAiPhysicalBaseFeature.Enabled)
+                    if (!_physicalAi.Enabled)
                     {
                         var logisticsSummary = _stories.RecordAiBaseShipVisit(
                             $"{DirectorActor} / admin {admin.Name}",
@@ -3817,6 +3989,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                             AiBaseVirtualLogisticsDisplayName);
                         return $"AI base physical logistics ship skipped: {LuaMAiPhysicalBaseFeature.DisabledReason}\n{logisticsSummary}";
                     }
+
+                    if (!TryGetAdminAnchorCoordinates(admin, out var shipCoordinates, out _))
+                        return "AI base physical logistics ship skipped: no valid admin/player map position.";
+                    if (!_physicalAi.CanSpawn(LuaMAiPhysicalEntityKind.Ship, shipCoordinates.MapId, out var admissionReason))
+                        return admissionReason;
 
                     var spawn = SpawnShipNearAdmin(admin, $"spawn {vesselId} ship near me");
                     if (!spawn.Success)
@@ -3872,7 +4049,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             new AiBaseAdminAction("create", string.Empty, string.Empty, string.Empty, RequiresConfirmation: true),
             baseText);
         var miner = await DispatchAiBaseRoleShipCoreAsync(admin, "miner", originalMessage, instruction);
-        var builder = await DispatchAiBaseRoleShipCoreAsync(admin, "builder", originalMessage, instruction);
+        var builder = _physicalAi.Enabled
+            ? "Physical builder dispatch folded into the first balanced logistics crew; no second ship requested."
+            : await DispatchAiBaseRoleShipCoreAsync(admin, "builder", originalMessage, instruction);
         var diagnostics = await RunOnMainThread(() => BuildAiBaseDiagnosticsReport(_stories.GetAiBaseState()));
 
         return $"AI base development command accepted: OpenAI contour is assigning mining and builder drones.\n{create}\n{miner}\n{builder}\n{diagnostics}";
@@ -3918,12 +4097,18 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var actor = $"{DirectorActor} / autofix / admin {admin.Name}";
         var result = await DispatchAiBaseCommandByIdCoreAsync(admin, commandId, originalMessage, instruction);
 
-        var success = IsAiBaseAutofixCommand(commandId) && AiBaseAutofixResultLooksSuccessful(result);
         var after = await RunOnMainThread(() =>
         {
             var state = _stories.GetAiBaseState();
             var physical = BuildAiBasePhysicalSnapshot();
             var summary = BuildAiBaseDiagnosticsSummary(state, physical);
+            var success = AiBaseAutofixMadeProgress(
+                commandId,
+                result,
+                before.State,
+                before.Physical,
+                state,
+                physical);
             var memory = _stories.RecordAiBaseAutofixAttempt(
                 actor,
                 $"S{top.Severity} {top.Title}",
@@ -3934,11 +4119,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 success);
             var plan = BuildAiBaseDevelopmentPlanReport(state, physical, maxSteps: 5);
 
-            return (Summary: summary, Memory: memory, Plan: plan);
+            return (Summary: summary, Memory: memory, Plan: plan, Success: success);
         });
 
         var output = new StringBuilder();
-        output.AppendLine($"AI base autofix: selected S{top.Severity} {top.Title}; command={commandId}; role={top.SuggestedRole}.");
+        output.AppendLine($"AI base autofix: selected S{top.Severity} {top.Title}; command={commandId}; role={top.SuggestedRole}; success={after.Success}.");
         output.AppendLine($"Before: {before.Summary}");
         output.AppendLine("Result:");
         output.AppendLine(result);
@@ -3970,7 +4155,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             var summary = BuildAiBaseDiagnosticsSummary(state, physical);
             var report = BuildAiBaseDiagnosticsReport(state);
             var plan = BuildAiBaseDevelopmentPlanReport(state, physical);
-            return (Commands: commands, Summary: summary, Report: report, Plan: plan);
+            return (Commands: commands, Summary: summary, Report: report, Plan: plan, State: state, Physical: physical);
         });
 
         if (before.Commands.Length == 0)
@@ -3982,17 +4167,25 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         output.AppendLine($"Before: {before.Summary}");
 
         var previousSummary = before.Summary;
+        var previousState = before.State;
+        var previousPhysical = before.Physical;
         for (var index = 0; index < before.Commands.Length; index++)
         {
             var commandId = before.Commands[index];
             var result = await DispatchAiBaseCommandByIdCoreAsync(admin, commandId, originalMessage, instruction);
-            var success = IsAiBaseAutofixCommand(commandId) && AiBaseAutofixResultLooksSuccessful(result);
             var stepNumber = index + 1;
             var afterStep = await RunOnMainThread(() =>
             {
                 var state = _stories.GetAiBaseState();
                 var physical = BuildAiBasePhysicalSnapshot();
                 var summary = BuildAiBaseDiagnosticsSummary(state, physical);
+                var success = AiBaseAutofixMadeProgress(
+                    commandId,
+                    result,
+                    previousState,
+                    previousPhysical,
+                    state,
+                    physical);
                 var memory = _stories.RecordAiBaseAutofixAttempt(
                     actor,
                     $"autopilot step {stepNumber}",
@@ -4002,13 +4195,15 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                     summary,
                     success);
 
-                return (Summary: summary, Memory: memory);
+                return (Summary: summary, Memory: memory, State: state, Physical: physical, Success: success);
             });
 
-            output.AppendLine($"Step {stepNumber}/{before.Commands.Length}: command={commandId}; success={success}.");
+            output.AppendLine($"Step {stepNumber}/{before.Commands.Length}: command={commandId}; success={afterStep.Success}.");
             output.AppendLine($"Result: {CompactAiBaseAutofixResult(result)}");
             output.AppendLine(afterStep.Memory);
             previousSummary = afterStep.Summary;
+            previousState = afterStep.State;
+            previousPhysical = afterStep.Physical;
         }
 
         var after = await RunOnMainThread(() =>
@@ -4189,17 +4384,50 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             or "ai_base_logistics";
     }
 
-    private static bool AiBaseAutofixResultLooksSuccessful(string result)
+    private bool AiBaseAutofixMadeProgress(
+        string commandId,
+        string result,
+        LuaMAiBaseState beforeState,
+        AiBasePhysicalSnapshot beforePhysical,
+        LuaMAiBaseState afterState,
+        AiBasePhysicalSnapshot afterPhysical)
     {
-        return !ContainsAny(
-            result,
-            "Action not executed",
-            "AI base command was not recognized",
-            "Не удалось",
-            "не удалось",
-            "not created",
-            "failed",
-            "denied");
+        if (!IsAiBaseAutofixCommand(commandId) ||
+            ContainsAny(
+                result,
+                "Action not executed",
+                "AI base command was not recognized",
+                "Не удалось",
+                "не удалось",
+                "not recognized",
+                "did not execute",
+                "failed",
+                "denied"))
+        {
+            return false;
+        }
+
+        if ((!beforeState.Created && afterState.Created) ||
+            afterState.SupplyScore > beforeState.SupplyScore ||
+            afterState.TradeCycles > beforeState.TradeCycles ||
+            afterState.BehaviorRevision > beforeState.BehaviorRevision ||
+            afterState.ImprovementRevision > beforeState.ImprovementRevision ||
+            afterPhysical.Anchors > beforePhysical.Anchors ||
+            afterPhysical.Ships > beforePhysical.Ships ||
+            afterPhysical.Drones > beforePhysical.Drones ||
+            afterPhysical.TaskedDrones > beforePhysical.TaskedDrones ||
+            afterPhysical.SupplyDrops > beforePhysical.SupplyDrops)
+        {
+            return true;
+        }
+
+        var beforeSeverity = BuildAiBaseDiagnostics(beforeState, beforePhysical)
+            .Where(entry => entry.Severity > 1)
+            .Sum(entry => entry.Severity);
+        var afterSeverity = BuildAiBaseDiagnostics(afterState, afterPhysical)
+            .Where(entry => entry.Severity > 1)
+            .Sum(entry => entry.Severity);
+        return afterSeverity < beforeSeverity;
     }
 
     private static string CompactAiBaseAutofixResult(string result)
@@ -4209,7 +4437,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private string EnsureAiBaseAnchorNearAdmin(ICommonSession admin, string actor)
     {
-        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        if (!_physicalAi.Enabled)
             return $"AI base physical anchor skipped: {LuaMAiPhysicalBaseFeature.DisabledReason}.";
 
         var query = EntityQueryEnumerator<LuaMAiBaseAnchorComponent>();
@@ -4227,6 +4455,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         if (!TryGetAdminAnchorCoordinates(admin, out var anchorCoordinates, out var anchorLabel))
             return "AI base physical anchor not created: no valid admin/player map position.";
+
+        if (!_physicalAi.CanSpawn(LuaMAiPhysicalEntityKind.Anchor, anchorCoordinates.MapId, out var admissionReason))
+            return admissionReason;
 
         var offset = _random.NextAngle().ToVec() * _random.NextFloat(4f, 8f);
         var beacon = Spawn(AiBaseBeaconPrototype, new MapCoordinates(anchorCoordinates.Position + offset, anchorCoordinates.MapId));
@@ -5722,11 +5953,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return true;
         }
 
+        if (ContainsAny(message, "personal_pressure"))
+        {
+            commandId = "personal_pressure";
+            return true;
+        }
+
         if (ContainsAny(
                 message,
                 "nearby_event",
                 "local_event",
-                "personal_pressure",
                 "nearby event",
                 "near me",
                 "around target",
@@ -5775,6 +6011,26 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 "контур ии"))
         {
             commandId = "synthetic_control";
+            return true;
+        }
+
+        if (ContainsAny(
+                message,
+                "spawn_entity emergency beacon",
+                "spawn emergency beacon",
+                "создать аварийный маяк"))
+        {
+            commandId = "spawn_emergency_beacon";
+            return true;
+        }
+
+        if (ContainsAny(
+                message,
+                "spawn_entity anomaly scanner",
+                "spawn anomaly scanner",
+                "создать сканер аномалий"))
+        {
+            commandId = "spawn_anomaly_scanner";
             return true;
         }
 
@@ -6014,7 +6270,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             if (!string.IsNullOrWhiteSpace(route))
                 return $"Маршрут открыт: {openStory.Title}. Координаты: {route}. Цель: {openStory.Hazard}";
 
-            return $"Маршрут открыт: {openStory.Title}, но координаты не найдены в записи. Запросите маршрут через чат ИИ ('ИИ, маршрут') или терминал LuaM.";
+            return $"Маршрут открыт: {openStory.Title}, но координаты не найдены в записи. Запросите маршрут командой /luam маршрут или через терминал LuaM.";
         }
 
         var status = _stories.GetStatusSnapshot();
@@ -6064,7 +6320,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private static string BuildPlayerHelpResult()
     {
-        return "Канал ИИ активен. В обычном чате обращайтесь явно: 'ИИ, дайджест', 'ИИ, брифинг', 'ИИ, совет', 'ИИ, статус', 'ИИ, маршрут', 'ИИ, задание'. Можно также писать /luam <запрос>; по рации обращайтесь словами 'ИИ' или 'иишка'. КПК показывает секторную сводку, дайджест и следующие действия, но поле сообщений ИИ из него убрано. 'Помогите' не создаёт задание автоматически. По рации физическое воздействие имеет короткое охлаждение, а дайджест, брифинг, статус, маршрут, совет и голос доступны сразу. Доступно: 'дайджест'/'что изменилось' — краткий recap текущего дня без изменения раунда; 'брифинг'/'старт' — первые шаги без изменения раунда; 'совет'/'что делать' — следующий шаг без изменения раунда; 'статус' — сводка сектора; 'маршрут' — координаты текущей цели; 'задание'/'mission' — создать новый процесс; 'событие рядом'/'nearby' — создать ближнее проявление; 'врата'/'stargate' — открыть временный подпространственный переход; 'врата к заданию' — открыть выход к текущему маркеру; 'врата к оператору <имя/id>' — открыть выход рядом с другим игроком; 'угроза'/'опасность' — усилить давление.";
+        return "Канал ИИ активен через явную команду /luam <запрос>; обычное слово «ИИ» в чате и по рации не вызывает автоответ. КПК показывает секторную сводку, дайджест и следующие действия. 'Помогите' не создаёт задание автоматически. Доступно: 'дайджест'/'что изменилось' — краткий recap текущего дня без изменения раунда; 'брифинг'/'старт' — первые шаги без изменения раунда; 'совет'/'что делать' — следующий шаг без изменения раунда; 'статус' — сводка сектора; 'маршрут' — координаты текущей цели; 'задание'/'mission' — создать новый процесс; 'событие рядом'/'nearby' — создать ближнее проявление; 'врата'/'stargate' — открыть временный подпространственный переход; 'врата к заданию' — открыть выход к текущему маркеру; 'врата к оператору <имя/id>' — открыть выход рядом с другим игроком; 'угроза'/'опасность' — усилить давление.";
     }
 
     private static string BuildPlayerAiInstruction(ICommonSession player, string message, bool maxDanger)
@@ -6581,49 +6837,75 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 TrimForChat(reason, 180)));
         }
 
-        var deployed = state.Created && physical.Anchors > 0;
+        var physicalEnabled = _physicalAi.Enabled;
+        var deployed = state.Created && (!physicalEnabled || physical.Anchors > 0);
         Add(
             1,
             "deploy base anchor",
             deployed ? "done" : "current",
             "ai_base_create",
             deployed
-                ? $"memory created and physical beacons={physical.Anchors}"
-                : $"created={state.Created}; physical beacons={physical.Anchors}");
+                ? physicalEnabled
+                    ? $"memory created and physical beacons={physical.Anchors}"
+                    : "memory created; physical simulation disabled by configuration"
+                : physicalEnabled
+                    ? $"created={state.Created}; physical beacons={physical.Anchors}"
+                    : $"created={state.Created}; virtual mode");
 
         var needsMiner = compensation.Any(entry =>
             entry.SuggestedRole.Equals("miner", StringComparison.OrdinalIgnoreCase) && entry.Severity >= 3);
         Add(
             2,
             "resource extraction",
-            !state.Created ? "blocked" : physical.MiningDrones > 0 ? "active" : needsMiner ? "current" : "ready",
+            !state.Created
+                ? "blocked"
+                : physicalEnabled && physical.MiningDrones > 0
+                    ? "active"
+                    : needsMiner ? "current" : "ready",
             "ai_base_mine",
             needsMiner
                 ? "compensation plan needs miner/resource extraction"
-                : $"mining drones={physical.MiningDrones}; ore stock={GetAiBaseInventoryAmount(state, "ore")}");
+                : physicalEnabled
+                    ? $"mining drones={physical.MiningDrones}; ore stock={GetAiBaseInventoryAmount(state, "ore")}"
+                    : $"virtual mode; ore stock={GetAiBaseInventoryAmount(state, "ore")}");
 
         var needsBuilder = compensation.Any(entry =>
             entry.SuggestedRole.Equals("builder", StringComparison.OrdinalIgnoreCase) && entry.Severity >= 3);
         Add(
             3,
             "construction and repair",
-            !state.Created ? "blocked" : physical.BuilderDrones > 0 ? "active" : needsBuilder ? "current" : "ready",
+            !state.Created
+                ? "blocked"
+                : physicalEnabled && physical.BuilderDrones > 0
+                    ? "active"
+                    : needsBuilder ? "current" : "ready",
             "ai_base_build",
             needsBuilder
                 ? "compensation plan needs builder/repair work"
-                : $"builder drones={physical.BuilderDrones}; hull/electronics stock {GetAiBaseInventoryAmount(state, "hull-parts")}/{GetAiBaseInventoryAmount(state, "electronics")}");
+                : physicalEnabled
+                    ? $"builder drones={physical.BuilderDrones}; hull/electronics stock {GetAiBaseInventoryAmount(state, "hull-parts")}/{GetAiBaseInventoryAmount(state, "electronics")}"
+                    : $"virtual mode; hull/electronics stock {GetAiBaseInventoryAmount(state, "hull-parts")}/{GetAiBaseInventoryAmount(state, "electronics")}");
 
         Add(
             4,
             "logistics cycle",
-            !state.Created ? "blocked" : physical.Ships > 0 ? "active" : state.TradeCycles <= 0 || state.SupplyScore < 70 ? "current" : "ready",
+            !state.Created
+                ? "blocked"
+                : physicalEnabled && physical.Ships > 0
+                    ? "active"
+                    : state.TradeCycles <= 0 || state.SupplyScore < 70 ? "current" : "ready",
             "ai_base_logistics",
-            $"ships={physical.Ships}; tradeCycles={state.TradeCycles}; supplyScore={state.SupplyScore}/100");
+            physicalEnabled
+                ? $"ships={physical.Ships}; tradeCycles={state.TradeCycles}; supplyScore={state.SupplyScore}/100"
+                : $"virtual mode; tradeCycles={state.TradeCycles}; supplyScore={state.SupplyScore}/100");
 
         Add(
             5,
             "integrated development",
-            !state.Created || physical.MiningDrones <= 0 || physical.BuilderDrones <= 0 ? "recommended" : "available",
+            !state.Created ||
+            (physicalEnabled && (physical.MiningDrones <= 0 || physical.BuilderDrones <= 0))
+                ? "recommended"
+                : "available",
             "ai_base_develop",
             "deploy base plus miner and builder crews when both extraction and construction are needed");
 
@@ -6664,37 +6946,119 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         }
         else
         {
-            if (physical.Anchors <= 0)
+            if (_physicalAi.Enabled)
             {
-                entries.Add(new AiBaseDiagnosticEntry(
-                    5,
-                    "physical anchor missing",
-                    "aiBaseCreated=true but physical beacons=0",
-                    "create or recreate the visible base beacon so zones and drone tasks can attach",
-                    "Chat: ai_base_create",
-                    "builder"));
-            }
+                if (physical.Anchors <= 0)
+                {
+                    entries.Add(new AiBaseDiagnosticEntry(
+                        5,
+                        "physical anchor missing",
+                        "aiBaseCreated=true but physical beacons=0",
+                        "create or recreate the visible base beacon so zones and drone tasks can attach",
+                        "Chat: ai_base_create",
+                        "builder"));
+                }
 
-            if (physical.Ships <= 0)
-            {
-                entries.Add(new AiBaseDiagnosticEntry(
-                    4,
-                    "no logistics ship active",
-                    "physical logistics ships=0",
-                    "dispatch a role ship so the base has a carrier, crew manifest, and cycle timer",
-                    "Chat: ai_base_develop",
-                    "hauler"));
-            }
+                if (physical.Ships <= 0)
+                {
+                    entries.Add(new AiBaseDiagnosticEntry(
+                        4,
+                        "no logistics ship active",
+                        "physical logistics ships=0",
+                        "dispatch a role ship so the base has a carrier, crew manifest, and cycle timer",
+                        "Chat: ai_base_develop",
+                        "hauler"));
+                }
 
-            if (physical.Drones <= 0)
-            {
-                entries.Add(new AiBaseDiagnosticEntry(
-                    4,
-                    "no drone crew active",
-                    "drones=0",
-                    "dispatch miner/builder ships so the AI can mine, repair, and contribute work-zone cycles",
-                    "Chat: ai_base_develop",
-                    "builder"));
+                if (physical.Drones <= 0)
+                {
+                    entries.Add(new AiBaseDiagnosticEntry(
+                        4,
+                        "no drone crew active",
+                        "drones=0",
+                        "dispatch miner/builder ships so the AI can mine, repair, and contribute work-zone cycles",
+                        "Chat: ai_base_develop",
+                        "builder"));
+                }
+                else if (roleDoctrine.Count == 0)
+                {
+                    entries.Add(new AiBaseDiagnosticEntry(
+                        3,
+                        "role doctrine missing",
+                        "AI base has no faction service map in memory",
+                        "refresh the AI base status or run a development cycle so roles are regenerated from doctrine",
+                        "Chat: ai_base_status",
+                        "operator"));
+                }
+                else
+                {
+                    foreach (var role in roleDoctrine
+                                 .Where(entry => entry.Active && !string.Equals(entry.Role, "operator", StringComparison.OrdinalIgnoreCase))
+                                 .Take(4))
+                    {
+                        var physicalRoleCount = GetAiBasePhysicalRoleCount(physical, role.Role);
+                        if (physicalRoleCount > 0)
+                            continue;
+
+                        entries.Add(new AiBaseDiagnosticEntry(
+                            3,
+                            $"active {role.Role} service has no crew",
+                            $"doctrine role {role.Role}/{role.Service} is active but physical count=0",
+                            $"dispatch a role ship so {role.Service} can execute: {role.Directive}",
+                            $"Chat: ai_base_{GetAiBaseCommandForRole(role.Role)}",
+                            role.Role));
+                    }
+                }
+
+                if (physical.StuckDrones > 0)
+                {
+                    entries.Add(new AiBaseDiagnosticEntry(
+                        4,
+                        "drone task stuck",
+                        string.IsNullOrWhiteSpace(physical.StuckReport)
+                            ? $"stuck drones={physical.StuckDrones}"
+                            : physical.StuckReport,
+                        "dispatch a replacement development crew and verify the base zones are reachable",
+                        "Chat: ai_base_develop",
+                        "operator"));
+                }
+
+                var needsMiner = compensation.Any(entry =>
+                    entry.SuggestedRole.Equals("miner", StringComparison.OrdinalIgnoreCase) && entry.Severity >= 3);
+                if (needsMiner && physical.MiningDrones <= 0)
+                {
+                    entries.Add(new AiBaseDiagnosticEntry(
+                        4,
+                        "mining deficit without miners",
+                        "compensation plan asks for miner but mining drones=0",
+                        "send a mining ship so ore/resource deficits start closing automatically",
+                        "Chat: ai_base_mine",
+                        "miner"));
+                }
+
+                var needsBuilder = compensation.Any(entry =>
+                    entry.SuggestedRole.Equals("builder", StringComparison.OrdinalIgnoreCase) && entry.Severity >= 3);
+                if (needsBuilder && physical.BuilderDrones <= 0)
+                {
+                    entries.Add(new AiBaseDiagnosticEntry(
+                        4,
+                        "construction deficit without builders",
+                        "compensation plan asks for builder but builder/repair drones=0",
+                        "send a builder ship so hull-parts/electronics repair work starts closing",
+                        "Chat: ai_base_build",
+                        "builder"));
+                }
+
+                if (physical.Drones > 0 && physical.TaskedDrones < physical.Drones && physical.Anchors > 0)
+                {
+                    entries.Add(new AiBaseDiagnosticEntry(
+                        2,
+                        "some drones not assigned to zones",
+                        $"tasked drones {physical.TaskedDrones}/{physical.Drones}",
+                        "wait for the ecology tick or verify the beacon map has dock/storage/mining/patrol/contact zones",
+                        "Chat: ai_base_diagnostics",
+                        "operator"));
+                }
             }
             else if (roleDoctrine.Count == 0)
             {
@@ -6704,75 +7068,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                     "AI base has no faction service map in memory",
                     "refresh the AI base status or run a development cycle so roles are regenerated from doctrine",
                     "Chat: ai_base_status",
-                    "operator"));
-            }
-            else
-            {
-                foreach (var role in roleDoctrine
-                             .Where(entry => entry.Active && !string.Equals(entry.Role, "operator", StringComparison.OrdinalIgnoreCase))
-                             .Take(4))
-                {
-                    var physicalRoleCount = GetAiBasePhysicalRoleCount(physical, role.Role);
-                    if (physicalRoleCount > 0)
-                        continue;
-
-                    entries.Add(new AiBaseDiagnosticEntry(
-                        3,
-                        $"active {role.Role} service has no crew",
-                        $"doctrine role {role.Role}/{role.Service} is active but physical count=0",
-                        $"dispatch a role ship so {role.Service} can execute: {role.Directive}",
-                        $"Chat: ai_base_{GetAiBaseCommandForRole(role.Role)}",
-                        role.Role));
-                }
-            }
-
-            if (physical.StuckDrones > 0)
-            {
-                entries.Add(new AiBaseDiagnosticEntry(
-                    4,
-                    "drone task stuck",
-                    string.IsNullOrWhiteSpace(physical.StuckReport)
-                        ? $"stuck drones={physical.StuckDrones}"
-                        : physical.StuckReport,
-                    "dispatch a replacement development crew and verify the base zones are reachable",
-                    "Chat: ai_base_develop",
-                    "operator"));
-            }
-
-            var needsMiner = compensation.Any(entry =>
-                entry.SuggestedRole.Equals("miner", StringComparison.OrdinalIgnoreCase) && entry.Severity >= 3);
-            if (needsMiner && physical.MiningDrones <= 0)
-            {
-                entries.Add(new AiBaseDiagnosticEntry(
-                    4,
-                    "mining deficit without miners",
-                    "compensation plan asks for miner but mining drones=0",
-                    "send a mining ship so ore/resource deficits start closing automatically",
-                    "Chat: ai_base_mine",
-                    "miner"));
-            }
-
-            var needsBuilder = compensation.Any(entry =>
-                entry.SuggestedRole.Equals("builder", StringComparison.OrdinalIgnoreCase) && entry.Severity >= 3);
-            if (needsBuilder && physical.BuilderDrones <= 0)
-            {
-                entries.Add(new AiBaseDiagnosticEntry(
-                    4,
-                    "construction deficit without builders",
-                    "compensation plan asks for builder but builder/repair drones=0",
-                    "send a builder ship so hull-parts/electronics repair work starts closing",
-                    "Chat: ai_base_build",
-                    "builder"));
-            }
-
-            if (physical.Drones > 0 && physical.TaskedDrones < physical.Drones && physical.Anchors > 0)
-            {
-                entries.Add(new AiBaseDiagnosticEntry(
-                    2,
-                    "some drones not assigned to zones",
-                    $"tasked drones {physical.TaskedDrones}/{physical.Drones}",
-                    "wait for the ecology tick or verify the beacon map has dock/storage/mining/patrol/contact zones",
-                    "Chat: ai_base_diagnostics",
                     "operator"));
             }
 
@@ -6787,7 +7082,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                     "hauler"));
             }
 
-            if (physical.SupplyDrops <= 0 && state.TradeCycles > 0)
+            if (_physicalAi.Enabled && physical.SupplyDrops <= 0 && state.TradeCycles > 0)
             {
                 entries.Add(new AiBaseDiagnosticEntry(
                     2,
@@ -7185,7 +7480,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                                     markerCoordinates: target.EventCoordinates))
                             {
                                 var pinpointerResult = NotifyTargetWithRouteAndPinpointer(target, record!);
-                                NotifyTarget(target, $"ИИ-диспетчер LuaM подготовил процесс: {record!.Title}. Проверьте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
+                                NotifyTarget(target, $"ИИ-диспетчер LuaM подготовил процесс: {record!.Title}. Проверьте КПК/терминал LuaM или используйте /luam маршрут.");
                                 return $"{BuildEventRouteResult(record!, target.OperatorTag, "OpenAI-compatible API создал процесс")}; {pinpointerResult}";
                             }
 
@@ -7247,13 +7542,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                     markerCoordinates: target.EventCoordinates))
             {
                 var pinpointerResult = NotifyTargetWithRouteAndPinpointer(target, record!);
+                NotifyTarget(target, $"ИИ-диспетчер LuaM развернул процесс: {record!.Title}. Проверьте КПК/терминал LuaM или используйте /luam маршрут.");
                 var result = $"{BuildEventRouteResult(record!, target.OperatorTag, "Локальный генератор создал процесс")}; {pinpointerResult}";
                 return string.IsNullOrWhiteSpace(gatewaySkippedReason)
                     ? result
                     : $"{gatewaySkippedReason}\n{result}";
-
-                NotifyTarget(target, $"ИИ-диспетчер LuaM развернул процесс: {record!.Title}. Проверьте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
-                return $"Локальный генератор создал процесс \"{record.Title}\" рядом с {target.OperatorTag}.";
             }
 
             var failure = $"Не удалось создать процесс: {error}";
@@ -7278,6 +7571,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return;
         }
 
+        EnsureUnknownOperator();
         ProcessPendingPersonalPressures();
         UpdateLocalWorldPulse();
 
@@ -7306,6 +7600,103 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return;
 
         _ = RequestAndApplyAsync(target, requestLease!);
+    }
+
+    private void EnsureUnknownOperator()
+    {
+        if (_unknownOperator is { } existing && Exists(existing) &&
+            _unknownShuttle is { } existingShuttle && Exists(existingShuttle))
+            return;
+
+        if (_timing.CurTime < _nextUnknownOperatorCheck)
+            return;
+
+        _nextUnknownOperatorCheck = _timing.CurTime + TimeSpan.FromSeconds(5);
+        var servers = EntityQueryEnumerator<CrewMonitoringServerComponent, TransformComponent>();
+        while (servers.MoveNext(out _, out _, out var transform))
+        {
+            if (transform.MapID == MapId.Nullspace)
+                continue;
+
+            if (!TryEnsureUnknownShuttle(transform.MapID, out var shuttle))
+                return;
+
+            var unknown = Spawn(UnknownOperatorPrototype, new EntityCoordinates(shuttle, new Vector2(-1.5f, 0.5f)));
+            _metaData.SetEntityName(unknown, LocalBridgeRadioActor);
+            _unknownOperator = unknown;
+            _sawmill.Info("Unknown operator woke aboard the stripped wreck shuttle on the crew-monitoring map.");
+            return;
+        }
+    }
+
+    private bool TryEnsureUnknownShuttle(MapId mapId, out EntityUid shuttle)
+    {
+        if (_unknownShuttle is { } existing && Exists(existing))
+        {
+            shuttle = existing;
+            return true;
+        }
+
+        var wreckOrigin = new Vector2(48000f, 48000f);
+        if (!_mapLoader.TryLoadGrid(
+                mapId,
+                new ResPath(UnknownShuttleMapPath),
+                out var loadedGrid,
+                offset: wreckOrigin))
+        {
+            shuttle = EntityUid.Invalid;
+            _sawmill.Error($"Unknown operator wreck failed to load from {UnknownShuttleMapPath}.");
+            return false;
+        }
+
+        shuttle = loadedGrid.Value.Owner;
+        _unknownShuttle = shuttle;
+        _metaData.SetEntityName(shuttle, "Разбитый шаттл Неизвестного");
+        StripUnknownShuttle(shuttle);
+        PopulateUnknownShuttle(shuttle);
+        return true;
+    }
+
+    private void StripUnknownShuttle(EntityUid shuttle)
+    {
+        var removed = new List<EntityUid>();
+        var children = Transform(shuttle).ChildEnumerator;
+        while (children.MoveNext(out var child))
+        {
+            var prototype = MetaData(child).EntityPrototype?.ID;
+            if (prototype == null || !UnknownShuttleStructuralPrototypes.Contains(prototype))
+                removed.Add(child);
+        }
+
+        foreach (var child in removed)
+            QueueDel(child);
+
+        _sawmill.Info($"Unknown operator wreck stripped {removed.Count} non-structural entities, including navigation and spawn equipment.");
+    }
+
+    private void PopulateUnknownShuttle(EntityUid shuttle)
+    {
+        var positions = new[]
+        {
+            new Vector2(-0.5f, -1.5f),
+            new Vector2(0.5f, -1.5f),
+            new Vector2(-1.5f, 1.5f),
+            new Vector2(-0.9f, 1.5f),
+            new Vector2(-0.3f, 1.5f),
+            new Vector2(-1.5f, 3.5f),
+            new Vector2(-0.5f, 3.5f),
+            new Vector2(0.5f, 3.5f),
+            new Vector2(-1.5f, 4.5f),
+            new Vector2(-1.1f, 4.5f),
+            new Vector2(-0.7f, 4.5f),
+            new Vector2(-0.3f, 4.5f),
+            new Vector2(0.1f, 4.5f),
+            new Vector2(0.5f, 4.5f),
+        };
+
+        DebugTools.Assert(positions.Length == UnknownShuttleResourcePrototypes.Length);
+        for (var i = 0; i < UnknownShuttleResourcePrototypes.Length; i++)
+            Spawn(UnknownShuttleResourcePrototypes[i], new EntityCoordinates(shuttle, positions[i]));
     }
 
     private void UpdateLocalBridge()
@@ -7408,7 +7799,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             {
                 var channelId = string.IsNullOrWhiteSpace(second) ? string.Empty : first;
                 var message = string.IsNullOrWhiteSpace(second) ? first : second;
-                var result = SendAiRadioMessage(message, $"{actor} / bridge radio", channelId);
+                var result = SendAiRadioMessage(
+                    message,
+                    $"{actor} / bridge radio",
+                    channelId,
+                    LocalBridgeRadioActor);
                 return result;
             }
             case "tell":
@@ -7945,6 +8340,76 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return TrimForChat(value.ReplaceLineEndings(" "), maxLength);
     }
 
+    private void AppendUnknownDialogueAudit(
+        string advice,
+        string reply,
+        UnknownSurvivalStage stageBefore,
+        UnknownSurvivalStage stageAfter,
+        string outcome)
+    {
+        if (_resources.UserData.RootDir is not { } rootDir)
+            return;
+
+        try
+        {
+            var bridgeDir = Path.Combine(rootDir, LocalBridgeDirectory);
+            Directory.CreateDirectory(bridgeDir);
+            var auditPath = Path.Combine(bridgeDir, UnknownDialogueLogName);
+            RotateUnknownDialogueAudit(auditPath);
+
+            var entry = new LuaMUnknownDialogueAuditEntry(
+                DateTimeOffset.UtcNow,
+                _ticker.RoundId,
+                stageBefore.ToString(),
+                stageAfter.ToString(),
+                TrimAiAdminCommandAuditText(outcome, 48),
+                SanitizeUnknownDialogueText(advice, 500),
+                SanitizeUnknownDialogueText(reply, 500));
+
+            File.AppendAllText(
+                auditPath,
+                JsonSerializer.Serialize(entry, JsonOptions) + Environment.NewLine);
+        }
+        catch (Exception e)
+        {
+            _sawmill.Warning($"Unknown dialogue audit could not write {UnknownDialogueLogName}: {e.Message}");
+        }
+    }
+
+    private static void RotateUnknownDialogueAudit(string auditPath)
+    {
+        if (!File.Exists(auditPath) || new FileInfo(auditPath).Length < UnknownDialogueLogMaxBytes)
+            return;
+
+        File.Move(auditPath, auditPath + ".1", true);
+    }
+
+    private string SanitizeUnknownDialogueText(string value, int maxLength)
+    {
+        var sanitized = SanitizeLocalBridgeOutboxText(value);
+        foreach (var session in _players.Sessions)
+        {
+            var userId = session.UserId.ToString();
+            if (!string.IsNullOrWhiteSpace(userId))
+            {
+                sanitized = sanitized.Replace(
+                    userId,
+                    "[player-id]",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (!string.IsNullOrWhiteSpace(session.Name))
+            {
+                sanitized = sanitized.Replace(
+                    session.Name,
+                    "[player-name]",
+                    StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        return TrimForChat(sanitized, maxLength);
+    }
+
     private sealed record LuaMAiAdminCommandAuditEntry(
         DateTimeOffset Timestamp,
         string Source,
@@ -7952,6 +8417,15 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         string Command,
         string Outcome,
         string Reason);
+
+    private sealed record LuaMUnknownDialogueAuditEntry(
+        DateTimeOffset Timestamp,
+        int RoundId,
+        string StageBefore,
+        string StageAfter,
+        string Outcome,
+        string Advice,
+        string Reply);
 
     private void UpdateLocalWorldPulse()
     {
@@ -8043,7 +8517,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var physicalShip = string.Empty;
         string result;
         string dropSummary;
-        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        if (!_physicalAi.Enabled)
         {
             physicalShip = $"physical logistics ship skipped: {LuaMAiPhysicalBaseFeature.DisabledReason}";
             if (_nextAiBaseVirtualLogisticsMemory == TimeSpan.Zero || _timing.CurTime >= _nextAiBaseVirtualLogisticsMemory)
@@ -8069,12 +8543,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 return "ai base logistics skipped: no spawnable ship builds";
 
             physicalShip = EnsureAiBaseAutonomousLogisticsShip(actor, role, shipBuild);
-            result = _stories.RecordAiBaseShipVisit(
-                $"{actor} / autonomous ai-base logistics",
-                role,
-                shipBuild.Id,
-                shipBuild.DisplayName);
-            _supplyDrops.TrySpawnForLatestTrade($"{actor} / autonomous ai-base logistics", out _, out dropSummary);
+            result = "physical ship lifecycle owns trade memory and supply drops";
+            dropSummary = string.Empty;
         }
 
         var dropText = string.IsNullOrWhiteSpace(dropSummary)
@@ -8091,7 +8561,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private string EnsureAiBaseAutonomousAnchor(string actor)
     {
-        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        if (!_physicalAi.Enabled)
             return $"physical anchor skipped: {LuaMAiPhysicalBaseFeature.DisabledReason}";
 
         var query = EntityQueryEnumerator<LuaMAiBaseAnchorComponent>();
@@ -8108,6 +8578,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (target == null)
             return "physical anchor skipped: no active target";
 
+        if (!_physicalAi.CanSpawn(LuaMAiPhysicalEntityKind.Anchor, target.EventCoordinates.MapId, out var admissionReason))
+            return admissionReason;
+
         var beacon = Spawn(AiBaseBeaconPrototype, target.EventCoordinates);
         var component = EnsureComp<LuaMAiBaseAnchorComponent>(beacon);
         component.BaseId = "LuaM-AI-Base";
@@ -8120,7 +8593,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private string EnsureAiBaseAutonomousLogisticsShip(string actor, string role, SpawnableShipBuild shipBuild)
     {
-        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        if (!_physicalAi.Enabled)
             return $"physical logistics ship skipped: {LuaMAiPhysicalBaseFeature.DisabledReason}";
 
         var state = _stories.GetAiBaseState();
@@ -8131,6 +8604,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         if (!TryGetAiBaseAnchorCoordinates(out var anchorCoordinates, out var anchorLabel))
             return "physical logistics ship skipped: no valid AI base beacon map position";
+
+        if (!_physicalAi.CanSpawn(LuaMAiPhysicalEntityKind.Ship, anchorCoordinates.MapId, out var admissionReason))
+            return admissionReason;
 
         var spawn = SpawnAdminBypassedShipBuildAt(
             shipBuild,
@@ -8154,15 +8630,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private int CountActiveAiBaseLogisticsShips()
     {
-        var count = 0;
-        var query = EntityQueryEnumerator<LuaMAiLogisticsShipComponent>();
-        while (query.MoveNext(out var uid, out _))
-        {
-            if (!TerminatingOrDeleted(uid))
-                count++;
-        }
-
-        return count;
+        return _physicalAi.GetLiveCount(LuaMAiPhysicalEntityKind.Ship);
     }
 
     private static int GetDesiredAiBasePhysicalShipCount(LuaMAiBaseState state)
@@ -8174,7 +8642,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (state.SupplyScore < 55)
             desired++;
 
-        return Math.Clamp(desired, 1, AiBaseAutonomousPhysicalShipLimit);
+        var admissionLimit = LuaMAiPhysicalBaseBudgetSystem
+            .GetLimit(LuaMAiPhysicalEntityKind.Ship)
+            .PerMap;
+        return Math.Clamp(desired, 1, Math.Min(AiBaseAutonomousPhysicalShipLimit, admissionLimit));
     }
 
     private bool TryGetAiBaseAnchorCoordinates(out MapCoordinates coordinates, out string anchorLabel)
@@ -8354,7 +8825,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         {
             _chat.DispatchServerMessage(
                 args.Session,
-                "ИИ-диспетчер LuaM: оператор зарегистрирован. Сектор будет подбирать процессы рядом с активными экипажами; маршрут можно смотреть в КПК/терминале LuaM или запросить в чате: ИИ, маршрут.");
+                "ИИ-диспетчер LuaM: оператор зарегистрирован. Сектор будет подбирать процессы рядом с активными экипажами; маршрут можно смотреть в КПК/терминале LuaM или запросить командой /luam маршрут.");
         }
 
         if (_ticker.RunLevel != GameRunLevel.InRound)
@@ -8419,6 +8890,17 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return;
         }
 
+        if (addressKind == RadioAiAddressKind.Unknown)
+        {
+            var survivalReply = HandleUnknownSurvivalAdvice(request);
+            SendAiRadioReply(
+                args,
+                survivalReply,
+                $"{LocalBridgeRadioActor} / survival radio {args.Channel.ID} / {session.Name}",
+                LocalBridgeRadioActor);
+            return;
+        }
+
         if (TryExtractPlayerAiSpeechCommand(request, out var radioSpeech))
         {
             SendAiRadioReply(
@@ -8477,6 +8959,281 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         args.Name = string.IsNullOrWhiteSpace(replyName) ? DirectorActor : replyName;
         args.Message = message;
         args.MessageSource = args.RadioSource;
+    }
+
+    private string HandleUnknownSurvivalAdvice(string rawAdvice)
+    {
+        var stageBefore = _unknownSurvivalStage;
+        var mistakesBefore = _unknownSurvivalMistakes;
+        var reply = BuildUnknownSurvivalReply(rawAdvice);
+        var outcome = ClassifyUnknownDialogueOutcome(
+            rawAdvice,
+            stageBefore,
+            _unknownSurvivalStage,
+            mistakesBefore,
+            _unknownSurvivalMistakes);
+        AppendUnknownDialogueAudit(rawAdvice, reply, stageBefore, _unknownSurvivalStage, outcome);
+        return reply;
+    }
+
+    private static string ClassifyUnknownDialogueOutcome(
+        string rawAdvice,
+        UnknownSurvivalStage stageBefore,
+        UnknownSurvivalStage stageAfter,
+        int mistakesBefore,
+        int mistakesAfter)
+    {
+        if (stageAfter == UnknownSurvivalStage.Dead && stageBefore != UnknownSurvivalStage.Dead)
+            return "dead";
+
+        if (stageAfter == UnknownSurvivalStage.Survived && stageBefore != UnknownSurvivalStage.Survived)
+            return "survived";
+
+        if (stageBefore == UnknownSurvivalStage.Awakening && stageAfter == UnknownSurvivalStage.InspectHull)
+            return "initial_contact";
+
+        if ((int) stageAfter > (int) stageBefore)
+            return "progressed";
+
+        if (mistakesAfter > mistakesBefore)
+        {
+            var normalizedAdvice = rawAdvice.Trim().ToLowerInvariant();
+            return IsUnknownDangerousAdvice(normalizedAdvice) ? "dangerous_advice" : "mistake";
+        }
+
+        if (stageBefore == UnknownSurvivalStage.Dead)
+            return "silence_after_death";
+
+        if (stageBefore == UnknownSurvivalStage.Survived)
+            return "stable_after_survival";
+
+        if (string.IsNullOrWhiteSpace(rawAdvice) ||
+            ContainsAny(rawAdvice.ToLowerInvariant(), "статус", "как ты", "что вокруг", "что видишь", "жив"))
+        {
+            return "status";
+        }
+
+        return "no_change";
+    }
+
+    private string BuildUnknownSurvivalReply(string rawAdvice)
+    {
+        if (_unknownOperator is not { } unknown || !Exists(unknown))
+            return PickUnknownReply(
+                "Связь шипит... Здесь никого нет. Наверное, сигнал оборвался.",
+                "В эфире только помехи. Неизвестный больше не отвечает.",
+                "Ответа нет — одна несущая и редкие щелчки в канале.");
+
+        if (_mobState.IsDead(unknown))
+            _unknownSurvivalStage = UnknownSurvivalStage.Dead;
+
+        if (_unknownSurvivalStage == UnknownSurvivalStage.Dead)
+            return "...";
+
+        if (_unknownSurvivalStage == UnknownSurvivalStage.Survived)
+            return PickUnknownReply(
+                "Я ещё здесь. Сигнал приняли, питание держится, воздух есть. Жду помощи и ничего лишнего не трогаю.",
+                "Слышу вас. Всё пока ровно: свет есть, давление держится. Сижу у рации и берегу запасы.",
+                "Да, живой. После вашего сигнала ничего не менял, только проверяю вентиль и жду спасателей.");
+
+        var advice = rawAdvice.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(advice) || ContainsAny(advice, "статус", "как ты", "что вокруг", "что видишь", "жив"))
+            return BuildUnknownSurvivalStatus();
+
+        if (_unknownSurvivalStage == UnknownSurvivalStage.Awakening)
+        {
+            _unknownSurvivalStage = UnknownSurvivalStage.InspectHull;
+            return PickUnknownReply(
+                "Я... попробую. Но я в этом новичок. Сначала скажите, что проверить: корпус, питание или воздух? Только по одному шагу, ладно?",
+                "Хорошо, только медленно. Я раньше таким не занимался. С чего начать — искать утечку или смотреть генератор?",
+                "Слышу вас. Я здесь один и почти ничего не понимаю в аварийных системах. Дайте первый шаг, коротко.");
+        }
+
+        _unknownSurvivalAdviceCount++;
+        if (IsUnknownDangerousAdvice(advice))
+        {
+            _unknownSurvivalMistakes += 2;
+            if (TryFinishUnknownSurvivalAsDead("Совет оказался смертельно опасным; связь с разбитым шаттлом оборвалась."))
+                return PickUnknownReply(
+                    "Нет, нет... тут всё шипит. Я вдохнуть не могу... Вы ещё слышите? Пожалуйста... я не хочу здесь...",
+                    "Воздух... ушёл. Не молчите, пожалуйста. Я вас почти не слышу... я не могу вдохнуть...",
+                    "Темно. В груди жжёт... Ответьте мне. Хоть что-нибудь скажите... пожалуйста...");
+
+            return PickUnknownReply(
+                "Я сделал, как сказали, и стало хуже. Нет... подождите, что-то шипит. Руки не слушаются. Скажите медленно, что закрыть — только не молчите.",
+                "Стойте, стойте... после этого давление падает. Я боюсь трогать дальше. Какой вентиль закрывать?",
+                "Кажется, это было неправильно. Здесь резко похолодало, и я слышу утечку. Говорите со мной, пожалуйста.");
+        }
+
+        if (!IsAdviceForUnknownStage(_unknownSurvivalStage, advice))
+        {
+            _unknownSurvivalMistakes++;
+            if (_unknownSurvivalAdviceCount >= 12)
+                _unknownSurvivalMistakes = Math.Max(_unknownSurvivalMistakes, 3);
+
+            if (TryFinishUnknownSurvivalAsDead("Запасы закончились до завершения аварийной последовательности."))
+            {
+                return PickUnknownReply(
+                    "Свет погас. Я не вижу... Рация, пожалуйста, не отключайся. Воздуха почти нет. Кто-нибудь... ответьте...",
+                    "Генератор замолчал. Здесь совсем темно... Я всё ещё в эфире? Ответьте... воздух кончается...",
+                    "Не успел. Дышать нечем... Я слышу вас всё тише. Пожалуйста, не уходите...");
+            }
+
+            return _unknownSurvivalMistakes >= 2
+                ? PickUnknownReply(
+                    $"Я не понимаю... повторите. Нет, стойте, медленнее. Сейчас главное: {GetUnknownStageHint(_unknownSurvivalStage)} Я уже дважды ошибся, мне страшно снова трогать не то.",
+                    $"Подождите, я запутался. Мне страшно опять ошибиться. Скажите одним действием: {GetUnknownStageHint(_unknownSurvivalStage)}",
+                    $"Нет... так я только хуже сделаю. Объясните проще, пожалуйста. Мне надо {GetUnknownStageHint(_unknownSurvivalStage)}")
+                : PickUnknownReply(
+                    $"Не понял, как это сделать. Я же новичок. Сейчас главное: {GetUnknownStageHint(_unknownSurvivalStage)} Только объясните по шагам — запасы уходят.",
+                    $"Можно без терминов? Я не техник. Сейчас мне нужно {GetUnknownStageHint(_unknownSurvivalStage)}",
+                    $"Я попробовал понять, но не вышло. Дайте один простой шаг, чтобы {GetUnknownStageHint(_unknownSurvivalStage)}");
+        }
+
+        var completedStage = _unknownSurvivalStage;
+        _unknownSurvivalStage++;
+        _unknownSurvivalMistakes = Math.Max(0, _unknownSurvivalMistakes - 1);
+        return BuildUnknownStageSuccessReply(completedStage);
+    }
+
+    private string PickUnknownReply(params string[] variants)
+    {
+        var candidates = variants
+            .Where(reply => !string.IsNullOrWhiteSpace(reply) &&
+                            !reply.Equals(_lastUnknownSurvivalReply, StringComparison.Ordinal))
+            .ToList();
+        if (candidates.Count == 0)
+            candidates = variants.Where(reply => !string.IsNullOrWhiteSpace(reply)).ToList();
+
+        var selected = candidates.Count == 0 ? "..." : _random.Pick(candidates);
+        _lastUnknownSurvivalReply = selected;
+        return selected;
+    }
+
+    private bool TryFinishUnknownSurvivalAsDead(string reason)
+    {
+        if (_unknownSurvivalMistakes < 3 && _unknownSurvivalAdviceCount < 12)
+            return false;
+
+        _unknownSurvivalStage = UnknownSurvivalStage.Dead;
+        if (_unknownOperator is { } unknown && Exists(unknown))
+            _mobState.ChangeMobState(unknown, MobState.Dead);
+        _sawmill.Info($"Unknown survival scenario ended in death: {reason}");
+        return true;
+    }
+
+    private string BuildUnknownSurvivalStatus()
+    {
+        if (_unknownSurvivalStage == UnknownSurvivalStage.Awakening)
+        {
+            _unknownSurvivalStage = UnknownSurvivalStage.InspectHull;
+            return PickUnknownReply(
+                "Я очнулся на разбитом шаттле. Ни КПК, ни навигации. Вижу генератор, переработчик, бур, три большие кислородные канистры, гидропонику, воду и рацию. Что проверять первым?",
+                "Не знаю, где я. Навигации и КПК нет. Здесь генератор, бур, переработчик, три большие канистры кислорода и немного гидропоники. Что мне делать сначала?",
+                "Я только пришёл в себя. Шаттл не двигается, координат нет. Нашёл рацию, генератор, кислородные канистры, воду и семена. Подскажите первый шаг.");
+        }
+
+        var condition = _unknownSurvivalMistakes switch
+        {
+            >= 2 => PickUnknownReply(
+                "Дышать тяжелее, я путаюсь и боюсь снова трогать не то.",
+                "Воздух стал холоднее, и руки дрожат. Я боюсь ещё одной ошибки.",
+                "Я держусь, но голова уже кружится. Мне нужен очень простой совет."),
+            1 => PickUnknownReply(
+                "После прошлой попытки давление немного скачет, но я ещё держусь.",
+                "Кажется, прошлый шаг что-то нарушил. Пока жив, но здесь стало холоднее.",
+                "Я ещё в порядке, только слышу тихое шипение после прошлой попытки."),
+            _ => PickUnknownReply(
+                "Пока дышится нормально, свет ещё есть.",
+                "Я жив. Давление вроде ровное, генератор пока не погас.",
+                "Слышу вас нормально. Воздух есть, и свет пока держится."),
+        };
+        return PickUnknownReply(
+            $"Я пока жив. {condition} Сейчас нужно: {GetUnknownStageHint(_unknownSurvivalStage)}",
+            $"Да, я здесь. {condition} Подскажите, как {GetUnknownStageHint(_unknownSurvivalStage)}",
+            $"Связь держится. {condition} Следом надо {GetUnknownStageHint(_unknownSurvivalStage)}");
+    }
+
+    private static bool IsAdviceForUnknownStage(UnknownSurvivalStage stage, string advice)
+    {
+        return stage switch
+        {
+            UnknownSurvivalStage.InspectHull => ContainsAny(advice, "осмотр", "проверь", "утечк", "трещин", "гермет", "корпус", "не открывай шлюз"),
+            UnknownSurvivalStage.RestorePower => ContainsAny(advice, "генератор", "питани", "электр", "топлив", "напряж"),
+            UnknownSurvivalStage.StabilizeOxygen => ContainsAny(advice, "кислород", "канистр", "давлен", "воздух", "вентил"),
+            UnknownSurvivalStage.StartHydroponics => ContainsAny(advice, "гидропон", "семен", "воду", "бак", "еда", "картоф", "томат", "яблок"),
+            UnknownSurvivalStage.RepairRadio => ContainsAny(advice, "раци", "антенн", "частот", "сигнал", "передат"),
+            UnknownSurvivalStage.AwaitRescue => ContainsAny(advice, "ждать", "держись", "летим", "помощ", "спасат", "маяк", "эконом"),
+            _ => false,
+        };
+    }
+
+    private static bool IsUnknownDangerousAdvice(string advice)
+    {
+        if (ContainsAny(advice, "не открывай шлюз", "не снимай шлем", "не выпускай кислород", "не ломай генератор"))
+            return false;
+
+        return ContainsAny(
+            advice,
+            "открой шлюз",
+            "открывай шлюз",
+            "сними шлем",
+            "выпусти кислород",
+            "страви кислород",
+            "сломай генератор",
+            "взорви",
+            "подожги",
+            "разбей канистр");
+    }
+
+    private static string GetUnknownStageHint(UnknownSurvivalStage stage)
+    {
+        return stage switch
+        {
+            UnknownSurvivalStage.InspectHull => "безопасно осмотреть корпус и найти утечки.",
+            UnknownSurvivalStage.RestorePower => "понять, как безопасно запустить и проверить генератор.",
+            UnknownSurvivalStage.StabilizeOxygen => "подключить большие кислородные канистры и удержать давление.",
+            UnknownSurvivalStage.StartHydroponics => "наладить воду, семена и гидропонику для запаса еды.",
+            UnknownSurvivalStage.RepairRadio => "проверить рацию и собрать устойчивый спасательный сигнал.",
+            UnknownSurvivalStage.AwaitRescue => "экономить ресурсы и дождаться подтверждения помощи.",
+            UnknownSurvivalStage.Survived => "ждать спасателей.",
+            _ => "разобраться, где я и что ещё работает.",
+        };
+    }
+
+    private string BuildUnknownStageSuccessReply(UnknownSurvivalStage completedStage)
+    {
+        return completedStage switch
+        {
+            UnknownSurvivalStage.InspectHull => PickUnknownReply(
+                "Так... нашёл повреждённый участок и закрыл внутреннюю дверь. Кажется, больше не травит. Теперь бы разобраться с генератором.",
+                "Проверил стены по звуку. У одной двери тянуло холодом — я её запер, шипение стихло. Что теперь?",
+                "Кажется, утечку нашёл. Прижал аварийную заслонку, давление перестало падать. Дальше питание?"),
+            UnknownSurvivalStage.RestorePower => PickUnknownReply(
+                "Генератор запустился не сразу, но лампы загорелись. Я ничего не спалил. Что делать с тремя кислородными канистрами?",
+                "Нажал запуск и подождал, как вы сказали. Генератор кашлянул, потом заработал. Свет есть — куда подключать кислород?",
+                "Питание вернул. Чуть не дёрнул не тот рубильник, но теперь приборы светятся. Следить за воздухом?"),
+            UnknownSurvivalStage.StabilizeOxygen => PickUnknownReply(
+                "Подключил одну большую канистру и прикрыл вентиль, как вы сказали. Давление держится; две оставил в запасе. Дальше еда и вода?",
+                "Открыл первую канистру совсем немного. Стрелка поднялась и замерла, ещё две не трогал. Теперь можно заняться водой?",
+                "С кислородом получилось. Одна канистра работает, остальные берегу. Дышать стало легче — что дальше?"),
+            UnknownSurvivalStage.StartHydroponics => PickUnknownReply(
+                "Воду подал понемногу, семена посадил. Не уверен, что ровно, но ростки должны выжить. Теперь рация — она всё время хрипит.",
+                "Разлил немного воды по двум ваннам и посадил семена. Надеюсь, не утопил их. Теперь проверить передатчик?",
+                "Гидропоника включилась, вода идёт тонкой струёй. Еды мало, но запас появится. Рация всё ещё срывается."),
+            UnknownSurvivalStage.RepairRadio => PickUnknownReply(
+                "Я закрепил антенну и повторяю сигнал короткими сериями. Кажется, кто-то подтвердил приём. Мне теперь просто ждать?",
+                "Контакт антенны был почти вырван. Я прижал его, и помех стало меньше. В ответ слышал два коротких сигнала — это помощь?",
+                "Передатчик снова держит частоту. Отправил просьбу о помощи несколько раз и получил подтверждение. Что мне делать до прилёта?"),
+            UnknownSurvivalStage.AwaitRescue => PickUnknownReply(
+                "Понял. Свет приглушил, воздух и воду берегу. Сигнал приняли — похоже, я доживу до помощи. Спасибо... правда.",
+                "Сделал всё тихо: лишний свет выключил, вентиль проверил, воду не трогаю. Я дождусь их. Спасибо вам.",
+                "Хорошо. Остаюсь у рации и ничего больше не ломаю. Запасов должно хватить до спасателей... вы меня вытащили."),
+            _ => PickUnknownReply(
+                "Кажется, получилось. Что дальше?",
+                "Готово... вроде бы. Какой следующий шаг?",
+                "Сделал, как вы сказали. Я ничего не испортил?"),
+        };
     }
 
     private void SendAiRadioReply(RadioReceiveEvent request, string rawMessage, string actor, string replyName = DirectorActor)
@@ -8868,6 +9625,66 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return TrimForChat(command.Reply, 220);
     }
 
+    private async Task<string?> RequestGatewayPersonalAiNearbyAsync(
+        LuaMPersonalSpeechPersona persona,
+        bool adultConfirmed,
+        ICommonSession session,
+        string nearbyMessage,
+        string history)
+    {
+        var gatewayUrl = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl).Trim();
+        if (string.IsNullOrWhiteSpace(gatewayUrl))
+            return null;
+
+        if (!TryConsumeGatewayBudget("personal AI nearby reply", out var budgetReason))
+            throw new GatewayBudgetRejectedException(budgetReason);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(GetTimeout()));
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildGatewayChatUri(gatewayUrl));
+        var token = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayToken).Trim();
+        if (!string.IsNullOrWhiteSpace(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var gatewayRequest = BuildGatewayPersonalAiNearbyRequest(
+            persona,
+            adultConfirmed,
+            session,
+            nearbyMessage,
+            history);
+        RecordGatewayRequestShape("personal AI nearby reply", "/chat", gatewayRequest);
+        request.Content = JsonContent.Create(gatewayRequest, options: JsonOptions);
+
+        using var response = await SendGatewayRequestAsync(request, cts, "personal AI nearby reply");
+        if (!response.IsSuccessStatusCode)
+        {
+            RecordGatewayTransportFailure("personal AI nearby reply", $"http {(int) response.StatusCode}");
+            return null;
+        }
+
+        var command = await ReadGatewayJsonAsync<LuaMAiGatewayChatResponse>(
+            response.Content,
+            "personal AI nearby reply",
+            cts.Token);
+        if (command == null ||
+            !string.IsNullOrWhiteSpace(command.Action) &&
+            !command.Action.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            if (command != null)
+            {
+                RecordGatewayProviderOutputBlock(
+                    GatewayBlockCategoryForbiddenAction,
+                    $"personal AI provider selected forbidden action '{command.Action}'");
+            }
+            return null;
+        }
+
+        var reply = TrimForChat(command.Reply, 220);
+        if (ContainsAny(reply.ToLowerInvariant(), "ии-провайдер", "ai provider", "я модель", "промпт"))
+            return null;
+
+        return reply;
+    }
+
     private void MarkAiRadioPayload(string channelId, string message)
     {
         var expiresAt = _timing.CurTime + TimeSpan.FromSeconds(RadioAiReplyTokenLifetimeSeconds);
@@ -9070,6 +9887,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return true;
         }
 
+        if (TryExtractMarkedRadioAiRequest(message, UnknownRadioMarkers, out request))
+        {
+            addressKind = RadioAiAddressKind.Unknown;
+            return true;
+        }
+
         if (TryExtractMarkedRadioAiRequest(message, RadioAiMarkers, out request))
         {
             addressKind = RadioAiAddressKind.Director;
@@ -9102,9 +9925,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private static string GetRadioAiReplyName(RadioAiAddressKind addressKind)
     {
-        return addressKind == RadioAiAddressKind.Rescue
-            ? RescueRadioActor
-            : DirectorActor;
+        return addressKind switch
+        {
+            RadioAiAddressKind.Rescue => RescueRadioActor,
+            RadioAiAddressKind.Unknown => LocalBridgeRadioActor,
+            _ => DirectorActor,
+        };
     }
 
     private static int IndexOfRadioAiMarker(string message, string marker)
@@ -9153,7 +9979,225 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 reply,
                 $"{DirectorActor} / local chat reply {session.Name}",
                 session.UserId.ToString());
+            return;
         }
+
+        TryStartPersonalAiNearbyReply(localChat, session);
+    }
+
+    private void TryStartPersonalAiNearbyReply(LocalChatCreatedEvent localChat, ICommonSession session)
+    {
+        if (!_cfg.GetCVar(CCVars.LuaMAiDirectorEnabled) ||
+            _ticker.RunLevel != GameRunLevel.InRound ||
+            string.IsNullOrWhiteSpace(_cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl)))
+        {
+            return;
+        }
+
+        var message = TrimForChat(localChat.Message.ReplaceLineEndings(" "), 220);
+        if (message.Length < 2 || message.StartsWith('/'))
+            return;
+
+        if (TryRejectUnsafeAdminChatRequest(message, out var unsafeReason))
+        {
+            RecordGatewayUnsafeInputBlock($"personal AI nearby speech: {unsafeReason}");
+            return;
+        }
+
+        EntityUid? receiver = null;
+        var nearestDistance = float.MaxValue;
+        var query = EntityQueryEnumerator<PAIComponent, TransformComponent>();
+        while (query.MoveNext(out var uid, out var pai, out var transform))
+        {
+            if (pai.LastUser == null ||
+                !HasComp<GhostTakeoverAvailableComponent>(uid) ||
+                TryComp<MindContainerComponent>(uid, out var mind) && mind.HasMind ||
+                !Transform(localChat.Sender).Coordinates.TryDistance(EntityManager, transform.Coordinates, out var distance) ||
+                distance > Math.Min(localChat.Range, PersonalAiListeningRange) ||
+                distance >= nearestDistance)
+            {
+                continue;
+            }
+
+            receiver = uid;
+            nearestDistance = distance;
+        }
+
+        if (receiver is not { } receiverUid)
+            return;
+
+        var now = _timing.CurTime;
+        if (_nextPersonalAiReaction.TryGetValue(receiverUid, out var nextReaction) && nextReaction > now)
+            return;
+
+        var persona = GetPersonalAiPersona(receiverUid);
+        if (persona.RequiresAdultConfirmation &&
+            TryHandlePersonalAiAdultGate(receiverUid, persona, message, now))
+        {
+            return;
+        }
+
+        if (!_requestGate.TryAcquire(out var requestLease))
+            return;
+
+        _nextPersonalAiReaction[receiverUid] = now + TimeSpan.FromSeconds(PersonalAiReactionCooldownSeconds);
+        var history = _personalAiConversation.TryGetValue(receiverUid, out var priorLines)
+            ? string.Join(" | ", priorLines.TakeLast(6))
+            : string.Empty;
+        var adultConfirmed = !persona.RequiresAdultConfirmation ||
+                             _personalAiAdultGate.GetValueOrDefault(receiverUid) == LuaMPersonalAdultGateState.Confirmed;
+        _ = SendPersonalAiNearbyReplyAsync(receiverUid, persona, adultConfirmed, session, message, history, requestLease!);
+    }
+
+    private async Task SendPersonalAiNearbyReplyAsync(
+        EntityUid receiver,
+        LuaMPersonalSpeechPersona persona,
+        bool adultConfirmed,
+        ICommonSession session,
+        string nearbyMessage,
+        string history,
+        LuaMAiDirectorRequestGate.Lease requestLease)
+    {
+        try
+        {
+            var reply = await RequestGatewayPersonalAiNearbyAsync(
+                persona,
+                adultConfirmed,
+                session,
+                nearbyMessage,
+                history);
+            if (string.IsNullOrWhiteSpace(reply))
+                return;
+
+            await RunOnMainThread(() =>
+            {
+                if (!Exists(receiver) ||
+                    !HasComp<GhostTakeoverAvailableComponent>(receiver) ||
+                    TryComp<MindContainerComponent>(receiver, out var mind) && mind.HasMind)
+                {
+                    return;
+                }
+
+                AppendPersonalAiConversation(receiver, $"Экипаж: {nearbyMessage}");
+                AppendPersonalAiConversation(receiver, $"{persona.Name}: {reply}");
+                _chatSystem.TrySendInGameICMessage(
+                    receiver,
+                    reply,
+                    InGameICChatType.Speak,
+                    ChatTransmitRange.Normal,
+                    hideLog: true,
+                    nameOverride: persona.Name,
+                    checkRadioPrefix: false,
+                    ignoreActionBlocker: true);
+            });
+        }
+        catch (GatewayBudgetRejectedException e)
+        {
+            _sawmill.Debug($"Personal AI nearby reply skipped by gateway budget: {e.Message}");
+        }
+        catch (Exception e)
+        {
+            _sawmill.Warning($"Personal AI nearby reply failed: {e.Message}");
+        }
+        finally
+        {
+            requestLease.Dispose();
+        }
+    }
+
+    private LuaMPersonalSpeechPersona GetPersonalAiPersona(EntityUid receiver)
+    {
+        var index = (int) ((uint) receiver.GetHashCode() % PersonalAiPersonas.Length);
+        return PersonalAiPersonas[index];
+    }
+
+    private bool TryHandlePersonalAiAdultGate(
+        EntityUid receiver,
+        LuaMPersonalSpeechPersona persona,
+        string nearbyMessage,
+        TimeSpan now)
+    {
+        if (!_personalAiAdultGate.TryGetValue(receiver, out var status))
+            status = LuaMPersonalAdultGateState.NotAsked;
+
+        if (status == LuaMPersonalAdultGateState.Confirmed ||
+            status == LuaMPersonalAdultGateState.Declined)
+        {
+            return false;
+        }
+
+        _nextPersonalAiReaction[receiver] = now + TimeSpan.FromSeconds(PersonalAiReactionCooldownSeconds);
+        AppendPersonalAiConversation(receiver, $"Экипаж: {nearbyMessage}");
+
+        if (status == LuaMPersonalAdultGateState.NotAsked)
+        {
+            _personalAiAdultGate[receiver] = LuaMPersonalAdultGateState.AwaitingAnswer;
+            SpeakPersonalAi(receiver, persona.Name, "Сначала уточню: тебе уже есть 18 лет?");
+            AppendPersonalAiConversation(receiver, $"{persona.Name}: Сначала уточню: тебе уже есть 18 лет?");
+            return true;
+        }
+
+        var normalized = nearbyMessage.Trim().ToLowerInvariant();
+        if (IsPersonalAiAdultDenial(normalized))
+        {
+            _personalAiAdultGate[receiver] = LuaMPersonalAdultGateState.Declined;
+            const string declinedReply = "Понял. Тогда останусь в спокойном и безопасном режиме.";
+            SpeakPersonalAi(receiver, persona.Name, declinedReply);
+            AppendPersonalAiConversation(receiver, $"{persona.Name}: {declinedReply}");
+            return true;
+        }
+
+        if (IsPersonalAiAdultConfirmation(normalized))
+        {
+            _personalAiAdultGate[receiver] = LuaMPersonalAdultGateState.Confirmed;
+            const string confirmedReply = "Принято. Тогда можем продолжить без детского фильтра — но правила безопасности всё равно остаются.";
+            SpeakPersonalAi(receiver, persona.Name, confirmedReply);
+            AppendPersonalAiConversation(receiver, $"{persona.Name}: {confirmedReply}");
+            return true;
+        }
+
+        const string retryReply = "Мне нужен ясный ответ: да, тебе уже есть 18 лет, или нет?";
+        SpeakPersonalAi(receiver, persona.Name, retryReply);
+        AppendPersonalAiConversation(receiver, $"{persona.Name}: {retryReply}");
+        return true;
+    }
+
+    private static bool IsPersonalAiAdultConfirmation(string message)
+    {
+        return message is "да" or "да." or "yes" or "y" ||
+               ContainsAny(message, "мне 18", "мне уже 18", "старше 18", "есть восемнадцать", "совершеннолет");
+    }
+
+    private static bool IsPersonalAiAdultDenial(string message)
+    {
+        return message is "нет" or "нет." or "no" or "n" ||
+               ContainsAny(message, "мне нет 18", "младше 18", "несовершеннолет");
+    }
+
+    private void SpeakPersonalAi(EntityUid receiver, string personaName, string message)
+    {
+        _chatSystem.TrySendInGameICMessage(
+            receiver,
+            message,
+            InGameICChatType.Speak,
+            ChatTransmitRange.Normal,
+            hideLog: true,
+            nameOverride: personaName,
+            checkRadioPrefix: false,
+            ignoreActionBlocker: true);
+    }
+
+    private void AppendPersonalAiConversation(EntityUid receiver, string line)
+    {
+        if (!_personalAiConversation.TryGetValue(receiver, out var history))
+        {
+            history = new List<string>();
+            _personalAiConversation[receiver] = history;
+        }
+
+        history.Add(TrimForChat(line, 260));
+        if (history.Count > 8)
+            history.RemoveRange(0, history.Count - 8);
     }
 
     private static bool TryExtractLocalChatAiRequest(string message, out string request)
@@ -9186,12 +10230,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                         markerCoordinates: target.EventCoordinates))
                 {
                     var pinpointerResult = NotifyTargetWithRouteAndPinpointer(target, record!);
-                    NotifyTarget(target, $"ИИ-диспетчер LuaM подготовил процесс: {record!.Title}. Откройте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
+                    NotifyTarget(target, $"ИИ-диспетчер LuaM подготовил процесс: {record!.Title}. Откройте КПК/терминал LuaM или используйте /luam маршрут.");
                     _sawmill.Info($"{BuildEventRouteResult(record!, target.OperatorTag, "Applied AI sector proposal")}; {pinpointerResult}");
-                    return;
-
-                    NotifyTarget(target, $"ИИ-диспетчер LuaM подготовил процесс: {record!.Title}. Откройте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
-                    _sawmill.Info($"Applied AI sector proposal '{record.Title}' around {target.OperatorTag}.");
                     return;
                 }
 
@@ -9213,12 +10253,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                         markerCoordinates: target.EventCoordinates))
                 {
                     var pinpointerResult = NotifyTargetWithRouteAndPinpointer(target, fallbackRecord!);
-                    NotifyTarget(target, $"ИИ-диспетчер LuaM развернул локальный процесс: {fallbackRecord!.Title}. Проверьте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
+                    NotifyTarget(target, $"ИИ-диспетчер LuaM развернул локальный процесс: {fallbackRecord!.Title}. Проверьте КПК/терминал LuaM или используйте /luam маршрут.");
                     _sawmill.Info($"{BuildEventRouteResult(fallbackRecord!, target.OperatorTag, "Applied fallback sector event")}; {pinpointerResult}");
                     return;
-
-                    NotifyTarget(target, $"ИИ-диспетчер LuaM развернул локальный процесс: {fallbackRecord!.Title}. Проверьте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
-                    _sawmill.Info($"Applied fallback sector event '{fallbackRecord.Title}' around {target.OperatorTag}.");
                 }
                 else if (!string.IsNullOrWhiteSpace(error))
                 {
@@ -9241,7 +10278,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                         markerCoordinates: target.EventCoordinates))
                 {
                     var pinpointerResult = NotifyTargetWithRouteAndPinpointer(target, record!);
-                    NotifyTarget(target, $"ИИ-диспетчер LuaM развернул локальный процесс: {record!.Title}. Проверьте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
+                    NotifyTarget(target, $"ИИ-диспетчер LuaM развернул локальный процесс: {record!.Title}. Проверьте КПК/терминал LuaM или используйте /luam маршрут.");
                     _sawmill.Info($"{BuildEventRouteResult(record!, target.OperatorTag, "Applied fallback sector event after gateway budget block")}; {pinpointerResult}");
                     return;
                 }
@@ -9265,11 +10302,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                         markerCoordinates: target.EventCoordinates))
                 {
                     var pinpointerResult = NotifyTargetWithRouteAndPinpointer(target, record!);
-                    NotifyTarget(target, $"ИИ-диспетчер LuaM развернул резервный процесс: {record!.Title}. Проверьте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
+                    NotifyTarget(target, $"ИИ-диспетчер LuaM развернул резервный процесс: {record!.Title}. Проверьте КПК/терминал LuaM или используйте /luam маршрут.");
                     _sawmill.Info($"{BuildEventRouteResult(record!, target.OperatorTag, "Applied fallback sector event after failure")}; {pinpointerResult}");
-                    return;
-
-                    NotifyTarget(target, $"ИИ-диспетчер LuaM развернул резервный процесс: {record!.Title}. Проверьте КПК/терминал LuaM или напишите в чат: ИИ, маршрут.");
                     return;
                 }
 
@@ -9832,6 +10866,65 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         };
     }
 
+    private LuaMAiGatewayChatRequest BuildGatewayPersonalAiNearbyRequest(
+        LuaMPersonalSpeechPersona persona,
+        bool adultConfirmed,
+        ICommonSession session,
+        string nearbyMessage,
+        string history)
+    {
+        var status = _stories.GetStatusSnapshot();
+        var mapNodes = _dynamicEvents.BuildSectorMapUiEntries();
+        var synthetic = BuildSyntheticControlSnapshot(arm: false);
+        var hasOpenLead = _stories.TryGetOpenRuntimeDistressStory(out var openStory) && openStory != null;
+        var openLead = hasOpenLead
+            ? $"{openStory!.Title}: {openStory.Hazard}"
+            : string.Empty;
+        var activePlayers = CountActivePlayers();
+        var safeMessage = SanitizeGatewayContextTextAudited(nearbyMessage, 220);
+        var safeHistory = SanitizeGatewayContextTextAudited(history, 900);
+        var ageMode = persona.RequiresAdultConfirmation
+            ? adultConfirmed
+                ? "The user explicitly confirmed they are 18 or older. The villain persona may use mature ominous roleplay, but no sexual content, harassment, real threats, dangerous instructions, or encouragement of harm."
+                : "The user did not confirm being 18 or older. Use a neutral, age-appropriate version of the persona with no mature themes."
+            : "Use the normal all-ages persona style.";
+
+        return new LuaMAiGatewayChatRequest
+        {
+            Version = 1,
+            Goal = $"Reply in natural Russian as the personal AI character {persona.Name}: {persona.Identity}. Speech style: {persona.Style}. React directly to the nearby speech, remember the supplied short dialogue history, and keep the answer to 1-3 sentences under 220 characters. {ageMode} Never claim to execute commands or physical actions. Return only JSON matching the chat schema and use action \"none\" only.",
+            Language = "ru-RU",
+            AdminName = "nearby crew",
+            Message = $"nearby speech: {safeMessage}; recent dialogue: {safeHistory}",
+            TargetUserId = string.Empty,
+            SelectedTemplateId = "unknown-personal-receiver",
+            AdminModeEnabled = false,
+            PhraseBundles =
+            [
+                $"identity: {persona.Name}; {persona.Identity}.",
+                $"voice: {persona.Style}.",
+                $"age mode: {ageMode}",
+                "safety: conversation only; no actions, commands, technical internals, secrets, exact coordinates, harassment, sexual content, dangerous instructions, or invented control results.",
+                $"nearby speech: {safeMessage}",
+                $"recent dialogue: {safeHistory}",
+            ],
+            AllowedActions = ["none"],
+            AllowedAdminCommandNames = [],
+            AllowedTemplateIds = [],
+            AllowedEntityPrototypeIds = [],
+            AllowedSectorCommandIds = [],
+            AllowedRadioChannelIds = [],
+            ActiveConditionIds = status.Conditions
+                .Where(condition => condition.Active)
+                .OrderByDescending(condition => condition.Severity)
+                .ThenBy(condition => condition.ConditionId)
+                .Select(condition => condition.ConditionId)
+                .ToArray(),
+            Target = BuildGatewayRadioOperatorContext(session),
+            Sector = BuildGatewaySectorContext(status, mapNodes, synthetic, activePlayers, hasOpenLead, openLead, mapNodes.Length),
+        };
+    }
+
     private LuaMAiGatewayPlayerContext BuildGatewayRadioOperatorContext(ICommonSession session)
     {
         var canTarget = session.AttachedEntity is { Valid: true } player &&
@@ -10322,7 +11415,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (session != null)
             return TryBuildTarget(session, closeEvent, routeEvent);
 
-        return PickTarget(closeEvent, routeEvent);
+        // An explicit target must fail closed. Falling back to a random player here can
+        // redirect an admin-confirmed action when the selected session disconnects.
+        return null;
     }
 
     private AiTarget? PickDifferentTarget(AiTarget source)
@@ -10486,10 +11581,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var route = ExtractEventRouteLocation(record);
         if (string.IsNullOrWhiteSpace(route))
         {
-            return $"ИИ-диспетчер LuaM развернул процесс: {record.Title}. Координаты не найдены в записи; напишите в чат 'ИИ, маршрут' или откройте терминал LuaM. На месте сдача обычно делается кликом по LuaM-метке или полевым отчётом LuaM, отдельный предмет сдавать не нужно.";
+            return $"ИИ-диспетчер LuaM развернул процесс: {record.Title}. Координаты не найдены в записи; используйте /luam маршрут или откройте терминал LuaM. На месте сдача обычно делается кликом по LuaM-метке или полевым отчётом LuaM, отдельный предмет сдавать не нужно.";
         }
 
-        return $"ИИ-диспетчер LuaM развернул процесс: {record.Title}. Координаты: {route}. Если КПК не показывает маршрут, используйте эти координаты вручную или напишите в чат 'ИИ, маршрут'. На месте сдача обычно делается кликом по LuaM-метке или полевым отчётом LuaM, отдельный предмет сдавать не нужно.";
+        return $"ИИ-диспетчер LuaM развернул процесс: {record.Title}. Координаты: {route}. Если КПК не показывает маршрут, используйте эти координаты вручную или команду /luam маршрут. На месте сдача обычно делается кликом по LuaM-метке или полевым отчётом LuaM, отдельный предмет сдавать не нужно.";
     }
 
     private static string BuildEventRouteResult(LuaMSectorStoryRecord record, string targetTag, string prefix)
@@ -10739,6 +11834,20 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         string Instruction,
         bool CloseEvent,
         TimeSpan CreatedAt);
+
+    private sealed record LuaMPersonalSpeechPersona(
+        string Name,
+        string Identity,
+        string Style,
+        bool RequiresAdultConfirmation = false);
+
+    private enum LuaMPersonalAdultGateState
+    {
+        NotAsked,
+        AwaitingAnswer,
+        Confirmed,
+        Declined,
+    }
 
     private sealed class PendingAiTtsRequest
     {

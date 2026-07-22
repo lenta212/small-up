@@ -15,7 +15,13 @@
     - NanoTrasen
   - type: InputMover
   - type: MobMover
+  - type: DoAfter
+    raiseEndedEvent: true
+  - type: LuaMRescuePersonnel
   - type: LuaMRescueAgent
+  - type: LuaMRescueBehaviorAdapter
+  - type: LuaMBehaviorAgent
+    profile: LuaMRescueMedicBehavior
   - type: Medibot
     treatments:
       Alive:
@@ -26,13 +32,14 @@
         reagent: Inaprovaline
         quantity: 20
   - type: HTN
+    pauseWhenNoPlayersInRange: false
     rootTask:
-      task: LuaMRescueCompound
+      task: LuaMRescueAgentCompound
     blackboard:
       FollowCloseRange: !type:Single
         1.25
       FollowRange: !type:Single
-        4.0
+        1.5
       IdleRange: !type:Single
         4.0
       MedibotInjectRange: !type:Single
@@ -42,6 +49,8 @@
       MaximumIdleTime: !type:Single
         1.5
       NavInteract: !type:Bool
+        true
+      NavAccess: !type:Bool
         true
 
 - type: entity
@@ -61,10 +70,15 @@
     - NanoTrasen
   - type: InputMover
   - type: MobMover
+  - type: LuaMRescuePersonnel
   - type: LuaMRescueEscort
+  - type: LuaMRescueBehaviorAdapter
+  - type: LuaMBehaviorAgent
+    profile: LuaMRescueCrewBehavior
   - type: HTN
+    pauseWhenNoPlayersInRange: false
     rootTask:
-      task: LuaMRescueCompound
+      task: LuaMRescueEscortCompound
     blackboard:
       FollowCloseRange: !type:Single
         1.75
@@ -77,4 +91,6 @@
       MaximumIdleTime: !type:Single
         1.5
       NavInteract: !type:Bool
+        true
+      NavAccess: !type:Bool
         true

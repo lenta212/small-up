@@ -8,7 +8,7 @@ public sealed partial class PathfindingSystem
 {
     private PathResult UpdateBFSPath(IRobustRandom random, BFSPathRequest request)
     {
-        if (request.Task.IsCanceled)
+        if (request.CancellationToken.IsCancellationRequested)
         {
             return PathResult.NoPath;
         }
@@ -16,11 +16,32 @@ public sealed partial class PathfindingSystem
         // TODO: Need partial planning that uses best node.
         PathPoly? currentNode = null;
 
+        var startNode = GetPoly(request.Start);
+        if (startNode == null)
+        {
+            if (IsGraphUpdatePending(request.Start))
+            {
+                var deadline = request.GraphWaitDeadline ??=
+                    _timing.CurTime + GraphRebuildWaitLimit;
+                if (_timing.CurTime < deadline)
+                {
+                    ResetPathSearch(request);
+                    return PathResult.Continuing;
+                }
+            }
+
+            return PathResult.NoPath;
+        }
+
+        request.GraphWaitDeadline = null;
+
         // First run
         if (!request.Started)
         {
             request.Frontier = new PriorityQueue<(float, PathPoly)>(PathPolyComparer);
             request.Started = true;
+            request.Frontier.Add((0.0f, startNode));
+            request.CostSoFar[startNode] = 0.0f;
         }
         // Re-validate nodes
         else
@@ -48,28 +69,26 @@ public sealed partial class PathfindingSystem
         DebugTools.Assert(!request.Task.IsCompleted);
         request.Stopwatch.Restart();
 
-        var startNode = GetPoly(request.Start);
+        var sliceCount = 0;
 
-        if (startNode == null)
-        {
-            return PathResult.NoPath;
-        }
-
-        request.Frontier.Add((0.0f, startNode));
-        request.CostSoFar[startNode] = 0.0f;
-        var count = 0;
-
-        while (request.Frontier.Count > 0 && count < NodeLimit && count < request.ExpansionLimit)
+        while (request.Frontier.Count > 0 &&
+               request.ExpandedNodes < NodeLimit &&
+               request.ExpandedNodes < request.ExpansionLimit)
         {
             // Handle whether we need to pause if we've taken too long
-            if (count % 20 == 0 && count > 0 && request.Stopwatch.Elapsed > PathTime)
+            if (sliceCount % 20 == 0 && sliceCount > 0 &&
+                (request.CancellationToken.IsCancellationRequested || request.Stopwatch.Elapsed > PathTime))
             {
+                if (request.CancellationToken.IsCancellationRequested)
+                    return PathResult.NoPath;
+
                 // I had this happen once in testing but I don't think it should be possible?
                 DebugTools.Assert(request.Frontier.Count > 0);
                 return PathResult.Continuing;
             }
 
-            count++;
+            sliceCount++;
+            request.ExpandedNodes++;
 
             // Actual pathfinding here
             (_, currentNode) = request.Frontier.Take();

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Robust.Shared.Map;
 
 namespace Content.Server._LuaM.Sector;
 
@@ -68,4 +69,24 @@ public sealed partial class LuaMAiLogisticsShipComponent : Component
 
     [DataField]
     public TimeSpan NextCycle = TimeSpan.Zero;
+
+    [DataField]
+    public EntityUid? BehaviorCore;
+
+    [DataField]
+    public EntityUid? BehaviorDestination;
+
+    [DataField]
+    public EntityCoordinates? LastBehaviorDestination;
+
+    [DataField]
+    public bool RouteBlocked;
+
+    [DataField]
+    public string BehaviorState = "standby";
+
+    [DataField]
+    public string LastBehaviorStatus = "not evaluated";
+
+    public TimeSpan NextBehaviorEvaluation;
 }

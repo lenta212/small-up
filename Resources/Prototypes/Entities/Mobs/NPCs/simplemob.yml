@@ -52,6 +52,20 @@
   - type: HTN
     rootTask:
       task: IdleCompound
+  - type: LuaMBehaviorAgent
+    profile: LuaMSpaceAnimalBehavior
+  - type: LuaMBehaviorHtnBinding
+    restoreOriginalTask: true
+    mirrorDecisionTarget: true
+    intentTasks:
+      DefendSelf: LuaMBehaviorMeleeDecisionCompound
+      Flee: LuaMBehaviorRetreatCompound
+      Retreat: LuaMBehaviorRetreatCompound
+      TakeCover: LuaMBehaviorRetreatCompound
+      EvadeProjectile: LuaMBehaviorRetreatCompound
+      EvacuateHazard: LuaMBehaviorRetreatCompound
+      SeekSafeAtmosphere: LuaMBehaviorRetreatCompound
+      SeekMedicalAid: LuaMBehaviorRetreatCompound
   - type: MeleeWeapon
     angle: 0
     animation: WeaponArcBite
@@ -77,6 +91,8 @@
   suffix: AI
   abstract: true
   components:
+  - type: LuaMBehaviorAgent
+    profile: LuaMAnimalBehavior
   - type: Hunger
     thresholds: # only animals and rats are derived from this prototype so let's override it here and in rats' proto
       Overfed: 100

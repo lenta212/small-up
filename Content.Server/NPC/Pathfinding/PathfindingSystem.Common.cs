@@ -65,6 +65,15 @@ public sealed partial class PathfindingSystem
             {
                 modifier += 0.5f;
             }
+            // Access-controlled doors are opt-in. Steering performs the authoritative
+            // AccessReader check before it attempts to open the actual door.
+            else if (isDoor &&
+                     isAccess &&
+                     (request.Flags & PathFlags.Access) != 0x0 &&
+                     CanTraverseAccessPoly(request, end))
+            {
+                modifier += 0.75f;
+            }
             // Door we can force open one way or another
             else if (isDoor && isAccess && (request.Flags & PathFlags.Prying) != 0x0)
             {
@@ -85,6 +94,52 @@ public sealed partial class PathfindingSystem
         }
 
         return modifier * OctileDistance(end, start);
+    }
+
+    private bool CanTraverseAccessPoly(PathRequest request, PathPoly poly)
+    {
+        if (request.AccessPolyDecisions.TryGetValue(poly, out var cached))
+            return cached;
+
+        if (request.AccessSnapshot is not { } accessSnapshot ||
+            !_gridQuery.TryGetComponent(poly.GraphUid, out var grid))
+        {
+            request.EncounteredAccessDenied = true;
+            request.AccessPolyDecisions[poly] = false;
+            return false;
+        }
+
+        var foundAccessDoor = false;
+        foreach (var entity in _maps.GetLocalAnchoredEntities(poly.GraphUid, grid, poly.Box))
+        {
+            if (!_doorQuery.HasComponent(entity) ||
+                !_accessQuery.TryGetComponent(entity, out var access))
+            {
+                continue;
+            }
+
+            foundAccessDoor = true;
+            // Path planning is read-only: use the non-logging authorization overload.
+            // Steering repeats the authoritative check when the door is actually used.
+            var allowed = _accessReader.IsAllowed(accessSnapshot.Tags, accessSnapshot.StationKeys, entity, access);
+            if (allowed)
+                continue;
+
+            request.EncounteredAccessDenied = true;
+            request.AccessPolyDecisions[poly] = false;
+            return false;
+        }
+
+        if (foundAccessDoor)
+        {
+            request.AccessPolyDecisions[poly] = true;
+            return true;
+        }
+
+        // A stale breadcrumb must not silently turn an access obstacle into a valid route.
+        request.EncounteredAccessDenied = true;
+        request.AccessPolyDecisions[poly] = false;
+        return false;
     }
 
     #region Simplifier

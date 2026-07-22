@@ -228,6 +228,23 @@ public sealed partial class NpcFactionSystem : EntitySystem
         return ent.Comp.Factions.Overlaps(other.Comp.Factions) || ent.Comp.FriendlyFactions.Overlaps(other.Comp.Factions);
     }
 
+    /// <summary>
+    /// Returns whether any faction owned by <paramref name="ent"/> considers
+    /// <paramref name="other"/> hostile. This keeps callers role-agnostic and
+    /// prevents them from replacing the observer with a hard-coded faction.
+    /// </summary>
+    public bool IsEntityHostile(Entity<NpcFactionMemberComponent?> ent, Entity<NpcFactionMemberComponent?> other)
+    {
+        if (!Resolve(ent, ref ent.Comp, false) || !Resolve(other, ref other.Comp, false))
+            return false;
+
+        if (IsEntityFriendly((ent.Owner, ent.Comp), (other.Owner, other.Comp)))
+            return false;
+
+        return ent.Comp.HostileFactions.Overlaps(other.Comp.Factions) ||
+               other.Comp.HostileFactions.Overlaps(ent.Comp.Factions);
+    }
+
     public bool IsFactionFriendly(string target, string with)
     {
         return _factions[target].Friendly.Contains(with) && _factions[with].Friendly.Contains(target);

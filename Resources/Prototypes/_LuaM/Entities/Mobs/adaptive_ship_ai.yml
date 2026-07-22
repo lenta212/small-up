@@ -1,0 +1,44 @@
+- type: entity
+  id: LuaMAdaptiveCombatShipAiCore
+  parent: NpcStationAiAttackerSmart
+  suffix: LuaM, Adaptive Combat Ship AI
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: LuaMBehaviorAgent
+    profile: LuaMCombatShipBehavior
+    builtInPerception: true
+    writeHtnBlackboard: true
+  - type: LuaMBehaviorHtnBinding
+    defaultTask: AttackerShuttleSmartCompound
+    intentTasks:
+      EngageShip: AttackerShuttleSmartCompound
+      DisengageShip: LuaMShipDisengageCompound
+      Retreat: LuaMShipDisengageCompound
+      EvadeProjectile: LuaMShipDisengageCompound
+
+- type: entity
+  id: LuaMAdaptiveCivilianShipAiCore
+  parent: NpcStationAiApproacherDodger
+  suffix: LuaM, Adaptive Civilian Ship AI
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: NpcFactionMember
+    factions:
+    - NanoTrasen
+  - type: HTN
+    rootTask:
+      task: LuaMShipNavigateBehaviorCompound
+  - type: LuaMBehaviorAgent
+    profile: LuaMCivilianShipBehavior
+    builtInPerception: true
+    writeHtnBlackboard: true
+  - type: LuaMBehaviorHtnBinding
+    defaultTask: LuaMShipNavigateBehaviorCompound
+    intentTasks:
+      Deliver: LuaMShipNavigateBehaviorCompound
+      Navigate: LuaMShipNavigateBehaviorCompound
+      FollowOrder: LuaMShipNavigateBehaviorCompound
+      Dock: LuaMShipNavigateBehaviorCompound
+      DisengageShip: LuaMShipDisengageCompound
+      Retreat: LuaMShipDisengageCompound
+      EvadeProjectile: LuaMShipDisengageCompound

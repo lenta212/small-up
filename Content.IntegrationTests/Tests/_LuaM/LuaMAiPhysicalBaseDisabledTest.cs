@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Numerics;
 using Content.Server._LuaM.Sector;
+using Content.Shared.CCVar;
 using Robust.Server.GameObjects;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
@@ -26,7 +27,7 @@ public sealed class LuaMAiPhysicalBaseDisabledTest
 
         await server.WaitPost(() =>
         {
-            Assert.That(LuaMAiPhysicalBaseFeature.Enabled, Is.False);
+            Assert.That(server.CfgMan.GetCVar(CCVars.LuaMAiPhysicalBaseEnabled), Is.False);
 
             mapSystem.CreateMap(out var mapId);
             entManager.SpawnEntity("LuaMAiBaseBeacon", new MapCoordinates(Vector2.Zero, mapId));
@@ -61,10 +62,8 @@ public sealed class LuaMAiPhysicalBaseDisabledTest
             Assert.That(CountLiveComponents<LuaMAiSupplyDropComponent>(), Is.EqualTo(0));
             Assert.That(CountLiveComponents<LuaMAiDroneTraceComponent>(), Is.EqualTo(0));
             Assert.That(CountLiveComponents<LuaMAiMiningDroneComponent>(), Is.EqualTo(0));
-
-            var logistics = entManager.GetComponent<LuaMAiLogisticsShipComponent>(aiShip);
-            Assert.That(logistics.Cycles, Is.EqualTo(0));
-            Assert.That(logistics.CrewSpawnAttempts, Is.EqualTo(0));
+            Assert.That(CountLiveComponents<LuaMAiLogisticsShipComponent>(), Is.EqualTo(0));
+            Assert.That(entManager.EntityExists(aiShip), Is.False);
         });
 
         await pair.CleanReturnAsync();

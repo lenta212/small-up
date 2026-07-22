@@ -28,6 +28,19 @@
     - type: HTN
       rootTask:
         task: SimpleHumanoidHostileCompound
+    - type: LuaMBehaviorAgent
+      profile: LuaMSecurityBehavior
+    - type: LuaMBehaviorHtnBinding
+      restoreOriginalTask: true
+      mirrorDecisionTarget: true
+      intentTasks:
+        Flee: LuaMBehaviorRetreatCompound
+        Retreat: LuaMBehaviorRetreatCompound
+        TakeCover: LuaMBehaviorRetreatCompound
+        EvadeProjectile: LuaMBehaviorRetreatCompound
+        EvacuateHazard: LuaMBehaviorRetreatCompound
+        SeekSafeAtmosphere: LuaMBehaviorRetreatCompound
+        SeekMedicalAid: LuaMBehaviorRetreatCompound
 
 - type: entity
   name: spirate
@@ -46,6 +59,19 @@
   - type: HTN
     rootTask:
       task: SimpleHumanoidHostileCompound
+  - type: LuaMBehaviorAgent
+    profile: LuaMSecurityBehavior
+  - type: LuaMBehaviorHtnBinding
+    restoreOriginalTask: true
+    mirrorDecisionTarget: true
+    intentTasks:
+      Flee: LuaMBehaviorRetreatCompound
+      Retreat: LuaMBehaviorRetreatCompound
+      TakeCover: LuaMBehaviorRetreatCompound
+      EvadeProjectile: LuaMBehaviorRetreatCompound
+      EvacuateHazard: LuaMBehaviorRetreatCompound
+      SeekSafeAtmosphere: LuaMBehaviorRetreatCompound
+      SeekMedicalAid: LuaMBehaviorRetreatCompound
 
 - type: entity
   name: syndicate footsoldier
@@ -63,6 +89,19 @@
     - type: HTN
       rootTask:
         task: SimpleHumanoidHostileCompound
+    - type: LuaMBehaviorAgent
+      profile: LuaMSecurityBehavior
+    - type: LuaMBehaviorHtnBinding
+      restoreOriginalTask: true
+      mirrorDecisionTarget: true
+      intentTasks:
+        Flee: LuaMBehaviorRetreatCompound
+        Retreat: LuaMBehaviorRetreatCompound
+        TakeCover: LuaMBehaviorRetreatCompound
+        EvadeProjectile: LuaMBehaviorRetreatCompound
+        EvacuateHazard: LuaMBehaviorRetreatCompound
+        SeekSafeAtmosphere: LuaMBehaviorRetreatCompound
+        SeekMedicalAid: LuaMBehaviorRetreatCompound
 
 - type: entity
   name: syndicate shuttle pilot

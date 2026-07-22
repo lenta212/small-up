@@ -37,12 +37,12 @@ public static class LuaMSectorPlayerBriefing
         {
             var route = ExtractEventRouteLocation(openStory);
             lines.Add(string.IsNullOrWhiteSpace(route)
-                ? $"Активная линия: \"{openStory.Title}\"; маршрут не уточнен, запросите \"ИИ, маршрут\""
+                ? $"Активная линия: \"{openStory.Title}\"; маршрут не уточнен, используйте /luam маршрут"
                 : $"Активная линия: \"{openStory.Title}\"; маршрут {route}");
         }
         else
         {
-            lines.Add("Активной линии нет: можно взять новый процесс через \"ИИ, задание\" или терминал LuaM");
+            lines.Add("Активной линии нет: можно взять новый процесс через /luam задание или терминал LuaM");
         }
 
         var recent = status.RecentHistory
@@ -113,7 +113,7 @@ public static class LuaMSectorPlayerBriefing
             }
             else
             {
-                actions.Add($"Текущая цель: \"{openStory.Title}\"; сначала запросите \"ИИ, маршрут\" или откройте терминал LuaM");
+                actions.Add($"Текущая цель: \"{openStory.Title}\"; сначала используйте /luam маршрут или откройте терминал LuaM");
             }
 
             if (!string.IsNullOrWhiteSpace(openStory.Hazard))
@@ -121,11 +121,11 @@ public static class LuaMSectorPlayerBriefing
         }
         else if (status.RecentHistory.Count == 0)
         {
-            actions.Add("Старт: откройте КПК/терминал LuaM, посмотрите карту сектора и возьмите первый контракт или запросите \"ИИ, задание\"");
+            actions.Add("Старт: откройте КПК/терминал LuaM, посмотрите карту сектора и возьмите первый контракт или используйте /luam задание");
         }
         else
         {
-            actions.Add("Открытой цели нет: запросите \"ИИ, задание\" или выберите доступный процесс в терминале LuaM");
+            actions.Add("Открытой цели нет: используйте /luam задание или выберите доступный процесс в терминале LuaM");
         }
 
         var strongestCondition = status.Conditions

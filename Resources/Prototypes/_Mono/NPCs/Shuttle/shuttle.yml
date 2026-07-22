@@ -113,10 +113,49 @@
         key: Target
         coordinatesKey: TargetCoordinates
 
+- type: htnCompound
+  id: TsfStationDefenseCompound
+  branches:
+  - tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:UtilityOperator
+        proto: NearbyPdvShuttleTargets
+    - !type:HTNPrimitiveTask
+      operator: !type:ShipFireGunsOperator
+        shutdownState: TaskFinished
+        removeKeyOnFinish: false
+        leadingAccuracy: 0.4
+        targetKey: TargetCoordinates
+      services:
+      - !type:UtilityService
+        id: TargetsService
+        proto: NearbyPdvShuttleTargets
+        key: Target
+        coordinatesKey: TargetCoordinates
+
 - type: utilityQuery
   id: NearbyShuttleTargets
   query:
   - !type:NearbyNpcTargetsQuery
+    blacklist:
+      tags:
+      - ShuttleAIIgnore
+  considerations:
+  - !type:TargetInverseDistanceCon
+    curve: !type:QuadraticCurve
+      slope: 1
+      exponent: 1
+      yOffset: 0
+      xOffset: 0
+  - !type:TargetIsAliveOrNACon
+    curve: !type:BoolCurve
+
+- type: utilityQuery
+  id: NearbyPdvShuttleTargets
+  query:
+  - !type:NearbyNpcTargetsQuery
+    targetCompanies:
+    - PDV
     blacklist:
       tags:
       - ShuttleAIIgnore

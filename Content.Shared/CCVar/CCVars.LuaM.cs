@@ -11,6 +11,13 @@ public sealed partial class CCVars
         CVarDef.Create("luam.ai_director.enabled", false, CVar.SERVERONLY);
 
     /// <summary>
+    /// Enables the physical LuaM AI base, including logistics ships, drones, work zones, traces, and supply drops.
+    /// Runtime hard limits remain in force while this is enabled.
+    /// </summary>
+    public static readonly CVarDef<bool> LuaMAiPhysicalBaseEnabled =
+        CVarDef.Create("luam.ai_physical_base.enabled", false, CVar.SERVERONLY);
+
+    /// <summary>
     /// HTTP endpoint that accepts a LuaM sector context JSON payload and returns one validated event proposal.
     /// Leave empty to use only local fallback generation.
     /// </summary>

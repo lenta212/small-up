@@ -13,9 +13,10 @@
     endRadioAnnouncementChannel: Supply
     weight: 5
     minimumPlayers: 2
-    duration: 1800 # 30 minutes
-    maxDuration: 1800 # 30 minutes
-    reoccurrenceDelay: 120 # 2 hours (some variety - at worst, alternates between four dungeon types)
+    duration: 900 # 15 active minutes, followed by a 5-minute scheduler gap
+    maxDuration: 900
+    reoccurrenceDelay: 20
+    warningDurationLeft: 300
   - type: ActiveRadio
     channels:
     - Supply
@@ -26,11 +27,14 @@
   categories: [ HideSpawnMenu ]
   components:
   - type: BluespaceErrorRule
+    extendIfPopulated: false
     groups:
       vgroid: !type:DungeonSpawnGroup
         nameDataset: NamesBorer
         minimumDistance: 1500
         maximumDistance: 5000 # Mono
+        minCount: 2
+        maxCount: 2
         addComponents: &dungeonComponents
         - type: Gravity
           enabled: true
@@ -46,7 +50,6 @@
         #- type: Physics
         #  bodyType: Static
         #  bodyStatus: OnGround
-        - type: ClaimableGrid # Mono
         protos:
         - NFVGRoidBasalt
 
@@ -56,11 +59,14 @@
   categories: [ HideSpawnMenu ]
   components:
   - type: BluespaceErrorRule
+    extendIfPopulated: false
     groups:
       vgroid: !type:DungeonSpawnGroup
         nameDataset: NamesBorer
         minimumDistance: 1500
         maximumDistance: 5000 # Mono
+        minCount: 2
+        maxCount: 2
         addComponents: *dungeonComponents
         protos:
         - NFVGRoidSnow
@@ -71,11 +77,14 @@
   categories: [ HideSpawnMenu ]
   components:
   - type: BluespaceErrorRule
+    extendIfPopulated: false
     groups:
       vgroid: !type:DungeonSpawnGroup
         nameDataset: NamesBorer
         minimumDistance: 1500
         maximumDistance: 5000 # Mono
+        minCount: 2
+        maxCount: 2
         addComponents: *dungeonComponents
         protos:
         - NFVGRoidCave
@@ -86,11 +95,14 @@
   categories: [ HideSpawnMenu ]
   components:
   - type: BluespaceErrorRule
+    extendIfPopulated: false
     groups:
       vgroid: !type:DungeonSpawnGroup
         nameDataset: NamesBorer
         minimumDistance: 1500
         maximumDistance: 5000 # Mono
+        minCount: 2
+        maxCount: 2
         addComponents: *dungeonComponents
         protos:
         - NFVGRoidChromite
@@ -101,11 +113,14 @@
   categories: [ HideSpawnMenu ]
   components:
   - type: BluespaceErrorRule
+    extendIfPopulated: false
     groups:
       vgroid: !type:DungeonSpawnGroup
         nameDataset: NamesBorer
         minimumDistance: 1500
         maximumDistance: 5000 # Mono
+        minCount: 2
+        maxCount: 2
         addComponents: *dungeonComponents
         protos:
         - NFVGRoidScrap

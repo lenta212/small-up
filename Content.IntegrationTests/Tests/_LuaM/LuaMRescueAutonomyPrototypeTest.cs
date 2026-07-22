@@ -62,20 +62,99 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
-    public void RescueCompoundPrioritizesCombatBeforeTreatmentAndFollow()
+    public void RescueRootsKeepAibolitIntentAndEscortCombatOrdered()
     {
-        var compound = FindPrototype(
-            LoadSequence("Resources/Prototypes/_LuaM/NPCs/rescue.yml"),
-            "LuaMRescueCompound");
-        var branches = Sequence(compound, "branches");
+        var prototypes = LoadSequence("Resources/Prototypes/_LuaM/NPCs/rescue.yml");
+        var agentBranches = Sequence(FindPrototype(prototypes, "LuaMRescueAgentCompound"), "branches");
+        var escortBranches = Sequence(FindPrototype(prototypes, "LuaMRescueEscortCompound"), "branches");
 
-        Assert.That(branches.Children, Has.Count.EqualTo(5));
-        Assert.That(GetCompoundTask(branches, 0), Is.EqualTo("RangedCombatCompound"));
-        Assert.That(GetCompoundTask(branches, 1), Is.EqualTo("MeleeCombatCompound"));
-        Assert.That(GetCompoundTask(branches, 2), Is.EqualTo("InjectNearbyCompound"));
-        Assert.That(GetCompoundTask(branches, 3), Is.EqualTo("FollowCompound"));
-        Assert.That(GetCompoundTask(branches, 4), Is.EqualTo("IdleCompound"));
-        Assert.That(Sequence((YamlMappingNode) branches.Children[3], "preconditions").Children, Has.Count.EqualTo(1));
+        Assert.That(agentBranches.Children, Has.Count.EqualTo(2));
+        Assert.That(GetCompoundTask(agentBranches, 0), Is.EqualTo("FollowCompound"));
+        Assert.That(GetCompoundTask(agentBranches, 1), Is.EqualTo("IdleCompound"));
+
+        Assert.That(escortBranches.Children, Has.Count.EqualTo(4));
+        Assert.That(GetCompoundTask(escortBranches, 2), Is.EqualTo("FollowCompound"));
+        Assert.That(GetCompoundTask(escortBranches, 3), Is.EqualTo("IdleCompound"));
+        var source = File.ReadAllText(FullPath("Resources/Prototypes/_LuaM/NPCs/rescue.yml"), Encoding.UTF8);
+        Assert.That(source, Does.Contain("LuaMRescueOrderedGunCombatCompound"));
+        Assert.That(source, Does.Contain("proto: OrderedTargets"));
+        Assert.That(source, Does.Not.Contain("NearbyGunTargets"));
+        Assert.That(source, Does.Not.Contain("NearbyMeleeTargets"));
+        Assert.That(source, Does.Not.Contain("InjectNearbyCompound"));
+    }
+
+    [Test]
+    public void SectorNpcLifecycleIsSharedPrototypeDrivenAndOwnsRescueIntentState()
+    {
+        var contracts = File.ReadAllText(
+            FullPath("Content.Shared/_LuaM/NPC/LuaMNpcActivityContracts.cs"),
+            Encoding.UTF8);
+        var component = File.ReadAllText(
+            FullPath("Content.Server/_LuaM/NPC/LuaMNpcActivityComponent.cs"),
+            Encoding.UTF8);
+        var lifecycle = File.ReadAllText(
+            FullPath("Content.Server/_LuaM/NPC/LuaMNpcActivityLifecycleSystem.cs"),
+            Encoding.UTF8);
+        var rescueCoordinator = File.ReadAllText(
+            FullPath("Content.Server/_LuaM/Rescue/LuaMRescueActivityCoordinatorSystem.cs"),
+            Encoding.UTF8);
+        var roles = File.ReadAllText(
+            FullPath("Resources/Prototypes/_LuaM/NPCs/activity_roles.yml"),
+            Encoding.UTF8);
+
+        Assert.That(contracts, Does.Contain("ILuaMNpcRoleActivityPolicy"));
+        Assert.That(contracts, Does.Contain("LuaMNpcRoleActivityPrototype"));
+        Assert.That(component, Does.Contain("LuaMNpcActivityState Context"));
+        Assert.That(lifecycle, Does.Contain("TryRecoverBlockedIntent"));
+        Assert.That(lifecycle, Does.Contain("policy.IsTransitionAllowed(state.Activity, activity)"));
+        Assert.That(roles, Does.Contain("id: LuaMSectorServiceWorkerLifecycle"));
+        Assert.That(rescueCoordinator, Does.Contain("LuaMNpcActivityLifecycleSystem _npcLifecycle"));
+        Assert.That(rescueCoordinator, Does.Contain("new RescueActivityPolicyAdapter"));
+    }
+
+    [Test]
+    public void RescueTerminalizesFailedPatientBeforeFallbackAndKeepsRouteBudgetsBounded()
+    {
+        var source = File.ReadAllText(
+            FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"),
+            Encoding.UTF8);
+        var pullStart = source.IndexOf(
+            "private PullStartResult TryPrepareAndStartPatientPull",
+            System.StringComparison.Ordinal);
+        var pullEnd = source.IndexOf(
+            "private bool UpdateEvacuation",
+            pullStart,
+            System.StringComparison.Ordinal);
+        var pull = source[pullStart..pullEnd];
+        var routeFailureStart = source.IndexOf(
+            "private void HandlePatientRouteFailure",
+            System.StringComparison.Ordinal);
+        var routeFailureEnd = source.IndexOf(
+            "private static float GetPatientApproachActionRange",
+            routeFailureStart,
+            System.StringComparison.Ordinal);
+        var routeFailure = source[routeFailureStart..routeFailureEnd];
+
+        Assert.That(pullStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(pullEnd, Is.GreaterThan(pullStart));
+        Assert.That(
+            pull.IndexOf("_activity.Block(uid, LuaMRescueFailureReason.ContainedTarget", System.StringComparison.Ordinal),
+            Is.LessThan(pull.IndexOf("TemporarilySkipTarget(uid, rescue, htn, target);", System.StringComparison.Ordinal)));
+        Assert.That(
+            pull.IndexOf("_activity.Fail(uid, LuaMRescueFailureReason.ActionCancelled", System.StringComparison.Ordinal),
+            Is.LessThan(pull.LastIndexOf("TemporarilySkipTarget(uid, rescue, htn, target);", System.StringComparison.Ordinal)));
+        Assert.That(routeFailureStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(routeFailureEnd, Is.GreaterThan(routeFailureStart));
+        Assert.That(
+            routeFailure.IndexOf("_activity.Block(uid, reason", System.StringComparison.Ordinal),
+            Is.LessThan(routeFailure.IndexOf("TemporarilySkipTarget(uid, rescue, htn, target);", System.StringComparison.Ordinal)));
+
+        Assert.That(source, Does.Contain("GetPatientRouteFailureDisposition"));
+        Assert.That(source, Does.Contain("PatientRouteFailureDisposition.DurableSkip"));
+        Assert.That(source, Does.Contain("IsTerminalRouteBudgetFailure"));
+        Assert.That(source, Does.Contain("rescue.SkippedTargets[target] = TimeSpan.MaxValue"));
+        Assert.That(source, Does.Contain("explicit terminal redispatch:"));
+        Assert.That(source, Does.Contain("madePhysicalRouteProgress"));
     }
 
     [Test]
@@ -89,18 +168,20 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("TryDispatchAutomaticDeathSignal(ev.Target)"));
         Assert.That(source, Does.Contain("HasComp<ActorComponent>(target)"));
         Assert.That(source, Does.Contain("AutomaticDeathSignalCooldownSeconds"));
-        Assert.That(source, Does.Contain("TryResolveAutomaticDeathSignalStation"));
+        Assert.That(source, Does.Contain("TryResolveAutomaticMedicalSignalStation"));
+        Assert.That(source, Does.Contain("TryDispatchOrQueueAutomaticSignal(target, LuaMRescueMedicalSignalKind.Death"));
         Assert.That(source, Does.Contain("spawnTeam: true"));
-        Assert.That(source, Does.Contain("deathSignal: true"));
+        Assert.That(source, Does.Contain("deathSignal: kind == LuaMRescueMedicalSignalKind.Death"));
         Assert.That(source, Does.Contain("DeathSignalFlag"));
         Assert.That(source, Does.Contain("--death-signal"));
         Assert.That(source, Does.Contain("requires target=<entity|player> so Aibolit can report who it is flying to"));
         Assert.That(source, Does.Contain("bool deathSignal"));
         Assert.That(source, Does.Contain("Death signal dispatch requires a rescue agent so Aibolit can report who it is flying to."));
         Assert.That(source, Does.Contain("Death signal dispatch requires target=<entity|player> so Aibolit can report who it is flying to."));
-        Assert.That(source, Does.Contain("rescue.DeathSignalTarget = deathSignalTarget"));
+        Assert.That(source, Does.Contain("ApplySignalToAgent"));
+        Assert.That(source, Does.Contain("rescue.DeathSignalTarget = target"));
         Assert.That(source, Does.Contain("deathSignal &&"));
-        Assert.That(source, Does.Contain("SendDispatchRadio(agent.Value, dispatchTarget);"));
+        Assert.That(source, Does.Contain("SendDispatchRadio(agent, target);"));
         Assert.That(source, Does.Contain("\u041c\u0435\u0434\u0441\u0438\u0433\u043d\u0430\u043b \u0441\u043c\u0435\u0440\u0442\u0438 \u043f\u0440\u0438\u043d\u044f\u0442. \u0412\u044b\u043b\u0435\u0442\u0430\u044e \u043a \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443 {targetName}."));
         Assert.That(source, Does.Contain("_radio.SendRadioMessage("));
         Assert.That(source, Does.Contain("MedicalRadioChannel"));
@@ -130,18 +211,20 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("AutomaticCriticalSignalCooldownSeconds"));
         Assert.That(source, Does.Contain("_automaticCriticalSignalCooldowns"));
         Assert.That(source, Does.Contain("PruneAutomaticCriticalSignalCooldowns"));
-        Assert.That(source, Does.Contain("TryResolveAutomaticCriticalSignalStation"));
         Assert.That(source, Does.Contain("TryResolveAutomaticMedicalSignalStation"));
-        Assert.That(source, Does.Contain("TryFindActiveRescueForTarget(target, out _, out _)"));
-        Assert.That(source, Does.Contain("TryFindActiveRescueForTarget(target, out var activeAgent, out var activeRescue)"));
-        Assert.That(source, Does.Contain("rescueComp.AssignedTarget == target"));
-        Assert.That(source, Does.Contain("rescueComp.EvacuatingTarget == target"));
-        Assert.That(source, Does.Contain("rescueComp.OnboardCareTarget == target"));
+        Assert.That(source, Does.Contain("TryDispatchOrQueueAutomaticSignal(target, LuaMRescueMedicalSignalKind.Critical"));
+        Assert.That(source, Does.Contain("TryFindLivingActiveRescueAgent(out var activeAgent, out var activeRescue)"));
+        Assert.That(source, Does.Contain("IsRescueAssignedToTarget(activeRescue, target)"));
+        Assert.That(source, Does.Contain("_pendingDispatches.TryGetValue(target, out var existing)"));
+        Assert.That(source, Does.Contain("rescue.AssignedTarget == target"));
+        Assert.That(source, Does.Contain("rescue.EvacuatingTarget == target"));
+        Assert.That(source, Does.Contain("rescue.OnboardCareTarget == target"));
         Assert.That(source, Does.Contain("spawnTeam: true"));
-        Assert.That(source, Does.Contain("deathSignal: false"));
-        Assert.That(source, Does.Contain("_sectorStory.TryGetActiveRescueCooldown(out _, out _)"));
+        Assert.That(source, Does.Contain("deathSignal: kind == LuaMRescueMedicalSignalKind.Death"));
+        Assert.That(source, Does.Contain("_sectorStory.TryGetActiveRescueCooldown(out var remainingSeconds, out _)"));
         Assert.That(source, Does.Contain("SendCriticalDispatchRadio(agentUid, target)"));
         Assert.That(source, Does.Contain("MarkCriticalSignalDispatchReported"));
+        Assert.That(source, Does.Contain("htn.PauseWhenNoPlayersInRange = false"));
         Assert.That(source, Does.Contain("critical-signal-dispatch:{target}"));
         Assert.That(source, Does.Contain("\\u041a\\u0440\\u0438\\u0442\\u0438\\u0447\\u0435\\u0441\\u043a\\u0438\\u0439 \\u043c\\u0435\\u0434\\u0441\\u0438\\u0433\\u043d\\u0430\\u043b \\u043f\\u0440\\u0438\\u043d\\u044f\\u0442"));
         Assert.That(source, Does.Contain("\\u0412\\u044b\\u043b\\u0435\\u0442\\u0430\\u044e \\u043a \\u043f\\u0430\\u0446\\u0438\\u0435\\u043d\\u0442\\u0443 {targetName}"));
@@ -184,9 +267,15 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(agent, Does.Contain("Only one Aibolit rescue agent may be active"));
         Assert.That(agent, Does.Contain("dispatch/spawn blocked"));
         Assert.That(agent, Does.Contain("system.TrySpawnAgent(anchorUid, target, shell.Player, control"));
-        Assert.That(shuttle, Does.Contain("_rescueAgent.TryFindActiveAgent(out var activeAgent, out var activeRescue)"));
+        Assert.That(shuttle, Does.Contain("TryFindLivingActiveRescueAgent(out var activeAgent, out var activeRescue)"));
+        Assert.That(shuttle, Does.Contain("RetireDeadRescueAgents"));
         Assert.That(shuttle, Does.Contain("new rescue shuttle purchase and agent spawn blocked"));
-        Assert.That(shuttle, Does.Contain("_rescueAgent.TrySpawnAgent(anchor, followTarget, controller, control"));
+        Assert.That(shuttle, Does.Contain("_rescueAgent.TrySpawnAgent(anchor, null, controller, control"));
+        Assert.That(shuttle, Does.Contain("InitializeSignalAssignment"));
+        Assert.That(shuttle, Does.Contain("rescue.AssignedShuttle = shuttle"));
+        Assert.That(shuttle, Does.Contain("rescue.AssignedReturnTarget = returnTarget"));
+        Assert.That(shuttle.IndexOf("rescue.AssignedReturnTarget = returnTarget", System.StringComparison.Ordinal),
+            Is.LessThan(shuttle.LastIndexOf("InitializeSignalAssignment(", System.StringComparison.Ordinal)));
     }
 
     [Test]
@@ -219,15 +308,52 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
-    public void BluespaceDebrisSchedulersAvoidOneHourTwentySpike()
+    public void BluespaceDungeonSchedulerRunsTwoPlanetoidsWithFiveMinuteGap()
     {
-        var rules = File.ReadAllText(FullPath("Resources/Prototypes/_NF/GameRules/roundstart.yml"), Encoding.UTF8);
+        var scheduler = FindComponent(
+            FindPrototype(LoadSequence("Resources/Prototypes/_NF/GameRules/roundstart.yml"), "BluespaceDungeonEventScheduler"),
+            "BasicStationEventScheduler");
+        var timing = Mapping(scheduler, "minMaxEventTiming");
+        var dungeons = LoadSequence("Resources/Prototypes/_NF/Events/nf_bluespace_dungeons_events.yml");
+        var stationEvent = FindComponent(FindPrototype(dungeons, "BluespaceDungeonBase"), "StationEvent");
 
-        Assert.That(rules, Does.Contain("minimumTimeUntilFirstEvent: 900 # 15 minutes"));
-        Assert.That(rules, Does.Contain("min: 5400 # 90 minutes between events"));
-        Assert.That(rules, Does.Contain("max: 7200 # 120 minutes between events"));
-        Assert.That(rules, Does.Not.Contain("min: 2100 # 35 minutes between events"));
-        Assert.That(rules, Does.Not.Contain("max: 2400 # 40 minutes between events"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(ScalarValue(scheduler, "minimumTimeUntilFirstEvent"), Is.EqualTo("1200"));
+            Assert.That(ScalarValue(timing, "min"), Is.EqualTo("1200"));
+            Assert.That(ScalarValue(timing, "max"), Is.EqualTo("1200"));
+            Assert.That(ScalarValue(stationEvent, "duration"), Is.EqualTo("900"));
+            Assert.That(ScalarValue(stationEvent, "maxDuration"), Is.EqualTo("900"));
+            Assert.That(ScalarValue(stationEvent, "reoccurrenceDelay"), Is.EqualTo("20"));
+            Assert.That(ScalarValue(stationEvent, "warningDurationLeft"), Is.EqualTo("300"));
+        });
+
+        foreach (var prototypeId in new[]
+                 {
+                     "BluespaceDungeonBasalt",
+                     "BluespaceDungeonChromite",
+                     "BluespaceDungeonSnow",
+                     "BluespaceDungeonCave",
+                     "BluespaceDungeonScrap",
+                 })
+        {
+            var rule = FindComponent(FindPrototype(dungeons, prototypeId), "BluespaceErrorRule");
+            var planetoidGroup = Mapping(Mapping(rule, "groups"), "vgroid");
+            var addedComponents = Sequence(planetoidGroup, "addComponents")
+                .Children
+                .OfType<YamlMappingNode>()
+                .Select(component => ScalarValue(component, "type"))
+                .ToArray();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ScalarValue(rule, "extendIfPopulated"), Is.EqualTo("false"), prototypeId);
+                Assert.That(ScalarValue(planetoidGroup, "minCount"), Is.EqualTo("2"), prototypeId);
+                Assert.That(ScalarValue(planetoidGroup, "maxCount"), Is.EqualTo("2"), prototypeId);
+                Assert.That(addedComponents, Does.Contain("LinkedLifecycleGridParent"), prototypeId);
+                Assert.That(addedComponents, Does.Not.Contain("ClaimableGrid"), prototypeId);
+            });
+        }
     }
 
     [Test]
@@ -286,12 +412,19 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+        var coordinator = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueActivityCoordinatorSystem.cs"), Encoding.UTF8);
 
         Assert.That(component, Does.Contain("RecoverDeadPatientsToShuttle = true"));
         Assert.That(source, Does.Contain("IsDeadPatientRecoveryTarget"));
-        Assert.That(source, Does.Contain("return IsDeadPatientRecoveryTarget(target, rescue, mobState);"));
+        Assert.That(source, Does.Contain("return IsDeadPatientRecoveryTarget(uid, target, rescue, mobState);"));
         Assert.That(source, Does.Contain("rescue.AssignedTarget == target"));
-        Assert.That(source, Does.Contain("HasComp<ActorComponent>(target)"));
+        Assert.That(source, Does.Contain("_activity.IsEligibleRescuePatient("));
+        Assert.That(source, Does.Contain("LuaMRescuePatientRequestKind.AutomaticEvacuation"));
+        Assert.That(coordinator, Does.Contain("IsRecoverableDeadPatient"));
+        Assert.That(coordinator, Does.Contain("MindContainerComponent"));
+        Assert.That(coordinator, Does.Contain("TargetHasNoMind"));
+        Assert.That(coordinator, Does.Contain("HasComp<UnrevivableComponent>(candidate)"));
+        Assert.That(coordinator, Does.Contain("_rotting.IsRotten(candidate)"));
         Assert.That(source, Does.Contain("score += 1500f"));
         Assert.That(source, Does.Contain("holding dead onboard patient"));
         Assert.That(source, Does.Contain("mobState.CurrentState == MobState.Dead ||"));
@@ -315,9 +448,10 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(agent, Does.Contain("rescue-agent-recovered:"));
         Assert.That(agent, Does.Contain("!IsAtAssignedShuttleAnchor(uid, rescue)"));
         Assert.That(agent, Does.Not.Contain("!IsOnAssignedShuttle(uid, rescue) &&"));
-        Assert.That(team, Does.Contain("new Vector2(0f, 0.5f)"));
-        Assert.That(team, Does.Contain("new Vector2(-0.5f, 0f)"));
-        Assert.That(team, Does.Contain("new Vector2(0f, -0.5f)"));
+        Assert.That(team, Does.Contain("new Vector2(0f, 1.5f)"));
+        Assert.That(team, Does.Contain("new Vector2(-1f, 0f)"));
+        Assert.That(team, Does.Contain("new Vector2(0f, -1.5f)"));
+        Assert.That(team, Does.Contain("var formationRange = GetEscortRoleProfile(uid, escort).ThreatPolicy.FormationRange"));
     }
 
     [Test]
@@ -362,7 +496,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     }
 
     [Test]
-    public void RescueAgentKeepsShuttleForwardForPendingRescueTargets()
+    public void RescueAgentQueuesRedispatchUntilConfirmedHomeHandoff()
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
@@ -386,13 +520,18 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("holding shuttle forward after release"));
         Assert.That(source, Does.Contain("pending rescue target detected"));
         Assert.That(source, Does.Contain("TryReportRedispatchTarget"));
+        Assert.That(source, Does.Contain("TryHoldOnboardPatientForConfirmedHomeHandoff"));
+        Assert.That(source, Does.Contain("IsConfirmedHomeHandoffDock"));
+        Assert.That(source, Does.Contain("redispatch deferred: home-handoff first"));
+        Assert.That(source, Does.Contain("pending rescue target queued"));
         Assert.That(source, Does.Contain("redispatch={rescue.LastRedispatchStatus}"));
         Assert.That(source, Does.Contain("shuttleReturn={rescue.LastShuttleReturnStatus}"));
         Assert.That(source, Does.Contain("redispatch: source={source}; completed={FormatEntityRef(completedTarget)}"));
         Assert.That(source, Does.Contain("status=forward"));
         Assert.That(source, Does.Contain("\\u041f\\u0435\\u0440\\u0435\\u043d\\u0430\\u0437\\u043d\\u0430\\u0447\\u0430\\u044e\\u0441\\u044c \\u043a {Name(pendingTarget)}"));
         Assert.That(source, Does.Contain("bool allowAutoReturn = true"));
-        Assert.That(source, Does.Contain("if (allowAutoReturn)"));
+        Assert.That(source, Does.Contain("var onboard = IsOnAssignedShuttle(uid, rescue)"));
+        Assert.That(source, Does.Contain("if (allowAutoReturn && onboard)"));
     }
 
     [Test]
@@ -400,16 +539,20 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+        var shuttle = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueShuttleSystem.cs"), Encoding.UTF8);
 
         Assert.That(component, Does.Contain("LastShuttleReturnStatus"));
         Assert.That(source, Does.Contain("ReportShuttleReturnHold"));
         Assert.That(source, Does.Contain("BuildShuttleReturnHoldMessage"));
         Assert.That(source, Does.Contain("return-route hold: {reason}; repair/manual shuttle help needed"));
         Assert.That(source, Does.Contain("shuttle-return-hold:"));
-        Assert.That(source, Does.Contain("autopilot console unavailable"));
         Assert.That(source, Does.Contain("return target unavailable"));
-        Assert.That(source, Does.Contain("autopilot console component unavailable"));
-        Assert.That(source, Does.Contain("autopilot HTN unavailable"));
+        Assert.That(source, Does.Contain("LuaMRescueShuttleRouteRequestEvent"));
+        Assert.That(source, Does.Contain("RaiseLocalEvent(shuttle, ref routeRequest)"));
+        Assert.That(source, Does.Contain("ReportShuttleReturnHold(uid, rescue, routeRequest.Status)"));
+        Assert.That(source, Does.Contain("lifecycle.RetryCount < lifecycle.EffectiveMaxRetries"));
+        Assert.That(shuttle, Does.Contain("autopilot console with HTN controller was not found on the shuttle"));
+        Assert.That(shuttle, Does.Contain("SetRouteState(shuttle, lifecycle, LuaMRescueShuttleRouteState.Failed, status)"));
         Assert.That(source, Does.Contain("rescue.LastAutoEvacuationStatus = status"));
         Assert.That(source, Does.Contain("return-route home: target={FormatEntityRef(returnTarget)}"));
         Assert.That(source, Does.Contain("\\u0428\\u0430\\u0442\\u0442\\u043b \\u043d\\u0435 \\u0433\\u043e\\u0442\\u043e\\u0432 \\u043a \\u0432\\u043e\\u0437\\u0432\\u0440\\u0430\\u0442\\u0443"));
@@ -539,6 +682,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     {
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentComponent.cs"), Encoding.UTF8);
         var agent = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueAgentSystem.cs"), Encoding.UTF8);
+        var activity = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueActivity.cs"), Encoding.UTF8);
         var entities = LoadSequence("Resources/Prototypes/_LuaM/Entities/Mobs/rescue_agent.yml");
         var medibot = FindComponent(FindPrototype(entities, "LuaMRescueAgent"), "Medibot");
         var treatments = Mapping(medibot, "treatments");
@@ -549,9 +693,9 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(component, Does.Contain("AutoTreatCooldown = 6f"));
         Assert.That(component, Does.Contain("AutoPickupSupplyRange = 12f"));
         Assert.That(component, Does.Contain("AutoResupplyRange = 24f"));
-        Assert.That(
-            agent,
-            Does.Contain("\"back\",\r\n        \"belt\",").Or.Contain("\"back\",\n        \"belt\","));
+        Assert.That(agent, Does.Contain("GetTreatmentStorageSlots"));
+        Assert.That(agent, Does.Contain("rescue.ActivityRoleProfile.EquipmentPolicy.InventorySearchSlots"));
+        Assert.That(activity, Does.Contain("new List<string> { \"belt\", \"back\", \"pocket1\", \"pocket2\", \"suitstorage\", \"outerClothing\", \"jumpsuit\" }"));
         Assert.That(ScalarValue(alive, "reagent"), Is.EqualTo("Tricordrazine"));
         Assert.That(ScalarValue(alive, "quantity"), Is.EqualTo("15"));
         Assert.That(alive.Children.Keys.OfType<YamlScalarNode>().Select(key => key.Value), Does.Not.Contain("maxDamage"));
@@ -629,16 +773,19 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("treating onboard"));
         Assert.That(source, Does.Contain("needs onboard treatment"));
         Assert.That(source, Does.Contain("HasPendingOnboardCareOrRelease"));
-        Assert.That(source, Does.Contain("onboard care pending before return"));
-        Assert.That(source, Does.Contain("redispatch deferred: onboard-care first"));
-        Assert.That(source, Does.Contain("onboard care before redispatch or return"));
+        Assert.That(source, Does.Contain("onboard care continues during return"));
+        Assert.That(source, Does.Contain("redispatch deferred: home-handoff first"));
+        Assert.That(source, Does.Contain("onboard care during return; release only after confirmed home dock"));
         Assert.That(source, Does.Contain("redispatch-deferred-onboard:"));
-        Assert.That(source, Does.Contain("allowAutoReturn: !hasPendingRescueTarget && !onboardCarePending"));
+        Assert.That(source, Does.Contain("allowAutoReturn: homeHandoffConfigured || !hasPendingRescueTarget && !onboardCarePending"));
         Assert.That(source, Does.Contain("ReportLivingPatientOnboardStatus(uid, rescue, target, onboardMobState, hasPendingRescueTarget && !onboardCarePending)"));
         Assert.That(source, Does.Contain("CompleteReleasedPatientCare"));
         Assert.That(source, Does.Contain("released stabilized {FormatEntityRef(patient)}; ready for next rescue"));
-        Assert.That(source, Does.Contain("holding shuttle forward after release of {FormatEntityRef(patient)}; pending rescue target detected"));
-        Assert.That(source, Does.Contain("StandbyAtAssignedShuttle(uid, rescue, htn, allowAutoReturn: !hasPendingRescueTarget && !onboardCarePending)"));
+        Assert.That(source, Does.Contain("holding {FormatEntityRef(patient)} buckled until confirmed home handoff"));
+        Assert.That(source, Does.Contain("lifecycle.RouteActivity == LuaMRescueActivity.Returning"));
+        Assert.That(source, Does.Contain("lifecycle.State == LuaMRescueShuttleRouteState.Docked"));
+        Assert.That(source, Does.Contain("lifecycle.SafeExitConfirmed"));
+        Assert.That(source, Does.Contain("IsShuttleDockedToGrid(shuttle, grid)"));
         Assert.That(source, Does.Contain("TrySayOnboardAction"));
         Assert.That(source, Does.Contain("TrySayRescueAction"));
         Assert.That(source, Does.Contain("TryReserveRescueSpeech"));
@@ -672,10 +819,16 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("critical onboard treatment"));
         Assert.That(source, Does.Contain("onboard treatment and observation"));
         Assert.That(source, Does.Contain("onboard treatment loop"));
-        var onboardCarePriority = source.IndexOf("if (TryContinueOnboardCare(uid, rescue, htn))", System.StringComparison.Ordinal);
-        var medibotGate = source.IndexOf("if (!TryComp<MedibotComponent>(uid, out var medibot))", System.StringComparison.Ordinal);
-        Assert.That(onboardCarePriority, Is.GreaterThanOrEqualTo(0));
-        Assert.That(medibotGate, Is.GreaterThan(onboardCarePriority));
+        var coordinatorLoop = source.IndexOf("private void UpdateAssignedTarget(", System.StringComparison.Ordinal);
+        var assignedIntentPriority = source.IndexOf("rescue.AssignedTarget is { Valid: true } assigned", coordinatorLoop, System.StringComparison.Ordinal);
+        var rememberedIntentPriority = source.IndexOf("if (TryResumeRememberedPatientTask(uid, rescue, htn, medibot))", coordinatorLoop, System.StringComparison.Ordinal);
+        var onboardCarePriority = source.IndexOf("if (TryContinueOnboardCare(uid, rescue, htn))", coordinatorLoop, System.StringComparison.Ordinal);
+        var genericScanPriority = source.IndexOf("if (TryFindBestPatientTarget(uid, rescue.SearchRange, rescue, medibot, out var target))", coordinatorLoop, System.StringComparison.Ordinal);
+        Assert.That(coordinatorLoop, Is.GreaterThanOrEqualTo(0));
+        Assert.That(assignedIntentPriority, Is.GreaterThanOrEqualTo(0));
+        Assert.That(rememberedIntentPriority, Is.GreaterThan(assignedIntentPriority));
+        Assert.That(onboardCarePriority, Is.GreaterThan(rememberedIntentPriority));
+        Assert.That(genericScanPriority, Is.GreaterThan(onboardCarePriority));
         Assert.That(source, Does.Contain("onboard reanimation cycle"));
         Assert.That(source, Does.Contain("dead recovery defib cycle"));
         Assert.That(source, Does.Contain("patient stable, preparing release"));
@@ -830,7 +983,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
 
-        Assert.That(source, Does.Contain("observerFaction.Factions.Any(faction => _factions.IsFactionHostile(faction, (candidate, candidateFaction)))"));
+        Assert.That(source, Does.Contain("_factions.IsEntityHostile((observer, observerFaction), (candidate, candidateFaction))"));
         Assert.That(source, Does.Not.Contain("IsFactionHostile(\"NanoTrasen\""));
     }
 
@@ -1060,6 +1213,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     {
         var source = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamSystem.cs"), Encoding.UTF8);
         var component = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueTeamComponent.cs"), Encoding.UTF8);
+        var activity = File.ReadAllText(FullPath("Content.Server/_LuaM/Rescue/LuaMRescueActivity.cs"), Encoding.UTF8);
 
         Assert.That(source, Does.Contain("TryRunThreatScreenAction"));
         Assert.That(source, Does.Contain("EscortThreatScreenRange = 7f"));
@@ -1083,9 +1237,15 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("GetThreatScreenFollowTarget"));
         Assert.That(source, Does.Contain("IsThreatWithinRescueLeash"));
         Assert.That(source, Does.Contain("TryGetThreatLeashAnchor"));
-        Assert.That(source, Does.Contain("IsWithinRange(anchor, threat, EscortThreatLeashRange)"));
+        Assert.That(activity, Does.Contain("PursuitLeashRange = escort ? 8.5f : 0f"));
+        Assert.That(source, Does.Contain("if (!policy.EngageHostiles || policy.PursuitLeashRange <= 0f)"));
+        Assert.That(source, Does.Contain("IsWithinRange(anchor, threat, policy.PursuitLeashRange)"));
         Assert.That(source, Does.Contain("threat-screen leash holding rescue perimeter"));
-        Assert.That(source, Does.Contain("return sceneAnchor ?? patient ?? leader ?? shuttleAnchor ?? shuttle;"));
+        Assert.That(source, Does.Contain("GetLivingFormationEntity(escort.SceneAnchor)"));
+        Assert.That(source, Does.Contain("GetLivingFormationEntity(escort.Leader)"));
+        Assert.That(source, Does.Contain("GetLivingFormationEntity(escort.Patient)"));
+        Assert.That(source, Does.Contain("ValidOrNull(escort.ShuttleAnchor)"));
+        Assert.That(source, Does.Contain("ValidOrNull(escort.Shuttle)"));
         Assert.That(source, Does.Contain("IsHostileToObserver(uid, threatUid)"));
         Assert.That(source, Does.Contain("threat-screen advancing to hostile"));
         Assert.That(source, Does.Contain("threat-screen engaging hostile"));
@@ -1139,9 +1299,9 @@ public sealed class LuaMRescueAutonomyPrototypeTest
 
     private static string GetCompoundTask(YamlSequenceNode branches, int branch)
     {
-        var tasks = Sequence((YamlMappingNode) branches.Children[branch], "tasks");
+        var tasks = Sequence((YamlMappingNode)branches.Children[branch], "tasks");
         Assert.That(tasks.Children, Has.Count.EqualTo(1));
-        return ScalarValue((YamlMappingNode) tasks.Children[0], "task");
+        return ScalarValue((YamlMappingNode)tasks.Children[0], "task");
     }
 
     private static YamlMappingNode FindComponent(YamlMappingNode entity, string componentType)
@@ -1181,28 +1341,28 @@ public sealed class LuaMRescueAutonomyPrototypeTest
 
         Assert.That(stream.Documents, Has.Count.EqualTo(1));
         Assert.That(stream.Documents[0].RootNode, Is.TypeOf<YamlSequenceNode>());
-        return (YamlSequenceNode) stream.Documents[0].RootNode;
+        return (YamlSequenceNode)stream.Documents[0].RootNode;
     }
 
     private static YamlMappingNode Mapping(YamlMappingNode mapping, string key)
     {
         var node = Node(mapping, key);
         Assert.That(node, Is.TypeOf<YamlMappingNode>(), $"Expected YAML key {key} to be a mapping.");
-        return (YamlMappingNode) node;
+        return (YamlMappingNode)node;
     }
 
     private static YamlSequenceNode Sequence(YamlMappingNode mapping, string key)
     {
         var node = Node(mapping, key);
         Assert.That(node, Is.TypeOf<YamlSequenceNode>(), $"Expected YAML key {key} to be a sequence.");
-        return (YamlSequenceNode) node;
+        return (YamlSequenceNode)node;
     }
 
     private static YamlScalarNode Scalar(YamlMappingNode mapping, string key)
     {
         var node = Node(mapping, key);
         Assert.That(node, Is.TypeOf<YamlScalarNode>(), $"Expected YAML key {key} to be a scalar.");
-        return (YamlScalarNode) node;
+        return (YamlScalarNode)node;
     }
 
     private static string ScalarValue(YamlMappingNode mapping, string key)
@@ -1213,7 +1373,7 @@ public sealed class LuaMRescueAutonomyPrototypeTest
     private static string ScalarValue(YamlNode node)
     {
         Assert.That(node, Is.TypeOf<YamlScalarNode>(), "Expected YAML sequence entry to be a scalar.");
-        return ((YamlScalarNode) node).Value ?? string.Empty;
+        return ((YamlScalarNode)node).Value ?? string.Empty;
     }
 
     private static YamlNode Node(YamlMappingNode mapping, string key)

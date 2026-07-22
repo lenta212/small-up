@@ -1,4 +1,84 @@
 luam-ai-director-title = ИИ-диспетчер LuaM
+luam-ai-director-screen-title = Центр управления ИИ-диспетчером
+luam-ai-director-loading = Ожидание первого состояния сервера. Действия заблокированы.
+luam-ai-director-confirm-short = Нажмите ещё раз
+luam-ai-director-confirmation-title = Действие с влиянием на сервер ожидает подтверждения
+luam-ai-director-game-master-warning-title = Режим ведущего: прямое выполнение
+luam-ai-director-game-master-warning = Сервер может выполнять игровые действия без обычной очереди подтверждения. Опасные кнопки в этом окне требуют второго осознанного нажатия.
+luam-ai-director-context-title = Контекст действий
+luam-ai-director-context-hint = Выбранные режим и цель действуют для команд на всех вкладках.
+luam-ai-director-target-none = Выберите игрока...
+
+luam-ai-director-tab-overview = Обзор
+luam-ai-director-tab-advisor = Советник
+luam-ai-director-tab-operations = Операции
+luam-ai-director-tab-base = ИИ-база и корабли
+luam-ai-director-tab-audit = Аудит и приватность
+
+luam-ai-director-overview-title = Обзор раунда
+luam-ai-director-overview-hint = Сначала оцените состояние: безопасные запросы отделены от изменений игрового мира.
+luam-ai-director-section-snapshot = Безопасная проверка
+luam-ai-director-section-snapshot-hint = Эти кнопки запрашивают статус, советы или историю и не изменяют игровой мир.
+luam-ai-director-section-outcome = Последний результат
+
+luam-ai-director-advisor-title = ИИ-советник
+luam-ai-director-advisor-hint = Задайте вопрос, проверьте основания и изучите рекомендацию до выполнения.
+luam-ai-director-chat-hint = Обычный чат предназначен для консультаций. Распознанные команды ИИ-базы и кораблей всё равно проходят серверную политику; для штатного управления используйте вкладки операций.
+luam-ai-director-recommendations-hint = Отфильтруйте советы по риску и источнику, выберите один и проверьте предпросмотр с чеклистом.
+
+luam-ai-director-operations-title = Операции раунда
+luam-ai-director-operations-hint = Все команды ниже могут изменить сектор. Игрок-цель никогда не выбирается автоматически.
+luam-ai-director-section-custom-process = Пользовательский процесс ИИ
+luam-ai-director-section-custom-process-hint = Внешний API используется только для этого процесса. Чат и обзор подчиняются отдельной политике сервера.
+luam-ai-director-section-targeted = События и давление на цель
+luam-ai-director-section-targeted-hint = Нужен явно выбранный игрок. Опасные команды требуют второго осознанного нажатия.
+luam-ai-director-section-conditions = Условия сектора
+luam-ai-director-section-conditions-hint = Создаёт длительное условие; кнопка снятия убирает следующее доступное условие.
+luam-ai-director-section-control = Управление сектором и очистка
+luam-ai-director-section-control-hint = Давление ИИ и управление синтетиками опасны; очистка ограничена локальными объектами.
+luam-ai-director-section-support = Поддержка цели
+luam-ai-director-section-support-hint = После подтверждения создаёт один предмет поддержки рядом с выбранным игроком.
+luam-ai-director-section-comms = Связь
+luam-ai-director-section-comms-hint = Отправляет видимое игрокам сообщение; объявление имеет высокий риск.
+
+luam-ai-director-base-title = ИИ-база и развёртывание кораблей
+luam-ai-director-base-hint = Проверка безопасна. Развитие и корабли создают постоянные объекты раунда.
+luam-ai-director-section-ai-base-status = Текущее состояние ИИ-базы
+luam-ai-director-section-ai-base-inspect = Диагностика и план
+luam-ai-director-section-ai-base-inspect-hint = Безопасная проверка: корабли, гриды и дроны не создаются.
+luam-ai-director-section-ai-base-actions = Развитие ИИ-базы
+luam-ai-director-section-ai-base-actions-hint = Высокий риск: может создать базу, корабли или дронов и изменить память сектора.
+luam-ai-director-section-ships = Развёртывание кораблей
+luam-ai-director-section-ships-hint = Высокий риск: создаёт один постоянный корабль или грид рядом с администратором.
+luam-ai-director-section-ship-presets = Быстрые пресеты
+luam-ai-director-ai-base-created = развёрнута
+luam-ai-director-ai-base-not-created = не развёрнута
+luam-ai-director-ai-base-no-data = отчёта пока нет
+luam-ai-director-ai-base-status =
+    База: { $created } | снабжение: { $supply } | торговых циклов: { $trade }
+    Сводка: { $summary }
+    Диагностика: { $diagnostics }
+    Последнее автоисправление: { $autofix }
+    План развития: { $plan }
+
+luam-ai-director-audit-title = История, аудит и приватность
+luam-ai-director-audit-hint = Здесь видно, что предложил ИИ, что одобрил оператор и какие данные покинули сервер.
+luam-ai-director-review-history-hint = Обзоры провайдера, сохранённые в текущем сеансе окна.
+luam-ai-director-action-history-hint = Подтверждённые, отменённые и заблокированные решения текущего сеанса.
+luam-ai-director-privacy-hint = Бюджет внешних запросов, маскирование чувствительных данных, скрытые поля и границы источников.
+luam-ai-director-operations-audit-hint = Операционные счётчики, блокировки и последние результаты выполнения.
+
+luam-ai-director-tooltip-refresh = Запросить у сервера актуальное состояние диспетчера.
+luam-ai-director-tooltip-toggle = Включение автоматического ИИ меняет поведение раунда и обычно открывает подтверждение сервера; выключение выполняется сразу.
+luam-ai-director-tooltip-target = Нужна для событий, давления, разломов и предметов поддержки. Игрок не выбирается автоматически.
+luam-ai-director-tooltip-read-only = Безопасный локальный запрос; изменение мира не ожидается.
+luam-ai-director-tooltip-review = Запросить обзор ИИ по настроенной политике сервера.
+luam-ai-director-tooltip-capabilities = Спросить советника о доступных ему возможностях.
+luam-ai-director-tooltip-gateway = Управляет внешним API только для создания пользовательского процесса.
+luam-ai-director-tooltip-ignore-lead = Обходит защиту открытой зацепки для пользовательского процесса; включайте только по явному плану.
+luam-ai-director-tooltip-target-confirm = Требует выбранного игрока и подтверждения сервера.
+luam-ai-director-tooltip-target-high = Опасное действие на выбранного игрока. Нажмите дважды осознанно; сервер также может запросить подтверждение.
+luam-ai-director-tooltip-confirm-high = Опасное действие раунда. Нажмите дважды осознанно; сервер также может запросить подтверждение.
 luam-ai-director-details = Подробности
 luam-ai-director-target = Игрок
 luam-ai-director-template = Шаблон
@@ -9,7 +89,7 @@ luam-ai-director-workflow-preset-low-risk-local = Локально низкий 
 luam-ai-director-workflow-preset-gated-server-impact = Server-impact через подтверждение
 luam-ai-director-workflow-transition = Смена режима
 luam-ai-director-safe-mode-summary = Безопасный режим
-luam-ai-director-use-gateway = Внешний API
+luam-ai-director-use-gateway = Внешний API для этого процесса
 luam-ai-director-gateway-exposure = Внешняя передача
 luam-ai-director-ignore-open-lead = Игнорировать открытую зацепку
 luam-ai-director-instruction = Инструкция ИИ
@@ -125,6 +205,72 @@ luam-ai-director-privacy-shared = Уходит наружу
 luam-ai-director-privacy-withheld = Остается локально
 luam-ai-director-privacy-notes = Контроль
 luam-ai-director-privacy-line = - { $value }
+
+# Состояния безопасности и запросов для оператора. Экспортные сводки используют отдельный стабильный формат.
+luam-ai-director-busy-title = ЗАПРОС В РАБОТЕ
+luam-ai-director-busy-description = Канал занят. Дождитесь ответа на текущий запрос ИИ или администрации, прежде чем отдавать следующий приказ.
+luam-ai-director-operator-state-title = Режим действий
+luam-ai-director-operator-state-loading = Проверка серверных блокировок...
+luam-ai-director-action-classification-legend = БЕЗОПАСНО — локально/только чтение · ЧЕРЕЗ ШЛЮЗ — влияние на сервер требует проверки и подтверждения · ВЫСОКОЕ ВЛИЯНИЕ — прямое исполнение game-master
+luam-ai-director-operator-state-busy = ЗАНЯТО — командные элементы заблокированы до завершения активного запроса.
+luam-ai-director-operator-state-confirmation = ЧЕРЕЗ ШЛЮЗ — одно действие с влиянием на сервер ожидает подтверждения или отмены; второй приказ не будет принят.
+luam-ai-director-operator-state-direct = ВЫСОКОЕ ВЛИЯНИЕ — режим game-master исполняет игровые действия напрямую; перед вторым нажатием проверьте цель и намерение.
+luam-ai-director-operator-state-read-only = БЕЗОПАСНО / ТОЛЬКО ЧТЕНИЕ — изменение мира заблокировано; статус, советы, история и локальная диагностика доступны.
+luam-ai-director-operator-state-gated = ЧЕРЕЗ ШЛЮЗ — изменение мира требует локальной проверки, явного подтверждения и записи в аудите.
+
+luam-ai-director-readiness-status-ready = готов
+luam-ai-director-readiness-status-busy = занят
+luam-ai-director-readiness-status-waiting-confirmation = ожидает подтверждения
+luam-ai-director-readiness-status-limited = ограничен
+luam-ai-director-readiness-status-game-master = game-master
+luam-ai-director-readiness-status-blocked = заблокирован
+luam-ai-director-readiness-status-waiting = ожидание
+luam-ai-director-readiness-status-clear = свободен
+luam-ai-director-readiness-status-not-used = не используется
+luam-ai-director-readiness-summary = Готовность ИИ: { $status }
+luam-ai-director-readiness-area-gateway = внешний шлюз
+luam-ai-director-readiness-area-server-actions = серверные действия
+luam-ai-director-readiness-area-request = состояние запроса
+luam-ai-director-readiness-area-budget = лимит шлюза
+luam-ai-director-readiness-area-privacy = приватность
+luam-ai-director-readiness-area-rag = источники RAG
+luam-ai-director-readiness-area-next = следующий шаг
+luam-ai-director-readiness-gateway-ready = запрос внешней модели или проверки доступен через настроенный OpenAI-совместимый API
+luam-ai-director-readiness-gateway-missing = API не настроен; локальные безопасные команды, рекомендации, статус, история и подтверждаемые быстрые действия остаются доступны
+luam-ai-director-readiness-server-game-master = игровые действия LuaM исполняются напрямую по серверной настройке game-master
+luam-ai-director-readiness-server-ready = действия, меняющие мир, проходят только через локальную проверку и подтверждение
+luam-ai-director-readiness-server-blocked = текущий административный поток не может менять мир; просмотр, статус и советы доступны
+luam-ai-director-readiness-request-busy = дождитесь завершения активного запроса ИИ, прежде чем отправлять другую команду
+luam-ai-director-readiness-request-waiting = подтвердите или отмените ожидающее действие, прежде чем отдавать новые команды
+luam-ai-director-readiness-request-clear = активного запроса и ожидающего подтверждения нет
+luam-ai-director-readiness-budget-not-used = лимит внешнего шлюза не имеет значения, пока API не настроен
+luam-ai-director-readiness-budget-detail = окно: использовано { $windowUsed }/{ $windowLimit }, осталось { $windowRemaining }; раунд: использовано { $roundUsed }/{ $roundLimit }, осталось { $roundRemaining }; повтор через { $retry } сек.
+luam-ai-director-readiness-privacy-detail = контекст сокращён; скрыто всего={ $redactions }, ID={ $ids }, секретов={ $secrets }, мест={ $locations }; передано сводок={ $shared }, оставлено локально={ $withheld }
+luam-ai-director-readiness-rag-detail = разрешено источников={ $allowed }, отклонено источников={ $denied }; в панели видна только форма источников
+luam-ai-director-readiness-next-default = сначала используйте локальные рекомендации или статус; действия высокого влияния запускайте только после проверки
+
+luam-ai-director-generate-state-busy = Создать процесс: недоступно — запрос уже выполняется; дождитесь завершения текущего действия ИИ или администрации. Профиль: { $preset }
+luam-ai-director-generate-state-confirmation = Создать процесс: недоступно — действие с влиянием на сервер ожидает подтверждения или отмены. Профиль: { $preset }
+luam-ai-director-generate-state-preset-blocked = Создать процесс: недоступно — профиль { $preset } блокирует создаваемые процессы с влиянием на сервер; после проверки переключитесь на профиль с подтверждением.
+luam-ai-director-generate-state-target-missing = Создать процесс: недоступно — нет допустимой цели-игрока. Профиль: { $preset }
+luam-ai-director-generate-state-server-blocked = Создать процесс: недоступно — действия с влиянием на сервер сейчас заблокированы. Профиль: { $preset }, внешний шлюз настроен: { $gatewayConfigured }
+luam-ai-director-generate-mode-external-gateway = внешний-шлюз
+luam-ai-director-generate-mode-local-fallback = локальный-резерв
+luam-ai-director-generate-state-ready = Создать процесс: готово — цель доступна, режим: { $mode }, профиль: { $preset }; созданные действия всё равно проходят предпросмотр и подтверждение.
+
+luam-ai-director-value-unknown = неизвестно
+luam-ai-director-apply-state-busy = Применить совет: недоступно — запрос уже выполняется; дождитесь завершения текущего действия ИИ или администрации. Профиль: { $preset }
+luam-ai-director-apply-state-confirmation = Применить совет: недоступно — действие с влиянием на сервер ожидает подтверждения или отмены. Профиль: { $preset }
+luam-ai-director-apply-state-no-selection = Применить совет: недоступно — действие рекомендации не выбрано; измените фильтр или сортировку либо запросите новый совет. Профиль: { $preset }
+luam-ai-director-apply-state-review-only = Применить совет: недоступно — профиль «только проверка» блокирует все действия; используйте советы, статус или историю либо смените профиль после проверки.
+luam-ai-director-apply-state-local-server-blocked = Применить совет: недоступно — профиль «локальный низкий риск» блокирует рекомендации с влиянием на сервер; выбранный риск: { $risk }. Для подтверждаемого исполнения смените профиль.
+luam-ai-director-apply-state-local-risk-blocked = Применить совет: недоступно — профиль «локальный низкий риск» разрешает только локальные рекомендации низкого риска; выбранный риск: { $risk }.
+luam-ai-director-apply-state-preset-blocked = Применить совет: недоступно — профиль { $preset } блокирует эту рекомендацию.
+luam-ai-director-apply-state-target-missing = Применить совет: недоступно — рекомендации нужна цель, но допустимый игрок не выбран. Профиль: { $preset }, риск: { $risk }
+luam-ai-director-apply-state-server-blocked = Применить совет: недоступно — рекомендация требует серверного подтверждения, но действия с влиянием на сервер сейчас заблокированы. Профиль: { $preset }, риск: { $risk }
+luam-ai-director-apply-mode-server-confirmation = серверное-подтверждение
+luam-ai-director-apply-mode-local-safe = локально-безопасно
+luam-ai-director-apply-state-ready = Применить совет: готово — действие: { $action }, режим: { $mode }, риск: { $risk }, профиль: { $preset }.
 luam-ai-director-status = Авто: { $enabled } | API: { $gateway } | игроков: { $players } | раунд: { $runLevel } | SC-{ $pressure } | { $openLead }
 luam-ai-director-mode-gateway-missing = API не настроен. Чат-обзор недоступен; локальные безопасные действия работают.
 luam-ai-director-mode-safe-manual = Ручной безопасный режим. Авто-ИИ выключен; используйте чат и быстрые действия вручную.
@@ -170,6 +316,7 @@ luam-ai-director-world-pulse-05 = Опасность подтверждена. �
 luam-ai-director-world-pulse-06 = LuaM отмечает нарастание угрозы: SC-{ $severity }, активных условий { $conditions }. Инструкции: прекратить одиночные вылазки, держать связь, выполнять приказы администрации.
 luam-ai-director-world-pulse-07 = ПАНИКА ЗАФИКСИРОВАНА. LuaM переводит тревогу в управляемый режим SC-{ $severity }. Инструкции: не разбегаться, подтвердить живых через КПК, закрыть шлюзы, ждать следующего приказа.
 luam-ai-director-gateway-ship = Корабль
+luam-ai-director-gateway-ship-none = Выберите пресет корабля...
 luam-ai-director-quick-gateway-ship-selected = Создать выбранный
 luam-ai-director-quick-gateway-ship = Создать Baeg
 luam-ai-director-quick-gateway-ship-triage = Создать Triage

@@ -30,9 +30,9 @@ station-event-bluespace-generic-ftl-start-announcement = Внимание все
 station-event-bluespace-generic-ftl-warning-announcement = Запущены удалённые FTL процедуры, осталось пять минут до рассеивания неизвестного шаттла.
 station-event-bluespace-generic-ftl-end-announcement = В соответствии с протоколами блюспейс-передвижений NanoTrasen, неидентифицированный шаттл был уничтожен для избежания столкновения.
 
-station-event-bluespace-dungeon-start-announcement = Обнаружены признаки приближающегося крупного планетоида. Проведите расследование планетоида с осторожностью, NanoTrasen не несёт ответственности за причинённый ущерб или гибель членов экипажа.
-station-event-bluespace-dungeon-warning-announcement = На планетоиде обнаружены нестабильные блюспейс колебания. Предположительно, планетоид покинет сектор через 5 минут.
-station-event-bluespace-dungeon-end-announcement = Блюспейс колебания достигли критических значений, планетоид покинул сектор.
+station-event-bluespace-dungeon-start-announcement = Обнаружены признаки приближения двух крупных планетоидов. Исследуйте их с осторожностью: NanoTrasen не несёт ответственности за причинённый ущерб или гибель членов экипажа.
+station-event-bluespace-dungeon-warning-announcement = На планетоидах обнаружены нестабильные блюспейс-колебания. Предположительно, они покинут сектор через 5 минут.
+station-event-bluespace-dungeon-end-announcement = Блюспейс-колебания достигли критических значений, планетоиды покинули сектор.
 
 station-event-bluespace-scrap-start-announcement = В блюспейс пространстве обнаружен шторм. В ближайшее время, в секторе ожидается прибытие шаттлов-обломков. Потерпевшие крушение шаттлы являются действительными объектами для мародёрства.
 station-event-bluespace-scrap-warning-announcement = На шаттлах-обломках обнаружены нестабильные блюспейс колебания, до ожидаемого вылета этих шаттлов из сектора осталось приблизительно пять минут.

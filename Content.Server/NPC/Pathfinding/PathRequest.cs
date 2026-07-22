@@ -1,7 +1,10 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Content.Shared.Access;
 using Content.Shared.NPC;
+using Content.Shared.StationRecords;
 using Robust.Shared.Map;
+using Robust.Shared.Prototypes;
 using Robust.Shared.Timing;
 using Robust.Shared.Utility;
 
@@ -13,6 +16,30 @@ namespace Content.Server.NPC.Pathfinding;
 public abstract class PathRequest
 {
     public EntityCoordinates Start;
+
+    /// <summary>
+    /// Entity whose collision shape and real access credentials are used for this request.
+    /// Coordinate-only requests leave this null and cannot opt into credentialed doors.
+    /// </summary>
+    public readonly EntityUid? Requester;
+
+    /// <summary>
+    /// Immutable credentials captured on the server main thread before this request
+    /// is processed. AccessReader may raise ECS events while gathering credentials,
+    /// so that work must never happen inside the parallel pathfinding loop.
+    /// </summary>
+    public PathAccessSnapshot? AccessSnapshot;
+    public bool AccessSnapshotCaptured;
+    public readonly Dictionary<PathPoly, bool> AccessPolyDecisions = new();
+
+    public bool EncounteredAccessDenied;
+
+    public readonly CancellationToken CancellationToken;
+
+    /// <summary>
+    /// Bounds how long a request may wait for a temporarily missing navmesh chunk.
+    /// </summary>
+    public TimeSpan? GraphWaitDeadline;
 
     public Task<PathResult> Task => Tcs.Task;
     public readonly TaskCompletionSource<PathResult> Tcs;
@@ -27,6 +54,7 @@ public abstract class PathRequest
     public PriorityQueue<ValueTuple<float, PathPoly>> Frontier = default!;
     public readonly Dictionary<PathPoly, float> CostSoFar = new();
     public readonly Dictionary<PathPoly, PathPoly> CameFrom = new();
+    public int ExpandedNodes;
 
     #endregion
 
@@ -38,13 +66,35 @@ public abstract class PathRequest
 
     #endregion
 
-    public PathRequest(EntityCoordinates start, PathFlags flags, int layer, int mask, CancellationToken cancelToken)
+    public PathRequest(
+        EntityCoordinates start,
+        PathFlags flags,
+        int layer,
+        int mask,
+        CancellationToken cancelToken,
+        EntityUid? requester = null)
     {
         Start = start;
+        Requester = requester;
         Flags = flags;
         CollisionLayer = layer;
         CollisionMask = mask;
-        Tcs = new TaskCompletionSource<PathResult>(cancelToken);
+        CancellationToken = cancelToken;
+        Tcs = new TaskCompletionSource<PathResult>();
+    }
+}
+
+public sealed class PathAccessSnapshot
+{
+    public readonly ProtoId<AccessLevelPrototype>[] Tags;
+    public readonly StationRecordKey[] StationKeys;
+
+    public PathAccessSnapshot(
+        ProtoId<AccessLevelPrototype>[] tags,
+        StationRecordKey[] stationKeys)
+    {
+        Tags = tags;
+        StationKeys = stationKeys;
     }
 }
 
@@ -64,7 +114,8 @@ public sealed class AStarPathRequest : PathRequest
         float distance,
         int layer,
         int mask,
-        CancellationToken cancelToken) : base(start, flags, layer, mask, cancelToken)
+        CancellationToken cancelToken,
+        EntityUid? requester = null) : base(start, flags, layer, mask, cancelToken, requester)
     {
         Distance = distance;
         End = end;
@@ -90,7 +141,8 @@ public sealed class BFSPathRequest : PathRequest
         PathFlags flags,
         int layer,
         int mask,
-        CancellationToken cancelToken) : base(start, flags, layer, mask, cancelToken)
+        CancellationToken cancelToken,
+        EntityUid? requester = null) : base(start, flags, layer, mask, cancelToken, requester)
         {
             ExpansionRange = expansionRange;
             ExpansionLimit = expansionLimit;
@@ -104,10 +156,12 @@ public sealed class PathResultEvent
 {
     public PathResult Result;
     public readonly List<PathPoly> Path;
+    public readonly bool AccessDenied;
 
-    public PathResultEvent(PathResult result, List<PathPoly> path)
+    public PathResultEvent(PathResult result, List<PathPoly> path, bool accessDenied = false)
     {
         Result = result;
         Path = path;
+        AccessDenied = accessDenied;
     }
 }

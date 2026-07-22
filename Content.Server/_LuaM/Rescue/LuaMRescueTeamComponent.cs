@@ -82,6 +82,9 @@ public sealed partial class LuaMRescueTeamComponent : Component
     public string LastEvacuationFormationStatus = "none";
 
     [DataField]
+    public string LastEscortActivityDigest = "none";
+
+    [DataField]
     public string LastCrewHelpAcknowledgementStatus = "none";
 
     [DataField]
@@ -286,6 +289,85 @@ public sealed partial class LuaMRescueEscortComponent : Component
     public string LastCrewHelpKey = "none";
 
     public TimeSpan NextCrewHelpRequestAt;
+
+    public EntityUid? PatientAssistAttemptTarget;
+
+    public int PatientAssistAttempts;
+
+    public TimeSpan NextPatientAssistAttemptAt;
+
+    public EntityUid? PatientHandoffAttemptTarget;
+
+    public int PatientHandoffAttempts;
+
+    public TimeSpan NextPatientHandoffAttemptAt;
+
+    public EntityUid? ClearRoutePullAttemptTarget;
+
+    public int ClearRoutePullAttempts;
+
+    public TimeSpan NextClearRoutePullAttemptAt;
+
+    public EntityUid? ClearRouteReleaseAttemptTarget;
+
+    public int ClearRouteReleaseAttempts;
+
+    public TimeSpan NextClearRouteReleaseAttemptAt;
+}
+
+/// <summary>
+/// Activity state for rescue actors that deliberately do not carry <see cref="LuaMRescueAgentComponent"/>.
+/// It uses the same role/profile/context vocabulary as Aibolit without making escorts visible to AgentSystem.
+/// </summary>
+[RegisterComponent]
+public sealed partial class LuaMRescueActivityCarrierComponent : Component
+{
+    [DataField]
+    public LuaMRescueRole ActivityRole = LuaMRescueRole.None;
+
+    [DataField]
+    public LuaMRescueRoleProfile ActivityRoleProfile = new();
+
+    [DataField]
+    public LuaMRescueActivityContext ActivityContext = new();
+
+    [DataField]
+    public LuaMRescueEscortDuty SourceDuty = LuaMRescueEscortDuty.Standby;
+
+    [DataField]
+    public int IntentTransitions;
+
+    /// <summary>
+    /// Terminal route failures keep a separate, bounded recovery budget. This lets an
+    /// escort resume the same logical duty when a door or temporary obstruction clears
+    /// without recreating the intent every update tick.
+    /// </summary>
+    [DataField]
+    public bool TerminalRecoveryEvaluated;
+
+    [DataField]
+    public bool TerminalRecoveryArmed;
+
+    [DataField]
+    public bool TerminalRecoveryDormant;
+
+    [DataField]
+    public int TerminalRecoveryAttempts;
+
+    [DataField]
+    public TimeSpan NextTerminalRecoveryAt;
+
+    [DataField]
+    public bool TerminalRecoveryProbeInFlight;
+
+    [DataField]
+    public TimeSpan TerminalRecoveryProbeStartedAt;
+
+    [DataField]
+    public string LastTerminalRecoveryStatus = "not-evaluated";
+
+    [DataField]
+    public string LastStatus = "role=None; activity=None; terminal=None; generation=0; target=none";
 }
 
 public enum LuaMRescueEscortRole : byte

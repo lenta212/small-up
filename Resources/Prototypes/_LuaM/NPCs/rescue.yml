@@ -1,17 +1,45 @@
 - type: htnCompound
-  id: LuaMRescueCompound
+  id: LuaMRescueAgentCompound
   branches:
-  - tasks:
+  # Aibolit's activity coordinator is the sole owner of patient and movement
+  # intent. Generic combat/medibot compounds must never steal that target.
+  - preconditions:
+    - !type:KeyExistsPrecondition
+      key: FollowTarget
+    tasks:
     - !type:HTNCompoundTask
-      task: RangedCombatCompound
+      task: FollowCompound
 
   - tasks:
     - !type:HTNCompoundTask
-      task: MeleeCombatCompound
+      task: IdleCompound
 
-  - tasks:
+- type: htnCompound
+  id: LuaMRescueEscortCompound
+  branches:
+  # TeamSystem publishes CurrentOrderedTarget only after faction and leash
+  # validation. The HTN may execute that intent but cannot acquire another foe.
+  - preconditions:
+    - !type:KeyExistsPrecondition
+      key: CurrentOrderedTarget
+    - !type:GunAmmoPrecondition
+      minPercent: 0.001
+    tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:UtilityOperator
+        proto: OrderedTargets
     - !type:HTNCompoundTask
-      task: InjectNearbyCompound
+      task: LuaMRescueOrderedGunCombatCompound
+
+  - preconditions:
+    - !type:KeyExistsPrecondition
+      key: CurrentOrderedTarget
+    tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:UtilityOperator
+        proto: OrderedTargets
+    - !type:HTNCompoundTask
+      task: MeleeAttackOrderedTargetCompound
 
   - preconditions:
     - !type:KeyExistsPrecondition
@@ -23,3 +51,31 @@
   - tasks:
     - !type:HTNCompoundTask
       task: IdleCompound
+
+- type: htnCompound
+  id: LuaMRescueOrderedGunCombatCompound
+  branches:
+  - tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:MoveToOperator
+        shutdownState: PlanFinished
+        pathfindInPlanning: true
+        removeKeyOnFinish: false
+        targetKey: TargetCoordinates
+        pathfindKey: TargetPathfind
+        stopOnLineOfSight: true
+        rangeKey: MeleeRange
+    - !type:HTNPrimitiveTask
+      operator: !type:JukeOperator
+        jukeType: AdjacentTile
+    - !type:HTNPrimitiveTask
+      preconditions:
+      - !type:KeyExistsPrecondition
+        key: Target
+      operator: !type:GunOperator
+        targetKey: Target
+      services:
+      - !type:UtilityService
+        id: LuaMRescueOrderedRangedService
+        proto: OrderedTargets
+        key: Target

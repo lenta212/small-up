@@ -1,0 +1,808 @@
+# High-level arbitration shared by LuaM bodies, ships, service machines, and
+# animals. Domain executors remain responsible for carrying out each intent.
+- type: luamBehaviorProfile
+  id: LuaMUniversalBehaviorBase
+  abstract: true
+  defaultIntent: Standby
+  defaultTier: Idle
+  decisionIntervalSeconds: 0.5
+  sameTierPreemptMargin: 100
+  perceptionRange: 12
+  threatTolerance: 2
+  maxObservations: 64
+  rules:
+  - id: hard-stop-incapacitated
+    intent: AwaitRescue
+    tier: HardStop
+    baseScore: 1000
+    requiredAll: [ SelfIncapacitated ]
+    weights:
+    - stimulus: SelfIncapacitated
+      weight: 2000
+    commitSeconds: 2
+    interruptible: false
+
+  - id: critical-extinguish-self
+    intent: ExtinguishSelf
+    tier: Critical
+    baseScore: 950
+    requiredCapabilities: [ FireVulnerable, Extinguish ]
+    requiredAll: [ SelfOnFire ]
+    weights:
+    - stimulus: SelfOnFire
+      weight: 2000
+    targetFrom: SelfOnFire
+
+  - id: critical-flee-self-fire
+    intent: Flee
+    tier: Critical
+    baseScore: 800
+    requiredCapabilities: [ FireVulnerable, Move ]
+    requiredAll: [ SelfOnFire ]
+    weights:
+    - stimulus: SelfOnFire
+      weight: 1800
+
+  - id: critical-seek-safe-atmosphere
+    intent: SeekSafeAtmosphere
+    tier: Critical
+    baseScore: 900
+    requiredCapabilities: [ Breathe, Move ]
+    requiredAny: [ UnsafeAtmosphere, LowPressure, HighPressure ]
+    weights:
+    - stimulus: UnsafeAtmosphere
+      weight: 2200
+    - stimulus: LowPressure
+      weight: 2000
+    - stimulus: HighPressure
+      weight: 1800
+
+  - id: critical-evacuate-temperature
+    intent: EvacuateHazard
+    tier: Critical
+    baseScore: 850
+    requiredCapabilities: [ TemperatureVulnerable, Move ]
+    requiredAll: [ ExtremeTemperature ]
+    weights:
+    - stimulus: ExtremeTemperature
+      weight: 2000
+
+  - id: critical-evacuate-radiation
+    intent: EvacuateHazard
+    tier: Critical
+    baseScore: 875
+    requiredCapabilities: [ RadiationVulnerable, Move ]
+    requiredAll: [ RadiationHazard ]
+    weights:
+    - stimulus: RadiationHazard
+      weight: 2100
+
+  - id: critical-evacuate-immediate-hazard
+    intent: EvacuateHazard
+    tier: Critical
+    baseScore: 825
+    requiredCapabilities: [ Move ]
+    requiredAny: [ ExplosionRisk, ElectricalHazard, ContaminationHazard, HullBreach ]
+    weights:
+    - stimulus: ExplosionRisk
+      weight: 2300
+    - stimulus: ElectricalHazard
+      weight: 1900
+    - stimulus: ContaminationHazard
+      weight: 2000
+    - stimulus: HullBreach
+      weight: 2100
+
+  - id: critical-seek-medical-aid
+    intent: SeekMedicalAid
+    tier: Critical
+    baseScore: 700
+    requiredCapabilities: [ SelfPreservation, Move ]
+    requiredAll: [ SelfCritical ]
+    weights:
+    - stimulus: SelfCritical
+      weight: 1800
+
+  - id: safety-evade-projectile
+    intent: EvadeProjectile
+    tier: Safety
+    baseScore: 950
+    requiredCapabilities: [ Move ]
+    requiredAll: [ ProjectileThreat ]
+    forbidden: [ Immobilized ]
+    weights:
+    - stimulus: ProjectileThreat
+      weight: 1900
+
+  - id: safety-disengage-damaged-ship
+    intent: DisengageShip
+    tier: Safety
+    baseScore: 900
+    requiredCapabilities: [ ShipControl ]
+    requiredAll: [ HostileThreat ]
+    requiredAny: [ LowPower, LowFuel, LowAmmunition, Overwhelmed ]
+    weights:
+    - stimulus: HostileThreat
+      weight: 1000
+    - stimulus: LowPower
+      weight: 1800
+    - stimulus: LowFuel
+      weight: 1700
+    - stimulus: LowAmmunition
+      weight: 1600
+    - stimulus: Overwhelmed
+      weight: 1900
+    targetFrom: HostileThreat
+
+  - id: safety-disengage-civilian-ship
+    intent: DisengageShip
+    tier: Safety
+    baseScore: 850
+    requiredCapabilities: [ ShipControl ]
+    forbiddenCapabilities: [ ShipWeapons ]
+    requiredAll: [ HostileThreat ]
+    weights:
+    - stimulus: HostileThreat
+      weight: 1700
+    targetFrom: HostileThreat
+
+  - id: safety-retreat-overwhelmed
+    intent: Retreat
+    tier: Safety
+    baseScore: 825
+    requiredCapabilities: [ Move ]
+    requiredAll: [ Overwhelmed ]
+    forbidden: [ Immobilized ]
+    weights:
+    - stimulus: Overwhelmed
+      weight: 1800
+    targetFrom: Overwhelmed
+
+  - id: safety-flee-unarmed-threat
+    intent: Flee
+    tier: Safety
+    baseScore: 700
+    requiredCapabilities: [ Move ]
+    forbiddenCapabilities: [ CombatMelee, CombatRanged, ShipWeapons ]
+    requiredAll: [ HostileThreat ]
+    forbidden: [ Immobilized ]
+    weights:
+    - stimulus: HostileThreat
+      weight: 1600
+    targetFrom: HostileThreat
+
+  - id: safety-defend-while-immobilized
+    intent: DefendSelf
+    tier: Safety
+    baseScore: 775
+    requiredAnyCapabilities: [ CombatMelee, CombatRanged ]
+    requiredAll: [ HostileThreat, Immobilized ]
+    weights:
+    - stimulus: HostileThreat
+      weight: 1700
+    - stimulus: Immobilized
+      weight: 500
+    targetFrom: HostileThreat
+    requireTarget: true
+
+  - id: safety-take-cover-low-ammunition
+    intent: TakeCover
+    tier: Safety
+    baseScore: 750
+    requiredCapabilities: [ Move, CombatRanged ]
+    forbiddenCapabilities: [ CombatMelee ]
+    requiredAll: [ HostileThreat, LowAmmunition ]
+    forbidden: [ Immobilized ]
+    weights:
+    - stimulus: HostileThreat
+      weight: 1400
+    - stimulus: LowAmmunition
+      weight: 1800
+    targetFrom: HostileThreat
+    requireTarget: true
+
+  - id: safety-recharge-critical
+    intent: Recharge
+    tier: Safety
+    baseScore: 850
+    requiredCapabilities: [ Recharge ]
+    requiredAll: [ LowPower ]
+    forbidden: [ HostileThreat ]
+    minimumSignal: 0.75
+    weights:
+    - stimulus: LowPower
+      weight: 2100
+
+  - id: safety-request-help-immobilized
+    intent: RequestAssistance
+    tier: Safety
+    baseScore: 650
+    requiredCapabilities: [ Communicate ]
+    requiredAll: [ Immobilized ]
+    weights:
+    - stimulus: Immobilized
+      weight: 1500
+
+  - id: safety-request-help-stranded
+    intent: RequestAssistance
+    tier: Safety
+    baseScore: 600
+    requiredCapabilities: [ Communicate ]
+    requiredAll: [ Stranded ]
+    weights:
+    - stimulus: Stranded
+      weight: 1500
+
+  - id: safety-stationary-weapon-unavailable
+    intent: RequestAssistance
+    tier: Safety
+    baseScore: 900
+    requiredCapabilities: [ Stationary, Communicate ]
+    requiredAll: [ HostileThreat ]
+    requiredAny: [ LowAmmunition, LowPower ]
+    weights:
+    - stimulus: HostileThreat
+      weight: 1200
+    - stimulus: LowAmmunition
+      weight: 2200
+    - stimulus: LowPower
+      weight: 2200
+
+  - id: combat-engage-ship
+    intent: EngageShip
+    tier: Combat
+    baseScore: 850
+    requiredCapabilities: [ ShipControl, ShipWeapons ]
+    requiredAll: [ HostileThreat ]
+    forbidden: [ LowPower, LowFuel, Overwhelmed ]
+    weights:
+    - stimulus: HostileThreat
+      weight: 1700
+    targetFrom: HostileThreat
+    requireTarget: true
+
+  - id: combat-defend-self
+    intent: DefendSelf
+    tier: Combat
+    baseScore: 800
+    requiredAnyCapabilities: [ CombatMelee, CombatRanged ]
+    requiredAll: [ HostileThreat ]
+    forbidden: [ Overwhelmed ]
+    weights:
+    - stimulus: HostileThreat
+      weight: 1600
+    targetFrom: HostileThreat
+    requireTarget: true
+
+  - id: combat-defend-area
+    intent: DefendArea
+    tier: Combat
+    baseScore: 900
+    requiredCapabilities: [ Guard ]
+    requiredAnyCapabilities: [ CombatMelee, CombatRanged ]
+    requiredAny: [ Intruder, ObjectiveThreatened ]
+    weights:
+    - stimulus: Intruder
+      weight: 1700
+    - stimulus: ObjectiveThreatened
+      weight: 1900
+
+  - id: support-revive
+    intent: Revive
+    tier: Support
+    baseScore: 1000
+    requiredCapabilities: [ Medical, Defibrillate ]
+    requiredAll: [ RecoverableDeadAlly ]
+    weights:
+    - stimulus: RecoverableDeadAlly
+      weight: 2200
+    targetFrom: RecoverableDeadAlly
+    requireTarget: true
+
+  - id: support-treat-critical
+    intent: Treat
+    tier: Support
+    baseScore: 950
+    requiredCapabilities: [ Medical ]
+    requiredAll: [ AllyCritical ]
+    weights:
+    - stimulus: AllyCritical
+      weight: 2100
+    targetFrom: AllyCritical
+    requireTarget: true
+
+  - id: support-treat-injured
+    intent: Treat
+    tier: Support
+    baseScore: 700
+    requiredCapabilities: [ Medical ]
+    requiredAll: [ AllyInjured ]
+    weights:
+    - stimulus: AllyInjured
+      weight: 1400
+    targetFrom: AllyInjured
+    requireTarget: true
+
+  - id: support-evacuate-casualty
+    intent: EvacuateCasualty
+    tier: Support
+    baseScore: 760
+    requiredCapabilities: [ Move, Pull ]
+    requiredAny: [ AllyCritical, PatientWaiting ]
+    weights:
+    - stimulus: AllyCritical
+      weight: 1500
+    - stimulus: PatientWaiting
+      weight: 1200
+
+  - id: support-extinguish-fire
+    intent: ExtinguishFire
+    tier: Support
+    baseScore: 850
+    requiredCapabilities: [ Extinguish ]
+    requiredAny: [ LocalFire, FireNeedsExtinguishing ]
+    weights:
+    - stimulus: LocalFire
+      weight: 1800
+    - stimulus: FireNeedsExtinguishing
+      weight: 1700
+    targetFrom: FireNeedsExtinguishing
+
+  - id: support-clean-hazard
+    intent: Clean
+    tier: Support
+    baseScore: 625
+    requiredCapabilities: [ Clean ]
+    requiredAll: [ CleaningNeeded ]
+    weights:
+    - stimulus: CleaningNeeded
+      weight: 1300
+    targetFrom: CleaningNeeded
+    requireTarget: true
+
+  - id: support-seal-breach
+    intent: SealBreach
+    tier: Support
+    baseScore: 825
+    requiredCapabilities: [ SealBreach ]
+    requiredAny: [ HullBreach, BreachNeedsSealing ]
+    weights:
+    - stimulus: HullBreach
+      weight: 1900
+    - stimulus: BreachNeedsSealing
+      weight: 1800
+    targetFrom: BreachNeedsSealing
+
+  - id: support-restore-power
+    intent: RestorePower
+    tier: Support
+    baseScore: 725
+    requiredCapabilities: [ RestorePower ]
+    requiredAny: [ PowerFailure, DeviceNeedsPower ]
+    weights:
+    - stimulus: PowerFailure
+      weight: 1500
+    - stimulus: DeviceNeedsPower
+      weight: 1400
+    targetFrom: DeviceNeedsPower
+
+  - id: support-repair
+    intent: Repair
+    tier: Support
+    baseScore: 650
+    requiredCapabilities: [ Repair ]
+    requiredAny: [ RepairNeeded, StructuralFailure ]
+    weights:
+    - stimulus: RepairNeeded
+      weight: 1400
+    - stimulus: StructuralFailure
+      weight: 1600
+    targetFrom: RepairNeeded
+
+  - id: support-request-reinforcements
+    intent: RequestReinforcements
+    tier: Support
+    baseScore: 600
+    requiredCapabilities: [ Communicate, Coordinate ]
+    requiredAll: [ ReinforcementsRequested ]
+    weights:
+    - stimulus: ReinforcementsRequested
+      weight: 1300
+
+  - id: mission-follow-direct-order
+    intent: FollowOrder
+    tier: Mission
+    baseScore: 900
+    requiredCapabilities: [ FollowOrders ]
+    requiredAll: [ DirectOrder ]
+    weights:
+    - stimulus: DirectOrder
+      weight: 1800
+    targetFrom: DirectOrder
+
+  - id: mission-execute-work-order
+    intent: ExecuteWorkOrder
+    tier: Mission
+    baseScore: 800
+    requiredCapabilities: [ Interact ]
+    requiredAll: [ WorkOrder ]
+    weights:
+    - stimulus: WorkOrder
+      weight: 1600
+    targetFrom: WorkOrder
+
+  - id: mission-clear-route
+    intent: ClearRoute
+    tier: Support
+    baseScore: 720
+    requiredCapabilities: [ Interact, Navigate ]
+    requiredAll: [ RouteBlocked ]
+    weights:
+    - stimulus: RouteBlocked
+      weight: 1400
+    targetFrom: RouteBlocked
+
+  - id: mission-replan-no-path
+    intent: ReplanRoute
+    tier: Support
+    baseScore: 700
+    requiredCapabilities: [ Navigate ]
+    requiredAny: [ NoPath, TargetLost ]
+    weights:
+    - stimulus: NoPath
+      weight: 1500
+    - stimulus: TargetLost
+      weight: 1200
+
+  - id: mission-deliver
+    intent: Deliver
+    tier: Mission
+    baseScore: 675
+    requiredCapabilities: [ Haul, Navigate ]
+    requiredAll: [ DeliveryReady ]
+    weights:
+    - stimulus: DeliveryReady
+      weight: 1400
+    targetFrom: DeliveryReady
+
+  - id: mission-return-cargo
+    intent: ReturnCargo
+    tier: Mission
+    baseScore: 725
+    requiredCapabilities: [ Haul, Navigate ]
+    requiredAll: [ CargoFull ]
+    weights:
+    - stimulus: CargoFull
+      weight: 1500
+
+  - id: mission-mine
+    intent: Mine
+    tier: Mission
+    baseScore: 600
+    requiredCapabilities: [ Mine ]
+    requiredAll: [ MineableResource ]
+    weights:
+    - stimulus: MineableResource
+      weight: 1300
+    targetFrom: MineableResource
+
+  - id: mission-salvage
+    intent: Salvage
+    tier: Mission
+    baseScore: 575
+    requiredCapabilities: [ Salvage ]
+    requiredAll: [ SalvageTarget ]
+    weights:
+    - stimulus: SalvageTarget
+      weight: 1250
+    targetFrom: SalvageTarget
+
+  - id: mission-escort
+    intent: Escort
+    tier: Mission
+    baseScore: 650
+    requiredCapabilities: [ Escort, Navigate ]
+    requiredAll: [ EscortRequired ]
+    weights:
+    - stimulus: EscortRequired
+      weight: 1300
+    targetFrom: EscortRequired
+    requireTarget: true
+
+  - id: routine-recharge
+    intent: Recharge
+    tier: Routine
+    baseScore: 825
+    requiredCapabilities: [ Recharge ]
+    requiredAll: [ LowPower ]
+    forbidden: [ HostileThreat ]
+    weights:
+    - stimulus: LowPower
+      weight: 1700
+
+  - id: routine-refuel
+    intent: Refuel
+    tier: Routine
+    baseScore: 800
+    requiredCapabilities: [ Refuel ]
+    requiredAll: [ LowFuel ]
+    forbidden: [ HostileThreat ]
+    weights:
+    - stimulus: LowFuel
+      weight: 1600
+
+  - id: routine-reload
+    intent: Reload
+    tier: Routine
+    baseScore: 775
+    requiredCapabilities: [ Reload ]
+    requiredAll: [ LowAmmunition ]
+    forbidden: [ HostileThreat ]
+    weights:
+    - stimulus: LowAmmunition
+      weight: 1500
+
+  - id: routine-resupply
+    intent: Resupply
+    tier: Routine
+    baseScore: 700
+    requiredAnyCapabilities: [ Medical, Repair, Extinguish, Haul ]
+    requiredAny: [ ResourceLow, ResupplyAvailable ]
+    weights:
+    - stimulus: ResourceLow
+      weight: 1300
+    - stimulus: ResupplyAvailable
+      weight: 900
+
+  - id: routine-investigate
+    intent: Investigate
+    tier: Routine
+    baseScore: 500
+    requiredCapabilities: [ Navigate ]
+    requiredAll: [ InvestigationTarget ]
+    weights:
+    - stimulus: InvestigationTarget
+      weight: 1000
+    targetFrom: InvestigationTarget
+
+  - id: routine-patrol
+    intent: Patrol
+    tier: Routine
+    baseScore: 400
+    requiredCapabilities: [ Patrol, Navigate ]
+    requiredAll: [ PatrolDue ]
+    weights:
+    - stimulus: PatrolDue
+      weight: 900
+
+  - id: routine-eat
+    intent: Eat
+    tier: Routine
+    baseScore: 350
+    requiredAll: [ Hunger ]
+    weights:
+    - stimulus: Hunger
+      weight: 800
+
+  - id: routine-drink
+    intent: Drink
+    tier: Routine
+    baseScore: 350
+    requiredAll: [ Thirst ]
+    weights:
+    - stimulus: Thirst
+      weight: 800
+
+- type: luamBehaviorProfile
+  id: LuaMHumanoidWorkerBehavior
+  parent: LuaMUniversalBehaviorBase
+  capabilities:
+  - SelfPreservation
+  - Move
+  - Navigate
+  - Interact
+  - UseHands
+  - Carry
+  - Haul
+  - Communicate
+  - Coordinate
+  - FollowOrders
+  - Breathe
+  - PressureVulnerable
+  - TemperatureVulnerable
+  - RadiationVulnerable
+  - FireVulnerable
+  - Patrol
+
+- type: luamBehaviorProfile
+  id: LuaMEngineerBehavior
+  parent: LuaMHumanoidWorkerBehavior
+  capabilities: [ Extinguish, Repair, RestorePower, SealBreach, Decontaminate ]
+
+- type: luamBehaviorProfile
+  id: LuaMMedicBehavior
+  parent: LuaMHumanoidWorkerBehavior
+  capabilities: [ Medical, Defibrillate, Pull, Escort ]
+
+- type: luamBehaviorProfile
+  id: LuaMSecurityBehavior
+  parent: LuaMHumanoidWorkerBehavior
+  capabilities: [ CombatMelee, CombatRanged, Guard, Escort, Reload ]
+  threatTolerance: 4
+
+- type: luamBehaviorProfile
+  id: LuaMRescueMedicBehavior
+  parent: LuaMMedicBehavior
+  threatTolerance: 3
+
+- type: luamBehaviorProfile
+  id: LuaMRescueTransportBehavior
+  parent: LuaMHumanoidWorkerBehavior
+  capabilities: [ Pull, Escort ]
+  threatTolerance: 3
+
+- type: luamBehaviorProfile
+  id: LuaMRescueCrewBehavior
+  parent: LuaMSecurityBehavior
+  capabilities: [ Pull ]
+  threatTolerance: 4
+
+- type: luamBehaviorProfile
+  id: LuaMServiceRobotBehavior
+  parent: LuaMUniversalBehaviorBase
+  capabilities:
+  - SelfPreservation
+  - Move
+  - Navigate
+  - Interact
+  - Communicate
+  - Coordinate
+  - FollowOrders
+  - Recharge
+  - Patrol
+
+- type: luamBehaviorProfile
+  id: LuaMFireBotBehavior
+  parent: LuaMServiceRobotBehavior
+  capabilities: [ Extinguish ]
+
+- type: luamBehaviorProfile
+  id: LuaMRepairRobotBehavior
+  parent: LuaMServiceRobotBehavior
+  capabilities: [ Extinguish, Repair, RestorePower, SealBreach ]
+
+- type: luamBehaviorProfile
+  id: LuaMCleanBotBehavior
+  parent: LuaMServiceRobotBehavior
+  capabilities: [ Clean ]
+
+- type: luamBehaviorProfile
+  id: LuaMMedibotBehavior
+  parent: LuaMServiceRobotBehavior
+  capabilities: [ Medical ]
+
+- type: luamBehaviorProfile
+  id: LuaMMedicalDroneBehavior
+  parent: LuaMMedibotBehavior
+  capabilities: [ Pull, Escort ]
+
+- type: luamBehaviorProfile
+  id: LuaMTaxiBotBehavior
+  parent: LuaMServiceRobotBehavior
+  capabilities: [ Carry ]
+
+- type: luamBehaviorProfile
+  id: LuaMSupplyBotBehavior
+  parent: LuaMServiceRobotBehavior
+  capabilities: [ Carry, Haul ]
+
+- type: luamBehaviorProfile
+  id: LuaMEntertainmentBotBehavior
+  parent: LuaMServiceRobotBehavior
+
+- type: luamBehaviorProfile
+  id: LuaMMeleeCombatantBehavior
+  parent: LuaMHumanoidWorkerBehavior
+  capabilities: [ CombatMelee, Guard ]
+  threatTolerance: 3
+
+- type: luamBehaviorProfile
+  id: LuaMRangedCombatantBehavior
+  parent: LuaMHumanoidWorkerBehavior
+  capabilities: [ CombatRanged, Guard, Reload ]
+  threatTolerance: 3
+
+- type: luamBehaviorProfile
+  id: LuaMMiningDroneBehavior
+  parent: LuaMUniversalBehaviorBase
+  capabilities:
+  - SelfPreservation
+  - Move
+  - Navigate
+  - Communicate
+  - Coordinate
+  - FollowOrders
+  - Recharge
+  - Mine
+  - Salvage
+  - Haul
+  - Patrol
+
+- type: luamBehaviorProfile
+  id: LuaMCombatDroneBehavior
+  parent: LuaMMiningDroneBehavior
+  capabilities: [ CombatRanged, Guard, Escort, Reload ]
+  threatTolerance: 5
+
+- type: luamBehaviorProfile
+  id: LuaMCombatShipBehavior
+  parent: LuaMUniversalBehaviorBase
+  capabilities:
+  - SelfPreservation
+  - Navigate
+  - Communicate
+  - Coordinate
+  - FollowOrders
+  - Patrol
+  - Recharge
+  - Refuel
+  - Reload
+  - Haul
+  - ShipControl
+  - ShipWeapons
+  - Dock
+  threatTolerance: 3
+  perceptionRange: 1800
+
+- type: luamBehaviorProfile
+  id: LuaMCivilianShipBehavior
+  parent: LuaMUniversalBehaviorBase
+  capabilities:
+  - SelfPreservation
+  - Navigate
+  - Communicate
+  - Coordinate
+  - FollowOrders
+  - Patrol
+  - Recharge
+  - Refuel
+  - Haul
+  - ShipControl
+  - Dock
+  threatTolerance: 1
+  perceptionRange: 1800
+
+- type: luamBehaviorProfile
+  id: LuaMStationaryTurretBehavior
+  parent: LuaMUniversalBehaviorBase
+  capabilities: [ Stationary, CombatRanged, Guard, Communicate ]
+  threatTolerance: 8
+  perceptionRange: 30
+
+- type: luamBehaviorProfile
+  id: LuaMAnimalBehavior
+  parent: LuaMUniversalBehaviorBase
+  capabilities:
+  - SelfPreservation
+  - Move
+  - Navigate
+  - Breathe
+  - PressureVulnerable
+  - TemperatureVulnerable
+  - RadiationVulnerable
+  - FireVulnerable
+  - CombatMelee
+  threatTolerance: 1
+  perceptionRange: 8
+
+- type: luamBehaviorProfile
+  id: LuaMSpaceAnimalBehavior
+  parent: LuaMUniversalBehaviorBase
+  capabilities:
+  - SelfPreservation
+  - Move
+  - Navigate
+  - FireVulnerable
+  - CombatMelee
+  threatTolerance: 1
+  perceptionRange: 8

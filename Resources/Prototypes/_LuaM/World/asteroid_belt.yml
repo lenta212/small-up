@@ -1,0 +1,19 @@
+- type: worldgenConfig
+  id: LuaMCriticalAsteroidBelt
+  components:
+  - type: WorldController
+  - type: BiomeSelection
+    biomes:
+    - LuaMCriticalAsteroidBelt
+  - type: Parallax
+    parallax: FrontierStation
+
+- type: spaceBiome
+  id: LuaMCriticalAsteroidBelt
+  parent: NFAsteroidsMid
+  priority: 0
+  distanceRange: null
+  chunkComponents:
+  - type: DebrisFeaturePlacerController
+    densityNoiseChannel: DensityUnclipped
+    randomCancelChance: 0.35

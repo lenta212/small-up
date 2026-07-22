@@ -1,0 +1,24 @@
+- type: entity
+  abstract: true
+  parent: MobCivilian
+  id: LuaMWorkerBase
+  components:
+  - type: HTN
+    rootTask:
+      task: IdleCompound
+
+- type: entity
+  parent: LuaMWorkerBase
+  id: LuaMWorkerEngineer
+  name: autonomous engineer
+  components:
+  - type: LuaMWorkerBehaviorAdapter
+    role: Engineer
+
+- type: entity
+  parent: LuaMWorkerBase
+  id: LuaMWorkerMedic
+  name: autonomous medic
+  components:
+  - type: LuaMWorkerBehaviorAdapter
+    role: Medic

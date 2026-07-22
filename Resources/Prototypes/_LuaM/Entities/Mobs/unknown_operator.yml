@@ -1,0 +1,37 @@
+- type: entity
+  parent: ClothingUniformJumpsuitAncient
+  id: LuaMUnknownOperatorJumpsuit
+  name: потрёпанный комбинезон Неизвестного
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: SuitSensor
+    controlsLocked: true
+    randomMode: false
+    mode: SensorCords
+
+- type: startingGear
+  id: LuaMUnknownOperatorGear
+  equipment:
+    jumpsuit: LuaMUnknownOperatorJumpsuit
+    outerClothing: ClothingOuterHardsuitBasic
+    head: ClothingHeadHelmetHardsuitBasic
+    mask: ClothingMaskBreath
+    ears: ClothingHeadsetGrey
+
+- type: entity
+  parent: MobHuman
+  id: LuaMUnknownOperator
+  name: Неизвестный
+  suffix: LuaM, разбитый шаттл
+  description: Растерянный человек в потрёпанном скафандре, очнувшийся на неподвижном разбитом шаттле.
+  save: false
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: RandomHumanoidAppearance
+    randomizeName: false
+  - type: Loadout
+    prototypes:
+    - LuaMUnknownOperatorGear
+  - type: NpcFactionMember
+    factions:
+    - NanoTrasen

@@ -1,7 +1,7 @@
 
-station-event-bluespace-dungeon-start-announcement = Signatures of a large inbound object have been detected. Investigate with caution, you are held liable for damages sustained or loss of life.
-station-event-bluespace-dungeon-warning-announcement = Bluespace instability detected on foreign object, five minutes until estimated departure.
-station-event-bluespace-dungeon-end-announcement = Critical bluespace instability detected, the foreign object has exited the sector.
+station-event-bluespace-dungeon-start-announcement = Signatures of two large inbound objects have been detected. Investigate with caution; you are held liable for damages sustained or loss of life.
+station-event-bluespace-dungeon-warning-announcement = Bluespace instability detected on the foreign objects, five minutes until estimated departure.
+station-event-bluespace-dungeon-end-announcement = Critical bluespace instability detected, the foreign objects have exited the sector.
 
 station-event-bluespace-scrap-start-announcement = Storms detected in bluespace lanes, expect inbound wreckage shortly. Wrecked ships are valid salvage targets.
 station-event-bluespace-scrap-warning-announcement = Bluespace instability detected on wreckage, five minutes until expected departure.

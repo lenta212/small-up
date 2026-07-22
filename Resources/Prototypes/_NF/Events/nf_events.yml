@@ -16,7 +16,7 @@
     startAnnouncement: bluespace-cargo-event-announcement
     weight: 5
     duration: 35
-    reoccurrenceDelay: 60 # Mono
+    reoccurrenceDelay: 1440 # Mono: 24 hours
   - type: BluespaceCargoRule
     spawnerPrototype: RandomCargoSpawner
     requireSafeAtmosphere: true
@@ -33,7 +33,7 @@
     weight: 5
     duration: 35
     maximumPlayers: 20
-    reoccurrenceDelay: 120 # Mono
+    reoccurrenceDelay: 1440 # Mono: 24 hours
   - type: BluespaceCargoRule
     spawnerPrototype: CrateFoodMcCargo
     flashPrototype: EffectFlashMcBluespace
@@ -51,7 +51,7 @@
     duration: 35
     earliestStart: 60 # Mono
     #minimumPlayers: 20 # Mono
-    reoccurrenceDelay: 180 # 8 hours #Mono: 3 hrs
+    reoccurrenceDelay: 1440 # Mono: 24 hours
   - type: BluespaceCargoRule
     spawnerPrototype: CrateSyndicateSurplusBundle
     maximumSpawns: 1

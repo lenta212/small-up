@@ -1,4 +1,4 @@
-# Production configuration layer for "Мёртвый космос: Абсолютное одиночество": Apocalypse with Mixed fallback.
+# Production configuration layer for "Мёртвый космос: Космическая Кассиопея": Apocalypse with Mixed fallback.
 # Load with: config.presets = "_Mono/monolithCore,_LuaM/deadSpaceLowPop"
 
 [log]
@@ -54,6 +54,9 @@ interval = 900
 world_pulse_interval = 300
 request_timeout = 15
 gateway_url = ""
+
+[luam.ai_physical_base]
+enabled = false
 
 [luam.sector]
 all_hazards_enabled = true

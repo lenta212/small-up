@@ -1,6 +1,8 @@
+using Content.Client.Message;
 using Content.Shared._LuaM.Sector;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
+using Robust.Shared.Utility;
 using System.Linq;
 
 namespace Content.Client._LuaM.Sector;
@@ -9,7 +11,8 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
 {
     [Dependency] private readonly IClipboardManager _clipboard = default!;
 
-    private readonly Label _summary = new();
+    private readonly RichTextLabel _summary = new();
+    private readonly RichTextLabel _operationalState = new();
     private readonly BoxContainer _digest = new();
     private readonly BoxContainer _briefing = new();
     private readonly BoxContainer _questTasks = new();
@@ -23,103 +26,83 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
     private readonly BoxContainer _reputation = new();
     private readonly BoxContainer _history = new();
 
+    public TabContainer Tabs { get; }
+
     public LuaMSectorStatusUiFragment()
     {
         IoCManager.InjectDependencies(this);
         Orientation = LayoutOrientation.Vertical;
         HorizontalExpand = true;
         VerticalExpand = true;
-        Margin = new Thickness(4, 2);
+        Margin = new Thickness(0);
 
         AddChild(new Label
         {
             Text = Loc.GetString("luam-sector-status-header"),
-            StyleClasses = { "LabelHeading" },
+            StyleClasses = { "UiTextTitle" },
         });
 
-        _summary.Margin = new Thickness(0, 2, 0, 4);
-        AddChild(_summary);
-
-        var scroll = new ScrollContainer
+        var summaryPanel = new PanelContainer
         {
+            StyleClasses = { "UiSurfaceHeader" },
             HorizontalExpand = true,
-            VerticalExpand = true,
-            HScrollEnabled = false,
+            Margin = new Thickness(0, 5, 0, 8),
         };
-
-        var body = new BoxContainer
+        var summaryBody = new BoxContainer
         {
             Orientation = LayoutOrientation.Vertical,
             HorizontalExpand = true,
+            Margin = new Thickness(10, 7),
+        };
+        _operationalState.StyleClasses.Add("UiTextMuted");
+        _operationalState.Margin = new Thickness(0, 4, 0, 0);
+        summaryBody.AddChild(_summary);
+        summaryBody.AddChild(_operationalState);
+        summaryPanel.AddChild(summaryBody);
+        AddChild(summaryPanel);
+
+        Tabs = new TabContainer
+        {
+            HorizontalExpand = true,
             VerticalExpand = true,
         };
-        scroll.AddChild(body);
-        AddChild(scroll);
 
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-digest")));
-        _digest.Orientation = LayoutOrientation.Vertical;
-        _digest.HorizontalExpand = true;
-        body.AddChild(_digest);
+        var (overviewPage, overviewBody) = MakeTabPage();
+        var (tasksPage, tasksBody) = MakeTabPage();
+        var (sectorPage, sectorBody) = MakeTabPage();
+        var (journalPage, journalBody) = MakeTabPage();
 
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-briefing")));
-        _briefing.Orientation = LayoutOrientation.Vertical;
-        _briefing.HorizontalExpand = true;
-        body.AddChild(_briefing);
+        Tabs.AddChild(overviewPage);
+        Tabs.AddChild(tasksPage);
+        Tabs.AddChild(sectorPage);
+        Tabs.AddChild(journalPage);
+        TabContainer.SetTabTitle(overviewPage, Loc.GetString("luam-sector-status-tab-overview"));
+        TabContainer.SetTabTitle(tasksPage, Loc.GetString("luam-sector-status-tab-tasks"));
+        TabContainer.SetTabTitle(sectorPage, Loc.GetString("luam-sector-status-tab-sector"));
+        TabContainer.SetTabTitle(journalPage, Loc.GetString("luam-sector-status-tab-journal"));
 
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-quests")));
-        _questTasks.Orientation = LayoutOrientation.Vertical;
-        _questTasks.HorizontalExpand = true;
-        body.AddChild(_questTasks);
+        AddSection(overviewBody, Loc.GetString("luam-sector-status-digest"), _digest);
+        AddSection(overviewBody, Loc.GetString("luam-sector-status-briefing"), _briefing);
+        AddSection(overviewBody, Loc.GetString("luam-sector-status-automation"), _automation);
 
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-automation")));
-        _automation.Orientation = LayoutOrientation.Vertical;
-        _automation.HorizontalExpand = true;
-        body.AddChild(_automation);
+        AddSection(tasksBody, Loc.GetString("luam-sector-status-quests"), _questTasks);
+        AddSection(tasksBody, Loc.GetString("luam-sector-status-preferred"), _preferredProcesses);
+        AddSection(tasksBody, Loc.GetString("luam-sector-status-locked"), _lockedLeads);
 
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-traffic")));
-        _trafficContacts.Orientation = LayoutOrientation.Vertical;
-        _trafficContacts.HorizontalExpand = true;
-        body.AddChild(_trafficContacts);
+        AddSection(sectorBody, Loc.GetString("luam-sector-status-traffic"), _trafficContacts);
+        AddSection(sectorBody, Loc.GetString("luam-sector-status-sector-map"), _sectorMap);
+        AddSection(sectorBody, Loc.GetString("luam-sector-status-conditions"), _conditions);
+        AddSection(sectorBody, Loc.GetString("luam-sector-status-hazards"), _hazards);
 
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-sector-map")));
-        _sectorMap.Orientation = LayoutOrientation.Vertical;
-        _sectorMap.HorizontalExpand = true;
-        body.AddChild(_sectorMap);
+        AddSection(journalBody, Loc.GetString("luam-sector-status-reputation"), _reputation);
+        AddSection(journalBody, Loc.GetString("luam-sector-status-history"), _history);
 
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-locked")));
-        _lockedLeads.Orientation = LayoutOrientation.Vertical;
-        _lockedLeads.HorizontalExpand = true;
-        body.AddChild(_lockedLeads);
-
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-conditions")));
-        _conditions.Orientation = LayoutOrientation.Vertical;
-        _conditions.HorizontalExpand = true;
-        body.AddChild(_conditions);
-
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-preferred")));
-        _preferredProcesses.Orientation = LayoutOrientation.Vertical;
-        _preferredProcesses.HorizontalExpand = true;
-        body.AddChild(_preferredProcesses);
-
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-hazards")));
-        _hazards.Orientation = LayoutOrientation.Vertical;
-        _hazards.HorizontalExpand = true;
-        body.AddChild(_hazards);
-
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-reputation")));
-        _reputation.Orientation = LayoutOrientation.Vertical;
-        _reputation.HorizontalExpand = true;
-        body.AddChild(_reputation);
-
-        body.AddChild(MakeSection(Loc.GetString("luam-sector-status-history")));
-        _history.Orientation = LayoutOrientation.Vertical;
-        _history.HorizontalExpand = true;
-        body.AddChild(_history);
+        AddChild(Tabs);
     }
 
     public void UpdateState(LuaMSectorStatusUiState state)
     {
-        _summary.Text = Loc.GetString("luam-sector-status-summary",
+        _summary.SetMarkup(Loc.GetString("luam-sector-status-summary",
             ("stories", state.TotalStories),
             ("active", state.ActiveHazards),
             ("acknowledged", state.AcknowledgedHazards),
@@ -128,7 +111,19 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
             ("companies", state.CompanyRecords),
             ("ships", state.ShipRecords),
             ("conditions", state.ActiveConditions),
-            ("locked", state.LockedStories));
+            ("locked", state.LockedStories)));
+        var highestSeverity = state.Hazards
+            .Where(hazard => !hazard.Resolved)
+            .Select(hazard => hazard.Severity)
+            .Concat(state.Conditions
+                .Where(condition => condition.Active)
+                .Select(condition => condition.Severity))
+            .DefaultIfEmpty(0)
+            .Max();
+        _operationalState.SetMarkup(BuildOperationalState(
+            state.ActiveHazards + state.ActiveConditions,
+            state.AcknowledgedHazards,
+            highestSeverity));
 
         _digest.RemoveAllChildren();
         if (state.DigestLines.Length == 0)
@@ -138,13 +133,7 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
         else
         {
             foreach (var line in state.DigestLines)
-            {
-                _digest.AddChild(new Label
-                {
-                    Text = Loc.GetString("luam-sector-status-digest-line", ("line", line)),
-                    ClipText = false,
-                });
-            }
+                _digest.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-digest-line", ("line", line))));
         }
 
         _briefing.RemoveAllChildren();
@@ -155,13 +144,7 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
         else
         {
             foreach (var step in state.BriefingSteps)
-            {
-                _briefing.AddChild(new Label
-                {
-                    Text = Loc.GetString("luam-sector-status-briefing-step", ("step", step)),
-                    ClipText = false,
-                });
-            }
+                _briefing.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-briefing-step", ("step", step))));
         }
 
         _questTasks.RemoveAllChildren();
@@ -172,36 +155,23 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
         else
         {
             _questTasks.AddChild(MakeMutedLabel(Loc.GetString("luam-sector-status-quests-hint")));
-            var tasks = state.QuestTasks.Take(6).ToArray();
+            var tasks = state.QuestTasks.Take(GetVisibleCount(state.QuestTasks.Length, 6)).ToArray();
+            _questTasks.AddChild(MakeMutedLabel(BuildVisibleCount(tasks.Length, state.QuestTasks.Length)));
             for (var i = 0; i < tasks.Length; i++)
                 _questTasks.AddChild(MakeQuestTaskRow(tasks[i], i + 1));
         }
 
         _automation.RemoveAllChildren();
-        _automation.AddChild(new Label
-        {
-            Text = Loc.GetString("luam-sector-status-automation-next",
-                ("next", state.Automation.NextAutomaticEvent),
-                ("players", state.Automation.ActivePlayers)),
-            ClipText = true,
-        });
-        _automation.AddChild(new Label
-        {
-            Text = Loc.GetString("luam-sector-status-dispatch-profile",
+        _automation.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-automation-next",
+            ("next", state.Automation.NextAutomaticEvent),
+            ("players", state.Automation.ActivePlayers))));
+        _automation.AddChild(MakeMutedLabel(Loc.GetString("luam-sector-status-dispatch-profile",
                 ("tier", state.Automation.DispatchTier),
                 ("score", state.Automation.DispatchReputationScore),
                 ("reduction", state.Automation.DispatchCooldownReductionPercent),
                 ("min", FormatMinutes(state.Automation.DispatchCooldownMinSeconds)),
-                ("max", FormatMinutes(state.Automation.DispatchCooldownMaxSeconds))),
-            StyleClasses = { "LabelSubText" },
-            ClipText = true,
-        });
-        _automation.AddChild(new Label
-        {
-            Text = BuildRouteCalibrationReserveText(state.Automation),
-            StyleClasses = { "LabelSubText" },
-            ClipText = false,
-        });
+                ("max", FormatMinutes(state.Automation.DispatchCooldownMaxSeconds)))));
+        _automation.AddChild(MakeMutedLabel(BuildRouteCalibrationReserveText(state.Automation)));
         _automation.AddChild(MakeMutedLabel(Loc.GetString("luam-sector-status-route-closure-instruction")));
 
         _trafficContacts.RemoveAllChildren();
@@ -222,7 +192,9 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
         }
         else
         {
-            foreach (var node in state.SectorMapNodes.Take(8))
+            var nodes = state.SectorMapNodes.Take(GetVisibleCount(state.SectorMapNodes.Length, 8)).ToArray();
+            _sectorMap.AddChild(MakeMutedLabel(BuildVisibleCount(nodes.Length, state.SectorMapNodes.Length)));
+            foreach (var node in nodes)
                 _sectorMap.AddChild(MakeSectorMapRow(node));
         }
 
@@ -234,17 +206,11 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
         else
         {
             foreach (var lead in state.LockedLeads)
-            {
-                _lockedLeads.AddChild(new Label
-                {
-                    Text = Loc.GetString("luam-sector-status-locked-entry",
+                _lockedLeads.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-locked-entry",
                         ("title", lead.Title),
                         ("target", lead.RequiredTarget),
                         ("current", lead.CurrentValue),
-                        ("required", lead.RequiredValue)),
-                    ClipText = true,
-                });
-            }
+                        ("required", lead.RequiredValue))));
         }
 
         _conditions.RemoveAllChildren();
@@ -288,17 +254,11 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
         else
         {
             foreach (var entry in state.Reputation)
-            {
-                _reputation.AddChild(new Label
-                {
-                    Text = Loc.GetString("luam-sector-status-reputation-effect-entry",
+                _reputation.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-reputation-effect-entry",
                         ("target", entry.Target),
                         ("value", entry.Value),
                         ("tier", entry.Tier),
-                        ("bonus", entry.RewardBonus)),
-                    ClipText = true,
-                });
-            }
+                        ("bonus", entry.RewardBonus))));
         }
 
         _history.RemoveAllChildren();
@@ -313,24 +273,74 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
         }
     }
 
-    private static Label MakeSection(string text)
+    private static (ScrollContainer Page, BoxContainer Body) MakeTabPage()
     {
-        return new Label
+        var page = new ScrollContainer
         {
-            Text = text,
-            StyleClasses = { "LabelSubText" },
-            Margin = new Thickness(0, 4, 0, 2),
+            HorizontalExpand = true,
+            VerticalExpand = true,
+            HScrollEnabled = false,
+            VScrollEnabled = true,
+            ReserveScrollbarSpace = true,
         };
+
+        var body = new BoxContainer
+        {
+            Orientation = LayoutOrientation.Vertical,
+            HorizontalExpand = true,
+            VerticalExpand = true,
+            Margin = new Thickness(4, 8, 4, 0),
+        };
+        page.AddChild(body);
+        return (page, body);
     }
 
-    private static Label MakeMutedLabel(string text)
+    private static void AddSection(BoxContainer parent, string title, BoxContainer content)
     {
-        return new Label
+        content.Orientation = LayoutOrientation.Vertical;
+        content.HorizontalExpand = true;
+
+        var panel = new PanelContainer
         {
-            Text = text,
-            StyleClasses = { "LabelSubText" },
-            ClipText = true,
+            StyleClasses = { "UiSurfaceSection" },
+            HorizontalExpand = true,
+            Margin = new Thickness(0, 0, 0, 8),
         };
+
+        var body = new BoxContainer
+        {
+            Orientation = LayoutOrientation.Vertical,
+            HorizontalExpand = true,
+            Margin = new Thickness(9, 7),
+        };
+        body.AddChild(new Label
+        {
+            Text = title,
+            StyleClasses = { "UiTextSection" },
+            Margin = new Thickness(0, 0, 0, 5),
+        });
+        body.AddChild(content);
+        panel.AddChild(body);
+        parent.AddChild(panel);
+    }
+
+    private static RichTextLabel MakeBodyLabel(string text)
+    {
+        var message = new FormattedMessage();
+        message.AddText(text);
+        var label = new RichTextLabel
+        {
+            HorizontalExpand = true,
+        };
+        label.SetMessage(message);
+        return label;
+    }
+
+    private static RichTextLabel MakeMutedLabel(string text)
+    {
+        var label = MakeBodyLabel(text);
+        label.StyleClasses.Add("UiTextMuted");
+        return label;
     }
 
     private static int FormatMinutes(int seconds)
@@ -338,78 +348,121 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
         return (int) Math.Ceiling(seconds / 60f);
     }
 
+    private static string BuildOperationalState(int activeSignals, int acknowledgedHazards, int highestSeverity)
+    {
+        var state = Loc.GetString(GetOperationalStateLocKey(
+            activeSignals,
+            acknowledgedHazards,
+            highestSeverity));
+
+        return Loc.GetString(
+            "luam-sector-status-operational-state",
+            ("state", state),
+            ("severity", highestSeverity),
+            ("active", activeSignals));
+    }
+
+    private static string GetOperationalStateLocKey(int activeSignals, int acknowledgedHazards, int highestSeverity)
+    {
+        if (highestSeverity >= 4)
+            return "luam-sector-status-operational-critical";
+
+        if (activeSignals > 0)
+            return "luam-sector-status-operational-danger";
+
+        return acknowledgedHazards > 0
+            ? "luam-sector-status-operational-monitoring"
+            : "luam-sector-status-operational-stable";
+    }
+
+    private static int GetVisibleCount(int total, int limit)
+    {
+        return Math.Min(total, limit);
+    }
+
+    private static string BuildVisibleCount(int shown, int total)
+    {
+        return Loc.GetString(
+            "luam-sector-status-showing-count",
+            ("shown", shown),
+            ("total", total));
+    }
+
     private static string BuildRouteCalibrationReserveText(LuaMSectorAutomationUiEntry automation)
     {
-        var text = Loc.GetString("luam-sector-status-route-calibration-reserve",
-            ("credits", automation.RouteCalibrationCredits));
+        var lines = new List<string>
+        {
+            Loc.GetString("luam-sector-status-route-calibration-reserve",
+                ("credits", automation.RouteCalibrationCredits)),
+        };
 
         if (!string.IsNullOrWhiteSpace(automation.RouteCalibrationSource))
         {
-            text += $" | {Loc.GetString("luam-sector-status-route-calibration-source",
-                ("source", automation.RouteCalibrationSource))}";
+            lines.Add(Loc.GetString("luam-sector-status-route-calibration-source",
+                ("source", automation.RouteCalibrationSource)));
 
             if (automation.RouteCalibrationSourceChainDepth > 0)
             {
-                text += $" | {Loc.GetString("luam-sector-status-route-calibration-chain-depth",
-                    ("depth", automation.RouteCalibrationSourceChainDepth))}";
+                lines.Add(Loc.GetString("luam-sector-status-route-calibration-chain-depth",
+                    ("depth", automation.RouteCalibrationSourceChainDepth)));
             }
 
             if (automation.RouteCalibrationRewardBonus > 0)
             {
-                text += $" | {Loc.GetString("luam-sector-status-route-calibration-reward-bonus",
-                    ("bonus", automation.RouteCalibrationRewardBonus))}";
+                lines.Add(Loc.GetString("luam-sector-status-route-calibration-reward-bonus",
+                    ("bonus", automation.RouteCalibrationRewardBonus)));
             }
 
             if (automation.RouteCalibrationClosureRewardBonus > 0)
             {
-                text += $" | {Loc.GetString("luam-sector-status-route-calibration-closure-bonus",
-                    ("bonus", automation.RouteCalibrationClosureRewardBonus))}";
+                lines.Add(Loc.GetString("luam-sector-status-route-calibration-closure-bonus",
+                    ("bonus", automation.RouteCalibrationClosureRewardBonus)));
             }
 
             if (automation.RouteCalibrationRadiationDampingPreview > 0)
             {
-                text += $" | {Loc.GetString("luam-sector-status-route-calibration-radiation-damping",
-                    ("damping", automation.RouteCalibrationRadiationDampingPreview))}";
+                lines.Add(Loc.GetString("luam-sector-status-route-calibration-radiation-damping",
+                    ("damping", automation.RouteCalibrationRadiationDampingPreview)));
             }
 
             if (automation.RouteCalibrationSensorDriftSuppressionPreview)
             {
-                text += $" | {Loc.GetString("luam-sector-status-route-calibration-sensor-drift-suppressed")}";
+                lines.Add(Loc.GetString("luam-sector-status-route-calibration-sensor-drift-suppressed"));
             }
 
             if (automation.RouteCalibrationSources is { Length: > 1 } sources)
             {
-                text += $" | {Loc.GetString("luam-sector-status-route-calibration-queue",
-                    ("sources", string.Join(" -> ", sources.Skip(1))))}";
+                lines.Add(Loc.GetString("luam-sector-status-route-calibration-queue",
+                    ("sources", string.Join(" -> ", sources.Skip(1)))));
             }
         }
 
         if (automation.RouteCalibrationHandoffReady &&
             !string.IsNullOrWhiteSpace(automation.RouteCalibrationHandoffSource))
         {
-            text += $" | {Loc.GetString("luam-sector-status-route-calibration-handoff",
-                ("source", automation.RouteCalibrationHandoffSource))}";
+            lines.Add(Loc.GetString("luam-sector-status-route-calibration-handoff",
+                ("source", automation.RouteCalibrationHandoffSource)));
         }
 
         if (!string.IsNullOrWhiteSpace(automation.ActiveRouteCalibrationSource))
         {
-            text += $" | {Loc.GetString("luam-sector-status-route-calibration-active-source",
-                ("source", automation.ActiveRouteCalibrationSource))}";
+            lines.Add(Loc.GetString("luam-sector-status-route-calibration-active-source",
+                ("source", automation.ActiveRouteCalibrationSource)));
             if (automation.ActiveRouteCalibrationChainDepth > 0)
             {
-                text += $" | {Loc.GetString("luam-sector-status-route-calibration-active-chain-depth",
-                    ("depth", automation.ActiveRouteCalibrationChainDepth))}";
+                lines.Add(Loc.GetString("luam-sector-status-route-calibration-active-chain-depth",
+                    ("depth", automation.ActiveRouteCalibrationChainDepth)));
             }
         }
 
-        return text;
+        return string.Join("\n", lines.Select(line => $"- {line}"));
     }
 
     private static Control MakeQuestTaskRow(LuaMSectorQuestTaskUiEntry task, int number)
     {
         var panel = new PanelContainer
         {
-            StyleClasses = { "AngleRect" },
+            StyleClasses = { "UiSurfaceCard" },
             HorizontalExpand = true,
             Margin = new Thickness(0, 0, 0, 8),
         };
@@ -422,14 +475,10 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
         };
         panel.AddChild(row);
 
-        row.AddChild(new Label
-        {
-            Text = Loc.GetString("luam-sector-status-quest-header",
+        row.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-quest-header",
                 ("number", number),
                 ("status", task.Status),
-                ("title", task.Title)),
-            ClipText = false,
-        });
+                ("title", task.Title))));
 
         row.AddChild(new PanelContainer
         {
@@ -455,13 +504,7 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
 
     private static void AddQuestLine(BoxContainer row, string text)
     {
-        row.AddChild(new Label
-        {
-            Text = text,
-            StyleClasses = { "LabelSubText" },
-            HorizontalExpand = true,
-            ClipText = false,
-        });
+        row.AddChild(MakeMutedLabel(text));
     }
 
     private BoxContainer MakeHazardRow(LuaMSectorHazardUiEntry hazard)
@@ -479,31 +522,17 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
                 ? Loc.GetString("luam-sector-status-state-filed")
                 : Loc.GetString("luam-sector-status-state-active");
 
-        row.AddChild(new Label
-        {
-            Text = Loc.GetString("luam-sector-status-hazard-title",
+        row.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-hazard-title",
                 ("title", hazard.Title),
                 ("severity", hazard.Severity),
                 ("bonus", hazard.RewardBonus),
-                ("state", state)),
-            ClipText = true,
-        });
+                ("state", state))));
 
-        row.AddChild(new Label
-        {
-            Text = hazard.Hazard,
-            StyleClasses = { "LabelSubText" },
-            ClipText = true,
-        });
+        row.AddChild(MakeMutedLabel(hazard.Hazard));
 
         if (!string.IsNullOrWhiteSpace(hazard.Description))
         {
-            row.AddChild(new Label
-            {
-                Text = hazard.Description,
-                StyleClasses = { "LabelSubText" },
-                ClipText = true,
-            });
+            row.AddChild(MakeMutedLabel(hazard.Description));
         }
 
         return row;
@@ -518,14 +547,10 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
             Margin = new Thickness(0, 0, 0, 6),
         };
 
-        row.AddChild(new Label
-        {
-            Text = Loc.GetString("luam-sector-status-sector-map-title",
+        row.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-sector-map-title",
                 ("kind", node.Kind),
                 ("title", node.Title),
-                ("state", node.State)),
-            ClipText = true,
-        });
+                ("state", node.State))));
 
         var idRow = new BoxContainer
         {
@@ -533,16 +558,11 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
             HorizontalExpand = true,
         };
 
-        idRow.AddChild(new Label
-        {
-            Text = Loc.GetString("luam-sector-status-sector-map-entry",
+        idRow.AddChild(MakeMutedLabel(Loc.GetString("luam-sector-status-sector-map-entry",
                 ("location", node.Location),
                 ("template", node.TemplateId),
                 ("story", node.StoryId),
-                ("pings", node.RoutePingCount)),
-            StyleClasses = { "LabelSubText" },
-            ClipText = true,
-        });
+                ("pings", node.RoutePingCount))));
         idRow.AddChild(MakeCopyIdButton(node.TemplateId));
         idRow.AddChild(MakeCopyIdButton(node.StoryId));
         row.AddChild(idRow);
@@ -554,22 +574,12 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
             : node.Detail;
         if (!string.IsNullOrWhiteSpace(detail))
         {
-            row.AddChild(new Label
-            {
-                Text = detail,
-                StyleClasses = { "LabelSubText" },
-                ClipText = false,
-            });
+            row.AddChild(MakeMutedLabel(detail));
         }
 
         if (!string.IsNullOrWhiteSpace(node.Risk))
         {
-            row.AddChild(new Label
-            {
-                Text = node.Risk,
-                StyleClasses = { "LabelSubText" },
-                ClipText = true,
-            });
+            row.AddChild(MakeMutedLabel(node.Risk));
         }
 
         return row;
@@ -583,33 +593,19 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
             HorizontalExpand = true,
             Margin = new Thickness(0, 0, 0, 6),
         };
-        row.AddChild(new Label
-        {
-            Text = Loc.GetString(
+        row.AddChild(MakeBodyLabel(Loc.GetString(
                 "luam-sector-terminal-traffic-title",
                 ("code", contact.ContactCode),
-                ("profile", contact.Profile)),
-            ClipText = false,
-        });
-        row.AddChild(new Label
-        {
-            Text = Loc.GetString(
+                ("profile", contact.Profile))));
+        row.AddChild(MakeMutedLabel(Loc.GetString(
                 "luam-sector-terminal-traffic-detail",
                 ("signature", contact.Signature),
                 ("range", contact.RangeMeters),
-                ("seconds", contact.SecondsRemaining)),
-            StyleClasses = { "LabelSubText" },
-            ClipText = false,
-        });
-        row.AddChild(new Label
-        {
-            Text = Loc.GetString(
+                ("seconds", contact.SecondsRemaining))));
+        row.AddChild(MakeMutedLabel(Loc.GetString(
                 "luam-sector-terminal-traffic-objective",
                 ("objective", contact.Objective),
-                ("template", contact.TemplateId)),
-            StyleClasses = { "LabelSubText" },
-            ClipText = false,
-        });
+                ("template", contact.TemplateId))));
         row.AddChild(MakeMutedLabel(Loc.GetString("luam-sector-terminal-contact-use-terminal")));
         return row;
     }
@@ -628,24 +624,15 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
             Orientation = LayoutOrientation.Horizontal,
             HorizontalExpand = true,
         };
-        titleRow.AddChild(new Label
-        {
-            Text = Loc.GetString("luam-sector-status-condition-title",
+        titleRow.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-condition-title",
                 ("title", condition.Title),
                 ("severity", condition.Severity),
                 ("id", condition.ConditionId),
-                ("actor", condition.Actor)),
-            ClipText = true,
-        });
+                ("actor", condition.Actor))));
         titleRow.AddChild(MakeCopyIdButton(condition.ConditionId));
         row.AddChild(titleRow);
 
-        row.AddChild(new Label
-        {
-            Text = condition.Summary,
-            StyleClasses = { "LabelSubText" },
-            ClipText = true,
-        });
+        row.AddChild(MakeMutedLabel(condition.Summary));
 
         return row;
     }
@@ -664,40 +651,26 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
             Orientation = LayoutOrientation.Horizontal,
             HorizontalExpand = true,
         };
-        titleRow.AddChild(new Label
-        {
-            Text = Loc.GetString("luam-sector-status-preferred-title",
+        titleRow.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-preferred-title",
                 ("title", process.Title),
                 ("id", process.TemplateId),
                 ("state", process.Unlocked
                     ? Loc.GetString("luam-sector-status-preferred-open")
-                    : Loc.GetString("luam-sector-status-preferred-locked"))),
-            ClipText = true,
-        });
+                    : Loc.GetString("luam-sector-status-preferred-locked")))));
         titleRow.AddChild(MakeCopyIdButton(process.TemplateId));
         row.AddChild(titleRow);
 
-        row.AddChild(new Label
-        {
-            Text = Loc.GetString("luam-sector-status-preferred-entry",
+        row.AddChild(MakeMutedLabel(Loc.GetString("luam-sector-status-preferred-entry",
                 ("target", process.ReputationTarget),
                 ("current", process.CurrentReputation),
                 ("required", process.RequiredReputation),
                 ("tier", process.Tier),
                 ("reward", process.BaseReward),
-                ("bonus", process.ReputationBonus)),
-            StyleClasses = { "LabelSubText" },
-            ClipText = true,
-        });
+                ("bonus", process.ReputationBonus))));
 
         if (!process.CanRequestNow && !string.IsNullOrWhiteSpace(process.BlockReason))
         {
-            row.AddChild(new Label
-            {
-                Text = process.BlockReason,
-                StyleClasses = { "LabelSubText" },
-                ClipText = true,
-            });
+            row.AddChild(MakeMutedLabel(process.BlockReason));
         }
 
         return row;
@@ -712,21 +685,12 @@ public sealed class LuaMSectorStatusUiFragment : BoxContainer
             Margin = new Thickness(0, 0, 0, 6),
         };
 
-        row.AddChild(new Label
-        {
-            Text = Loc.GetString("luam-sector-status-history-title",
+        row.AddChild(MakeBodyLabel(Loc.GetString("luam-sector-status-history-title",
                 ("category", entry.Category),
                 ("title", entry.Title),
-                ("actor", entry.Actor)),
-            ClipText = true,
-        });
+                ("actor", entry.Actor))));
 
-        row.AddChild(new Label
-        {
-            Text = entry.Summary,
-            StyleClasses = { "LabelSubText" },
-            ClipText = true,
-        });
+        row.AddChild(MakeMutedLabel(entry.Summary));
 
         return row;
     }

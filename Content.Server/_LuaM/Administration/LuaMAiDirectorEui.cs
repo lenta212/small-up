@@ -140,6 +140,12 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
 
     private void GenerateWithPolicy(LuaMAiDirectorEuiMsg.Generate generate)
     {
+        if (string.IsNullOrWhiteSpace(generate.TargetUserId))
+        {
+            RejectMissingTarget("generate-process", LogImpact.High);
+            return;
+        }
+
         RequestConfirmation(
             "generate-process",
             "Generate AI process",
@@ -206,8 +212,7 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             message,
             chat.TargetUserId,
             chat.TemplateId,
-            allowServerActions ||
-            (IsGameMasterModeEnabled() && _admin.HasAdminFlag(Player, AdminFlags.Server)));
+            allowServerActions);
 
         RemovePendingChatLine(pending);
         AppendChat($"AI Director: {reply}");
@@ -220,6 +225,12 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
         if (action == LuaMAiDirectorEuiMsg.QuickRecommendations)
         {
             ShowLocalRecommendations();
+            return;
+        }
+
+        if (QuickActionRequiresTarget(action) && string.IsNullOrWhiteSpace(quick.TargetUserId))
+        {
+            RejectMissingTarget($"quick:{action}", GetQuickActionImpact(action));
             return;
         }
 
@@ -262,6 +273,14 @@ public sealed partial class LuaMAiDirectorEui : BaseEui
             BuildQuickActionDetail(quick),
             () => QuickActionAsync(quick, allowServerActions: true),
             GetQuickActionImpact(action));
+    }
+
+    private void RejectMissingTarget(string action, LogImpact impact)
+    {
+        _lastResult = "AI action blocked: select an active player target before execution.";
+        AppendChat($"AI Director: {_lastResult}");
+        LogAiAction(impact, "blocked", $"action={action} reason=missing_explicit_target");
+        StateDirty();
     }
 
     private async Task QuickActionAsync(LuaMAiDirectorEuiMsg.QuickAction quick, bool allowServerActions)

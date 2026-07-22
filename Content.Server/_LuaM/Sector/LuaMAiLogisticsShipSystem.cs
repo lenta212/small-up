@@ -7,6 +7,7 @@ using Robust.Shared.Map.Components;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
 using Robust.Shared.Timing;
+using DiagnosticsStopwatch = System.Diagnostics.Stopwatch;
 
 namespace Content.Server._LuaM.Sector;
 
@@ -22,6 +23,9 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
     private const int InitialCycleDelaySeconds = 60;
     private const int CycleDelaySeconds = 120;
     private const int MaxAiShipCrewDrones = 6;
+    private const double UpdateTimeBudgetMilliseconds = 1.0;
+    private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan CrewAuditInterval = TimeSpan.FromSeconds(1);
 
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private ILogManager _log = default!;
@@ -32,30 +36,57 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
     [Dependency] private MetaDataSystem _metaData = default!;
     [Dependency] private LuaMSectorStorySystem _stories = default!;
     [Dependency] private LuaMAiSupplyDropSystem _supplyDrops = default!;
+    [Dependency] private LuaMAiPhysicalBaseBudgetSystem _physical = default!;
 
     private ISawmill _sawmill = default!;
+    private readonly Dictionary<EntityUid, TimeSpan> _nextCrewAudit = new();
+    private TimeSpan _nextUpdate;
+    private int _shipCursor;
 
     public override void Initialize()
     {
         base.Initialize();
         _sawmill = _log.GetSawmill("luam.ai_logistics");
+        SubscribeLocalEvent<LuaMAiLogisticsShipComponent, ComponentShutdown>(OnShipShutdown);
     }
 
     public override void Update(float frameTime)
     {
         base.Update(frameTime);
 
-        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        if (!_physical.Enabled)
+        {
+            _nextUpdate = TimeSpan.Zero;
             return;
+        }
 
         var now = _timing.CurTime;
-        var query = EntityQueryEnumerator<LuaMAiLogisticsShipComponent>();
-        while (query.MoveNext(out var uid, out var logistics))
+        if (_nextUpdate != TimeSpan.Zero && now < _nextUpdate)
+            return;
+
+        _nextUpdate = now + UpdateInterval;
+        var started = DiagnosticsStopwatch.GetTimestamp();
+        var ships = _physical.GetEntitySlice(
+            LuaMAiPhysicalEntityKind.Ship,
+            ref _shipCursor,
+            LuaMAiPhysicalBaseBudgetSystem.LogisticsShipsPerSlice);
+        var processed = 0;
+        var exhausted = _physical.GetLiveCount(LuaMAiPhysicalEntityKind.Ship) > ships.Count;
+
+        foreach (var uid in ships)
         {
-            if (TerminatingOrDeleted(uid))
+            if (TerminatingOrDeleted(uid) || !TryComp<LuaMAiLogisticsShipComponent>(uid, out var logistics))
                 continue;
 
-            EnsureCrewForShip(uid, logistics);
+            processed++;
+            if (!_nextCrewAudit.TryGetValue(uid, out var nextCrewAudit) || now >= nextCrewAudit)
+            {
+                EnsureCrewForShip(uid, logistics);
+                _nextCrewAudit[uid] = now + CrewAuditInterval;
+            }
+
+            if (logistics.BehaviorState is "emergency_hold" or "disengaging" or "replanning_route" or "pilot_conflict" or "pilot_lost")
+                continue;
 
             if (logistics.NextCycle == TimeSpan.Zero)
             {
@@ -83,12 +114,23 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
                 result += $" {dropSummary}";
 
             _sawmill.Info($"AI logistics ship cycle {logistics.Cycles}: {ToPrettyString(uid)} role={role} vessel={vesselId}; {result}");
+
+            if (DiagnosticsStopwatch.GetElapsedTime(started).TotalMilliseconds >= UpdateTimeBudgetMilliseconds)
+            {
+                exhausted = true;
+                break;
+            }
         }
+
+        if (DiagnosticsStopwatch.GetElapsedTime(started).TotalMilliseconds >= UpdateTimeBudgetMilliseconds)
+            exhausted = true;
+
+        _physical.RecordSlice("logistics", processed, exhausted);
     }
 
     public string EnsureCrewForShip(EntityUid shipUid, LuaMAiLogisticsShipComponent logistics)
     {
-        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        if (!_physical.Enabled)
         {
             logistics.CrewRoleManifest.Clear();
             logistics.LastCrewReport = LuaMAiPhysicalBaseFeature.DisabledReason;
@@ -153,23 +195,31 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
             if (existingForRole >= desiredCounts[role])
                 continue;
 
-            existingCounts[role] = existingForRole + 1;
+            var spawned = false;
             if (TryPickCrewMarker(role, crewMarkers, usedMarkers, out var markerUid, out var marker))
             {
-                SpawnCrewDrone(shipUid, logistics, Transform(markerUid).Coordinates, role, existingTotal + created, marker);
-                usedMarkers.Add(markerUid);
-                markersUsed++;
+                spawned = SpawnCrewDrone(shipUid, logistics, Transform(markerUid).Coordinates, role, existingTotal + created, marker);
+                if (spawned)
+                {
+                    usedMarkers.Add(markerUid);
+                    markersUsed++;
+                }
             }
             else if (TryPickFallbackCrewCoordinatesOnGrid(shipUid, role, existingTotal + created, usedGridTiles, out var gridCoordinates))
             {
-                SpawnCrewDrone(shipUid, logistics, gridCoordinates, role, existingTotal + created, null);
-                gridTilesUsed++;
+                spawned = SpawnCrewDrone(shipUid, logistics, gridCoordinates, role, existingTotal + created, null);
+                if (spawned)
+                    gridTilesUsed++;
             }
             else
             {
-                SpawnCrewDrone(shipUid, logistics, PickFallbackCrewCoordinates(shipCoordinates, role, existingTotal + created), role, existingTotal + created);
+                spawned = SpawnCrewDrone(shipUid, logistics, PickFallbackCrewCoordinates(shipCoordinates, role, existingTotal + created), role, existingTotal + created);
             }
 
+            if (!spawned)
+                break;
+
+            existingCounts[role] = existingForRole + 1;
             created++;
         }
 
@@ -189,6 +239,23 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
             : $"doctrine {logistics.BaseBehaviorMode}/{logistics.BaseBehaviorFocusResource}";
         logistics.LastCrewReport = $"AI ship crew active {existingTotal + created}/{desiredRoles.Count}; created {created}; {placementText}; profile {profile}; {behaviorText}; manifest {string.Join(",", desiredRoles)}";
         return logistics.LastCrewReport;
+    }
+
+    private void OnShipShutdown(EntityUid uid, LuaMAiLogisticsShipComponent component, ComponentShutdown args)
+    {
+        _physical.ReleaseAdmission(uid, LuaMAiPhysicalEntityKind.Ship);
+        _nextCrewAudit.Remove(uid);
+
+        if (component.BehaviorCore is { Valid: true } core && !TerminatingOrDeleted(core))
+            QueueDel(core);
+        component.BehaviorCore = null;
+
+        var query = EntityQueryEnumerator<LuaMAiMiningDroneComponent>();
+        while (query.MoveNext(out var droneUid, out var drone))
+        {
+            if (!TerminatingOrDeleted(droneUid) && drone.ParentShip == uid)
+                QueueDel(droneUid);
+        }
     }
 
     private void EnsureCrewManifest(LuaMAiLogisticsShipComponent logistics)
@@ -374,7 +441,7 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
             logistics.CrewStationPlan = BuildCrewStationPlan(logistics.CrewRoleManifest, vesselClass);
     }
 
-    private void SpawnCrewDrone(
+    private bool SpawnCrewDrone(
         EntityUid shipUid,
         LuaMAiLogisticsShipComponent logistics,
         EntityCoordinates coordinates,
@@ -382,21 +449,36 @@ public sealed partial class LuaMAiLogisticsShipSystem : EntitySystem
         int index,
         LuaMAiShipCrewMarkerComponent? marker)
     {
+        var mapCoordinates = _transform.ToMapCoordinates(coordinates, logError: false);
+        if (mapCoordinates == MapCoordinates.Nullspace ||
+            !_physical.CanSpawn(LuaMAiPhysicalEntityKind.Drone, mapCoordinates.MapId, out _))
+        {
+            return false;
+        }
+
         var droneUid = Spawn(ResolveCrewDronePrototype(role), coordinates);
         ConfigureCrewDrone(shipUid, logistics, droneUid, role, index);
         if (marker != null)
             marker.LastSpawnedDrone = droneUid;
+        return true;
     }
 
-    private void SpawnCrewDrone(
+    private bool SpawnCrewDrone(
         EntityUid shipUid,
         LuaMAiLogisticsShipComponent logistics,
         MapCoordinates coordinates,
         string role,
         int index)
     {
+        if (coordinates == MapCoordinates.Nullspace ||
+            !_physical.CanSpawn(LuaMAiPhysicalEntityKind.Drone, coordinates.MapId, out _))
+        {
+            return false;
+        }
+
         var droneUid = Spawn(ResolveCrewDronePrototype(role), coordinates);
         ConfigureCrewDrone(shipUid, logistics, droneUid, role, index);
+        return true;
     }
 
     private string ResolveCrewDronePrototype(string role)

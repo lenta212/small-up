@@ -5,6 +5,7 @@ using System.Numerics;
 using Robust.Shared.Map;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Timing;
+using DiagnosticsStopwatch = System.Diagnostics.Stopwatch;
 
 namespace Content.Server._LuaM.Sector;
 
@@ -22,7 +23,9 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
     private const double StuckCheckIntervalSeconds = 5;
     private const float StuckMovementEpsilon = 0.2f;
     private const int StuckChecksBeforeReport = 2;
+    private const double UpdateTimeBudgetMilliseconds = 1.0;
     private static readonly TimeSpan DisabledCleanupInterval = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(250);
 
     private static readonly (string ZoneType, string Label, Vector2 Offset)[] RequiredZones =
     {
@@ -38,25 +41,34 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
     [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private MetaDataSystem _metaData = default!;
     [Dependency] private LuaMSectorStorySystem _stories = default!;
+    [Dependency] private LuaMAiPhysicalBaseBudgetSystem _physical = default!;
 
     private TimeSpan _nextDisabledCleanup;
+    private TimeSpan _nextUpdate;
+    private int _anchorCursor;
+    private int _zoneCursor;
+    private int _assignmentCursor;
+    private int _progressCursor;
 
     public override void Initialize()
     {
         base.Initialize();
 
-        SubscribeLocalEvent<LuaMAiBaseAnchorComponent, ComponentStartup>(OnDisabledAnchorStartup);
-        SubscribeLocalEvent<LuaMAiBaseZoneComponent, ComponentStartup>(OnDisabledZoneStartup);
-        SubscribeLocalEvent<LuaMAiSupplyDropComponent, ComponentStartup>(OnDisabledSupplyDropStartup);
+        SubscribeLocalEvent<LuaMAiBaseAnchorComponent, ComponentStartup>(OnAnchorStartup);
+        SubscribeLocalEvent<LuaMAiBaseZoneComponent, ComponentStartup>(OnZoneStartup);
+        SubscribeLocalEvent<LuaMAiSupplyDropComponent, ComponentStartup>(OnSupplyDropStartup);
         SubscribeLocalEvent<LuaMAiDroneTaskComponent, ComponentStartup>(OnDisabledDroneTaskStartup);
+        SubscribeLocalEvent<LuaMAiBaseAnchorComponent, EntityTerminatingEvent>(OnAnchorTerminating);
+        SubscribeLocalEvent<LuaMAiBaseAnchorComponent, ComponentShutdown>(OnAnchorShutdown);
     }
 
     public override void Update(float frameTime)
     {
         base.Update(frameTime);
 
-        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        if (!_physical.Enabled)
         {
+            _nextUpdate = TimeSpan.Zero;
             if (_nextDisabledCleanup == TimeSpan.Zero || _timing.CurTime >= _nextDisabledCleanup)
             {
                 CleanupDisabledAiBase();
@@ -66,41 +78,136 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
             return;
         }
 
-        EnsureZonesForAnchors();
-        UpdateZoneCompensationPlans();
-        AssignDroneTasks();
-        UpdateDroneTaskProgress();
+        var now = _timing.CurTime;
+        if (_nextUpdate != TimeSpan.Zero && now < _nextUpdate)
+            return;
+
+        _nextUpdate = now + UpdateInterval;
+        var started = DiagnosticsStopwatch.GetTimestamp();
+        var processed = 0;
+        var exhausted = false;
+
+        var anchors = _physical.GetEntitySlice(
+            LuaMAiPhysicalEntityKind.Anchor,
+            ref _anchorCursor,
+            LuaMAiPhysicalBaseBudgetSystem.EcologyAnchorsPerSlice);
+        EnsureZonesForAnchors(anchors);
+        processed += anchors.Count;
+
+        if (IsTimeBudgetExhausted(started))
+        {
+            exhausted = true;
+        }
+        else
+        {
+            var zones = _physical.GetEntitySlice(
+                LuaMAiPhysicalEntityKind.Zone,
+                ref _zoneCursor,
+                LuaMAiPhysicalBaseBudgetSystem.EcologyZonesPerSlice);
+            UpdateZoneCompensationPlans(zones);
+            processed += zones.Count;
+            exhausted = IsTimeBudgetExhausted(started);
+        }
+
+        if (!exhausted)
+        {
+            var drones = _physical.GetEntitySlice(
+                LuaMAiPhysicalEntityKind.Drone,
+                ref _assignmentCursor,
+                LuaMAiPhysicalBaseBudgetSystem.EcologyDronesPerSlice);
+            AssignDroneTasks(drones);
+            processed += drones.Count;
+            exhausted = IsTimeBudgetExhausted(started);
+        }
+
+        if (!exhausted)
+        {
+            var drones = _physical.GetEntitySlice(
+                LuaMAiPhysicalEntityKind.Drone,
+                ref _progressCursor,
+                LuaMAiPhysicalBaseBudgetSystem.EcologyDronesPerSlice);
+            UpdateDroneTaskProgress(drones);
+            processed += drones.Count;
+            exhausted = IsTimeBudgetExhausted(started);
+        }
+
+        _physical.RecordSlice("ecology", processed, exhausted);
     }
 
-    private void OnDisabledAnchorStartup(EntityUid uid, LuaMAiBaseAnchorComponent component, ComponentStartup args)
+    private void OnAnchorStartup(EntityUid uid, LuaMAiBaseAnchorComponent component, ComponentStartup args)
     {
-        QueueDisabledPhysicalEntity(uid);
+        _physical.AdmitOrReject(uid, LuaMAiPhysicalEntityKind.Anchor);
     }
 
-    private void OnDisabledZoneStartup(EntityUid uid, LuaMAiBaseZoneComponent component, ComponentStartup args)
+    private void OnZoneStartup(EntityUid uid, LuaMAiBaseZoneComponent component, ComponentStartup args)
     {
-        QueueDisabledPhysicalEntity(uid);
+        _physical.AdmitOrReject(uid, LuaMAiPhysicalEntityKind.Zone);
     }
 
-    private void OnDisabledSupplyDropStartup(EntityUid uid, LuaMAiSupplyDropComponent component, ComponentStartup args)
+    private void OnSupplyDropStartup(EntityUid uid, LuaMAiSupplyDropComponent component, ComponentStartup args)
     {
-        QueueDisabledPhysicalEntity(uid);
+        _physical.AdmitOrReject(uid, LuaMAiPhysicalEntityKind.Drop);
     }
 
     private void OnDisabledDroneTaskStartup(EntityUid uid, LuaMAiDroneTaskComponent component, ComponentStartup args)
     {
-        if (LuaMAiPhysicalBaseFeature.Enabled || TerminatingOrDeleted(uid))
+        if (_physical.Enabled || TerminatingOrDeleted(uid))
             return;
 
         RemCompDeferred<LuaMAiDroneTaskComponent>(uid);
     }
 
-    private void QueueDisabledPhysicalEntity(EntityUid uid)
+    private void OnAnchorTerminating(
+        EntityUid uid,
+        LuaMAiBaseAnchorComponent anchor,
+        ref EntityTerminatingEvent args)
     {
-        if (LuaMAiPhysicalBaseFeature.Enabled || TerminatingOrDeleted(uid))
+        CleanupAnchor(uid, anchor);
+    }
+
+    private void OnAnchorShutdown(EntityUid uid, LuaMAiBaseAnchorComponent anchor, ComponentShutdown args)
+    {
+        CleanupAnchor(uid, anchor);
+    }
+
+    private void CleanupAnchor(EntityUid uid, LuaMAiBaseAnchorComponent anchor)
+    {
+        var mapId = MapId.Nullspace;
+        if (!_physical.TryGetAdmissionMap(uid, LuaMAiPhysicalEntityKind.Anchor, out mapId) &&
+            TryComp<TransformComponent>(uid, out var fallbackTransform))
+        {
+            mapId = fallbackTransform.MapID;
+        }
+
+        _physical.ReleaseAdmission(uid, LuaMAiPhysicalEntityKind.Anchor);
+
+        if (mapId == MapId.Nullspace)
             return;
 
-        QueueDel(uid);
+        var anchorQuery = EntityQueryEnumerator<LuaMAiBaseAnchorComponent, TransformComponent>();
+        while (anchorQuery.MoveNext(out var otherUid, out var otherAnchor, out var otherTransform))
+        {
+            if (otherUid != uid &&
+                !TerminatingOrDeleted(otherUid) &&
+                otherTransform.MapID == mapId &&
+                otherAnchor.BaseId.Equals(anchor.BaseId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        var query = EntityQueryEnumerator<LuaMAiBaseZoneComponent, TransformComponent>();
+        while (query.MoveNext(out var zoneUid, out var zone, out var zoneTransform))
+        {
+            if (TerminatingOrDeleted(zoneUid) ||
+                zoneTransform.MapID != mapId ||
+                !zone.BaseId.Equals(anchor.BaseId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            QueueDel(zoneUid);
+        }
     }
 
     private void CleanupDisabledAiBase()
@@ -134,15 +241,14 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
         }
     }
 
-    private void EnsureZonesForAnchors()
+    private void EnsureZonesForAnchors(IReadOnlyList<EntityUid> anchors)
     {
         if (!_prototypes.HasIndex<EntityPrototype>(ZoneMarkerPrototype))
             return;
 
-        var anchorQuery = EntityQueryEnumerator<LuaMAiBaseAnchorComponent>();
-        while (anchorQuery.MoveNext(out var anchorUid, out var anchor))
+        foreach (var anchorUid in anchors)
         {
-            if (TerminatingOrDeleted(anchorUid))
+            if (TerminatingOrDeleted(anchorUid) || !TryComp<LuaMAiBaseAnchorComponent>(anchorUid, out var anchor))
                 continue;
 
             var anchorCoordinates = _transform.ToMapCoordinates(Transform(anchorUid).Coordinates, logError: false);
@@ -152,6 +258,9 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
             foreach (var zone in RequiredZones)
             {
                 if (TryFindZone(anchor.BaseId, zone.ZoneType, anchorCoordinates.MapId, out _))
+                    continue;
+
+                if (!_physical.CanSpawn(LuaMAiPhysicalEntityKind.Zone, anchorCoordinates.MapId, out _))
                     continue;
 
                 var coordinates = new MapCoordinates(anchorCoordinates.Position + zone.Offset, anchorCoordinates.MapId);
@@ -167,12 +276,11 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
         }
     }
 
-    private void AssignDroneTasks()
+    private void AssignDroneTasks(IReadOnlyList<EntityUid> drones)
     {
-        var droneQuery = EntityQueryEnumerator<LuaMAiMiningDroneComponent>();
-        while (droneQuery.MoveNext(out var droneUid, out var drone))
+        foreach (var droneUid in drones)
         {
-            if (TerminatingOrDeleted(droneUid))
+            if (TerminatingOrDeleted(droneUid) || !TryComp<LuaMAiMiningDroneComponent>(droneUid, out var drone))
                 continue;
 
             if (TryComp<LuaMAiDroneTaskComponent>(droneUid, out var existing) &&
@@ -214,14 +322,18 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
         }
     }
 
-    private void UpdateDroneTaskProgress()
+    private void UpdateDroneTaskProgress(IReadOnlyList<EntityUid> drones)
     {
-        var query = EntityQueryEnumerator<LuaMAiMiningDroneComponent, LuaMAiDroneTaskComponent>();
-        while (query.MoveNext(out var droneUid, out var drone, out var task))
+        foreach (var droneUid in drones)
         {
             if (TerminatingOrDeleted(droneUid) ||
-                !task.TargetZone.IsValid() ||
-                TerminatingOrDeleted(task.TargetZone))
+                !TryComp<LuaMAiMiningDroneComponent>(droneUid, out var drone) ||
+                !TryComp<LuaMAiDroneTaskComponent>(droneUid, out var task))
+            {
+                continue;
+            }
+
+            if (!task.TargetZone.IsValid() || TerminatingOrDeleted(task.TargetZone))
             {
                 RemCompDeferred<LuaMAiDroneTaskComponent>(droneUid);
                 continue;
@@ -292,13 +404,12 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
         }
     }
 
-    private void UpdateZoneCompensationPlans()
+    private void UpdateZoneCompensationPlans(IReadOnlyList<EntityUid> zones)
     {
         var plan = _stories.BuildAiBaseCompensationPlan();
-        var query = EntityQueryEnumerator<LuaMAiBaseZoneComponent>();
-        while (query.MoveNext(out var zoneUid, out var zone))
+        foreach (var zoneUid in zones)
         {
-            if (TerminatingOrDeleted(zoneUid))
+            if (TerminatingOrDeleted(zoneUid) || !TryComp<LuaMAiBaseZoneComponent>(zoneUid, out var zone))
                 continue;
 
             var entry = plan
@@ -320,6 +431,11 @@ public sealed partial class LuaMAiBaseEcologySystem : EntitySystem
             zone.SuggestedResource = entry.Resource;
             zone.ActiveCompensationSeverity = entry.Severity;
         }
+    }
+
+    private static bool IsTimeBudgetExhausted(long started)
+    {
+        return DiagnosticsStopwatch.GetElapsedTime(started).TotalMilliseconds >= UpdateTimeBudgetMilliseconds;
     }
 
     private static void ClearZoneCompensation(LuaMAiBaseZoneComponent zone)

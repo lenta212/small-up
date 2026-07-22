@@ -1,0 +1,55 @@
+- type: htnCompound
+  id: LuaMShipDisengageCompound
+  branches:
+  - tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:UtilityOperator
+        proto: NearbyShuttleTargets
+    - !type:HTNCompoundTask
+      task: LuaMShipDisengageMoveCompound
+
+- type: htnCompound
+  id: LuaMShipDisengageMoveCompound
+  branches:
+  - preconditions:
+    - !type:KeyExistsPrecondition
+      key: TargetCoordinates
+    tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:ShipMoveToOperator
+        shutdownState: TaskFinished
+        removeKeyOnFinish: false
+        finishOnCollide: false
+        inRangeMaxSpeed: null
+        leadingEnabled: true
+        alwaysFaceTarget: true
+        avoidProjectiles: true
+        range: 1600
+        rangeTolerance: 250
+        targetKey: TargetCoordinates
+      services:
+      - !type:UtilityService
+        id: LuaMDisengageTargetsService
+        proto: NearbyShuttleTargets
+        key: Target
+        coordinatesKey: TargetCoordinates
+
+- type: htnCompound
+  id: LuaMShipNavigateBehaviorCompound
+  branches:
+  - preconditions:
+    - !type:KeyExistsPrecondition
+      key: LuaMBehaviorDestination
+    tasks:
+    - !type:HTNPrimitiveTask
+      operator: !type:ShipMoveToOperator
+        shutdownState: TaskFinished
+        removeKeyOnFinish: false
+        finishOnCollide: false
+        inRangeMaxSpeed: 0.5
+        leadingEnabled: false
+        alwaysFaceTarget: true
+        avoidProjectiles: true
+        range: 100
+        rangeTolerance: 25
+        targetKey: LuaMBehaviorDestination

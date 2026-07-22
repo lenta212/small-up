@@ -8,9 +8,9 @@ using Content.Server.Nutrition.EntitySystems;
 using Content.Server.Spawners.Components;
 using Content.Server._LuaM.Animals;
 using Content.Shared.CCVar;
+using Content.Shared.Damage;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
-using Content.Shared.Mobs.Systems;
 using Content.Shared.Nutrition.AnimalHusbandry;
 using Content.Shared.Storage;
 using Robust.Shared.GameObjects;
@@ -170,7 +170,7 @@ public sealed class LuaMAnimalPopulationControlTest
         var mapSystem = entManager.System<SharedMapSystem>();
         var metadataSystem = entManager.System<MetaDataSystem>();
         var mindSystem = entManager.System<MindSystem>();
-        var mobStateSystem = entManager.System<MobStateSystem>();
+        var damageableSystem = entManager.System<DamageableSystem>();
         var imprintingSystem = entManager.System<NPCImprintingOnSpawnBehaviourSystem>();
         var population = entManager.System<LuaMAnimalPopulationSystem>();
         MapId mapId = default;
@@ -199,7 +199,12 @@ public sealed class LuaMAnimalPopulationControlTest
                 var mind = mindSystem.CreateMind(null, "protected test pest");
                 mindSystem.TransferTo(mind, mice[0], createGhost: false, mind: mind.Comp);
                 metadataSystem.SetEntityName(mice[1], "department pet mouse");
-                mobStateSystem.ChangeMobState(mice[2], MobState.Critical);
+                var criticalInjury = new DamageSpecifier();
+                criticalInjury.DamageDict.Add("Blunt", 10);
+                Assert.That(
+                    damageableSystem.TryChangeDamage(mice[2], criticalInjury, ignoreResistances: true),
+                    Is.Not.Null,
+                    "The protected critical pest must be put into a threshold-backed critical state.");
                 var imprinting = entManager.EnsureComponent<NPCImprintingOnSpawnBehaviourComponent>(cockroaches[^1]);
                 var friend = entManager.SpawnEntity(null, MapCoordinates.Nullspace);
                 imprintingSystem.AddImprintingTarget(cockroaches[^1], friend, imprinting);
@@ -210,6 +215,10 @@ public sealed class LuaMAnimalPopulationControlTest
             LuaMAnimalCleanupPreview preview = default!;
             await server.WaitAssertion(() =>
             {
+                Assert.That(
+                    entManager.GetComponent<MobStateComponent>(mice[2]).CurrentState,
+                    Is.EqualTo(MobState.Critical),
+                    "The threshold-backed critical pest must remain protected through the preview tick.");
                 preview = population.BuildCleanupPreview(mapId, 4);
                 Assert.Multiple(() =>
                 {

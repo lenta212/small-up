@@ -31,6 +31,11 @@
   - type: Construction
     graph: HoverTaxiBot
     node: bot
+  - type: HTN
+    rootTask:
+      task: IdleCompound
+  - type: LuaMServiceBotBehaviorAdapter
+    role: Taxi
   - type: UserInterface
     interfaces:
       enum.RadarConsoleUiKey.Key:

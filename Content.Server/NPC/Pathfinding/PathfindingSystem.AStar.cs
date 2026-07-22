@@ -6,6 +6,8 @@ namespace Content.Server.NPC.Pathfinding;
 
 public sealed partial class PathfindingSystem
 {
+    private static readonly TimeSpan GraphRebuildWaitLimit = TimeSpan.FromSeconds(2);
+
     private PathResult UpdateAStarPath(AStarPathRequest request)
     {
         if (request.Start.Equals(request.End))
@@ -13,7 +15,7 @@ public sealed partial class PathfindingSystem
             return PathResult.Path;
         }
 
-        if (request.Task.IsCanceled)
+        if (request.CancellationToken.IsCancellationRequested)
         {
             return PathResult.NoPath;
         }
@@ -21,11 +23,38 @@ public sealed partial class PathfindingSystem
         // TODO: Need partial planning that uses best node.
         PathPoly? currentNode = null;
 
+        var startNode = GetPoly(request.Start);
+        var endNode = GetPoly(request.End);
+
+        if (startNode == null || endNode == null)
+        {
+            // Tile and collision changes rebuild the graph after a short cooldown.
+            // A request made in that window must remain queued instead of caching a
+            // transient missing polygon as a terminal NoPath result.
+            if (IsGraphUpdatePending(request.Start) || IsGraphUpdatePending(request.End))
+            {
+                var deadline = request.GraphWaitDeadline ??=
+                    _timing.CurTime + GraphRebuildWaitLimit;
+                if (_timing.CurTime < deadline)
+                {
+                    ResetPathSearch(request);
+                    return PathResult.Continuing;
+                }
+            }
+
+            return PathResult.NoPath;
+        }
+
+        request.GraphWaitDeadline = null;
+        currentNode = startNode;
+
         // First run
         if (!request.Started)
         {
             request.Frontier = new PriorityQueue<(float, PathPoly)>(PathPolyComparer);
             request.Started = true;
+            request.Frontier.Add((0.0f, startNode));
+            request.CostSoFar[startNode] = 0.0f;
         }
         // Re-validate nodes
         else
@@ -52,32 +81,25 @@ public sealed partial class PathfindingSystem
 
         DebugTools.Assert(!request.Task.IsCompleted);
         request.Stopwatch.Restart();
-
-        var startNode = GetPoly(request.Start);
-        var endNode = GetPoly(request.End);
-
-        if (startNode == null || endNode == null)
-        {
-            return PathResult.NoPath;
-        }
-
-        currentNode = startNode;
-        request.Frontier.Add((0.0f, startNode));
-        request.CostSoFar[startNode] = 0.0f;
-        var count = 0;
+        var sliceCount = 0;
         var arrived = false;
 
-        while (request.Frontier.Count > 0 && count < NodeLimit)
+        while (request.Frontier.Count > 0 && request.ExpandedNodes < NodeLimit)
         {
             // Handle whether we need to pause if we've taken too long
-            if (count % 20 == 0 && count > 0 && request.Stopwatch.Elapsed > PathTime)
+            if (sliceCount % 20 == 0 && sliceCount > 0 &&
+                (request.CancellationToken.IsCancellationRequested || request.Stopwatch.Elapsed > PathTime))
             {
+                if (request.CancellationToken.IsCancellationRequested)
+                    return PathResult.NoPath;
+
                 // I had this happen once in testing but I don't think it should be possible?
                 DebugTools.Assert(request.Frontier.Count > 0);
                 return PathResult.Continuing;
             }
 
-            count++;
+            sliceCount++;
+            request.ExpandedNodes++;
 
             // Actual pathfinding here
             (_, currentNode) = request.Frontier.Take();
@@ -146,5 +168,31 @@ public sealed partial class PathfindingSystem
         DebugTools.Assert(route.Count > 0);
         request.Polys = route;
         return PathResult.Path;
+    }
+
+    private bool IsGraphUpdatePending(EntityCoordinates coordinates)
+    {
+        if (_transform.GetGrid(coordinates) is not { } gridUid ||
+            !TryComp<GridPathfindingComponent>(gridUid, out var grid))
+        {
+            return false;
+        }
+
+        return grid.DirtyChunks.Contains(GetOrigin(coordinates, gridUid));
+    }
+
+    private static void ResetPathSearch(PathRequest request)
+    {
+        if (!request.Started)
+            return;
+
+        request.Started = false;
+        request.Frontier = default!;
+        request.CostSoFar.Clear();
+        request.CameFrom.Clear();
+        request.Polys.Clear();
+        request.ExpandedNodes = 0;
+        request.AccessPolyDecisions.Clear();
+        request.EncounteredAccessDenied = false;
     }
 }

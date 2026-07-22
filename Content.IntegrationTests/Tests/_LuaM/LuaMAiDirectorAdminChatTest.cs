@@ -142,6 +142,63 @@ public sealed class LuaMAiDirectorAdminChatTest
     }
 
     [Test]
+    public void LocalQuickActionTokensKeepTargetPressureDistinctFromNearbyEvents()
+    {
+        var resolver = typeof(LuaMSectorAiDirectorSystem).GetMethod(
+            "TryResolveLocalChatSectorCommand",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.That(resolver, Is.Not.Null, "Missing local sector command resolver");
+
+        var personalPressure = new object[] { "personal_pressure: create pressure around target", string.Empty };
+        var nearbyEvent = new object[] { "nearby_event: create an event near target", string.Empty };
+        var emergencyBeacon = new object[] { "spawn_entity emergency beacon for the selected player", string.Empty };
+        var anomalyScanner = new object[] { "spawn_entity anomaly scanner for the selected player", string.Empty };
+
+        Assert.That((bool) resolver!.Invoke(null, personalPressure)!, Is.True);
+        Assert.That(personalPressure[1], Is.EqualTo("personal_pressure"));
+        Assert.That((bool) resolver.Invoke(null, nearbyEvent)!, Is.True);
+        Assert.That(nearbyEvent[1], Is.EqualTo("nearby_event"));
+        Assert.That((bool) resolver.Invoke(null, emergencyBeacon)!, Is.True);
+        Assert.That(emergencyBeacon[1], Is.EqualTo("spawn_emergency_beacon"));
+        Assert.That((bool) resolver.Invoke(null, anomalyScanner)!, Is.True);
+        Assert.That(anomalyScanner[1], Is.EqualTo("spawn_anomaly_scanner"));
+    }
+
+    [Test]
+    public async Task ExplicitUnknownTargetFailsClosedInsteadOfSelectingAnotherPlayer()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false
+        });
+
+        try
+        {
+            var director = pair.Server.ResolveDependency<IEntityManager>()
+                .System<LuaMSectorAiDirectorSystem>();
+            var pickTarget = typeof(LuaMSectorAiDirectorSystem).GetMethod(
+                "PickTarget",
+                BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                types: new[] { typeof(string), typeof(bool), typeof(bool) },
+                modifiers: null);
+            Assert.That(pickTarget, Is.Not.Null, "Missing explicit-target resolver");
+
+            var target = pickTarget!.Invoke(
+                director,
+                new object[] { "11111111-2222-3333-4444-555555555555", false, false });
+
+            Assert.That(target, Is.Null, "An unknown explicit target must never fall back to a random player");
+        }
+        finally
+        {
+            await pair.CleanReturnAsync();
+        }
+    }
+
+    [Test]
     public async Task AdminChatGameMasterModeDoesNotGrantServerActionPermission()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings
@@ -524,6 +581,7 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(blockedAutopilot, Does.Contain("Action not executed"));
             Assert.That(autofix, Does.Contain("AI base autofix"));
             Assert.That(autofix, Does.Contain("AI base autofix memory recorded"));
+            Assert.That(autofix, Does.Contain("success=True"));
 
             var autonomous = string.Empty;
             var autonomousThrottled = string.Empty;
@@ -593,8 +651,12 @@ public sealed class LuaMAiDirectorAdminChatTest
             Assert.That(state.AiBaseSummary, Does.Contain("diagnostics"));
             Assert.That(state.AiBaseSummary, Does.Contain("autofix"));
             Assert.That(state.AiBaseDiagnostics, Does.Contain("AI base diagnostics"));
+            Assert.That(state.AiBaseDiagnostics, Does.Not.Contain("physical anchor missing"));
+            Assert.That(state.AiBaseDiagnostics, Does.Not.Contain("no logistics ship active"));
+            Assert.That(state.AiBaseDiagnostics, Does.Not.Contain("no drone crew active"));
             Assert.That(state.AiBaseAutofixSummary, Does.Contain("ai_base_create"));
             Assert.That(state.AiBaseDevelopmentPlan, Does.Contain("AI base development plan"));
+            Assert.That(state.AiBaseDevelopmentPlan, Does.Contain("physical simulation disabled by configuration"));
             Assert.That(state.AiBaseSummary, Does.Contain("physical beacons"));
             Assert.That(state.AiBaseSummary, Does.Contain("logistics ships"));
         }

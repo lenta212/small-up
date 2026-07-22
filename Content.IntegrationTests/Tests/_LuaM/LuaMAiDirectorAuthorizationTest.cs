@@ -123,6 +123,46 @@ public sealed class LuaMAiDirectorAuthorizationTest
                 Assert.That(gameMaster.CanRunServerActions, Is.True);
                 Assert.That(gameMaster.HasPendingConfirmation, Is.False);
                 Assert.That(gameMaster.LastResult, Does.Contain("enabled"));
+
+                eui.HandleMessage(new LuaMAiDirectorEuiMsg.QuickAction
+                {
+                    Action = LuaMAiDirectorEuiMsg.QuickEvent,
+                    TargetUserId = string.Empty,
+                    TemplateId = LuaMAiDirectorEuiMsg.AutoTemplateId,
+                });
+                var missingQuickTarget = (LuaMAiDirectorEuiState) eui.GetNewState();
+                Assert.That(missingQuickTarget.HasPendingConfirmation, Is.False);
+                Assert.That(missingQuickTarget.LastResult, Does.Contain("select an active player target"));
+
+                eui.HandleMessage(new LuaMAiDirectorEuiMsg.Generate
+                {
+                    TargetUserId = string.Empty,
+                    TemplateId = LuaMAiDirectorEuiMsg.AutoTemplateId,
+                    Instruction = "create a local process",
+                    UseGateway = false,
+                    IgnoreOpenLead = false,
+                });
+                var missingGenerateTarget = (LuaMAiDirectorEuiState) eui.GetNewState();
+                Assert.That(missingGenerateTarget.HasPendingConfirmation, Is.False);
+                Assert.That(missingGenerateTarget.LastResult, Does.Contain("select an active player target"));
+            });
+
+            await server.WaitPost(() =>
+            {
+                eui!.HandleMessage(new LuaMAiDirectorEuiMsg.Chat
+                {
+                    Message = "subspace_rift near selected player",
+                    TargetUserId = session.UserId.ToString(),
+                    TemplateId = LuaMAiDirectorEuiMsg.AutoTemplateId,
+                });
+            });
+            await pair.RunTicksSync(10);
+            await server.WaitAssertion(() =>
+            {
+                var advisoryChat = (LuaMAiDirectorEuiState) eui!.GetNewState();
+                Assert.That(advisoryChat.HasPendingConfirmation, Is.False);
+                Assert.That(advisoryChat.ChatTranscript, Does.Contain("Action not executed"));
+                Assert.That(advisoryChat.ChatTranscript, Does.Contain("Server-flag confirmed action"));
             });
         }
         finally

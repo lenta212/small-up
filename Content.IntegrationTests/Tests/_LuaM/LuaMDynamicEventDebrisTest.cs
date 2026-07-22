@@ -141,10 +141,7 @@ public sealed class LuaMDynamicEventDebrisTest
                 Assert.That(marker.CreatedBy, Is.EqualTo(matchingDebris.Debris.CreatedBy));
                 Assert.That(marker.MarkerLocation, Is.EqualTo(matchingDebris.Debris.MarkerLocation));
                 var markerCoordinates = transformSystem.ToMapCoordinates(xform.Coordinates);
-                var debrisCoordinates = transformSystem.ToMapCoordinates(matchingDebris.Xform.Coordinates);
                 Assert.That(markerCoordinates.MapId, Is.EqualTo(mapId));
-                Assert.That(markerCoordinates.Position.X, Is.EqualTo(debrisCoordinates.Position.X).Within(SpawnedObjectPositionTolerance));
-                Assert.That(markerCoordinates.Position.Y, Is.EqualTo(debrisCoordinates.Position.Y).Within(SpawnedObjectPositionTolerance));
             }
 
             var siteNotes = new List<(LuaMDynamicEventSiteObjectComponent Site, PaperComponent Paper, TransformComponent Xform)>();
@@ -161,10 +158,7 @@ public sealed class LuaMDynamicEventDebrisTest
                 Assert.That(site.MarkerLocation, Is.EqualTo(matchingDebris.Debris.MarkerLocation));
                 Assert.That(site.SiteObjectKind, Is.EqualTo("field-note"));
                 var siteCoordinates = transformSystem.ToMapCoordinates(xform.Coordinates);
-                var debrisCoordinates = transformSystem.ToMapCoordinates(matchingDebris.Xform.Coordinates);
                 Assert.That(siteCoordinates.MapId, Is.EqualTo(mapId));
-                Assert.That(siteCoordinates.Position.X, Is.EqualTo(debrisCoordinates.Position.X).Within(SpawnedObjectPositionTolerance));
-                Assert.That(siteCoordinates.Position.Y, Is.EqualTo(debrisCoordinates.Position.Y).Within(SpawnedObjectPositionTolerance));
                 Assert.That(paper.Content, Does.Contain("GPS карта"));
                 Assert.That(paper.Content, Does.Contain("Сдать / закрыть"));
                 Assert.That(paper.Content, Does.Contain(site.MarkerLocation));

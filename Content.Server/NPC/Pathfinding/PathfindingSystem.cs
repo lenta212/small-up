@@ -7,6 +7,7 @@ using Content.Server.Administration.Managers;
 using Content.Server.Destructible;
 using Content.Server.NPC.Systems;
 using Content.Shared.Access.Components;
+using Content.Shared.Access.Systems;
 using Content.Shared.Administration;
 using Content.Shared.Climbing.Components;
 using Content.Shared.Doors.Components;
@@ -52,6 +53,7 @@ namespace Content.Server.NPC.Pathfinding
         [Dependency] private SharedMapSystem _maps = default!;
         [Dependency] private SharedPhysicsSystem _physics = default!;
         [Dependency] private SharedTransformSystem _transform = default!;
+        [Dependency] private AccessReaderSystem _accessReader = default!;
 
         private readonly Dictionary<ICommonSession, PathfindingDebugMode> _subscribedSessions = new();
 
@@ -59,6 +61,7 @@ namespace Content.Server.NPC.Pathfinding
         private readonly List<PathRequest> _pathRequests = new(PathTickLimit);
 
         private static readonly TimeSpan PathTime = TimeSpan.FromMilliseconds(3);
+        private bool _processAccessFirst = true;
 
         /// <summary>
         /// How many paths we can process in a single tick.
@@ -104,6 +107,8 @@ namespace Content.Server.NPC.Pathfinding
         public override void Update(float frameTime)
         {
             base.Update(frameTime);
+            CancelPendingRequests();
+
             var options = new ParallelOptions()
             {
                 MaxDegreeOfParallelism = _parallel.ParallelProcessCount,
@@ -111,34 +116,114 @@ namespace Content.Server.NPC.Pathfinding
 
             UpdateGrid(options);
             _stopwatch.Restart();
-            var amount = Math.Min(PathTickLimit, _pathRequests.Count);
+            PathRequest[] requests;
+            lock (_pathRequests)
+            {
+                var requestCount = Math.Min(PathTickLimit, _pathRequests.Count);
+                requests = _pathRequests.Take(requestCount).ToArray();
+            }
+
+            var amount = requests.Length;
             var results = ArrayPool<PathResult>.Shared.Rent(amount);
 
+            try
+            {
+                // AccessReader gathers credentials through ECS events and container
+                // traversal. Keep all access-aware requests on the main thread and
+                // give workers only ordinary immutable graph work. Alternate which
+                // class receives the first slice so a long access route cannot
+                // monopolize the shared per-tick budget indefinitely.
+                var accessFirst = _processAccessFirst;
+                _processAccessFirst = !_processAccessFirst;
+                if (accessFirst)
+                    ProcessAccessRequests(requests, results, amount);
 
+                ProcessOrdinaryRequests(requests, results, amount, options);
+
+                if (!accessFirst)
+                    ProcessAccessRequests(requests, results, amount);
+
+                // Then, single-threaded cleanup.
+                for (var i = 0; i < amount; i++)
+                {
+                    var path = requests[i];
+                    if (path.CancellationToken.IsCancellationRequested)
+                    {
+                        RemovePathRequest(path);
+                        path.Tcs.TrySetCanceled(path.CancellationToken);
+                        continue;
+                    }
+
+                    var result = results[i];
+                    switch (result)
+                    {
+                        case PathResult.Continuing:
+                            break;
+                        case PathResult.PartialPath:
+                        case PathResult.Path:
+                        case PathResult.NoPath:
+                            SendDebug(path);
+                            RemovePathRequest(path);
+                            if (path.Tcs.TrySetResult(result))
+                                SendRoute(path);
+                            break;
+                        default:
+                            throw new NotImplementedException();
+                    }
+                }
+            }
+            finally
+            {
+                ArrayPool<PathResult>.Shared.Return(results);
+            }
+        }
+
+        private void ProcessAccessRequests(PathRequest[] requests, PathResult[] results, int amount)
+        {
+            for (var i = 0; i < amount; i++)
+            {
+                var request = requests[i];
+                if ((request.Flags & PathFlags.Access) == 0x0)
+                    continue;
+
+                if (_stopwatch.Elapsed >= PathTime)
+                {
+                    results[i] = PathResult.Continuing;
+                    continue;
+                }
+
+                CaptureAccessSnapshot(request);
+                if (_stopwatch.Elapsed >= PathTime)
+                {
+                    results[i] = PathResult.Continuing;
+                    continue;
+                }
+
+                results[i] = UpdatePathRequest(request);
+            }
+        }
+
+        private void ProcessOrdinaryRequests(
+            PathRequest[] requests,
+            PathResult[] results,
+            int amount,
+            ParallelOptions options)
+        {
             Parallel.For(0, amount, options, i =>
             {
-                // If we're over the limit (either time-sliced or hard cap).
+                var request = requests[i];
+                if ((request.Flags & PathFlags.Access) != 0x0)
+                    return;
+
                 if (_stopwatch.Elapsed >= PathTime)
                 {
                     results[i] = PathResult.Continuing;
                     return;
                 }
 
-                var request = _pathRequests[i];
-
                 try
                 {
-                    switch (request)
-                    {
-                        case AStarPathRequest astar:
-                            results[i] = UpdateAStarPath(astar);
-                            break;
-                        case BFSPathRequest bfs:
-                            results[i] = UpdateBFSPath(_random, bfs);
-                            break;
-                        default:
-                            throw new NotImplementedException();
-                    }
+                    results[i] = UpdatePathRequest(request);
                 }
                 catch (Exception)
                 {
@@ -146,41 +231,62 @@ namespace Content.Server.NPC.Pathfinding
                     throw;
                 }
             });
+        }
 
-            var offset = 0;
-
-            // then, single-threaded cleanup.
-            for (var i = 0; i < amount; i++)
+        private PathResult UpdatePathRequest(PathRequest request)
+        {
+            return request switch
             {
-                var resultIndex = i + offset;
-                var path = _pathRequests[resultIndex];
-                var result = results[i];
+                AStarPathRequest astar => UpdateAStarPath(astar),
+                BFSPathRequest bfs => UpdateBFSPath(_random, bfs),
+                _ => throw new NotImplementedException(),
+            };
+        }
 
-                if (path.Task.Exception != null)
-                {
-                    throw path.Task.Exception;
-                }
+        private void CaptureAccessSnapshot(PathRequest request)
+        {
+            if (request.AccessSnapshotCaptured)
+                return;
 
-                switch (result)
+            request.AccessSnapshotCaptured = true;
+            if (request.Requester is not { Valid: true } requester || !Exists(requester))
+                return;
+
+            var sources = _accessReader.FindPotentialAccessItems(requester);
+            var tags = _accessReader.FindAccessTags(requester, sources).ToArray();
+            _accessReader.FindStationRecordKeys(requester, out var stationKeys, sources);
+            request.AccessSnapshot = new PathAccessSnapshot(tags, stationKeys.ToArray());
+        }
+
+        private void CancelPendingRequests()
+        {
+            List<PathRequest>? canceled = null;
+            lock (_pathRequests)
+            {
+                for (var i = _pathRequests.Count - 1; i >= 0; i--)
                 {
-                    case PathResult.Continuing:
-                        break;
-                    case PathResult.PartialPath:
-                    case PathResult.Path:
-                    case PathResult.NoPath:
-                        SendDebug(path);
-                        // Don't use RemoveSwap because we still want to try and process them in order.
-                        _pathRequests.RemoveAt(resultIndex);
-                        offset--;
-                        path.Tcs.SetResult(result);
-                        SendRoute(path);
-                        break;
-                    default:
-                        throw new NotImplementedException();
+                    var request = _pathRequests[i];
+                    if (!request.CancellationToken.IsCancellationRequested)
+                        continue;
+
+                    _pathRequests.RemoveAt(i);
+                    (canceled ??= new List<PathRequest>()).Add(request);
                 }
             }
 
-            ArrayPool<PathResult>.Shared.Return(results);
+            if (canceled == null)
+                return;
+
+            foreach (var request in canceled)
+                request.Tcs.TrySetCanceled(request.CancellationToken);
+        }
+
+        private void RemovePathRequest(PathRequest request)
+        {
+            lock (_pathRequests)
+            {
+                _pathRequests.Remove(request);
+            }
         }
 
         /// <summary>
@@ -275,7 +381,7 @@ namespace Content.Server.NPC.Pathfinding
                 (layer, mask) = _physics.GetHardCollision(entity, fixtures);
             }
 
-            var request = new BFSPathRequest(maxRange, limit, start.Coordinates, flags, layer, mask, cancelToken);
+            var request = new BFSPathRequest(maxRange, limit, start.Coordinates, flags, layer, mask, cancelToken, entity);
             var path = await GetPath(request);
 
             if (path.Result != PathResult.Path)
@@ -357,7 +463,7 @@ namespace Content.Server.NPC.Pathfinding
             PathFlags flags = PathFlags.None)
         {
             var request = GetRequest(entity, start, end, range, cancelToken, flags);
-            return await GetPath(request, true);
+            return await GetPath(request);
         }
 
         /// <summary>
@@ -388,8 +494,15 @@ namespace Content.Server.NPC.Pathfinding
             CancellationToken cancelToken,
             PathFlags flags = PathFlags.None)
         {
-            var path = await GetPath(uid, start, end, range, cancelToken);
-            RaiseLocalEvent(uid, path);
+            try
+            {
+                var path = await GetPath(uid, start, end, range, cancelToken, flags);
+                RaiseLocalEvent(uid, path);
+            }
+            catch (OperationCanceledException) when (cancelToken.IsCancellationRequested)
+            {
+                // Event-style callers communicate cancellation through their token.
+            }
         }
 
         /// <summary>
@@ -435,7 +548,7 @@ namespace Content.Server.NPC.Pathfinding
                 (layer, mask) = _physics.GetHardCollision(entity, fixtures);
             }
 
-            return new AStarPathRequest(start, end, flags, range, layer, mask, cancelToken);
+            return new AStarPathRequest(start, end, flags, range, layer, mask, cancelToken, entity);
         }
 
         public PathFlags GetFlags(EntityUid uid)
@@ -472,45 +585,33 @@ namespace Content.Server.NPC.Pathfinding
                 flags |= PathFlags.Interact;
             }
 
+            if (blackboard.TryGetValue<bool>(NPCBlackboard.NavAccess, out var access, EntityManager) && access)
+            {
+                flags |= PathFlags.Access;
+            }
+
             return flags;
         }
 
-        private async Task<PathResultEvent> GetPath(
-            PathRequest request, bool safe = false)
+        private async Task<PathResultEvent> GetPath(PathRequest request)
         {
             // We could maybe try an initial quick run to avoid forcing time-slicing over ticks.
             // For now it seems okay and it shouldn't block on 1 NPC anyway.
 
-            if (safe)
+            if (request.CancellationToken.IsCancellationRequested)
+            {
+                request.Tcs.TrySetCanceled(request.CancellationToken);
+            }
+            else
             {
                 lock (_pathRequests)
                 {
                     _pathRequests.Add(request);
                 }
             }
-            else
-            {
-                _pathRequests.Add(request);
-            }
 
-            await request.Task;
-
-            if (request.Task.Exception != null)
-            {
-                throw request.Task.Exception;
-            }
-
-            if (!request.Task.IsCompletedSuccessfully)
-            {
-                return new PathResultEvent(PathResult.NoPath, new List<PathPoly>());
-            }
-
-            // Same context as do_after and not synchronously blocking soooo
-#pragma warning disable RA0004
-            var ev = new PathResultEvent(request.Task.Result, request.Polys);
-#pragma warning restore RA0004
-
-            return ev;
+            var result = await request.Task;
+            return new PathResultEvent(result, request.Polys, request.EncounteredAccessDenied);
         }
 
         #region Debug handlers

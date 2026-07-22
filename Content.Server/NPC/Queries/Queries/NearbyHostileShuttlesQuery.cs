@@ -1,5 +1,7 @@
 using Content.Server.NPC.Systems;
+using Content.Shared._Mono.Company;
 using Content.Shared.Whitelist;
+using Robust.Shared.Prototypes;
 
 // Mono - whole file
 
@@ -13,7 +15,12 @@ public sealed partial class NearbyNpcTargetsQuery : UtilityQuery
     [DataField]
     public float Range = 4000f;
 
-    // TODO: make this use factions
+    /// <summary>
+    /// If set, only targets carried by an entity or grid affiliated with one of these companies are returned.
+    /// </summary>
+    [DataField]
+    public HashSet<ProtoId<CompanyPrototype>> TargetCompanies = new();
+
     [DataField]
     public EntityWhitelist Blacklist = new();
 }

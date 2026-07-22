@@ -17,12 +17,13 @@ public sealed partial class LuaMAiSupplyDropSystem : EntitySystem
     [Dependency] private LuaMSectorStorySystem _stories = default!;
     [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private MetaDataSystem _metaData = default!;
+    [Dependency] private LuaMAiPhysicalBaseBudgetSystem _physical = default!;
 
     public bool TrySpawnForLatestTrade(string actor, out EntityUid dropUid, out string summary)
     {
         dropUid = EntityUid.Invalid;
 
-        if (!LuaMAiPhysicalBaseFeature.Enabled)
+        if (!_physical.Enabled)
         {
             summary = LuaMAiPhysicalBaseFeature.DisabledReason;
             return false;
@@ -49,6 +50,15 @@ public sealed partial class LuaMAiSupplyDropSystem : EntitySystem
             summary = "AI supply drop skipped: AI base has no logistics trade yet";
             return false;
         }
+
+        if (TryFindExistingDrop(latestTrade.Cycle, out dropUid, out var existingDrop))
+        {
+            summary = $"AI supply drop already active: {existingDrop.Resource} x{existingDrop.Amount} from {Trim(existingDrop.Vessel, 96)} [{ToPrettyString(dropUid)}]";
+            return true;
+        }
+
+        if (!_physical.CanSpawn(LuaMAiPhysicalEntityKind.Drop, coordinates.MapId, out summary))
+            return false;
 
         var offset = _random.NextAngle().ToVec() * _random.NextFloat(DropRadiusMin, DropRadiusMax);
         dropUid = Spawn(SupplyDropPrototype, new MapCoordinates(coordinates.Position + offset, coordinates.MapId));
@@ -77,10 +87,33 @@ public sealed partial class LuaMAiSupplyDropSystem : EntitySystem
                 continue;
 
             coordinates = _transform.ToMapCoordinates(Transform(uid).Coordinates, logError: false);
-            return true;
+            if (coordinates != MapCoordinates.Nullspace)
+                return true;
         }
 
         coordinates = MapCoordinates.Nullspace;
+        return false;
+    }
+
+    private bool TryFindExistingDrop(int tradeCycle, out EntityUid dropUid, out LuaMAiSupplyDropComponent drop)
+    {
+        var query = EntityQueryEnumerator<LuaMAiSupplyDropComponent>();
+        while (query.MoveNext(out var uid, out var candidate))
+        {
+            if (TerminatingOrDeleted(uid) ||
+                candidate.TradeCycle != tradeCycle ||
+                !candidate.BaseId.Equals("LuaM-AI-Base", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            dropUid = uid;
+            drop = candidate;
+            return true;
+        }
+
+        dropUid = EntityUid.Invalid;
+        drop = null!;
         return false;
     }
 

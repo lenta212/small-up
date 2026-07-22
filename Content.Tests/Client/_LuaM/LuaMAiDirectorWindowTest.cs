@@ -115,6 +115,40 @@ public sealed class LuaMAiDirectorWindowTest : RobustUnitTest
     }
 
     [Test]
+    public void OperatorStateNamesBusySafeGatedAndDirectExecutionModes()
+    {
+        var busy = InvokeGetOperatorStateLocKey(new LuaMAiDirectorEuiState
+        {
+            RequestInFlight = true,
+            CanRunServerActions = true,
+        });
+        var confirmation = InvokeGetOperatorStateLocKey(new LuaMAiDirectorEuiState
+        {
+            HasPendingConfirmation = true,
+            CanRunServerActions = true,
+        });
+        var readOnly = InvokeGetOperatorStateLocKey(new LuaMAiDirectorEuiState
+        {
+            CanRunServerActions = false,
+        });
+        var gated = InvokeGetOperatorStateLocKey(new LuaMAiDirectorEuiState
+        {
+            CanRunServerActions = true,
+        });
+        var direct = InvokeGetOperatorStateLocKey(new LuaMAiDirectorEuiState
+        {
+            GameMasterModeEnabled = true,
+            CanRunServerActions = true,
+        });
+
+        Assert.That(busy, Is.EqualTo("luam-ai-director-operator-state-busy"));
+        Assert.That(confirmation, Is.EqualTo("luam-ai-director-operator-state-confirmation"));
+        Assert.That(readOnly, Is.EqualTo("luam-ai-director-operator-state-read-only"));
+        Assert.That(gated, Is.EqualTo("luam-ai-director-operator-state-gated"));
+        Assert.That(direct, Is.EqualTo("luam-ai-director-operator-state-direct"));
+    }
+
+    [Test]
     public void OperationsAuditSummarizesControlsAndRedactsSensitiveValues()
     {
         const string targetId = "11111111-2222-3333-4444-555555555555";
@@ -1946,6 +1980,16 @@ public sealed class LuaMAiDirectorWindowTest : RobustUnitTest
                 requestInFlight,
                 hasPendingConfirmation,
             })!;
+    }
+
+    private static string InvokeGetOperatorStateLocKey(LuaMAiDirectorEuiState state)
+    {
+        var method = typeof(LuaMAiDirectorWindow).GetMethod(
+            "GetOperatorStateLocKey",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(method, Is.Not.Null, "Missing private GetOperatorStateLocKey method");
+
+        return (string) method!.Invoke(null, new object[] { state })!;
     }
 
     private static string InvokeBuildSafeModeSummary(
