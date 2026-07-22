@@ -2,5 +2,5 @@
 - type: localizedDataset
   id: NamesGolem
   values:
-    prefix: names-hologram-dataset-
+    prefix: names-golem-dataset-
     count: 1336
