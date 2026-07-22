@@ -1,6 +1,6 @@
 # LuaM Local Release Manifest
 
-Current policy (2026-07-22): the user explicitly authorized batch `20260722-accumulated-interface-ship-persistence-release` for `server-release`, `client-static`, and `ai-gateway` mutations through `2026-07-23T00:52:52Z`. The authorization remains conditional on fresh policy-bound artifacts, all production gates, a checked data backup, and the active-ship save barrier succeeding before service stop.
+Current policy (2026-07-22): batch `20260722-accumulated-interface-ship-persistence-release` completed in production as rollout `luam-20260722-accumulated`. Remote deployment is frozen again and the batch has returned to `local-package-only`; every later production mutation requires fresh explicit authorization, policy-bound artifacts, all release gates, a checked data backup, and the active-ship save barrier.
 
 The machine-readable policy lives in `Tools\luam_release_policy.json` and is the only authority for the release gate and remote freeze. A missing or invalid JSON policy blocks remote deployment; this markdown manifest is documentation, not a fallback policy.
 

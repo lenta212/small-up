@@ -1,17 +1,15 @@
 ﻿{
-    "remoteDeployFrozen":  false,
-    "reason":  "The user explicitly authorized immediate production publication of the verified accumulated 2026-07-22 interface, ship-persistence, gameplay, and AI release. Authorization remains bounded by the release gates and the mandatory active-ship save barrier.",
+    "remoteDeployFrozen":  true,
+    "reason":  "Production rollout luam-20260722-accumulated completed for the verified client, server, and AI gateway. Remote deployment is frozen again; every later production mutation requires fresh explicit authorization and a new policy-bound release gate.",
     "lastReviewed":  "2026-07-22",
     "deploymentAuthorization":  {
-                                    "state":  "authorized",
-                                    "approvalId":  "user-20260722-immediate-accumulated-release",
-                                    "approvedBy":  "repository-user",
-                                    "approvedAtUtc":  "2026-07-22T00:52:52Z",
-                                    "expiresAtUtc":  "2026-07-23T00:52:52Z",
+                                    "state":  "frozen",
+                                    "approvalId":  null,
+                                    "approvedBy":  null,
+                                    "approvedAtUtc":  null,
+                                    "expiresAtUtc":  null,
                                     "allowedMutations":  [
-                                                             "server-release",
-                                                             "client-static",
-                                                             "ai-gateway"
+
                                                          ]
                                 },
     "releaseGate":  {
@@ -378,7 +376,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260722-accumulated-interface-ship-persistence-release",
-                                         "state":  "deployment-authorized",
+                                         "state":  "local-package-only",
                                          "packageSelection":  "verified accumulated production batch covering persistent player vessels, exact docking safeguards, transactional player services, the Industrial Nano interface refresh, frontier content, rescue and sector AI, and guarded release operations",
                                          "packageScopes":  [
                                                                ".agents",
