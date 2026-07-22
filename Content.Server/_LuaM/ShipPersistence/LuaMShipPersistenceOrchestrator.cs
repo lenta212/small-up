@@ -32,6 +32,11 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
     private TimeSpan _leaseDuration = DefaultLeaseDuration;
     private readonly Dictionary<Guid, LuaMActiveShipLease> _active = new();
     private readonly HashSet<NetUserId> _restoredOwners = new();
+    private readonly object _maintenanceSync = new();
+    private bool _maintenanceFrozen;
+    private bool _maintenanceSaveInProgress;
+    private int _lifecycleMutationsInFlight;
+    private TaskCompletionSource? _lifecycleMutationsDrained;
     private ISawmill _sawmill = default!;
     private float _renewAccumulator;
 
@@ -78,12 +83,146 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
 
     public IReadOnlyCollection<LuaMActiveShipLease> ActiveLeases => _active.Values;
 
+    /// <summary>
+    /// Once set, no new persistent-ship lifecycle mutation may begin in this
+    /// process. A successful maintenance barrier therefore remains valid until
+    /// the process is stopped for maintenance.
+    /// </summary>
+    public bool MaintenanceFrozen
+    {
+        get
+        {
+            lock (_maintenanceSync)
+                return _maintenanceFrozen;
+        }
+    }
+
+    private bool TryBeginLifecycleMutation()
+    {
+        lock (_maintenanceSync)
+        {
+            if (_maintenanceFrozen)
+                return false;
+
+            _lifecycleMutationsInFlight++;
+            return true;
+        }
+    }
+
+    private void EndLifecycleMutation()
+    {
+        TaskCompletionSource? drained = null;
+        lock (_maintenanceSync)
+        {
+            if (_lifecycleMutationsInFlight <= 0)
+                throw new InvalidOperationException("Persistent ship lifecycle mutation accounting underflowed.");
+
+            _lifecycleMutationsInFlight--;
+            if (_lifecycleMutationsInFlight == 0)
+            {
+                drained = _lifecycleMutationsDrained;
+                _lifecycleMutationsDrained = null;
+            }
+        }
+
+        drained?.TrySetResult();
+    }
+
+    private Task<LuaMShipOrchestrationResult> RunLifecycleMutationAsync(
+        Func<Task<LuaMShipOrchestrationResult>> mutation)
+    {
+        if (!TryBeginLifecycleMutation())
+        {
+            return Task.FromResult(Failure(
+                LuaMShipPersistenceWriteStatus.InvalidState,
+                "ship persistence is frozen for maintenance"));
+        }
+
+        return CompleteLifecycleMutationAsync(mutation);
+    }
+
+    private async Task<LuaMShipOrchestrationResult> CompleteLifecycleMutationAsync(
+        Func<Task<LuaMShipOrchestrationResult>> mutation)
+    {
+        try
+        {
+            return await mutation();
+        }
+        finally
+        {
+            EndLifecycleMutation();
+        }
+    }
+
+    private Task RunLifecycleMutationAsync(Func<Task> mutation)
+    {
+        if (!TryBeginLifecycleMutation())
+            return Task.CompletedTask;
+
+        return CompleteLifecycleMutationAsync(mutation);
+    }
+
+    private async Task CompleteLifecycleMutationAsync(Func<Task> mutation)
+    {
+        try
+        {
+            await mutation();
+        }
+        finally
+        {
+            EndLifecycleMutation();
+        }
+    }
+
+    private bool TryBeginMaintenanceSave(out Task lifecycleMutationsDrained)
+    {
+        lock (_maintenanceSync)
+        {
+            if (_maintenanceSaveInProgress)
+            {
+                lifecycleMutationsDrained = Task.CompletedTask;
+                return false;
+            }
+
+            _maintenanceSaveInProgress = true;
+            _maintenanceFrozen = true;
+
+            if (_lifecycleMutationsInFlight == 0)
+            {
+                lifecycleMutationsDrained = Task.CompletedTask;
+            }
+            else
+            {
+                _lifecycleMutationsDrained ??=
+                    new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                lifecycleMutationsDrained = _lifecycleMutationsDrained.Task;
+            }
+
+            return true;
+        }
+    }
+
+    private void EndMaintenanceSave()
+    {
+        lock (_maintenanceSync)
+            _maintenanceSaveInProgress = false;
+    }
+
     public async Task<LuaMShipOrchestrationResult> RegisterAsync(
         EntityUid grid,
         NetUserId ownerUserId,
         LuaMShipSnapshotMetadata metadata,
         DateTime nowUtc,
         CancellationToken cancel = default)
+        => await RunLifecycleMutationAsync(
+            () => RegisterCoreAsync(grid, ownerUserId, metadata, nowUtc, cancel));
+
+    private async Task<LuaMShipOrchestrationResult> RegisterCoreAsync(
+        EntityUid grid,
+        NetUserId ownerUserId,
+        LuaMShipSnapshotMetadata metadata,
+        DateTime nowUtc,
+        CancellationToken cancel)
     {
         var shipId = _runtime.GetOrAssignShipId(grid);
         if (_active.ContainsKey(shipId))
@@ -223,6 +362,24 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         DateTime nowUtc,
         Func<EntityUid, bool>? placeRestoredGrid = null,
         CancellationToken cancel = default)
+        => await RunLifecycleMutationAsync(
+            () => RestoreCoreAsync(
+                shipId,
+                ownerUserId,
+                roundId,
+                targetMap,
+                nowUtc,
+                placeRestoredGrid,
+                cancel));
+
+    private async Task<LuaMShipOrchestrationResult> RestoreCoreAsync(
+        Guid shipId,
+        NetUserId ownerUserId,
+        int roundId,
+        MapId targetMap,
+        DateTime nowUtc,
+        Func<EntityUid, bool>? placeRestoredGrid,
+        CancellationToken cancel)
     {
         if (_active.ContainsKey(shipId))
             return Failure(LuaMShipPersistenceWriteStatus.InvalidState, "ship already active on this server");
@@ -344,6 +501,12 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         Guid shipId,
         DateTime nowUtc,
         CancellationToken cancel = default)
+        => await RunLifecycleMutationAsync(() => RenewCoreAsync(shipId, nowUtc, cancel));
+
+    private async Task<LuaMShipOrchestrationResult> RenewCoreAsync(
+        Guid shipId,
+        DateTime nowUtc,
+        CancellationToken cancel)
     {
         if (!_active.TryGetValue(shipId, out var active))
             return Failure(LuaMShipPersistenceWriteStatus.NotFound, "active ship lease not found");
@@ -378,6 +541,14 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         int roundId,
         DateTime nowUtc,
         CancellationToken cancel = default)
+        => await RunLifecycleMutationAsync(
+            () => StoreAndDeactivateCoreAsync(shipId, roundId, nowUtc, cancel));
+
+    private async Task<LuaMShipOrchestrationResult> StoreAndDeactivateCoreAsync(
+        Guid shipId,
+        int roundId,
+        DateTime nowUtc,
+        CancellationToken cancel)
     {
         if (!_active.TryGetValue(shipId, out var active))
             return Failure(LuaMShipPersistenceWriteStatus.NotFound, "active ship lease not found");
@@ -411,6 +582,13 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         string reason,
         DateTime nowUtc,
         CancellationToken cancel = default)
+        => await RunLifecycleMutationAsync(() => RetireCoreAsync(shipId, reason, nowUtc, cancel));
+
+    private async Task<LuaMShipOrchestrationResult> RetireCoreAsync(
+        Guid shipId,
+        string reason,
+        DateTime nowUtc,
+        CancellationToken cancel)
     {
         if (!_active.TryGetValue(shipId, out var active))
             return Failure(LuaMShipPersistenceWriteStatus.NotFound, "active ship lease not found");
@@ -430,13 +608,119 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         return new(true, retired.Status, retired.Revision, null, active.Grid, null);
     }
 
+    /// <summary>
+    /// Freezes persistent-ship lifecycle changes for the remainder of this
+    /// process and captures every active ship before planned maintenance.
+    /// The receipt deliberately contains no ship, owner, payload, or lease
+    /// identifiers.
+    /// </summary>
+    public async Task<LuaMShipMaintenanceSaveReceipt> SaveActiveShipsForMaintenanceAsync(
+        int roundId,
+        DateTime nowUtc,
+        CancellationToken cancel = default)
+    {
+        if (!TryBeginMaintenanceSave(out var lifecycleMutationsDrained))
+        {
+            return new(
+                SchemaVersion: LuaMShipMaintenanceSaveReceipt.CurrentSchemaVersion,
+                Ok: false,
+                Busy: true,
+                BarrierId: Guid.Empty,
+                CreatedAtUtc: nowUtc,
+                Attempted: 0,
+                Saved: 0,
+                Failed: 0,
+                ActiveRemaining: _active.Count,
+                Frozen: MaintenanceFrozen);
+        }
+
+        var barrierId = Guid.NewGuid();
+        var attempted = 0;
+        var saved = 0;
+        var failed = 0;
+
+        try
+        {
+            try
+            {
+                await lifecycleMutationsDrained.WaitAsync(cancel);
+            }
+            catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+            {
+                return new(
+                    LuaMShipMaintenanceSaveReceipt.CurrentSchemaVersion,
+                    false,
+                    false,
+                    barrierId,
+                    nowUtc,
+                    attempted,
+                    saved,
+                    failed,
+                    _active.Count,
+                    true);
+            }
+
+            var activeShips = new List<Guid>(_active.Keys);
+            attempted = activeShips.Count;
+            for (var index = 0; index < activeShips.Count; index++)
+            {
+                LuaMShipOrchestrationResult result;
+                try
+                {
+                    result = await StoreAndDeactivateCoreAsync(
+                        activeShips[index],
+                        roundId,
+                        nowUtc,
+                        cancel);
+                }
+                catch (Exception exception)
+                {
+                    failed++;
+                    _sawmill.Error(
+                        $"Maintenance ship-save barrier {barrierId} item {index + 1} failed with " +
+                        $"{exception.GetType().Name}.");
+                    continue;
+                }
+
+                if (result.Success)
+                {
+                    saved++;
+                    continue;
+                }
+
+                failed++;
+                _sawmill.Error(
+                    $"Maintenance ship-save barrier {barrierId} item {index + 1} failed with status " +
+                    $"{result.Status}.");
+            }
+
+            var activeRemaining = _active.Count;
+            return new(
+                LuaMShipMaintenanceSaveReceipt.CurrentSchemaVersion,
+                failed == 0 && activeRemaining == 0,
+                false,
+                barrierId,
+                nowUtc,
+                attempted,
+                saved,
+                failed,
+                activeRemaining,
+                true);
+        }
+        finally
+        {
+            EndMaintenanceSave();
+        }
+    }
+
     public async Task SaveAllActiveShipsAsync(
         int roundId,
         DateTime nowUtc,
         CancellationToken cancel = default)
-        => await SaveAllActiveShipsAsync(roundId, nowUtc, logFailures: true, cancel: cancel);
+        => await RunLifecycleMutationAsync(
+            () => SaveAllActiveShipsCoreAsync(roundId, nowUtc, logFailures: true, cancel));
 
-    private async Task SaveAllActiveShipsAsync(
+    private async Task SaveAllActiveShipsCoreAsync(
         int roundId,
         DateTime nowUtc,
         bool logFailures,
@@ -444,7 +728,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
     {
         foreach (var shipId in new List<Guid>(_active.Keys))
         {
-            var result = await StoreAndDeactivateAsync(shipId, roundId, nowUtc, cancel);
+            var result = await StoreAndDeactivateCoreAsync(shipId, roundId, nowUtc, cancel);
             if (!result.Success && logFailures)
                 _sawmill.Error($"Failed to save active ship {shipId}: {result.Reason ?? result.Status.ToString()}");
         }
@@ -454,8 +738,15 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         int roundId,
         DateTime nowUtc,
         CancellationToken cancel = default)
+        => await RunLifecycleMutationAsync(
+            () => FinalizeRoundCleanupCoreAsync(roundId, nowUtc, cancel));
+
+    private async Task FinalizeRoundCleanupCoreAsync(
+        int roundId,
+        DateTime nowUtc,
+        CancellationToken cancel)
     {
-        await SaveAllActiveShipsAsync(roundId, nowUtc, logFailures: false, cancel: cancel);
+        await SaveAllActiveShipsCoreAsync(roundId, nowUtc, logFailures: false, cancel);
 
         foreach (var shipId in new List<Guid>(_active.Keys))
         {
@@ -477,6 +768,9 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
     }
 
     public async Task MaintainLeasesAsync(DateTime nowUtc, CancellationToken cancel = default)
+        => await RunLifecycleMutationAsync(() => MaintainLeasesCoreAsync(nowUtc, cancel));
+
+    private async Task MaintainLeasesCoreAsync(DateTime nowUtc, CancellationToken cancel)
     {
         var activeLeasesSafe = await RenewAllActiveShipsAsync(nowUtc, cancel);
         if (!activeLeasesSafe)
@@ -501,7 +795,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         var allSafe = true;
         foreach (var shipId in new List<Guid>(_active.Keys))
         {
-            var result = await RenewAsync(shipId, nowUtc, cancel);
+            var result = await RenewCoreAsync(shipId, nowUtc, cancel);
             if (!result.Success)
             {
                 allSafe = false;
@@ -902,3 +1196,18 @@ public sealed record LuaMShipOrchestrationResult(
     Guid? LeaseId,
     EntityUid? Grid,
     string? Reason);
+
+public sealed record LuaMShipMaintenanceSaveReceipt(
+    int SchemaVersion,
+    bool Ok,
+    bool Busy,
+    Guid BarrierId,
+    DateTime CreatedAtUtc,
+    int Attempted,
+    int Saved,
+    int Failed,
+    int ActiveRemaining,
+    bool Frozen)
+{
+    public const int CurrentSchemaVersion = 1;
+}

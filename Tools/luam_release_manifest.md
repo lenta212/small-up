@@ -1,6 +1,6 @@
 # LuaM Local Release Manifest
 
-Current policy: the 2026-07-18 rollout `luam-20260718-195400` is complete and remote deployment is frozen. Batch `20260718-pda-text-hotfix` is back to `local-package-only`; any later rollout requires a fresh explicit authorization and newly rebuilt policy-bound artifacts.
+Current policy (2026-07-22): the user explicitly authorized batch `20260722-accumulated-interface-ship-persistence-release` for `server-release`, `client-static`, and `ai-gateway` mutations through `2026-07-23T00:52:52Z`. The authorization remains conditional on fresh policy-bound artifacts, all production gates, a checked data backup, and the active-ship save barrier succeeding before service stop.
 
 The machine-readable policy lives in `Tools\luam_release_policy.json` and is the only authority for the release gate and remote freeze. A missing or invalid JSON policy blocks remote deployment; this markdown manifest is documentation, not a fallback policy.
 

@@ -279,6 +279,10 @@ __pycache__/
 # Release package files go here:
 release/
 
+# Machine-local release/test state (contains absolute paths or transient logs).
+.agents/current_release.json
+.agents/*.log
+
 # Apple please go.
 .DS_Store
 # KDE, come in.

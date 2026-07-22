@@ -264,6 +264,115 @@ Assert-Contract (-not $deployText.Contains('source = "manifest"')) "Deploy guard
 Assert-Contract ($deployText.Contains('Read-LuaMBinaryReleaseReceipt')) "Server deploy does not require a hash-pinned binary release receipt."
 Assert-Contract ($deployText.Contains("Assert-LuaMRemoteMutationAllowed -Policy `$mutationPolicy -Mutation 'server-release'")) "Server deploy does not use the shared remote mutation guard."
 Assert-Contract ($deployText.Contains('serverOnlyCanaryPresent')) "Server deploy does not require fresh canary audit evidence."
+Assert-Contract ($deployText.Contains('/admin/actions/maintenance/ship-save')) "Server deploy does not use the fixed ship-save maintenance endpoint."
+Assert-Contract ($deployText.Contains('Authorization') -and $deployText.Contains('SS14Token')) "Ship-save barrier does not authenticate with the existing admin API scheme."
+Assert-Contract ($deployText.Contains('ROBUST_CVAR_admin__api_token') -and $deployText.Contains('/proc/{pid}/environ')) "Ship-save barrier does not read the running service token only on the host."
+Assert-Contract (-not $deployText.Contains('[string]$AdminApiToken')) "Server deploy must not accept the admin API token as a local command-line parameter."
+Assert-Contract ($deployText.Contains('ship_save_barrier = [ordered]@{')) "Server dry-run does not record the ship-save barrier plan."
+Assert-Contract ($deployText.Contains('force_cannot_bypass = $true') -and $deployText.Contains('ship_save_force_bypass = $false')) "Normal -Force MUST NOT bypass the ship-save barrier."
+Assert-Contract ($deployText.Contains('[switch]$LegacyShipSaveBootstrap')) "Server deploy lacks an explicitly named first-rollout legacy bootstrap switch."
+Assert-Contract ($deployText.Contains('maintenance endpoint already exists') -and $deployText.Contains('exc.code != 404')) "Legacy bootstrap does not prove that the maintenance endpoint is absent."
+Assert-Contract ($deployText.Contains('Legacy ship-save bootstrap refused: players=') -and $deployText.Contains('players=`$legacy_players (zero required)')) "Legacy bootstrap does not require a fresh zero-player proof."
+Assert-Contract ($deployText.Contains('select count(*) from luam_ship_snapshot where status in (1, 2)')) "Legacy bootstrap does not reject Active or Restoring ship rows."
+Assert-Contract ($deployText.Contains('select count(*) from luam_ship_presence_lease')) "Legacy bootstrap does not reject ship presence leases."
+Assert-Contract ($deployText.Contains('tables != expected_tables')) "Legacy bootstrap does not fail closed on a partial persistence schema."
+
+$shipSaveValidatorStart = $deployText.IndexOf('# LUAM_SHIP_SAVE_RECEIPT_VALIDATOR_BEGIN', [StringComparison]::Ordinal)
+$shipSaveValidatorEnd = $deployText.IndexOf('# LUAM_SHIP_SAVE_RECEIPT_VALIDATOR_END', [StringComparison]::Ordinal)
+$serviceStopPosition = $deployText.IndexOf('echo "deploy-step=stop-service"', [StringComparison]::Ordinal)
+Assert-Contract ($shipSaveValidatorStart -ge 0 -and $shipSaveValidatorEnd -gt $shipSaveValidatorStart) "Ship-save receipt validator markers are missing or out of order."
+Assert-Contract ($serviceStopPosition -gt $shipSaveValidatorEnd) "Service stop occurs before the ship-save receipt is validated."
+
+$shipPipelineText = Get-Content -LiteralPath (Join-Path $root "Tools/ship_luam_release.ps1") -Raw -Encoding UTF8
+Assert-Contract ($shipPipelineText.Contains('[switch]$LegacyShipSaveBootstrap')) "Ship release orchestrator does not expose the legacy ship-save bootstrap switch."
+Assert-Contract ($shipPipelineText.Contains('$serverDeployArgs += "-LegacyShipSaveBootstrap"')) "Ship release orchestrator does not pass the legacy bootstrap guard to server deploy/dry-run arguments."
+Assert-Contract ($shipPipelineText.Contains('legacy_ship_save_bootstrap = [bool]$LegacyShipSaveBootstrap')) "Ship release summary does not record the legacy bootstrap mode."
+
+# Execute the exact Python validator embedded into the remote deploy script.
+$validatorMatch = [regex]::Match(
+    $deployText,
+    '(?ms)^# LUAM_SHIP_SAVE_RECEIPT_VALIDATOR_BEGIN\r?\n(?<code>.*?)^# LUAM_SHIP_SAVE_RECEIPT_VALIDATOR_END\s*$')
+Assert-Contract $validatorMatch.Success "Unable to extract the embedded ship-save receipt validator."
+
+$shipSaveTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("luam-ship-save-contract-" + [Guid]::NewGuid().ToString('N'))
+[IO.Directory]::CreateDirectory($shipSaveTestRoot) | Out-Null
+try {
+    function Invoke-ExpectedShipSaveValidatorFailure {
+        param([string]$ValidatorPath, [string]$ReceiptPath)
+
+        $previousErrorAction = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            & python $ValidatorPath $ReceiptPath '300' 2>&1 | Out-Null
+            return [int]$LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorAction
+        }
+    }
+
+    $validatorPath = Join-Path $shipSaveTestRoot 'validate_ship_save_receipt.py'
+    $utf8NoBom = [Text.UTF8Encoding]::new($false)
+    [IO.File]::WriteAllText($validatorPath, $validatorMatch.Groups['code'].Value, $utf8NoBom)
+
+    $validReceipt = [ordered]@{
+        schemaVersion = 1
+        ok = $true
+        barrierId = [Guid]::NewGuid().ToString()
+        createdAtUtc = [DateTime]::UtcNow.ToString('o')
+        attempted = 2
+        saved = 2
+        failed = 0
+        activeRemaining = 0
+        frozen = $true
+        busy = $false
+    }
+    $validReceiptPath = Join-Path $shipSaveTestRoot 'valid.json'
+    [IO.File]::WriteAllText($validReceiptPath, ($validReceipt | ConvertTo-Json -Compress), $utf8NoBom)
+    $validOutput = @(& python $validatorPath $validReceiptPath '300' 2>&1)
+    Assert-Contract ($LASTEXITCODE -eq 0) "Embedded ship-save validator rejected a fresh complete success receipt: $($validOutput -join '; ')"
+    Assert-Contract (($validOutput -join "`n").Contains('ship_save_frozen=true')) "Embedded ship-save validator did not emit sanitized success evidence."
+
+    $mismatchReceipt = (($validReceipt | ConvertTo-Json -Depth 4) | ConvertFrom-Json)
+    $mismatchReceipt.saved = 1
+    $mismatchPath = Join-Path $shipSaveTestRoot 'mismatch.json'
+    [IO.File]::WriteAllText($mismatchPath, ($mismatchReceipt | ConvertTo-Json -Compress), $utf8NoBom)
+    $mismatchExitCode = Invoke-ExpectedShipSaveValidatorFailure -ValidatorPath $validatorPath -ReceiptPath $mismatchPath
+    Assert-Contract ($mismatchExitCode -ne 0) "Embedded ship-save validator accepted attempted != saved."
+
+    $unsafeReceipt = (($validReceipt | ConvertTo-Json -Depth 4) | ConvertFrom-Json)
+    $unsafeReceipt.activeRemaining = 1
+    $unsafePath = Join-Path $shipSaveTestRoot 'active-remaining.json'
+    [IO.File]::WriteAllText($unsafePath, ($unsafeReceipt | ConvertTo-Json -Compress), $utf8NoBom)
+    $unsafeExitCode = Invoke-ExpectedShipSaveValidatorFailure -ValidatorPath $validatorPath -ReceiptPath $unsafePath
+    Assert-Contract ($unsafeExitCode -ne 0) "Embedded ship-save validator accepted activeRemaining != 0."
+
+    $failedReceipt = (($validReceipt | ConvertTo-Json -Depth 4) | ConvertFrom-Json)
+    $failedReceipt.failed = 1
+    $failedPath = Join-Path $shipSaveTestRoot 'failed.json'
+    [IO.File]::WriteAllText($failedPath, ($failedReceipt | ConvertTo-Json -Compress), $utf8NoBom)
+    $failedExitCode = Invoke-ExpectedShipSaveValidatorFailure -ValidatorPath $validatorPath -ReceiptPath $failedPath
+    Assert-Contract ($failedExitCode -ne 0) "Embedded ship-save validator accepted failed != 0."
+
+    $unfrozenReceipt = (($validReceipt | ConvertTo-Json -Depth 4) | ConvertFrom-Json)
+    $unfrozenReceipt.frozen = $false
+    $unfrozenPath = Join-Path $shipSaveTestRoot 'unfrozen.json'
+    [IO.File]::WriteAllText($unfrozenPath, ($unfrozenReceipt | ConvertTo-Json -Compress), $utf8NoBom)
+    $unfrozenExitCode = Invoke-ExpectedShipSaveValidatorFailure -ValidatorPath $validatorPath -ReceiptPath $unfrozenPath
+    Assert-Contract ($unfrozenExitCode -ne 0) "Embedded ship-save validator accepted frozen=false."
+
+    $staleReceipt = (($validReceipt | ConvertTo-Json -Depth 4) | ConvertFrom-Json)
+    $staleReceipt.createdAtUtc = [DateTime]::UtcNow.AddHours(-1).ToString('o')
+    $stalePath = Join-Path $shipSaveTestRoot 'stale.json'
+    [IO.File]::WriteAllText($stalePath, ($staleReceipt | ConvertTo-Json -Compress), $utf8NoBom)
+    $staleExitCode = Invoke-ExpectedShipSaveValidatorFailure -ValidatorPath $validatorPath -ReceiptPath $stalePath
+    Assert-Contract ($staleExitCode -ne 0) "Embedded ship-save validator accepted a stale receipt."
+}
+finally {
+    if (Test-Path -LiteralPath $shipSaveTestRoot) {
+        Remove-Item -LiteralPath $shipSaveTestRoot -Recurse -Force
+    }
+}
 
 $provisionText = Get-Content -LiteralPath (Join-Path $root "Tools/provision_monolith_client_static.ps1") -Raw -Encoding UTF8
 Assert-Contract ($provisionText.Contains('Read-LuaMBinaryReleaseReceipt')) "Client provisioning does not require the binary release receipt."

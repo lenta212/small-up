@@ -1,14 +1,18 @@
 ﻿{
-    "remoteDeployFrozen":  true,
-    "reason":  "The explicitly authorized local Ollama AI-gateway update and bounded player-reply quality hotfix completed on 2026-07-21 UTC. Production deployment is frozen again and requires a new explicit authorization.",
-    "lastReviewed":  "2026-07-21",
+    "remoteDeployFrozen":  false,
+    "reason":  "The user explicitly authorized immediate production publication of the verified accumulated 2026-07-22 interface, ship-persistence, gameplay, and AI release. Authorization remains bounded by the release gates and the mandatory active-ship save barrier.",
+    "lastReviewed":  "2026-07-22",
     "deploymentAuthorization":  {
-                                    "state":  "frozen",
-                                    "approvalId":  null,
-                                    "approvedBy":  null,
-                                    "approvedAtUtc":  null,
-                                    "expiresAtUtc":  null,
-                                    "allowedMutations":  []
+                                    "state":  "authorized",
+                                    "approvalId":  "user-20260722-immediate-accumulated-release",
+                                    "approvedBy":  "repository-user",
+                                    "approvedAtUtc":  "2026-07-22T00:52:52Z",
+                                    "expiresAtUtc":  "2026-07-23T00:52:52Z",
+                                    "allowedMutations":  [
+                                                             "server-release",
+                                                             "client-static",
+                                                             "ai-gateway"
+                                                         ]
                                 },
     "releaseGate":  {
                         "schemaVersion":  2,
@@ -373,9 +377,9 @@
                                      "AGENTS.md"
                                  ],
     "pendingLocalIntegrationBatch":  {
-                                         "name":  "20260721-asteroid-belt-shuttle-ui-release",
-                                         "state":  "release-candidate",
-                                         "packageSelection":  "validated accumulated production batch covering voucher and shipyard behavior, daily cargo events, TSF defense, paired planetoids, copper industry, the shared asteroid belt, and the shuttle-console redesign",
+                                         "name":  "20260722-accumulated-interface-ship-persistence-release",
+                                         "state":  "deployment-authorized",
+                                         "packageSelection":  "verified accumulated production batch covering persistent player vessels, exact docking safeguards, transactional player services, the Industrial Nano interface refresh, frontier content, rescue and sector AI, and guarded release operations",
                                          "packageScopes":  [
                                                                ".agents",
                                                                ".github",

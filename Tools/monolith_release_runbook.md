@@ -2,7 +2,7 @@
 
 This runbook is for local release preparation by default. Do not upload, restart, or update the remote server while `Tools\luam_release_policy.json` has `remoteDeployFrozen` set to `true`.
 
-Current rollout state (2026-07-18): production rollout `luam-20260718-195400` is complete and remote deployment is frozen again. Any new server or client-static mutation requires a fresh explicit authorization and newly rebuilt policy-bound artifacts.
+Current rollout state (2026-07-22): batch `20260722-accumulated-interface-ship-persistence-release` has a time-bounded user authorization for server, client-static, and AI-gateway publication. No remote mutation is permitted until fresh policy-bound artifacts pass every release gate and the active-ship save barrier is available and positive before service stop.
 
 ## Development cadence
 

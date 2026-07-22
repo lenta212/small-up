@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Content.Server.Administration.Systems;
 using Content.Server.Administration.Managers;
@@ -13,6 +14,7 @@ using Content.Server.GameTicking.Presets;
 using Content.Server.GameTicking.Rules.Components;
 using Content.Server.Maps;
 using Content.Server.RoundEnd;
+using Content.Server._LuaM.ShipPersistence;
 using Content.Shared.Administration.Managers;
 using Content.Shared.Administration;
 using Content.Shared.CCVar;
@@ -34,6 +36,7 @@ namespace Content.Server.Administration;
 public sealed partial class ServerApi : IPostInjectInit
 {
     private const string SS14TokenScheme = "SS14Token";
+    private const string ShipMaintenanceSavePath = "/admin/actions/maintenance/ship-save";
 
     private static readonly HashSet<string> PanicBunkerCVars =
     [
@@ -84,6 +87,7 @@ public sealed partial class ServerApi : IPostInjectInit
         RegisterActorHandler(HttpMethod.Patch, "/admin/actions/panic_bunker", ActionPanicPunker);
 
         RegisterHandler(HttpMethod.Post, "/admin/actions/send_bwoink", ActionSendBwoink); // Frontier - Discord Ahelp Reply
+        RegisterHandler(HttpMethod.Post, ShipMaintenanceSavePath, ActionMaintenanceShipSave);
     }
 
     public void Initialize()
@@ -397,6 +401,84 @@ public sealed partial class ServerApi : IPostInjectInit
             await RespondOk(context);
         });
     }
+
+    /// <summary>
+    /// Freezes persistent-ship lifecycle mutations and saves every active ship
+    /// before an external maintenance process stops the service. This endpoint
+    /// never schedules or performs the stop itself.
+    /// </summary>
+    private async Task ActionMaintenanceShipSave(IStatusHandlerContext context)
+    {
+        LuaMShipMaintenanceSaveReceipt? receipt = null;
+        var createdAtUtc = DateTime.UtcNow;
+        var rejectedForActiveSessions = false;
+        try
+        {
+            await RunOnMainThread(async () =>
+            {
+                // Maintenance may remove active persistent grids after saving them.
+                // Fail closed on every connected session, regardless of its state,
+                // before the orchestrator can freeze or mutate ship lifecycle state.
+                if (_playerManager.Sessions.Any())
+                {
+                    rejectedForActiveSessions = true;
+                    return;
+                }
+
+                var ticker = _entitySystemManager.GetEntitySystem<GameTicker>();
+                var persistence = _entitySystemManager.GetEntitySystem<LuaMShipPersistenceOrchestrator>();
+                receipt = await persistence.SaveActiveShipsForMaintenanceAsync(
+                    ticker.RoundId,
+                    createdAtUtc);
+            });
+        }
+        catch (Exception exception)
+        {
+            _sawmill.Error(
+                $"Persistent ship maintenance barrier failed with {exception.GetType().Name}.");
+            await context.RespondJsonAsync(
+                ShipMaintenanceSaveResponse.InternalFailure(),
+                HttpStatusCode.InternalServerError);
+            return;
+        }
+
+        if (rejectedForActiveSessions)
+        {
+            _sawmill.Warning("Persistent ship maintenance barrier rejected while sessions are active.");
+            await context.RespondJsonAsync(
+                ShipMaintenanceSaveResponse.Unavailable(createdAtUtc),
+                HttpStatusCode.Conflict);
+            return;
+        }
+
+        if (receipt == null)
+        {
+            _sawmill.Error("Persistent ship maintenance barrier returned no receipt.");
+            await context.RespondJsonAsync(
+                ShipMaintenanceSaveResponse.InternalFailure(),
+                HttpStatusCode.InternalServerError);
+            return;
+        }
+
+        var response = ShipMaintenanceSaveResponse.FromReceipt(receipt);
+        if (receipt.Ok &&
+            receipt.Frozen &&
+            receipt.Failed == 0 &&
+            receipt.ActiveRemaining == 0)
+        {
+            _sawmill.Info(
+                $"Persistent ship maintenance barrier {receipt.BarrierId} completed: " +
+                $"attempted={receipt.Attempted}, saved={receipt.Saved}, failed=0, activeRemaining=0.");
+            await context.RespondJsonAsync(response, HttpStatusCode.OK);
+            return;
+        }
+
+        _sawmill.Warning(
+            $"Persistent ship maintenance barrier was not satisfied: busy={receipt.Busy}, " +
+            $"attempted={receipt.Attempted}, saved={receipt.Saved}, failed={receipt.Failed}, " +
+            $"activeRemaining={receipt.ActiveRemaining}, frozen={receipt.Frozen}.");
+        await context.RespondJsonAsync(response, HttpStatusCode.Conflict);
+    }
     #endregion
 
     #region Frontier
@@ -685,6 +767,58 @@ public sealed partial class ServerApi : IPostInjectInit
         string Message,
         ErrorCode ErrorCode = ErrorCode.None,
         ExceptionData? Exception = null);
+
+    private sealed record ShipMaintenanceSaveResponse(
+        [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
+        [property: JsonPropertyName("ok")] bool Ok,
+        [property: JsonPropertyName("busy")] bool Busy,
+        [property: JsonPropertyName("barrierId")] Guid BarrierId,
+        [property: JsonPropertyName("createdAtUtc")] DateTime CreatedAtUtc,
+        [property: JsonPropertyName("attempted")] int Attempted,
+        [property: JsonPropertyName("saved")] int Saved,
+        [property: JsonPropertyName("failed")] int Failed,
+        [property: JsonPropertyName("activeRemaining")] int ActiveRemaining,
+        [property: JsonPropertyName("frozen")] bool Frozen)
+    {
+        public static ShipMaintenanceSaveResponse FromReceipt(LuaMShipMaintenanceSaveReceipt receipt)
+            => new(
+                receipt.SchemaVersion,
+                receipt.Ok,
+                receipt.Busy,
+                receipt.BarrierId,
+                receipt.CreatedAtUtc,
+                receipt.Attempted,
+                receipt.Saved,
+                receipt.Failed,
+                receipt.ActiveRemaining,
+                receipt.Frozen);
+
+        public static ShipMaintenanceSaveResponse InternalFailure()
+            => new(
+                LuaMShipMaintenanceSaveReceipt.CurrentSchemaVersion,
+                false,
+                false,
+                Guid.Empty,
+                DateTime.UtcNow,
+                0,
+                0,
+                1,
+                -1,
+                false);
+
+        public static ShipMaintenanceSaveResponse Unavailable(DateTime createdAtUtc)
+            => new(
+                LuaMShipMaintenanceSaveReceipt.CurrentSchemaVersion,
+                false,
+                false,
+                Guid.Empty,
+                createdAtUtc,
+                0,
+                0,
+                0,
+                -1,
+                false);
+    }
 
     private record ExceptionData(string Message, string? StackTrace = null)
     {

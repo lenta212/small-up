@@ -7,6 +7,7 @@ param(
     [string]$Tag = "",
     [switch]$Deploy,
     [switch]$Force,
+    [switch]$LegacyShipSaveBootstrap,
     [switch]$SkipLocalFast,
     [switch]$FreezePolicyAfterDeploy = $true,
     [switch]$Json
@@ -154,6 +155,7 @@ try {
         "-RemoteDataDir", $RemoteDataDir,
         "-RequireDataBackup")
     if ($Force) { $serverDeployArgs += "-Force" }
+    if ($LegacyShipSaveBootstrap) { $serverDeployArgs += "-LegacyShipSaveBootstrap" }
 
     $serverDryRun = Invoke-JsonScript -Name "server-deploy-dry-run" -Arguments @($serverDeployArgs + "-DryRun")
     $steps.Add($serverDryRun) | Out-Null
@@ -193,6 +195,7 @@ $summary = [pscustomobject]@{
     tag = $Tag
     deploy = [bool]$Deploy
     force = [bool]$Force
+    legacy_ship_save_bootstrap = [bool]$LegacyShipSaveBootstrap
     steps = @($steps.ToArray())
     failure = $failure
 }
@@ -209,6 +212,7 @@ if ($Json) {
     Write-Host "LuaM ship pipeline: $(if ($ok) { 'OK' } else { 'FAILED' })"
     Write-Host "Tag: $Tag"
     Write-Host "Deploy: $([bool]$Deploy)"
+    Write-Host "Legacy ship-save bootstrap: $([bool]$LegacyShipSaveBootstrap)"
     foreach ($step in $steps) {
         Write-Host "[checked] $($step.name)"
     }

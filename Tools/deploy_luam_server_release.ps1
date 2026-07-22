@@ -19,6 +19,9 @@ param(
     [string]$RemoteConfigPath = "",
     [string]$RemoteStatusUrl = "http://127.0.0.1:1212/status",
     [string]$RemoteInfoUrl = "http://127.0.0.1:1212/info",
+    [string]$RemoteShipSaveUrl = "http://127.0.0.1:1212/admin/actions/maintenance/ship-save",
+    [int]$ShipSaveReceiptMaxAgeSeconds = 300,
+    [switch]$LegacyShipSaveBootstrap,
     [string]$RemoteDataDir = "",
     [switch]$RequireDataBackup
 )
@@ -412,10 +415,22 @@ if ($PollSeconds -lt 1) {
     throw "PollSeconds must be at least 1."
 }
 
+if ($ShipSaveReceiptMaxAgeSeconds -lt 30 -or $ShipSaveReceiptMaxAgeSeconds -gt 600) {
+    throw "ShipSaveReceiptMaxAgeSeconds must be between 30 and 600 seconds."
+}
+
 if (-not (Test-AbsoluteHttpUrl -Value $StatusUrl) -or
     -not (Test-LoopbackHttpUrl -Value $RemoteStatusUrl) -or
-    -not (Test-LoopbackHttpUrl -Value $RemoteInfoUrl)) {
-    throw "StatusUrl must be HTTP(S); RemoteStatusUrl and RemoteInfoUrl must be loopback HTTP(S) URLs without credentials."
+    -not (Test-LoopbackHttpUrl -Value $RemoteInfoUrl) -or
+    -not (Test-LoopbackHttpUrl -Value $RemoteShipSaveUrl)) {
+    throw "StatusUrl must be HTTP(S); RemoteStatusUrl, RemoteInfoUrl, and RemoteShipSaveUrl must be loopback HTTP(S) URLs without credentials."
+}
+
+$shipSaveUri = [Uri]$RemoteShipSaveUrl
+if ($shipSaveUri.AbsolutePath -cne "/admin/actions/maintenance/ship-save" -or
+    -not [string]::IsNullOrEmpty($shipSaveUri.Query) -or
+    -not [string]::IsNullOrEmpty($shipSaveUri.Fragment)) {
+    throw "RemoteShipSaveUrl must use the exact maintenance path /admin/actions/maintenance/ship-save without a query or fragment."
 }
 
 $resolvedPackage = (Resolve-Path -LiteralPath $PackagePath).Path
@@ -564,6 +579,9 @@ $normalizedRemoteDataDir = Normalize-RemoteAbsolutePath -Path $RemoteDataDir -Na
 if ($RequireDataBackup -and [string]::IsNullOrWhiteSpace($normalizedRemoteDataDir)) {
     throw "RequireDataBackup was set, but RemoteDataDir is empty. Pass the live server data directory explicitly."
 }
+if ($LegacyShipSaveBootstrap -and [string]::IsNullOrWhiteSpace($normalizedRemoteDataDir)) {
+    throw "LegacyShipSaveBootstrap requires RemoteDataDir so the first-rollout SQLite state can be proven empty."
+}
 
 if (-not [string]::IsNullOrWhiteSpace($normalizedRemoteDataDir)) {
     $forbiddenDataDirs = @(
@@ -607,6 +625,16 @@ $plan = [ordered]@{
     remote_config_upload = $remoteConfigUpload
     remote_status_url = $RemoteStatusUrl
     remote_info_url = $RemoteInfoUrl
+    ship_save_barrier = [ordered]@{
+        mode = if ($LegacyShipSaveBootstrap) { "legacy-bootstrap" } else { "authenticated-endpoint" }
+        endpoint = $RemoteShipSaveUrl
+        receipt_max_age_seconds = $ShipSaveReceiptMaxAgeSeconds
+        required_before_stop = $true
+        force_cannot_bypass = $true
+        legacy_requires_zero_players = [bool]$LegacyShipSaveBootstrap
+        legacy_requires_zero_database_state = [bool]$LegacyShipSaveBootstrap
+        legacy_requires_endpoint_absent = [bool]$LegacyShipSaveBootstrap
+    }
     remote_data_dir = $normalizedRemoteDataDir
     require_data_backup = [bool]$RequireDataBackup
 }
@@ -622,6 +650,10 @@ if (-not $releasePolicySha256.Equals($mutationPolicySha256, [StringComparison]::
     throw "Release policy changed after receipt validation; refusing remote mutation."
 }
 Assert-LuaMRemoteMutationAllowed -Policy $mutationPolicy -Mutation 'server-release'
+
+if ($LegacyShipSaveBootstrap) {
+    Write-Warning "LegacyShipSaveBootstrap is a first-rollout-only escape hatch. It will refuse deployment unless the endpoint is absent, players are zero, and the SQLite persistence state is provably empty."
+}
 
 if ($hasZipDelivery) {
     $externalDownloadUrl = [string]$buildMetadata.download
@@ -653,6 +685,7 @@ $forceValue = if ($Force) { "1" } else { "0" }
 $skipPostVerifyValue = if ($SkipPostVerify) { "1" } else { "0" }
 $allowClientZipRestoreValue = if ($AllowClientZipRestore) { "1" } else { "0" }
 $requireDataBackupValue = if ($RequireDataBackup) { "1" } else { "0" }
+$legacyShipSaveBootstrapValue = if ($LegacyShipSaveBootstrap) { "1" } else { "0" }
 $hasCdnBuildMetadataValue = if ($hasCdnBuildMetadata) { "1" } else { "0" }
 $expectedClientHash = if ($hasZipDelivery) { [string]$buildMetadata.hash } else { "" }
 $expectedClientDownload = if ($hasZipDelivery) { [string]$buildMetadata.download } else { "" }
@@ -669,11 +702,14 @@ uploaded_config_path=$(ConvertTo-ShellSingleQuoted $remoteConfigUpload)
 uploaded_config_sha=$(ConvertTo-ShellSingleQuoted $configSourceSha256)
 remote_status_url=$(ConvertTo-ShellSingleQuoted $RemoteStatusUrl)
 remote_info_url=$(ConvertTo-ShellSingleQuoted $RemoteInfoUrl)
+remote_ship_save_url=$(ConvertTo-ShellSingleQuoted $RemoteShipSaveUrl)
+ship_save_receipt_max_age=$ShipSaveReceiptMaxAgeSeconds
 remote_data_dir=$(ConvertTo-ShellSingleQuoted $normalizedRemoteDataDir)
 force_deploy=$forceValue
 skip_post_verify=$skipPostVerifyValue
 allow_client_zip_restore=$allowClientZipRestoreValue
 require_data_backup=$requireDataBackupValue
+legacy_ship_save_bootstrap=$legacyShipSaveBootstrapValue
 package_has_cdn_metadata=$hasCdnBuildMetadataValue
 delivery_mode=$(ConvertTo-ShellSingleQuoted $deliveryMode)
 expected_client_hash=$(ConvertTo-ShellSingleQuoted $expectedClientHash)
@@ -687,8 +723,12 @@ config_backup="`$base_dir/backups/server_config-before-`$tag.toml"
 config_sha256=""
 new_config_sha256=""
 data_backup=""
+ship_save_receipt_path=""
 
 cleanup_upload() {
+  if [ -n "`$ship_save_receipt_path" ]; then
+    rm -f -- "`$ship_save_receipt_path"
+  fi
   if [ -n "`$uploaded_config_path" ]; then
     rm -f -- "`$uploaded_config_path"
   fi
@@ -927,6 +967,328 @@ rollback() {
   set -e
 }
 
+if [ "`$legacy_ship_save_bootstrap" = "1" ]; then
+  echo "deploy-step=ship-save-legacy-bootstrap"
+  echo "WARNING: using the first-rollout-only legacy ship-save bootstrap guard." >&2
+
+  # The legacy path is valid only while the old binary demonstrably lacks the
+  # authenticated endpoint. Once the endpoint exists, this bypass cannot be reused.
+  sudo python3 - "`$remote_ship_save_url" <<'PY'
+import sys
+import urllib.error
+import urllib.request
+
+request = urllib.request.Request(
+    sys.argv[1],
+    data=b"{}",
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(request, timeout=10):
+        raise SystemExit("Legacy ship-save bootstrap refused: maintenance endpoint already exists.")
+except urllib.error.HTTPError as exc:
+    if exc.code != 404:
+        raise SystemExit(
+            "Legacy ship-save bootstrap refused: maintenance endpoint presence is not demonstrably absent."
+        )
+except urllib.error.URLError:
+    raise SystemExit("Legacy ship-save bootstrap refused: maintenance endpoint probe failed.")
+PY
+
+  legacy_players=`$(python3 - "`$remote_status_url" <<'PY'
+import json
+import sys
+import urllib.request
+
+try:
+    with urllib.request.urlopen(sys.argv[1], timeout=10) as response:
+        payload = json.load(response)
+    players = payload.get("players") if isinstance(payload, dict) else None
+    if isinstance(players, bool) or not isinstance(players, int) or players < 0:
+        raise ValueError
+    print(players)
+except Exception:
+    raise SystemExit("Legacy ship-save bootstrap refused: player count is unavailable or invalid.")
+PY
+)
+  if [ "`$legacy_players" != "0" ]; then
+    echo "Legacy ship-save bootstrap refused: players=`$legacy_players (zero required)." >&2
+    exit 31
+  fi
+
+  legacy_database="`$remote_data_dir/preferences.db"
+  sudo -u monolith python3 - "`$legacy_database" <<'PY'
+# LUAM_LEGACY_SHIP_SAVE_DATABASE_GUARD_BEGIN
+import os
+import sqlite3
+import sys
+
+database_path = sys.argv[1]
+if not os.path.isfile(database_path):
+    raise SystemExit("Legacy ship-save bootstrap refused: SQLite database is unavailable.")
+
+try:
+    connection = sqlite3.connect(f"file:{database_path}?mode=ro", uri=True, timeout=10)
+    connection.execute("pragma query_only = on")
+    quick_check = connection.execute("pragma quick_check").fetchone()
+    if quick_check is None or quick_check[0] != "ok":
+        raise RuntimeError("quick_check")
+
+    expected_tables = {"luam_ship_snapshot", "luam_ship_presence_lease"}
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "select name from sqlite_master where type = 'table' and name in (?, ?)",
+            tuple(sorted(expected_tables)),
+        )
+    }
+
+    if not tables:
+        schema_state = "absent"
+        active_or_restoring = 0
+        leases = 0
+    elif tables != expected_tables:
+        raise RuntimeError("partial_schema")
+    else:
+        schema_state = "present-empty"
+        active_or_restoring = connection.execute(
+            "select count(*) from luam_ship_snapshot where status in (1, 2)"
+        ).fetchone()[0]
+        leases = connection.execute(
+            "select count(*) from luam_ship_presence_lease"
+        ).fetchone()[0]
+
+    if active_or_restoring != 0 or leases != 0:
+        raise RuntimeError(f"nonzero:{active_or_restoring}:{leases}")
+except sqlite3.Error:
+    raise SystemExit("Legacy ship-save bootstrap refused: SQLite state is unavailable or invalid.")
+except RuntimeError as exc:
+    if str(exc).startswith("nonzero:"):
+        _, active_or_restoring, leases = str(exc).split(":")
+        raise SystemExit(
+            "Legacy ship-save bootstrap refused: "
+            f"active_or_restoring={active_or_restoring}, leases={leases}."
+        )
+    raise SystemExit("Legacy ship-save bootstrap refused: persistence schema proof failed.")
+finally:
+    if "connection" in locals():
+        connection.close()
+
+print("ship_save_barrier_mode=legacy-bootstrap")
+print(f"ship_save_legacy_schema={schema_state}")
+print("ship_save_active_or_restoring=0")
+print("ship_save_leases=0")
+# LUAM_LEGACY_SHIP_SAVE_DATABASE_GUARD_END
+PY
+else
+  echo "deploy-step=ship-save-barrier"
+  ship_save_receipt_path=`$(mktemp "`$base_dir/deploy-staging/ship-save-receipt.XXXXXX")
+  chmod 600 "`$ship_save_receipt_path"
+
+  # Read the existing server's admin API token only inside a root helper on the
+  # host. The token is never placed in argv, stdout, the receipt, or deploy logs.
+  sudo python3 - "`$service_name" "`$remote_config_path" "`$remote_ship_save_url" > "`$ship_save_receipt_path" <<'PY'
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+
+service_name, config_path, endpoint = sys.argv[1:4]
+
+
+def process_environment_token():
+    try:
+        result = subprocess.run(
+            ["systemctl", "show", "--property", "MainPID", "--value", service_name],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        pid = int(result.stdout.strip())
+        if pid <= 0:
+            return None
+        with open(f"/proc/{pid}/environ", "rb") as stream:
+            entries = stream.read(1024 * 1024).split(b"\0")
+        prefix = b"ROBUST_CVAR_admin__api_token="
+        for entry in entries:
+            if entry.startswith(prefix):
+                return entry[len(prefix):].decode("utf-8", "strict")
+    except Exception:
+        return None
+    return None
+
+
+def fallback_config_token():
+    try:
+        section = None
+        with open(config_path, "r", encoding="utf-8") as stream:
+            for line in stream:
+                stripped = line.strip()
+                section_match = re.match(r"^\[([^]]+)](?:\s*#.*)?$", stripped)
+                if section_match:
+                    section = section_match.group(1).strip()
+                    continue
+                if section != "admin" or not re.match(r"^api_token\s*=", stripped):
+                    continue
+                raw = stripped.split("=", 1)[1].lstrip()
+                if raw.startswith('"'):
+                    return json.JSONDecoder().raw_decode(raw)[0]
+                if raw.startswith("'"):
+                    end = raw.find("'", 1)
+                    return raw[1:end] if end > 0 else None
+    except Exception:
+        return None
+    return None
+
+
+def config_token():
+    try:
+        import tomllib
+        with open(config_path, "rb") as stream:
+            document = tomllib.load(stream)
+        admin = document.get("admin")
+        if isinstance(admin, dict):
+            value = admin.get("api_token")
+            return value if isinstance(value, str) else None
+    except ImportError:
+        return fallback_config_token()
+    except Exception:
+        return None
+    return None
+
+
+token = process_environment_token() or config_token()
+if not token or any(character in token for character in "\r\n\0"):
+    raise SystemExit("Ship-save barrier refused: admin API token is unavailable on the host.")
+
+request = urllib.request.Request(
+    endpoint,
+    data=b"{}",
+    headers={
+        "Authorization": f"SS14Token {token}",
+        "Content-Type": "application/json",
+    },
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(request, timeout=300) as response:
+        if response.status != 200:
+            raise SystemExit("Ship-save barrier refused: endpoint did not return HTTP 200.")
+        body = response.read(65537)
+        if len(body) > 65536:
+            raise SystemExit("Ship-save barrier refused: receipt exceeds 65536 bytes.")
+except urllib.error.HTTPError as exc:
+    raise SystemExit(f"Ship-save barrier refused: endpoint returned HTTP {exc.code}.")
+except urllib.error.URLError:
+    raise SystemExit("Ship-save barrier refused: endpoint is unavailable.")
+
+sys.stdout.buffer.write(body)
+PY
+
+  python3 - "`$ship_save_receipt_path" "`$ship_save_receipt_max_age" <<'PY'
+# LUAM_SHIP_SAVE_RECEIPT_VALIDATOR_BEGIN
+import datetime
+import json
+import os
+import sys
+import uuid
+
+
+def fail(reason):
+    raise SystemExit(f"Ship-save receipt validation failed: {reason}.")
+
+
+receipt_path = sys.argv[1]
+try:
+    max_age_seconds = int(sys.argv[2])
+except (ValueError, IndexError):
+    fail("invalid maximum age")
+
+if max_age_seconds < 30 or max_age_seconds > 600:
+    fail("maximum age outside the allowed range")
+if not os.path.isfile(receipt_path) or os.path.getsize(receipt_path) > 65536:
+    fail("receipt file is missing or too large")
+
+try:
+    with open(receipt_path, "r", encoding="utf-8") as stream:
+        receipt = json.load(stream)
+except Exception:
+    fail("receipt is not valid UTF-8 JSON")
+
+required = {
+    "schemaVersion",
+    "ok",
+    "barrierId",
+    "createdAtUtc",
+    "attempted",
+    "saved",
+    "failed",
+    "activeRemaining",
+    "frozen",
+}
+allowed = required | {"busy"}
+if not isinstance(receipt, dict) or set(receipt) - allowed or required - set(receipt):
+    fail("receipt schema is incomplete or contains unknown fields")
+if type(receipt["schemaVersion"]) is not int or receipt["schemaVersion"] != 1:
+    fail("schemaVersion is not 1")
+if type(receipt["ok"]) is not bool or receipt["ok"] is not True:
+    fail("ok is not true")
+if type(receipt["frozen"]) is not bool or receipt["frozen"] is not True:
+    fail("frozen is not true")
+if "busy" in receipt and (type(receipt["busy"]) is not bool or receipt["busy"] is not False):
+    fail("busy is not false")
+
+for field in ("attempted", "saved", "failed", "activeRemaining"):
+    if type(receipt[field]) is not int or receipt[field] < 0:
+        fail(f"{field} is not a non-negative integer")
+if receipt["attempted"] != receipt["saved"]:
+    fail("attempted does not equal saved")
+if receipt["failed"] != 0:
+    fail("failed is not zero")
+if receipt["activeRemaining"] != 0:
+    fail("activeRemaining is not zero")
+
+try:
+    barrier_id = uuid.UUID(receipt["barrierId"])
+except (ValueError, TypeError, AttributeError):
+    fail("barrierId is not a UUID")
+if barrier_id.int == 0:
+    fail("barrierId is empty")
+
+created_text = receipt["createdAtUtc"]
+if not isinstance(created_text, str) or not created_text:
+    fail("createdAtUtc is not a timestamp")
+try:
+    created = datetime.datetime.fromisoformat(
+        created_text[:-1] + "+00:00" if created_text.endswith("Z") else created_text
+    )
+except ValueError:
+    fail("createdAtUtc is not ISO-8601")
+if created.tzinfo is None or created.utcoffset() != datetime.timedelta(0):
+    fail("createdAtUtc is not UTC")
+
+now = datetime.datetime.now(datetime.timezone.utc)
+age_seconds = (now - created).total_seconds()
+if age_seconds < -30 or age_seconds > max_age_seconds:
+    fail("receipt is stale or too far in the future")
+
+print("ship_save_barrier_mode=endpoint")
+print(f"ship_save_barrier_id={barrier_id}")
+print(f"ship_save_created_at_utc={created.astimezone(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')}")
+print(f"ship_save_attempted={receipt['attempted']}")
+print(f"ship_save_saved={receipt['saved']}")
+print("ship_save_failed=0")
+print("ship_save_active_remaining=0")
+print("ship_save_frozen=true")
+# LUAM_SHIP_SAVE_RECEIPT_VALIDATOR_END
+PY
+fi
+
 echo "deploy-step=stop-service"
 if ! sudo systemctl stop "`$service_name"; then
   echo "Failed to stop `$service_name; server files were not changed." >&2
@@ -1122,6 +1484,10 @@ if (-not $SkipPostVerify) {
     remote_config_path = $normalizedRemoteConfigPath
     remote_status_url = $RemoteStatusUrl
     remote_info_url = $RemoteInfoUrl
+    ship_save_barrier_mode = if ($LegacyShipSaveBootstrap) { "legacy-bootstrap" } else { "authenticated-endpoint" }
+    remote_ship_save_url = $RemoteShipSaveUrl
+    ship_save_receipt_max_age_seconds = $ShipSaveReceiptMaxAgeSeconds
+    ship_save_force_bypass = $false
     config_source_path = $resolvedConfigSource
     config_source_sha256 = $configSourceSha256
     remote_data_dir = $normalizedRemoteDataDir
