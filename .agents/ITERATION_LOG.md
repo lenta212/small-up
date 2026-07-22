@@ -13,6 +13,7 @@ Updated: 2026-07-22 05:07 MSK
 - Production preflight at `2026-07-22T02:05:52Z` found zero players in round 149, both services active, the legacy endpoint absent with HTTP 404, SQLite healthy with zero active/restoring ship snapshots and leases, and about 14.76 GB free. The installed server journal had no newer host-only entries.
 - The preflight also found no usable admin API token. A root-only environment file and non-secret systemd drop-in were installed without exposing the value or restarting the game; metadata validation passed, `daemon-reload` completed, and the service PID/round remained unchanged. The token will be loaded by the guarded deployment restart and then supports the authenticated pre-stop save barrier on every later release.
 - The first journal mirror wrapper failed locally during PowerShell parsing before any upload or SSH. The base64-encoded retry installed the repository journal byte-identically as `root:root` mode `0644`; both services stayed active with zero players in round 149.
+- The first local journal commit attempt retained both files staged but failed with `fatal: unable to write new index file` while two short-lived Git processes were still present. No index lock remained and more than 1 TB was free; after those processes exited, the identical commit succeeded as `2a68bad829` without resetting or restaging data.
 - The release authorization in `.agents/RELEASE_POLICY.json` remains active for the accumulated server, client-static, and AI-gateway batch. No release binary or client package has yet been deployed.
 
 Commands and outcomes:
@@ -32,6 +33,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File Tools/test_luam_release_cont
 scp monolith-new:/opt/monolith-ds/AI_SERVER_JOURNAL.md C:\MonolithTemp\AI_SERVER_JOURNAL.host-preflight.md
 ssh monolith-new "<bounded zero-player, service, endpoint, token-presence, SQLite, and storage preflight>"
 ssh monolith-new "<protected admin-token override and no-restart verification>"
+git commit -m "docs(ops): record production release preflight"
 ```
 
 Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. No production deploy has yet been claimed.
