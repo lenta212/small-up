@@ -135,7 +135,7 @@ if ($unknownScopes.Count -gt 0) {
     throw "Unknown scope(s): $($unknownScopes -join ', '). Allowed: $($allowedScopes -join ', ')"
 }
 
-$changedFiles = Get-ChangedRepoFiles
+$changedFiles = @(Get-ChangedRepoFiles)
 $effectiveScopes = if ($requestedScopes -contains "Auto") {
     @(Resolve-AutoScopes -ChangedFiles $changedFiles)
 } else {

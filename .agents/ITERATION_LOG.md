@@ -15,6 +15,7 @@ Updated: 2026-07-22 05:07 MSK
 - The first journal mirror wrapper failed locally during PowerShell parsing before any upload or SSH. The base64-encoded retry installed the repository journal byte-identically as `root:root` mode `0644`; both services stayed active with zero players in round 149.
 - The first local journal commit attempt retained both files staged but failed with `fatal: unable to write new index file` while two short-lived Git processes were still present. No index lock remained and more than 1 TB was free; after those processes exited, the identical commit succeeded as `2a68bad829` without resetting or restaging data.
 - The release authorization in `.agents/RELEASE_POLICY.json` remains active for the accumulated server, client-static, and AI-gateway batch. No release binary or client package has yet been deployed.
+- The first policy-bound `ship_luam_release.ps1` gate ran for 645.8 seconds but failed before creating the source-package step because `prepare_luam_hotfix.ps1` evaluated `.Count` on the scalar/null result of `Get-ChangedRepoFiles` under inherited strict mode. No artifact was accepted and no remote mutation occurred. `changedFiles` is now explicitly array-wrapped; a focused `-Scope Policy -Json` regression passed with `ok=true`, one changed file, and the release-policy contract green.
 
 Commands and outcomes:
 
@@ -34,14 +35,16 @@ scp monolith-new:/opt/monolith-ds/AI_SERVER_JOURNAL.md C:\MonolithTemp\AI_SERVER
 ssh monolith-new "<bounded zero-player, service, endpoint, token-presence, SQLite, and storage preflight>"
 ssh monolith-new "<protected admin-token override and no-restart verification>"
 git commit -m "docs(ops): record production release preflight"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/prepare_luam_hotfix.ps1 -Scope Policy -Json
 ```
 
-Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. No production deploy has yet been claimed.
+Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. The first artifact gate is also explicitly failed/superseded by the focused wrapper repair and has not authorized deployment. No production deploy has yet been claimed.
 
-Next action: install the updated server-journal mirror, commit both journals, require a clean tree, and build the policy-bound source/client/server artifacts:
+Next action: commit the local-fast array normalization and this handoff, require a clean tree, then repeat the complete policy-bound source/client/server artifact gate:
 
 ```powershell
-scp Tools/AI_SERVER_JOURNAL.md monolith-new:/tmp/AI_SERVER_JOURNAL.20260722T0206Z.md
+git add -- Tools/prepare_luam_hotfix.ps1 .agents/ITERATION_LOG.md
 ```
 
 ## 2026-07-22 -- damaged-AI unknown-shuttle accumulation diagnosis
