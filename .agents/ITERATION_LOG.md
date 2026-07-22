@@ -1,6 +1,6 @@
 ﻿# Monolith-DS iteration journal
 
-Updated: 2026-07-22 05:04 MSK
+Updated: 2026-07-22 05:07 MSK
 
 ## 2026-07-22 -- accumulated release split and docking scope corrected
 
@@ -10,7 +10,10 @@ Updated: 2026-07-22 05:04 MSK
 - The pre-stop maintenance endpoint is authenticated, refuses connected players, freezes and drains persistent-ship lifecycle work, saves active ships sequentially, and returns a privacy-bounded schema-v1 receipt. Deployment refuses to stop the service unless that receipt is fresh and complete. The one-time `-LegacyShipSaveBootstrap` path is restricted to an old server returning 404, zero players, and a database proof of absent ship tables or zero active/restoring ships and leases; it cannot be bypassed by `-Force`.
 - Completed checks before the final release gate: AI/rescue/sector/pathfinding integration selection passed 394/394; ship persistence/shipyard/docking/radar/lathe and generator selections passed; maintenance-barrier tests passed 5/5; PowerShell release-contract tests passed; integration compilation passed. A corrupted Russian RCD label was found outside the normal validator and repaired as `пласталевая стена`. A full localized-dataset audit repaired the pre-existing `NamesAI`, arachnid, golem, and military contracts and removed one unused xenoborg dataset that had no localized values or references; ServerNews entry `2026072201` records the player-visible name-generation repair.
 - The first full `FullyQualifiedName~LuaM` run passed 721/724 and exposed three stale chat-test phrases from before plain `ИИ`/`AI` stopped auto-triggering. Runtime behavior was already correct: only explicit `luam`/`/luam` markers route a request. The three tests now prove the intended contract and shared cooldown using `/luam`; their combined class selection passed 19/19. The final clean full run then passed 724/724 in 6 minutes 14 seconds. The expanded ServerNews/language/localized-dataset selection passed 3/3, the feature validator passed, and Python gateway/generator tests plus the release contract passed.
-- Production has not yet been read or mutated during this commit-splitting iteration. The release authorization in `.agents/RELEASE_POLICY.json` is active for the accumulated server, client-static, and AI-gateway batch.
+- Production preflight at `2026-07-22T02:05:52Z` found zero players in round 149, both services active, the legacy endpoint absent with HTTP 404, SQLite healthy with zero active/restoring ship snapshots and leases, and about 14.76 GB free. The installed server journal had no newer host-only entries.
+- The preflight also found no usable admin API token. A root-only environment file and non-secret systemd drop-in were installed without exposing the value or restarting the game; metadata validation passed, `daemon-reload` completed, and the service PID/round remained unchanged. The token will be loaded by the guarded deployment restart and then supports the authenticated pre-stop save barrier on every later release.
+- The first journal mirror wrapper failed locally during PowerShell parsing before any upload or SSH. The base64-encoded retry installed the repository journal byte-identically as `root:root` mode `0644`; both services stayed active with zero players in round 149.
+- The release authorization in `.agents/RELEASE_POLICY.json` remains active for the accumulated server, client-static, and AI-gateway batch. No release binary or client package has yet been deployed.
 
 Commands and outcomes:
 
@@ -26,15 +29,17 @@ python Tools/validate_luam_feature_pack.py
 python Tools/test_luam_ai_gateway.py
 python Tools/test_luam_ship_generator.py
 powershell -NoProfile -ExecutionPolicy Bypass -File Tools/test_luam_release_contract.ps1 -Json
+scp monolith-new:/opt/monolith-ds/AI_SERVER_JOURNAL.md C:\MonolithTemp\AI_SERVER_JOURNAL.host-preflight.md
+ssh monolith-new "<bounded zero-player, service, endpoint, token-presence, SQLite, and storage preflight>"
+ssh monolith-new "<protected admin-token override and no-restart verification>"
 ```
 
 Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. No production deploy has yet been claimed.
 
-Next action: reread both operational journals, compare the installed mirror, and perform a bounded zero-player/token/legacy-ship-state production preflight before building the policy-bound artifacts:
+Next action: install the updated server-journal mirror, commit both journals, require a clean tree, and build the policy-bound source/client/server artifacts:
 
 ```powershell
-Get-Content -Raw .agents/ITERATION_LOG.md | Out-Null
-Get-Content -Raw Tools/AI_SERVER_JOURNAL.md | Out-Null
+scp Tools/AI_SERVER_JOURNAL.md monolith-new:/tmp/AI_SERVER_JOURNAL.20260722T0206Z.md
 ```
 
 ## 2026-07-22 -- damaged-AI unknown-shuttle accumulation diagnosis

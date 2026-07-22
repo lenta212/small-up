@@ -17,6 +17,36 @@ Never record secrets, credentials, raw environment files, private player data, o
 - Latest local AI-character batch: at `2026-07-22T00:22Z`, the desktop panel and source tree contain the stranded-human `Неизвестный`, his stripped wreck, personal-AI personas, a radio-driven survival/death sequence, and bounded anonymized dialogue audit. This batch is validated locally but is not deployed to production.
 - Latest damaged-AI shuttle audit: at `2026-07-21T23:44Z`, a read-only production check confirmed that the Apocalypse damaged-AI scheduler repeatedly creates persistent unknown vessels at low population because its `StationEvent` entries omit `minimumPlayers`; no live game state was changed.
 - Scope correction prepared at `2026-07-22T01:40Z`: the user's current `Безымянный` report concerns docking/restoration of saved ships, not the Apocalypse random-shuttle scheduler. The release candidate fixes legacy runtime-UID identity by assigning a stable saved-ship GUID and rebinding deeds, grids, locks, and consoles after restore. The older Apocalypse audit remains historical evidence only; no Apocalypse scheduler/cleanup change is included in this release.
+- Latest guarded-release preflight: at `2026-07-22T02:06Z`, production had zero players in round 149, both services active, the old ship-save endpoint returned 404, SQLite passed `quick_check` with zero active/restoring ship snapshots and zero leases, and about 14.76 GB was free. Because no admin API token existed, a protected root-only systemd environment override was staged without restarting the game; it will be loaded by the guarded deployment restart.
+
+## 2026-07-22T02:06Z -- release preflight passed and protected admin token staged
+
+- Scope: bounded production readiness checks plus the minimum prerequisite for the authenticated ship-save barrier in all deployments after the one-time legacy bootstrap. No raw configuration, environment, token value, player identity, ship payload, or private database row was read or emitted.
+- The installed journal had no host-only headings and was an older subset of the repository journal; the only repository-only heading was the saved-ship docking scope correction. The installed file remained `root:root` mode `0644`.
+- Preflight health: `monolith-ds.service` and `luam-ai-gateway.service` were active with `NRestarts=0` and `ExecMainStatus=0`; round 149 was running at run level 1 with zero players. The live build was `a611cba7804203b3c71d1c6d2e6c95280dd2ed6cd124e598a813a6065a350af6`. Root storage was 42,174,005,248 bytes total with 14,762,942,464 bytes available (64% used).
+- First-rollout ship proof passed: unauthenticated `POST /admin/actions/maintenance/ship-save` returned the required old-binary 404; `preferences.db` passed read-only `pragma quick_check`; both persistence tables were present and contained zero `Active`/`Restoring` snapshots and zero presence leases.
+- The old process and live TOML had no usable `admin.api_token`. A new random token was generated entirely inside a root shell and written to `/etc/monolith-ds/game-admin-api-token.env` as `root:root` mode `0600`; its value was never printed or copied into the repository. The non-secret drop-in `/etc/systemd/system/monolith-ds.service.d/30-admin-api-token.conf` was installed as `root:root` mode `0644` and points the service at that environment file. `systemctl daemon-reload` completed without restarting the game.
+- Post-operation verification proved the service PID and round ID were unchanged, the game remained active in round 149 with zero players, and the override file format/ownership/mode were valid. The token is intentionally reported only as `pending_restart=true`; the normal guarded deployment restart will load it.
+- The first journal-install wrapper failed during local PowerShell parsing of a nested Python expression and did not reach `scp` or SSH. A base64-encoded retry then installed the journal byte-identically with SHA256 `24ba07147dcfc3265d37949fb7d13b63c4c35ba2f25998f7de2511cbf642e6b3`, owner/mode `root:root`/`0644`; both services remained active with zero players in round 149.
+- Recovery before the next restart: remove exactly the environment file and `30-admin-api-token.conf`, then run `systemctl daemon-reload`. Recovery after a restart additionally requires restarting `monolith-ds.service`. No rollback was needed.
+
+Commands and outcomes:
+
+```powershell
+scp monolith-new:/opt/monolith-ds/AI_SERVER_JOURNAL.md C:\MonolithTemp\AI_SERVER_JOURNAL.host-preflight.md
+ssh monolith-new "<base64-encoded bounded service/status/info, endpoint-status, token-presence, read-only SQLite quick_check/counts, and storage script>"
+ssh monolith-new "<base64-encoded root-only token environment/drop-in installation, daemon-reload, and PID/round invariance verification>"
+scp Tools/AI_SERVER_JOURNAL.md monolith-new:/tmp/AI_SERVER_JOURNAL.20260722T0206Z.md
+ssh monolith-new "<base64-encoded journal install and hash/service/status verification>"
+```
+
+Result: the preflight, protected-token prerequisite, and corrected journal installation completed successfully without a service restart or player/ship mutation. The malformed local-only journal wrapper is not counted as a host operation.
+
+Next action: install this updated journal mirror, commit it with the iteration journal, require a clean worktree, then build the policy-bound release artifacts before the zero-player state changes:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -Json
+```
 
 ## 2026-07-22T01:40Z -- saved-ship docking scope correction; no host operation
 
