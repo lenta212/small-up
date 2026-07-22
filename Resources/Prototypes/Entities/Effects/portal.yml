@@ -123,3 +123,12 @@
     volume: -3
     sound:
       path: /Audio/Ambience/anomaly_scary.ogg
+
+- type: entity
+  id: ShadowCatPortal
+  parent: ShadowPortal
+  suffix: shadow cat spawner
+  components:
+  - type: ShadowCatPortal
+  - type: TimedDespawn
+    lifetime: 12

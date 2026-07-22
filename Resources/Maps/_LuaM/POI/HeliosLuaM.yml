@@ -45184,7 +45184,7 @@ entities:
     - type: Transform
       pos: -7.5027905,26.440926
       parent: 1
-- proto: ShipVoucherScorpion
+- proto: ShipVoucherScorpionLuaM
   entities:
   - uid: 6510
     components:

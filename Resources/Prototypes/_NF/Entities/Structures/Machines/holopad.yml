@@ -174,3 +174,32 @@
   components:
   - type: Label
     currentLabel: nf-holopad-general-tinnia
+- type: entity
+  parent: Holopad
+  id: NFHolopadGrid
+  suffix: Local
+  name: inter ship holopad
+  description: "A floor-mounted device for projecting holographic images to enable communication within a ship."
+  components:
+  - type: Holopad
+    useStationName: false
+  - type: AccessReader
+    access: [ [ "Captain" ] ]
+  - type: Telephone
+    ringTone: /Audio/Machines/double_ring.ogg
+    listeningRange: 4
+    compatibleRanges:
+    - Grid
+  - type: PowerSwitch
+  - type: Machine
+    board: NFHolopadGridMachineCircuitboard
+  - type: Sprite
+    sprite: Structures/Machines/holopad.rsi
+    drawdepth: HighFloorObjects
+    snapCardinals: true
+    layers:
+    - state: nf_basegrid
+    - map: [ "enum.PowerDeviceVisualLayers.Powered" ]
+      state: nf_unpoweredgrid
+    - map: [ "enum.WiresVisualLayers.MaintenancePanel" ]
+      state: panel_open

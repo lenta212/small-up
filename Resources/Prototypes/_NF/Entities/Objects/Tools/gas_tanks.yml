@@ -12,3 +12,15 @@
     sprite: _NF/Objects/Tanks/emergency_double_air.rsi
   - type: StaticPrice # To keep with upstream on it
     price: 32.5
+- type: entity
+  parent: DoubleEmergencyAirTank
+  id: DoubleEmergencyTankO2N2Equal
+  name: double emergency O2/N2 tank
+  description: A high-grade dual-tank emergency life support container with equal parts nitrogen and oxygen. It can hold 2.5 L of gas.
+  components:
+  - type: Sprite
+    sprite: _NF/Objects/Tanks/emergency_double_o2n2equal.rsi
+  - type: Item
+    sprite: _NF/Objects/Tanks/emergency_double_o2n2equal.rsi
+  - type: Clothing
+    sprite: _NF/Objects/Tanks/emergency_double_o2n2equal.rsi

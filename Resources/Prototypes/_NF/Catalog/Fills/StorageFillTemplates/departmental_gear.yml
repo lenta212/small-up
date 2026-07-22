@@ -1,0 +1,19 @@
+- type: entityTable
+  id: NFStorageFillGearParamedic
+  table: !type:AllSelector
+    children:
+    - id: ClothingBeltMedicalEMTFilled
+    - id: MedkitFilled
+    - id: ClothingEyesHudMedical
+
+- type: entityTable
+  id: NFStorageFillGearPilot
+  table: !type:AllSelector
+    children:
+    - id: ClothingBeltPilotFilled
+    - id: BoxInflatable
+    - id: NFWeaponHoloflareGun
+    - id: RadioHandheldNF
+    - id: SurvivalKnife
+    - id: InflatableWallStack
+    - id: InflatableDoorStack

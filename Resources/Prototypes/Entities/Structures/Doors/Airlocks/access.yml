@@ -617,7 +617,7 @@
       board: [ DoorElectronicsCargo ]
 
 - type: entity
-  parent: AirlockCargoGlass
+  parent: AirlockSalvageGlass
   id: AirlockSalvageGlassLocked
   suffix: Salvage, Locked
   components:

@@ -6,6 +6,7 @@
   completetime: 10
   materials:
     Steel: 500
+    Copper: 250
     Plasteel: 250
     Glass: 400
     Plastic: 200

@@ -185,6 +185,16 @@
     repairCost: 150
 
 - type: entity
+  id: GunneryServerStationTsfDefense
+  parent: GunneryServerStation
+  suffix: TSF, Automated Defense
+  components:
+  - type: HTN
+    sleepPlayerCheckRangeOverride: 4000
+    rootTask:
+      task: TsfStationDefenseCompound
+
+- type: entity
   id: GunneryServerStationConsolesEnforced
   parent: [BaseStructureDisableToolUse, GunneryServerBase]
   name: station gunnery control server

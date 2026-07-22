@@ -17,6 +17,42 @@
 
 - type: entity
   parent: [ BlueprintReceiverBase, BaseLatheLube ]
+  id: CargoTechFabNF
+  name: cargo techfab
+  description: Prints equipment for cargonians.
+  components:
+  - type: Sprite
+    netsync: false
+    sprite: _NF/Structures/Machines/techfab.rsi
+    snapCardinals: true
+    layers:
+    - state: icon
+      map: ["enum.LatheVisualLayers.IsRunning"]
+    - state: cargo
+    - state: unlit
+      shader: unshaded
+      map: ["enum.PowerDeviceVisualLayers.Powered"]
+    - state: inserting
+      map: ["enum.MaterialStorageVisualLayers.Inserting"]
+    - state: panel
+      map: ["enum.WiresVisualLayers.MaintenancePanel"]
+  - type: Machine
+    board: CargoTechFabCircuitboardNF
+  - type: Lathe
+    idleState: icon
+    runningState: icon
+    # This branch still uses the pre-split Frontier lathe packs. The salvage pack
+    # supplies the common cargo tooling; the cargo pack below adds the exact
+    # cargo/mech recipes from current Frontier.
+    staticPacks:
+    - NFSalvageTechfabDeprecatedStatic
+    - NFCargoArchetypeStatic
+  - type: OreSiloClient
+  - type: PirateBountyItem # Mono
+    id: Techfab
+
+- type: entity
+  parent: [ BlueprintReceiverBase, BaseLatheLube ]
   id: ServiceTechFab
   name: service techfab
   description: Prints equipment for service staff.

@@ -10,4 +10,24 @@
     Glass: 300
     Gold: 300
     Silver: 300
-    Plasma: 300 
+    Plasma: 300
+
+- type: latheRecipe
+  parent: BaseSurgicalRecipe
+  id: AdvancedBoneGel
+  result: AdvancedBoneGel
+  completetime: 4
+  materials:
+    Steel: 600
+    Glass: 150
+    Plasma: 150
+
+- type: latheRecipe
+  parent: BaseSurgicalRecipe
+  id: ClothingHandsGlovesSurgical
+  result: ClothingHandsGlovesSurgical
+  completetime: 8
+  materials:
+    Plastic: 800
+    Silver: 500
+    Bluespace: 100

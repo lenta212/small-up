@@ -7,6 +7,7 @@
   completetime: 2
   materials:
     Steel: 300
+    Copper: 100
     Plastic: 200
 
 # Stackable part with no function
@@ -17,6 +18,7 @@
   completetime: 1
   materials:
     Steel: 50
+    Copper: 50
     Plastic: 50
 
 - type: latheRecipe

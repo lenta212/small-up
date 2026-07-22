@@ -74,6 +74,7 @@
         1.57 # Mono
       SoundTargetInLOS: !type:SoundPathSpecifier
         path: /Audio/Effects/double_beep.ogg
+  - type: LuaMStationaryTurretBehaviorAdapter
   - type: MouseRotator
     angleTolerance: 5
     rotationSpeed: 90 # Mono

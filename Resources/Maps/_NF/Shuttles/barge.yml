@@ -4252,7 +4252,7 @@ entities:
       parent: 70
     - type: FuelGenerator
       targetPower: 36000
-- proto: PosterLegitSafetyMothFires
+- proto: PosterLegitSMFires
   entities:
   - uid: 667
     components:

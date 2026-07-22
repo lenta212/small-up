@@ -782,3 +782,14 @@
     #- Snout
     - HeadTop
     #- HeadSide
+- type: entity
+  parent: ClothingHeadHelmetHardsuitFSB
+  id: ClothingHeadHelmetHardsuitFSC
+  name: Far Star Commerce voidsuit helmet
+  description: A lightweight suit helmet that doesn't restrict your head movements. It has a light!
+  categories: [ HideSpawnMenu ]
+  components:
+  - type: Sprite
+    sprite: _NF/Clothing/Head/Helmets/fsc_eva_helmet.rsi
+  - type: Clothing
+    sprite: _NF/Clothing/Head/Helmets/fsc_eva_helmet.rsi

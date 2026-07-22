@@ -1413,6 +1413,21 @@
 # Assmos - /tg/ gases
 
 - type: entity
+  id: PlasticProcessorMachineCircuitboard
+  parent: BaseMachineCircuitboard
+  name: plastic processor machine board
+  description: A machine printed circuit board for a plastic processor.
+  components:
+  - type: MachineBoard
+    prototype: PlasticProcessor
+    requirements:
+      MatterBin: 2
+      Manipulator: 2
+    stackRequirements:
+      Steel: 5
+      Glass: 2
+
+- type: entity
   id: CrystallizerMachineCircuitboard
   parent: BaseMachineCircuitboard
   name: crystallizer machine board

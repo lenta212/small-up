@@ -296,3 +296,11 @@
   components:
   - type: NavMapBeacon
     defaultText: station-beacon-dock-six-c
+- type: entity
+  parent: DefaultStationBeacon
+  id: DefaultStationBeaconFrontierCryosleep
+  suffix: Frontier, Cryosleep
+  components:
+  - type: NavMapBeacon
+    defaultText: station-beacon-cryosleep
+    color: "#0077C1"

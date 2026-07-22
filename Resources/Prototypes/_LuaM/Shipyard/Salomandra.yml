@@ -1,0 +1,42 @@
+# LuaM adaptation of a Radiant derivative based on Frontier/SS14 content.
+# Source (pinned): https://github.com/TetrisZz/frontier-Radiant/blob/28d354a3a6fffa63b553d6e487dd53d66053156a/Resources/Prototypes/_radiant/Shipyard/salomandra.yml
+# Radiant introduction: https://github.com/TetrisZz/frontier-Radiant/commit/cd2c4e62d715debc7433464994f9e65a33c99b9c
+# License: AGPL-3.0-or-later. Compatibility and balance adaptations by LuaM.
+
+- type: vessel
+  id: Salomandra
+  parent: BaseVessel
+  name: USS Саламандра
+  description: Медицинский шаттл с криогеникой, хирургией, химией, стазисом и небольшим ботаническим отсеком.
+  price: 105000
+  category: Medium
+  group: Medical
+  shuttlePath: /Maps/_LuaM/Shuttles/Salomandra.yml
+  guidebookPage: null
+  class:
+  - Medical
+  - Chemistry
+  - Botany
+  engine:
+  - Bananium
+
+- type: gameMap
+  id: Salomandra
+  mapName: 'USS Саламандра'
+  mapPath: /Maps/_LuaM/Shuttles/Salomandra.yml
+  minPlayers: 0
+  stations:
+    Salomandra:
+      stationProto: StandardFrontierVessel
+      components:
+      - type: StationNameSetup
+        mapNameTemplate: 'Саламандра {1}'
+        nameGenerator:
+          !type:NanotrasenNameGenerator
+          prefixCreator: '14'
+      - type: StationJobs
+        availableJobs:
+          Contractor: [ 0, 0 ]
+          MdMedic: [ 0, 0 ]
+          Pilot: [ 0, 0 ]
+          Mercenary: [ 0, 0 ]

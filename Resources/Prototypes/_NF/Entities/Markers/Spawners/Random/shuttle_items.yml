@@ -76,3 +76,89 @@
     rareChance: 0.05
 
 # Other
+- type: entityTable
+  id: TableRandomDrinkMug
+  table: !type:GroupSelector
+    children:
+    - id: DrinkMug
+    - id: DrinkMugMetal
+    - id: DrinkMugBlack
+    - id: DrinkMugBlue
+    - id: DrinkMugGreen
+    - id: DrinkMugRed
+    - id: DrinkMugOne
+    - id: DrinkMugDog
+    - id: DrinkMugHeart
+    - id: DrinkMugMoebius
+    - id: DrinkMugRainbow
+
+- type: entity
+  id: SpawnRandomDrinkMug
+  parent: MarkerBasePlaceFree
+  name: random mug
+  suffix: Ship
+  components:
+  - type: Sprite
+    layers:
+    - state: green
+      scale: 0.5, 0.5
+    - sprite: Objects/Consumable/Drinks/mug_moebius.rsi
+      state: icon-0
+    - sprite: _NF/Markers/general.rsi
+      state: questionmark
+      color: green
+      scale: 0.7, 0.7
+  - type: EntityTableSpawner
+    offset: 0.0
+    table: !type:NestedSelector
+      tableId: TableRandomDrinkMug
+      prob: 1.00
+
+- type: entityTable
+  id: TableRandomTowel
+  table: !type:GroupSelector
+    children:
+    - id: TowelColorBlack
+    - id: TowelColorBlue
+    - id: TowelColorGreen
+    - id: TowelColorRed
+    - id: TowelColorWhite
+    - id: TowelColorYellow
+    - id: TowelColorPink
+    - id: TowelColorOrange
+    - id: TowelColorPurple
+    - id: TowelColorBrown
+    - id: TowelColorGray
+    - id: TowelColorTeal
+    - id: TowelColorMaroon
+    - id: TowelColorSilver
+    - id: TowelColorMime
+    - id: TowelColorGold
+    - id: TowelColorLightBlue
+    - id: TowelColorLightBrown
+    - id: TowelColorDarkBlue
+    - id: TowelColorDarkGreen
+    - id: TowelColorNT
+
+- type: entity
+  id: SpawnRandomTowel
+  parent: MarkerBasePlaceFree
+  name: random towel
+  suffix: Ship
+  components:
+  - type: Sprite
+    layers:
+    - state: green
+      scale: 0.5, 0.5
+    - sprite: Clothing/Multiple/towel.rsi
+      state: icon
+      color: "#EAE8E8"
+    - sprite: _NF/Markers/general.rsi
+      state: questionmark
+      color: green
+      scale: 0.7, 0.7
+  - type: EntityTableSpawner
+    offset: 0.0
+    table: !type:NestedSelector
+      tableId: TableRandomTowel
+      prob: 1.00

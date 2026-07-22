@@ -19,6 +19,7 @@
   result: Igniter
   materials:
     Steel: 300
+    Copper: 100
     Plastic: 100
     Glass: 100
 
@@ -59,6 +60,7 @@
   result: RemoteSignaller
   materials:
     Steel: 100
+    Copper: 100
     Plastic: 200
     Glass: 100
 
@@ -68,6 +70,7 @@
   result: RemoteSignallerAdvanced
   materials:
     Steel: 100
+    Copper: 100
     Plastic: 200
     Plasma: 100
 

@@ -380,6 +380,7 @@
     - Deconstruct
     # mono start
     - WallReinforced
+    - WallPlasteel
     - AirlockShuttle
     - AirlockGlassShuttle
     - SMES

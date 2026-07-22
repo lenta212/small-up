@@ -1,0 +1,44 @@
+# Author Info
+# GitHub: Tych0theSynth
+# Discord: tych0
+
+# Maintainer Info
+# GitHub: arimah
+# Discord: arimah
+
+# Shuttle Notes:
+# Inspired by the Tyne-Class lifeboat: https://en.wikipedia.org/wiki/Tyne-class_lifeboat
+- type: vessel
+  id: Tyne
+  parent: BaseVessel
+  name: BB Tyne
+  description: A small, agile lifeboat with an exterior deck and survivor cabin for search and rescue operations.
+  price: 22000 #19255 0.05 20217.75
+  category: Small
+  group: Medical
+  shuttlePath: /Maps/_NF/Shuttles/tyne.yml
+  guidebookPage: ShipyardTyne
+  class:
+  - Medical
+  engine:
+  - Plasma
+
+- type: gameMap
+  id: Tyne
+  mapName: 'BB Tyne'
+  mapPath: /Maps/_NF/Shuttles/tyne.yml
+  minPlayers: 0
+  stations:
+    Tyne:
+      stationProto: StandardFrontierVessel
+      components:
+        - type: StationNameSetup
+          mapNameTemplate: 'Tyne {1}'
+          nameGenerator:
+            !type:NanotrasenNameGenerator
+            prefixCreator: '14'
+        - type: StationJobs
+          availableJobs:
+            Contractor: [ 0, 0 ]
+            Pilot: [ 0, 0 ]
+            Mercenary: [ 0, 0 ]

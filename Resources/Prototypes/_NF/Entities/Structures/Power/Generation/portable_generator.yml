@@ -81,9 +81,9 @@
       board: PortableGeneratorDKMachineCircuitboard
     - type: FuelGenerator
       minTargetPower: 10000
-      maxTargetPower: 120000 # 12 rad/s at full output, _just_ safe directly behind a reinforced wall
-      targetPower: 60000
-      optimalPower: 60000
+      maxTargetPower: 180000 # 12 rad/s at full output, _just_ safe directly behind a reinforced wall
+      targetPower: 90000
+      optimalPower: 90000
       # ~22 minutes per stack at full power - 80 kJ per stack, 240 kJ per 30 units
       optimalBurnRate: 0.0075
       # leaky, worse power curve
@@ -155,7 +155,7 @@
     - type: Machine
       board: PortableGeneratorDKJrMachineCircuitboard
     - type: FuelGenerator
-      maxTargetPower: 100000
+      maxTargetPower: 150000
       # still decent power curve
       fuelEfficiencyConstant: 0.75
       radiationIntensity: 0.00004 # 4 rad/s at full output, 2.4 at optimal settings

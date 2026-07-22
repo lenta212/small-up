@@ -38,6 +38,8 @@
       gridComponents:
       - type: VesselInfo
         description: "A mothballed battleship-turned-FOB, and Home of the TSFMC operations."
+      - type: Company
+        companyName: TSF
       components:
         - type: StationNameSetup
           mapNameTemplate: 'TSFMC Flagship Halcyon'

@@ -97,6 +97,7 @@
   - type: Item
     size: Small
     heldPrefix: brain
+  - type: LuaMFreeBrainRadar
 #  - type: RadarBlip # LuaM
 #    radarColor: "#E0FFFF"
 #    scale: 6

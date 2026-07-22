@@ -4677,14 +4677,14 @@ entities:
     - type: Transform
       pos: 19.5,-4.5
       parent: 1
-- proto: PosterLegitSafetyMothPills
+- proto: PosterLegitSMPills
   entities:
   - uid: 737
     components:
     - type: Transform
       pos: 22.5,-0.5
       parent: 1
-- proto: PosterLegitSafetyMothPoisoning
+- proto: PosterLegitSMPoisoning
   entities:
   - uid: 328
     components:

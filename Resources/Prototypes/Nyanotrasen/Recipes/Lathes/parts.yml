@@ -5,6 +5,7 @@
   completetime: 3
   materials:
     Plastic: 100
+    Copper: 200
     Gold: 50
     Plasma: 50
     Bluespace: 100
@@ -15,6 +16,7 @@
   completetime: 3
   materials:
     Plastic: 100
+    Copper: 200
     Gold: 50
     Plasma: 50
     Bluespace: 100
@@ -25,6 +27,7 @@
   completetime: 3
   materials:
     Plastic: 100
+    Copper: 200
     Gold: 50
     Plasma: 50
     Bluespace: 100

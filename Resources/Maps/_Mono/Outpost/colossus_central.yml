@@ -11047,7 +11047,7 @@ entities:
       rot: 3.141592653589793 rad
       pos: -48.5,58.5
       parent: 2
-- proto: AlwaysPoweredLightLED
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 262
     components:
@@ -55693,7 +55693,7 @@ entities:
     - type: Transform
       pos: 21.5,58.5
       parent: 2
-- proto: PoweredDimSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 7350
     components:
@@ -55994,7 +55994,7 @@ entities:
     - type: Transform
       pos: 25.5,19.5
       parent: 2
-- proto: PoweredLEDSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 7403
     components:
@@ -56047,7 +56047,7 @@ entities:
     - type: Transform
       pos: -20.5,78.5
       parent: 2
-- proto: Poweredlight
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 7412
     components:
@@ -56317,7 +56317,7 @@ entities:
       rot: 3.141592653589793 rad
       pos: -14.5,68.5
       parent: 2
-- proto: PoweredlightEmpty
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 7176
     components:
@@ -56334,6 +56334,9 @@ entities:
     - type: ApcPowerReceiver
       powerLoad: 0
     - type: DamageOnInteract
+      damage:
+        types:
+          Heat: 2
       isDamageActive: False
   - uid: 7458
     components:
@@ -56426,7 +56429,7 @@ entities:
       rot: 1.5707963267948966 rad
       pos: 35.5,45.5
       parent: 2
-- proto: PoweredlightExterior
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 7474
     components:
@@ -56440,7 +56443,7 @@ entities:
       rot: 1.5707963267948966 rad
       pos: 23.5,77.5
       parent: 2
-- proto: PoweredlightLED
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 7476
     components:
@@ -56653,7 +56656,7 @@ entities:
     - type: Transform
       pos: 7.5,53.5
       parent: 2
-- proto: PoweredLightPostSmall
+- proto: CivilianAlwaysPoweredLightPostSmall
   entities:
   - uid: 7514
     components:
@@ -56673,7 +56676,7 @@ entities:
       rot: 1.5707963267948966 rad
       pos: 7.5,29.5
       parent: 2
-- proto: PoweredLightPostSmallRed
+- proto: CivilianAlwaysPoweredLightPostSmall
   entities:
   - uid: 7517
     components:
@@ -56681,14 +56684,14 @@ entities:
       rot: -1.5707963267948966 rad
       pos: 6.5,40.5
       parent: 2
-- proto: PoweredlightSodium
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 7518
     components:
     - type: Transform
       pos: -32.5,25.5
       parent: 2
-- proto: PoweredSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 7519
     components:
@@ -56738,7 +56741,7 @@ entities:
       rot: -1.5707963267948966 rad
       pos: -22.5,61.5
       parent: 2
-- proto: PoweredSmallLightEmpty
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 7170
     components:
@@ -56755,6 +56758,9 @@ entities:
     - type: ApcPowerReceiver
       powerLoad: 0
     - type: DamageOnInteract
+      damage:
+        types:
+          Heat: 2
       isDamageActive: False
 - proto: PoweredStrobeGreen
   entities:
@@ -56834,7 +56840,7 @@ entities:
       rot: 1.5707963267948966 rad
       pos: -22.5,12.5
       parent: 2
-- proto: PoweredWarmSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 7540
     components:

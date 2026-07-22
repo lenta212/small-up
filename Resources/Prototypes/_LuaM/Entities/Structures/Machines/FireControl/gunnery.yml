@@ -1,0 +1,22 @@
+- type: entity
+  id: GunneryServerExtra
+  parent: GunneryServerBase
+  name: enhanced gunnery control server
+  description: Корабельный сервер управления орудиями с повышенной вычислительной мощностью по сравнению со стандартной сверхмощной моделью.
+  components:
+  - type: Machine
+    board: MachineGCSExtraCircuitboard
+  - type: FireControlServer
+    processingPower: 120
+  - type: Battery
+    maxCharge: 1500
+    startingCharge: 1500
+  - type: ApcPowerReceiver
+    powerLoad: 3000
+  - type: ApcPowerReceiverBattery
+    idleLoad: 75
+    batteryRechargeRate: 3600
+    batteryRechargeEfficiency: 0.95
+  - type: ShipRepairable
+    repairTime: 25
+    repairCost: 100

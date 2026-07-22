@@ -35,3 +35,12 @@
       - id: BoxFolderWhite
       - id: PillCanisterTricordrazine
       - id: RubberStampPsychologist
+- type: entity
+  id: NFWallLockerMedicalDwarven
+  name: dwarven doctor's wall locker
+  suffix: Filled
+  parent: LockerWallColorMedical
+  components:
+  - type: StorageFill
+    contents:
+    - id: DrinkWhiskeyBottleFull

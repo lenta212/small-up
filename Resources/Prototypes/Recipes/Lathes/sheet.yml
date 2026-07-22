@@ -125,6 +125,22 @@
     Coal: 1000
 
 - type: latheRecipe
+  id: SheetPlastitanium1
+  result: SheetPlastitanium1
+  completetime: 0.12
+  materials:
+    Plasteel: 100
+    Plasma: 100
+
+- type: latheRecipe
+  id: SheetPlastitanium15
+  result: SheetPlastitanium
+  completetime: 3
+  materials:
+    Plasteel: 1500
+    Plasma: 1500
+
+- type: latheRecipe
   id: SheetUranium30
   result: SheetUranium
   completetime: 2
@@ -215,6 +231,14 @@
   completetime: 0.06 # Frontier: 0<0.06 (~2/30)
   materials:
     RawSilver: 100
+
+- type: latheRecipe
+  id: PlasticFromCoalPlasma
+  result: SheetPlastic10
+  completetime: 2
+  materials:
+    Coal: 500
+    RawPlasma: 500
 
 - type: latheRecipe
   id: SheetPlastic

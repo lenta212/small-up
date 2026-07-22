@@ -59,6 +59,8 @@
     # This has to be installed because otherwise they're not "alive",
     #  so they can ghost and come back.
     # Note that the personal AI never "dies".
+  - type: TTS
+    voice: TrainingRobot
   - type: MobState
     allowedStates:
       - Alive

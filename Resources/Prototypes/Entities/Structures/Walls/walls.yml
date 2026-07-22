@@ -26,6 +26,7 @@
     tags:
     - Wall
   - type: IsRoof
+  - type: RequiresGrid
   - type: Sprite
     drawdepth: Walls
   - type: Icon
@@ -483,6 +484,22 @@
     fx: EffectRCDDeconstruct8 #Frontier
   - type: ArmorThickness
     thickness: 4
+
+- type: entity
+  parent: WallReinforced
+  id: WallPlasteel
+  name: plasteel wall
+  components:
+  - type: StaticPrice
+    price: 180
+  - type: RadiationBlocker
+    resistance: 7
+  - type: RCDDeconstructable
+    cost: 8
+    delay: 10
+    fx: EffectRCDDeconstruct8
+  - type: ArmorThickness
+    thickness: 5
 
 - type: entity
   parent: WallReinforced

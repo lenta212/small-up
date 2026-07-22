@@ -540,6 +540,24 @@
 
 - type: entity
   parent: OreProcessorFlatpack
+  id: CargoTechfabNFFlatpack
+  name: cargo techfab flatpack
+  description: A flatpack used for constructing a cargo techfab.
+  components:
+  - type: Flatpack
+    entity: CargoTechFabNF
+
+- type: entity
+  parent: OreProcessorFlatpack
+  id: CrateStorageRackFlatpack
+  name: crate storage rack flatpack
+  description: A storage rack prefab.
+  components:
+  - type: Flatpack
+    entity: CrateStorageRack
+
+- type: entity
+  parent: OreProcessorFlatpack
   id: OreProcessorIndustrialFlatpack
   name: industrial ore processor flatpack
   description: A flatpack used for constructing an industrial ore processor.

@@ -253,3 +253,62 @@
   - type: Sprite
     sprite: _NF/Structures/Wallmounts/posters.rsi
     state: nf_poster18_contraband
+- type: entity
+  parent: PosterBase
+  id: NFPosterContrabandFsbLogo
+  name: "Far Star Biotech Logo"
+  description: "Far Star Biotech: Wherever you are know that your body is safe with us."
+  components:
+  - type: Sprite
+    sprite: _NF/Structures/Wallmounts/posters.rsi
+    state: nf_poster4_contraband
+
+- type: entity
+  parent: PosterBase
+  id: NFPosterContrabandFsbStasis
+  name: "Far Star Biotech Stasis"
+  description: "The FSB Stasis! Ensuring the worst mistake you've ever made is just the worst mistake you've made so far."
+  components:
+  - type: Sprite
+    sprite: _NF/Structures/Wallmounts/posters.rsi
+    state: nf_poster5_contraband
+
+- type: entity
+  parent: PosterBase
+  id: NFPosterContrabandFsbSpirit
+  name: "Far Star Biotech Spirit"
+  description: "The FSB Spirit! Making sure that getting stuck out in space isn't the last thing you do."
+  components:
+  - type: Sprite
+    sprite: _NF/Structures/Wallmounts/posters.rsi
+    state: nf_poster20_contraband
+
+- type: entity
+  parent: PosterBase
+  id: NFPosterContrabandFsbCaladrius
+  name: "Far Star Biotech Caladrius"
+  description: "The FSB Caladrius, when there's no one else to turn to you'll be glad to see us!"
+  components:
+  - type: Sprite
+    sprite: _NF/Structures/Wallmounts/posters.rsi
+    state: nf_poster21_contraband
+
+- type: entity
+  parent: PosterBase
+  id: NFPosterContrabandFscLogo
+  name: "Far Star Commerce Logo"
+  description: "Far Star Commerce: You can't spell adventure without venture capital.'"
+  components:
+  - type: Sprite
+    sprite: _NF/Structures/Wallmounts/posters.rsi
+    state: nf_poster22_contraband
+
+- type: entity
+  parent: PosterBase
+  id: NFPosterContrabandEms
+  name: "Emergency Medical Society"
+  description: "Your health, our prosperity."
+  components:
+  - type: Sprite
+    sprite: _NF/Structures/Wallmounts/posters.rsi
+    state: nf_poster29_contraband

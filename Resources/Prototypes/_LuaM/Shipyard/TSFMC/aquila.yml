@@ -1,0 +1,37 @@
+- type: vessel
+  id: Aquila
+  parent: BaseVesselAntag
+  name: TSF-SKR Aquila
+  description: Одноместный перехватчик ТСФ с клиновидным фюзеляжем и разнесёнными стреловидными крыльями. Вооружён двумя L-1 Phalanx и двухзарядным лёгким ракетным отсеком; три APU питают бортовые системы. Не имеет щита, коек или медицинского отсека, обладает малой автономностью и зависит от базы.
+  price: 52000
+  category: Small
+  group: Security
+  access: Security
+  shuttlePath: /Maps/_LuaM/Shuttles/TSFMC/Aquila.yml
+  guidebookPage: Null
+  class:
+  - Pursuit
+  - Fighter
+  engine:
+  - APU
+  company:
+  - TSF
+
+- type: gameMap
+  id: Aquila
+  mapName: 'TSF-SKR Aquila'
+  mapPath: /Maps/_LuaM/Shuttles/TSFMC/Aquila.yml
+  minPlayers: 0
+  stations:
+    Aquila:
+      stationProto: StandardFrontierSecurityVessel
+      components:
+      - type: StationNameSetup
+        mapNameTemplate: 'Aquila TSF{1}'
+        nameGenerator:
+          !type:NanotrasenNameGenerator
+          prefixCreator: '14'
+      - type: StationJobs
+        availableJobs:
+          Deputy: [ 0, 0 ]
+          TsfBorg: [ 0, 0 ]

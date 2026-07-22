@@ -286,14 +286,26 @@
 - type: entity
   parent: BaseFlatpack
   id: LaserDrillFlatpack
-  name: laser drill flatpack
-  description: A flatpack used for constructing an automated laser drill.
+  name: expeditionary matter synthesizer flatpack
+  description: A flatpack used for constructing an expeditionary matter synthesizer.
   components:
   - type: Flatpack
     entity: LaserDrill
   - type: StaticPrice
     price: 3000
-    vendPrice: 20000
+    vendPrice: 35000
+
+- type: entity
+  parent: BaseFlatpack
+  id: StationLaserDrillFlatpack
+  name: universal matter synthesizer flatpack
+  description: A flatpack used for constructing a universal matter synthesizer.
+  components:
+  - type: Flatpack
+    entity: StationLaserDrill
+  - type: StaticPrice
+    price: 5000
+    vendPrice: 50000
 
 - type: entity
   parent: BaseFlatpack

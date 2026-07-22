@@ -1,0 +1,9 @@
+- type: latheRecipePack
+  id: LuaMCyberneticOrgans
+  recipes:
+  - DiagnosticCyberneticEyes
+  - BasicCyberneticLiver
+  - BasicCyberneticLungs
+  - BasicCyberneticHeart
+  - UpgradedCyberneticHeart
+  - UpgradedCyberneticLungs

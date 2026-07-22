@@ -57,7 +57,7 @@
   - Parts
   completetime: 0.1
   materials:
-    Steel: 30
+    Copper: 30
 
 - type: latheRecipe
   parent: CableStack

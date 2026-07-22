@@ -318,6 +318,9 @@
   id: ClothMade
 
 - type: Tag
+  id: CorgiWearable
+
+- type: Tag
   id: ClownMask
 
 - type: Tag
@@ -1083,6 +1086,9 @@
 
 - type: Tag
   id: Screwdriver
+
+- type: Tag
+  id: ScurretWearable
 
 - type: Tag
   id: SecBeltEquip

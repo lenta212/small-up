@@ -81,3 +81,11 @@
     - id: SheetGlass10
     - id: SheetPlastic10
     - id: MaterialWoodPlank10
+- type: entity
+  abstract: true
+  id: StorageFillMaterialsFuelBananium2
+  components:
+  - type: StorageFill
+    contents:
+    - id: FuelBananium
+      amount: 2

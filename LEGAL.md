@@ -12,6 +12,15 @@
 
 [2fca06eaba205ae6fe3aceb8ae2a0594f0effee0](https://github.com/new-frontiers-14/frontier-station-14/commit/2fca06eaba205ae6fe3aceb8ae2a0594f0effee0) был создан 1 июля 2024 года в 16:04 UTC.
 
+## Импортированные производные Radiant
+
+Карты и YAML-прототипы кораблей `Gornyak` и `Salomandra` адаптированы из
+[TetrisZz/frontier-Radiant](https://github.com/TetrisZz/frontier-Radiant) на закреплённом коммите
+[`28d354a3a6fffa63b553d6e487dd53d66053156a`](https://github.com/TetrisZz/frontier-Radiant/commit/28d354a3a6fffa63b553d6e487dd53d66053156a).
+Это производные работы на основе материалов Frontier Station и Space Station 14. Исходные YAML лицензированы
+под GNU Affero General Public License версии 3.0; точные ссылки на исходники и историю сохранены в заголовках файлов.
+Несовместимые графические ресурсы Radiant не импортировались и заменены уже атрибутированными ресурсами этого проекта.
+
 ## Гарантийные обязательства
 
 ПРОГРАММНОЕ ОБЕСПЕЧЕНИЕ ПРЕДОСТАВЛЯЕТСЯ «КАК ЕСТЬ», БЕЗ КАКИХ-ЛИБО ГАРАНТИЙ, ЯВНЫХ ИЛИ

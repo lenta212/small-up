@@ -1,0 +1,40 @@
+# Original LuaM expedition and research vessel.
+
+- type: vessel
+  id: LuaMQuercus
+  parent: BaseVessel
+  name: LMC Quercus
+  description: Средний экспедиционно-исследовательский корабль с корпусом в форме жёлудя. В широкой бронированной «шляпке» размещены мостик, научная лаборатория и экспедиционный пост; ниже расположены раздельные медицинский и шахтёрско-утилизационный отсеки, а сужающийся корень корпуса отведён под энергетику и двигатели. Рассчитан на дальние экспедиции, исследование аномалий, стабилизацию пострадавших и ограниченную переработку руды и лома; не предназначен для промышленной добычи или тяжёлого боя.
+  price: 160000
+  category: Medium
+  group: Expedition
+  shuttlePath: /Maps/_LuaM/Shuttles/quercus.yml
+  guidebookPage: null
+  class:
+  - Expedition
+  - Science
+  - Salvage
+  - Medical
+  engine:
+  - Uranium
+
+- type: gameMap
+  id: LuaMQuercus
+  mapName: 'LMC Quercus'
+  mapPath: /Maps/_LuaM/Shuttles/quercus.yml
+  minPlayers: 0
+  stations:
+    LuaMQuercus:
+      stationProto: StandardFrontierExpeditionVessel
+      components:
+        - type: StationNameSetup
+          mapNameTemplate: 'Quercus EXP{1}'
+          nameGenerator:
+            !type:NanotrasenNameGenerator
+            prefixCreator: '14'
+        - type: StationJobs
+          availableJobs:
+            Contractor: [ 0, 0 ]
+            MdMedic: [ 0, 0 ]
+            Pilot: [ 0, 0 ]
+            Mercenary: [ 0, 0 ]

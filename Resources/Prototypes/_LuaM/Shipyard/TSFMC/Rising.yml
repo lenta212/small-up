@@ -1,0 +1,44 @@
+# Original design by almaz3200.
+
+- type: vessel
+  id: TSFMCRising
+  parent: BaseVesselAntag
+  name: TSF-VSK Rising
+  description: Тяжёлый штурмовой фрегат TSF, построенный вокруг пары масс-драйверов Charon и широкой вспомогательной батареи. Средний щит и улучшенный сервер управления орудиями позволяют координировать вооружение без станционной системы наведения.
+  limit: 1
+  price: 320000
+  purchasable: false # Tier 3 voucher only.
+  category: Large
+  group: Security
+  access: Armory
+  shuttlePath: /Maps/_LuaM/Shuttles/TSFMC/Rising.yml
+  guidebookPage: null
+  class:
+  - Frigate
+  - Pursuit
+  engine:
+  - Plasma
+  company:
+  - TSF
+
+- type: gameMap
+  id: TSFMCRising
+  mapName: 'TSF-VSK Rising'
+  mapPath: /Maps/_LuaM/Shuttles/TSFMC/Rising.yml
+  minPlayers: 0
+  stations:
+    TSFMCRising:
+      stationProto: StandardFrontierSecurityVessel
+      gridComponents:
+      - type: VesselInfo
+        description: Штурмовой фрегат TSF с парными масс-драйверами, средним щитом и улучшенным бортовым управлением орудиями.
+      components:
+      - type: StationNameSetup
+        mapNameTemplate: 'Rising TSF{1}'
+        nameGenerator:
+          !type:NanotrasenNameGenerator
+          prefixCreator: '14'
+      - type: StationJobs
+        availableJobs:
+          Deputy: [ 0, 0 ]
+          TsfBorg: [ 0, 0 ]

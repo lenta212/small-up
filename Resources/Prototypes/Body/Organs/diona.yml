@@ -48,6 +48,7 @@
   - type: Organ # Shitmed
     slotId: brain
   - type: Brain # Shitmed
+  - type: LuaMFreeBrainRadar
   - type: SolutionContainerManager
     solutions:
       food:

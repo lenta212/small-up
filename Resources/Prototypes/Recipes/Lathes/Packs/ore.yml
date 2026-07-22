@@ -16,6 +16,11 @@
   - SheetLithium # Mono
   - SheetCopper # Mono
 
+- type: latheRecipePack
+  id: PlasticProcessing
+  recipes:
+  - PlasticFromCoalPlasma
+
 # Mono Start
 - type: latheRecipePack
   id: OreSmeltingKiln
@@ -38,5 +43,7 @@
   id: AdvancedSmelting
   recipes:
   - SheetPlasteel1
+  - SheetPlastitanium1
+  - SheetPlastitanium15
   - SheetUGlass1
   - SheetRUGlass1

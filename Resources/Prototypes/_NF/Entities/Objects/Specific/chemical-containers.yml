@@ -207,7 +207,7 @@
   id: FuelPlasma
   name: fuel-grade plasma
   description: A rod made of desaturated plasma, suitable for fuel.
-  suffix: 25 # mono
+  suffix: 75 # LuaM
   components:
   - type: Material
   - type: PhysicalComposition
@@ -221,10 +221,10 @@
   - type: Appearance
   - type: StaticPrice
     price: 0
-    vendPrice: 1500 # mono
+    vendPrice: 4500 # LuaM: 75 units at 60 credits each
   - type: Stack
     stackType: FuelPlasma
-    count: 25 # mono
+    count: 75 # LuaM
 
 - type: entity
   parent: FuelPlasma
@@ -241,7 +241,7 @@
   id: FuelUranium
   name: fuel-grade uranium
   description: A rod made of semi-processed uranium, suitable for fuel.
-  suffix: 25 # mono
+  suffix: 75 # LuaM
   components:
   - type: Material
   - type: PhysicalComposition
@@ -255,10 +255,10 @@
   - type: Appearance
   - type: StaticPrice
     price: 0
-    vendPrice: 3125 # mono
+    vendPrice: 9375 # LuaM: 75 units at 125 credits each
   - type: Stack
     stackType: FuelUranium
-    count: 25 # mono
+    count: 75 # LuaM
 
 - type: entity
   parent: FuelUranium
@@ -275,7 +275,7 @@
   id: FuelBananium
   name: fuel-grade bananium
   description: A rod made from pressed bananium peels, suitable for fuel.
-  suffix: 25 # mono
+  suffix: 75 # LuaM
   components:
   - type: Material
   - type: PhysicalComposition
@@ -289,10 +289,10 @@
   - type: Appearance
   - type: StaticPrice
     price: 0
-    vendPrice: 6250 # mono
+    vendPrice: 18750 # LuaM: 75 units at 250 credits each
   - type: Stack
     stackType: FuelBananium
-    count: 25 # mono
+    count: 75 # LuaM
 
 - type: entity
   parent: FuelBananium

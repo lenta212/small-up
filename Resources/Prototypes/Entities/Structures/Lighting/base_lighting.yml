@@ -193,6 +193,60 @@
     softness: 0.9
     color: "#EEEEFF"
 
+- type: entity
+  parent: AlwaysPoweredWallLight
+  id: CivilianAlwaysPoweredLight
+  name: reinforced civilian light
+  description: "A reinforced always-powered light for civilian and outpost areas."
+  suffix: Always powered, reinforced
+  components:
+  - type: PointLight
+    color: "#FFE4CE"
+    energy: 1
+    radius: 10
+    softness: 1
+    offset: "0, -0.5"
+  - type: Destructible
+    thresholds:
+    - trigger:
+        !type:DamageTrigger
+        damage: 1000000
+      behaviors:
+      - !type:DoActsBehavior
+        acts: [ "Destruction" ]
+
+- type: entity
+  parent: CivilianAlwaysPoweredLight
+  id: CivilianAlwaysPoweredLightLED
+  suffix: Always powered, reinforced, LED
+  components:
+  - type: PointLight
+    radius: 15
+    energy: 1.25
+    softness: 0.9
+    color: "#EEEEFF"
+
+- type: entity
+  parent: SmallLight
+  id: CivilianAlwaysPoweredSmallLight
+  name: reinforced civilian small light
+  description: "A reinforced always-powered small light for civilian and outpost areas."
+  suffix: Always powered, reinforced
+  components:
+  - type: PointLight
+    energy: 1.25
+    radius: 6
+    softness: 1.1
+    enabled: true
+  - type: Destructible
+    thresholds:
+    - trigger:
+        !type:DamageTrigger
+        damage: 1000000
+      behaviors:
+      - !type:DoActsBehavior
+        acts: [ "Destruction" ]
+
 #Exterior lights
 - type: entity
   id: PoweredlightExterior

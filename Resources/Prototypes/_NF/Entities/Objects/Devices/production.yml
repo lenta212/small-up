@@ -1,4 +1,22 @@
 - type: entity
+  id: CargoTechFabCircuitboardNF
+  parent: BaseMachineCircuitboard
+  name: cargo techfab machine board
+  description: A machine printed circuit board for a cargo techfab.
+  components:
+    - type: Sprite
+      state: supply
+    - type: MachineBoard
+      prototype: CargoTechFabNF
+      requirements:
+        MatterBin: 2
+        Manipulator: 2
+      tagRequirements:
+        GlassBeaker:
+          amount: 2
+          defaultPrototype: Beaker
+
+- type: entity
   id: ShredderMachineCircuitboard
   parent: BaseMachineCircuitboard
   name: shredder machine board
@@ -407,3 +425,39 @@
   components:
   - type: MachineBoard
     prototype: MiniStationAnchor
+
+- type: entity
+  id: ImpCoffeeMachineCircuitboard
+  parent: BaseMachineCircuitboard
+  name: spacepresso machine board
+  description: A machine printed circuit board for a spacepresso machine.
+  components:
+  - type: Sprite
+    state: service
+  - type: MachineBoard
+    prototype: ImpCoffeeMachineEmpty
+    stackRequirements:
+      Steel: 5
+    tagRequirements:
+      GlassBeaker:
+        amount: 1
+        defaultPrototype: Beaker
+
+- type: entity
+  id: PortablePumpMachineCircuitBoard
+  parent: BaseMachineCircuitboard
+  name: portable pump machine board
+  description: A machine printed circuit board for a portable pump.
+  components:
+  - type: Sprite
+    state: engineering
+  - type: MachineBoard
+    prototype: PortablePump
+    requirements:
+      Manipulator: 2
+    stackRequirements:
+      Cable: 2
+    tagRequirements:
+      GlassBeaker:
+        amount: 2
+        defaultPrototype: Beaker

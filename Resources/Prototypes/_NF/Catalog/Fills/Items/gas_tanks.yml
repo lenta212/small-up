@@ -34,3 +34,16 @@
           - 0.2256516955 # 22% oxygen
           - 0.800378295 # 78% nitrogen
         temperature: 293.15
+- type: entity
+  id: DoubleEmergencyTankO2N2EqualFilled
+  parent: DoubleEmergencyTankO2N2Equal
+  suffix: Filled
+  components:
+  - type: GasTank
+    outputPressure: 42.6
+    air:
+      volume: 2.5
+      moles:
+      - 0.5128447625
+      - 0.5128447625
+      temperature: 293.15

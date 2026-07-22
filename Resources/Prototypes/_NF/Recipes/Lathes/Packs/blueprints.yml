@@ -8,10 +8,10 @@
   - NFBlueprintRCDAmmo
   - NFBlueprintPowerCellMicroreactor
   - NFBlueprintSignallerAdvanced
-#  - NFBlueprintClothingBackpackHolding
-#  - NFBlueprintClothingBackpackSatchelHolding
-#  - NFBlueprintClothingBackpackMessengerHolding
-#  - NFBlueprintClothingBackpackDuffelHolding
+  - NFBlueprintClothingBackpackHolding
+  - NFBlueprintClothingBackpackSatchelHolding
+  - NFBlueprintClothingBackpackMessengerHolding
+  - NFBlueprintClothingBackpackDuffelHolding
   - NFBlueprintConstructionBagOfHolding
   - NFBlueprintPortableRecharger
   - NFBlueprintPortableGeneratorDKJr

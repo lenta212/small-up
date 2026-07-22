@@ -144,3 +144,17 @@
       - id: IngotGold
       - id: DrinkGoldenCup
         prob: 0.05
+- type: entity
+  id: ToolboxMechanicalFilledAllTools
+  name: mechanical toolbox
+  suffix: Filled, all tools
+  parent: ToolboxMechanical
+  components:
+  - type: StorageFill
+    contents:
+    - id: Crowbar
+    - id: Wrench
+    - id: Screwdriver
+    - id: Wirecutter
+    - id: Welder
+    - id: Multitool

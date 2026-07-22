@@ -11,6 +11,19 @@
   rotation: Fixed
   fx: EffectRCDConstruct2
 
+- type: rcd
+  id: WallPlasteel
+  name: rcd-component-wall-plasteel
+  category: WallsAndFlooring
+  sprite: /Textures/Interface/Radial/RCD/reinforced_wall.png
+  mode: ConstructObject
+  prototype: WallPlasteel
+  cost: 8
+  delay: 3
+  collisionMask: FullTileMask
+  rotation: Fixed
+  fx: EffectRCDConstruct2
+
 # Docking
 
 - type: rcd

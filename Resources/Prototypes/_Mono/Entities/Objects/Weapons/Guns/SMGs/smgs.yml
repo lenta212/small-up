@@ -184,7 +184,7 @@
 
 - type: entity
   name: LWC Vector (9x19mm)
-  parent: [BaseWeaponSubMachineGun, BaseGunWieldable]
+  parent: BaseWeaponSubMachineGun
   id: WeaponSubMachineGunVector9x19mm
   description: An excellent fully automatic SMG. Uses 9x19mm ammo. An Erebus railmount is present on the top of the reciever and the bottom of the handguard for optics and grips.
   components:
@@ -197,12 +197,11 @@
         map: ["enum.GunVisualLayers.Mag"]
       - map: ["gripAttachment"]
       - map: ["opticAttachment"]
-  - type: GunWieldBonus
-    minAngle: -5
-    maxAngle: -5
   - type: Clothing
     sprite: _Mono/Objects/Weapons/Guns/SMGs/vector.rsi
   - type: Gun
+    minAngle: 2
+    maxAngle: 12
     fireRate: 7.5
     selectedMode: Burst
     soundGunshot:
@@ -309,7 +308,7 @@
 
 - type: entity
   name: LWC Vector (.45 ACP)
-  parent: [BaseWeaponSubMachineGun, BaseGunWieldable]
+  parent: BaseWeaponSubMachineGun
   id: WeaponSubMachineGunVector45_ACP
   description: An excellent fully automatic SMG. Uses .45 ACP ammo. An Erebus railmount is present on the top of the reciever and the bottom of the handguard for optics and grips.
   components:
@@ -322,12 +321,11 @@
         map: ["enum.GunVisualLayers.Mag"]
       - map: ["gripAttachment"]
       - map: ["opticAttachment"]
-  - type: GunWieldBonus
-    minAngle: -5
-    maxAngle: -5
   - type: Clothing
     sprite: _Mono/Objects/Weapons/Guns/SMGs/vector.rsi
   - type: Gun
+    minAngle: 2
+    maxAngle: 12
     fireRate: 6
     selectedMode: Burst
     soundGunshot:
@@ -435,7 +433,7 @@
 # Corpo War .45 Mag Vector
 - type: entity
   name: NTSF-HCLM-45 (.45 magnum)
-  parent: [BaseWeaponSubMachineGun, BaseGunWieldable]
+  parent: BaseWeaponSubMachineGun
   id: WeaponSubMachineGunVectorNtsfHclm
   description: The NTSF Heavy Caliber Light Machinegun. A very high-quality heavy SMG chambered in .45 magnum for use for the Nano Trasen Security Force and NT spec-ops, from the corporate war.
   components:
@@ -446,12 +444,11 @@
         map: ["enum.GunVisualLayers.Base"]
       - state: mag-0
         map: ["enum.GunVisualLayers.Mag"]
-  - type: GunWieldBonus
-    minAngle: -5
-    maxAngle: -5
   - type: Clothing
     sprite: _Mono/Objects/Weapons/Guns/SMGs/ntsf_hclm_45.rsi
   - type: Gun
+    minAngle: 2
+    maxAngle: 12
     fireRate: 6
     selectedMode: FullAuto
     soundGunshot:

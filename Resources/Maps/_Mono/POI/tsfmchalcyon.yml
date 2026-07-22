@@ -47260,7 +47260,7 @@ entities:
     - type: Transform
       pos: -6.5,8.5
       parent: 1
-- proto: PoweredDimSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 7187
     components:
@@ -47272,7 +47272,7 @@ entities:
     - type: Transform
       pos: 14.5,11.5
       parent: 1
-- proto: PoweredLEDSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 7189
     components:
@@ -47330,7 +47330,7 @@ entities:
     - type: Transform
       pos: -1.5,-17.5
       parent: 1
-- proto: Poweredlight
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 7199
     components:
@@ -47755,7 +47755,7 @@ entities:
       rot: -1.5707963267948966 rad
       pos: 32.5,39.5
       parent: 1
-- proto: PoweredlightExterior
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 7272
     components:
@@ -47787,7 +47787,7 @@ entities:
       rot: -1.5707963267948966 rad
       pos: -14.5,19.5
       parent: 1
-- proto: PoweredlightLED
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 7277
     components:
@@ -48056,7 +48056,7 @@ entities:
       rot: -1.5707963267948966 rad
       pos: -8.5,-48.5
       parent: 1
-- proto: PoweredlightSodium
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 7323
     components:
@@ -48069,7 +48069,7 @@ entities:
     - type: Transform
       pos: -2.5,-31.5
       parent: 1
-- proto: PoweredSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 7325
     components:
@@ -48141,7 +48141,7 @@ entities:
       rot: 1.5707963267948966 rad
       pos: -17.5,0.5
       parent: 1
-- proto: PoweredWarmSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 7337
     components:

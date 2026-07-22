@@ -1,0 +1,39 @@
+# LuaM adaptation of a Radiant derivative based on Frontier/SS14 content.
+# Source (pinned): https://github.com/TetrisZz/frontier-Radiant/blob/28d354a3a6fffa63b553d6e487dd53d66053156a/Resources/Prototypes/_radiant/Shipyard/gornyak.yml
+# Radiant introduction: https://github.com/TetrisZz/frontier-Radiant/commit/f6e5ab1182565decbeefc547724f58540533996a
+# License: AGPL-3.0-or-later. Compatibility and balance adaptations by LuaM.
+
+- type: vessel
+  id: Gornyak
+  parent: BaseVessel
+  name: HOM Горняк
+  description: Шахтёрское судно с пятью бурами, переработчиком руды и всем необходимым для самостоятельной добычи ресурсов.
+  price: 69000
+  category: Medium
+  group: Shipyard
+  shuttlePath: /Maps/_LuaM/Shuttles/Gornyak.yml
+  guidebookPage: null
+  class:
+  - Salvage
+  engine:
+  - Uranium
+
+- type: gameMap
+  id: Gornyak
+  mapName: 'HOM Горняк'
+  mapPath: /Maps/_LuaM/Shuttles/Gornyak.yml
+  minPlayers: 0
+  stations:
+    Gornyak:
+      stationProto: StandardFrontierExpeditionVessel
+      components:
+      - type: StationNameSetup
+        mapNameTemplate: 'Горняк {1}'
+        nameGenerator:
+          !type:NanotrasenNameGenerator
+          prefixCreator: '14'
+      - type: StationJobs
+        availableJobs:
+          Contractor: [ 0, 0 ]
+          Pilot: [ 0, 0 ]
+          Mercenary: [ 0, 0 ]

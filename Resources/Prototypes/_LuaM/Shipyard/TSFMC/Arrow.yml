@@ -1,0 +1,43 @@
+# Original design by almaz3200.
+
+- type: vessel
+  id: TSFMCArrow
+  parent: BaseVesselAntag
+  name: TSF-VSK Arrow
+  description: Компактный фрегат TSF с высокой манёвренностью и смешанной батареей баллистического, плазменного и лазерного вооружения. Оснащён малым щитом, базовой медициной и химией для длительных патрулей.
+  limit: 2
+  price: 320000
+  purchasable: false # Voucher only.
+  category: Large
+  group: Security
+  access: Armory
+  shuttlePath: /Maps/_LuaM/Shuttles/TSFMC/Arrow.yml
+  guidebookPage: null
+  class:
+  - Frigate
+  engine:
+  - Plasma
+  company:
+  - TSF
+
+- type: gameMap
+  id: TSFMCArrow
+  mapName: 'TSF-VSK Arrow'
+  mapPath: /Maps/_LuaM/Shuttles/TSFMC/Arrow.yml
+  minPlayers: 0
+  stations:
+    TSFMCArrow:
+      stationProto: StandardFrontierSecurityVessel
+      gridComponents:
+      - type: VesselInfo
+        description: Компактный патрульный фрегат TSF со смешанной оружейной батареей и ограниченными бортовыми службами поддержки.
+      components:
+      - type: StationNameSetup
+        mapNameTemplate: 'Arrow TSF{1}'
+        nameGenerator:
+          !type:NanotrasenNameGenerator
+          prefixCreator: '14'
+      - type: StationJobs
+        availableJobs:
+          Deputy: [ 0, 0 ]
+          TsfBorg: [ 0, 0 ]

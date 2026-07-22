@@ -182,6 +182,7 @@
   - HellfireFreezerMachineCircuitBoard
   - PortableScrubberMachineCircuitBoard
   - HolofanProjector
+  - PlasticProcessorMachineCircuitboard # LuaM
   - CrystallizerMachineCircuitboard # Mono
   #  - FireExtinguisherBluespace # DeltaV
   technologyPrerequisites:
@@ -243,24 +244,28 @@
 
 # Tier 3
 
-#- type: technology
-#  id: BluespaceStorage
-#  name: research-technology-bluespace-storage
-#  icon:
-#    sprite: Clothing/Back/Backpacks/holding.rsi
-#    state: holding
-#  discipline: Industrial
-#  tier: 3
-#  cost: 15000
-#  recipeUnlocks:
-#  - ClothingBackpackHolding
-#  - ClothingBackpackSatchelHolding
-#  - ClothingBackpackDuffelHolding
-#  - ClothingBackpackMessengerHolding # Frontier
-#  - NFBlueprintClothingBackpackHolding # Frontier
-#  - NFBlueprintClothingBackpackSatchelHolding # Frontier
-#  - NFBlueprintClothingBackpackDuffelHolding # Frontier
-#  - NFBlueprintClothingBackpackMessengerHolding # Frontier
+- type: technology
+  id: BluespaceStorage
+  name: research-technology-bluespace-storage
+  icon:
+    sprite: Clothing/Back/Backpacks/holding.rsi
+    state: holding
+  discipline: Industrial
+  tier: 3
+  cost: 15000
+  recipeUnlocks:
+  - ClothingBackpackHolding
+  - ClothingBackpackSatchelHolding
+  - ClothingBackpackDuffelHolding
+  - ClothingBackpackMessengerHolding # Frontier
+  - NFBlueprintClothingBackpackHolding # Frontier
+  - NFBlueprintClothingBackpackSatchelHolding # Frontier
+  - NFBlueprintClothingBackpackDuffelHolding # Frontier
+  - NFBlueprintClothingBackpackMessengerHolding # Frontier
+  technologyPrerequisites:
+  - MassExcavation
+  - SuperParts
+  position: 1, 2
 
 - type: technology
   id: PortableFission

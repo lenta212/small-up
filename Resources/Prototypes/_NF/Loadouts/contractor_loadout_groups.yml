@@ -967,6 +967,19 @@
   fallbacks:
   - ContractorMedicalTrackingImplanter
 
+# LuaM: biological Civilian-department jobs receive the medical tracker automatically.
+# Keep their optional novelty implants without putting a redundant implanter in the backpack.
+- type: loadoutGroup
+  id: CivilianImplanter
+  name: loadout-group-contractor-implanter
+  minLimit: 0
+  maxLimit: 4
+  loadouts:
+  - ContractorLightImplanter
+  - ContractorBikeHornImplanter
+  - ContractorSadTromboneImplanter
+  - ContractorMimePowersImplanter
+
 - type: loadoutGroup
   id: ContractorBureaucracy
   name: loadout-group-contractor-bureaucracy

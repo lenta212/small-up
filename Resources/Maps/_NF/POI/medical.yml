@@ -24570,7 +24570,7 @@ entities:
       rot: -1.5707963267948966 rad
       pos: -23.5,33.5
       parent: 1
-- proto: Poweredlight
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 3068
     components:
@@ -24899,7 +24899,7 @@ entities:
     - type: Transform
       pos: -49.5,5.5
       parent: 1
-- proto: PoweredlightEmpty
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 2939
     components:
@@ -24916,6 +24916,9 @@ entities:
     - type: ApcPowerReceiver
       powerLoad: 0
     - type: DamageOnInteract
+      damage:
+        types:
+          Heat: 2
       isDamageActive: False
   - uid: 2941
     components:
@@ -24932,6 +24935,9 @@ entities:
     - type: ApcPowerReceiver
       powerLoad: 0
     - type: DamageOnInteract
+      damage:
+        types:
+          Heat: 2
       isDamageActive: False
   - uid: 3125
     components:
@@ -24947,6 +24953,9 @@ entities:
     - type: ApcPowerReceiver
       powerLoad: 0
     - type: DamageOnInteract
+      damage:
+        types:
+          Heat: 2
       isDamageActive: False
   - uid: 3127
     components:
@@ -25061,7 +25070,7 @@ entities:
       rot: 1.5707963267948966 rad
       pos: -43.5,8.5
       parent: 1
-- proto: PoweredlightLED
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 3146
     components:
@@ -25361,7 +25370,7 @@ entities:
       rot: -1.5707963267948966 rad
       pos: -49.5,8.5
       parent: 1
-- proto: PoweredSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 3197
     components:
@@ -25435,7 +25444,7 @@ entities:
     - type: Transform
       pos: -16.5,41.5
       parent: 1
-- proto: PoweredSmallLightEmpty
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 1551
     components:
@@ -25452,6 +25461,9 @@ entities:
     - type: ApcPowerReceiver
       powerLoad: 60
     - type: DamageOnInteract
+      damage:
+        types:
+          Heat: 2
       isDamageActive: False
   - uid: 3210
     components:
@@ -25459,7 +25471,7 @@ entities:
       rot: -1.5707963267948966 rad
       pos: -21.5,16.5
       parent: 1
-- proto: PoweredWarmSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 3211
     components:

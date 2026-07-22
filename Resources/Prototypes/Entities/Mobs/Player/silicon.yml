@@ -515,6 +515,8 @@
   - type: Alerts
   - type: Speech
     speechVerb: Robotic
+  - type: TTS
+    voice: Glados
   - type: Tag
     tags:
     - HideContextMenu

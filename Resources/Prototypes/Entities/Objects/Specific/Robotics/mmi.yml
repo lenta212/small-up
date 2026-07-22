@@ -34,6 +34,8 @@
     proto: robot
   - type: Speech
     speechSounds: Pai
+  - type: TTS
+    voice: TrainingRobot
   - type: ItemSlots
     slots:
       brain_slot:
@@ -127,6 +129,8 @@
       proto: robot
     - type: Speech
       speechSounds: Pai
+    - type: TTS
+      voice: TrainingRobot
     - type: MobState
       allowedStates:
       - Alive

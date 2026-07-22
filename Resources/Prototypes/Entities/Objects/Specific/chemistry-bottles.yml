@@ -163,6 +163,10 @@
           Quantity: 30
 
 - type: entity
+  id: ChemistryBottleEpinephrine
+  parent: EpinephrineChemistryBottle
+
+- type: entity
   id: RobustHarvestChemistryBottle
   suffix: robust harvest
   parent: BaseChemistryBottleFilled
@@ -416,3 +420,17 @@
         reagents:
           - ReagentId: Toxin
             Quantity: 30
+- type: entity
+  id: ChemistryBottleSugar
+  suffix: sugar
+  parent: BaseChemistryBottleFilled
+  components:
+  - type: Label
+    currentLabel: reagent-name-sugar
+  - type: SolutionContainerManager
+    solutions:
+      drink:
+        maxVol: 30
+        reagents:
+        - ReagentId: Sugar
+          Quantity: 30

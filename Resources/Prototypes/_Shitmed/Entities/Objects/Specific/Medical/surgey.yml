@@ -1,0 +1,24 @@
+- type: entity
+  parent: BoneGel
+  id: AdvancedBoneGel
+  name: bone multitool
+  description: A powered bone healer that also functions as a bone setter.
+  components:
+  - type: Sprite
+    sprite: _Shitmed/Objects/Specific/Medical/Surgery/e-bone-gel.rsi
+    state: e-bone-gel-on
+  - type: Item
+    heldPrefix: bonegel
+  - type: SurgeryTool
+    startSound:
+      path: /Audio/_Shitmed/Medical/Surgery/bone_setter.ogg
+    endSound:
+      path: /Audio/_Shitmed/Medical/Surgery/bone_setter.ogg
+  - type: MeleeWeapon
+    damage:
+      types:
+        Blunt: 12
+  - type: BoneGel
+    speed: 3
+  - type: BoneSetter
+    speed: 3

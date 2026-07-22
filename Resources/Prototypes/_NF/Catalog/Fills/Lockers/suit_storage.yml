@@ -288,3 +288,9 @@
         - id: ClothingMaskBreath
         - id: JetpackMiniFilled
   - type: AccessReader
+- type: entity
+  parent: [ LockerSalvageSpecialistFilled, StorageFillEVASuitSalvage ]
+  id: SuitStorageEVASalvageFilled
+  suffix: EVA, Salvage Specialist, Filled
+  components:
+  - type: AccessReader

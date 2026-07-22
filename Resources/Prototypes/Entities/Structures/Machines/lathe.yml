@@ -400,6 +400,7 @@
     # Shitmed Change
     - BorgModulesDynamic
     - SMCybernetics
+    - LuaMCyberneticOrgans
     # Goob/Mono - modsuits
     - Modsuits
     # Mono - Mechs
@@ -613,6 +614,7 @@
     # Shitmed Change
     - SMSurgery
     - SMCybernetics
+    - LuaMCyberneticOrgans
     # Einstein Engines Packs
     - Translators # Language
     - TranslatorImplanters # Language
@@ -762,6 +764,40 @@
   - type: PlaceableSurface # DeltaV: Allow ore bags to dump into it directly
     isPlaceable: false # but not place on it if you just click it with a random item
   - type: OreSiloClient #Gives silo access to ore holding
+
+- type: entity
+  parent: BaseLathe
+  id: PlasticProcessor
+  name: plastic processor
+  description: Turns carbon-rich salvage feedstock and plasma ore into plastic sheets.
+  components:
+  - type: Sprite
+    sprite: Structures/Machines/ore_processor.rsi
+    layers:
+    - state: icon
+      map: ["enum.LatheVisualLayers.IsRunning"]
+    - state: unlit
+      shader: unshaded
+      map: ["enum.PowerDeviceVisualLayers.Powered"]
+    - state: inserting
+      map: ["enum.MaterialStorageVisualLayers.Inserting"]
+    - state: panel
+      map: ["enum.WiresVisualLayers.MaintenancePanel"]
+  - type: Machine
+    board: PlasticProcessorMachineCircuitboard
+  - type: MaterialStorage
+    ignoreColor: true
+    whitelist:
+      tags:
+      - Ore
+  - type: Lathe
+    idleState: icon
+    runningState: building
+    defaultProductionAmount: 10
+    productValueModifier: null
+    staticPacks:
+    - PlasticProcessing
+  - type: OreSiloClient
 
 - type: entity
   parent: OreProcessor

@@ -166,6 +166,8 @@
     - Sigh
     - Crying
     - Whistle
+  - type: TTS
+    voice: TrainingRobot
   - type: Vocal
     sounds:
       Unsexed: UnisexSilicon

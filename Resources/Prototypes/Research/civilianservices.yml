@@ -200,6 +200,7 @@
   - BasicCyberneticEyes
   - SecurityCyberneticEyes
   - MedicalCyberneticEyes
+  - DiagnosticCyberneticEyes
   technologyPrerequisites:
   - AdvancedTreatment
   position: -2, 12

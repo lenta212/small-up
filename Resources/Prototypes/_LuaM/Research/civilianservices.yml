@@ -1,0 +1,29 @@
+- type: technology
+  id: CyberneticOrgans
+  name: research-technology-cybernetic-organs
+  entityIcon: BasicCyberneticLungs
+  discipline: CivilianServices
+  tier: 3
+  cost: 25000
+  recipeUnlocks:
+  - BasicCyberneticHeart
+  - BasicCyberneticLungs
+  - BasicCyberneticLiver
+  technologyPrerequisites:
+  - CyberneticEnhancements
+  position: -2, 14
+
+- type: technology
+  id: UpgradedCyberneticOrgans
+  name: research-technology-upgraded-cybernetic-organs
+  entityIcon: UpgradedCyberneticHeart
+  discipline: CivilianServices
+  tier: 3
+  cost: 50000
+  recipeUnlocks:
+  - UpgradedCyberneticHeart
+  - UpgradedCyberneticLungs
+  technologyPrerequisites:
+  - CyberneticOrgans
+  - HighEndSurgery
+  position: -2, 15

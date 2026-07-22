@@ -171,9 +171,9 @@
       board: PortableGeneratorPacmanMachineCircuitboard
     - type: FuelGenerator
       minTargetPower: 1000
-      maxTargetPower: 35000 # Mono
-      targetPower: 15000
-      optimalPower: 15000
+      maxTargetPower: 52500 # Mono
+      targetPower: 22500
+      optimalPower: 22500
       # 45 minutes at max output
       optimalBurnRate: 0.011111
       # a decent curve
@@ -245,9 +245,9 @@
       board: PortableGeneratorSuperPacmanMachineCircuitboard
     - type: FuelGenerator
       minTargetPower: 5000
-      maxTargetPower: 60000 # Mono
-      targetPower: 30000
-      optimalPower: 30000
+      maxTargetPower: 90000 # Mono
+      targetPower: 45000
+      optimalPower: 45000
       # 45 minutes at full power
       optimalBurnRate: 0.0111111
       # still decent power curve
@@ -329,10 +329,10 @@
     - type: Machine
       board: PortableGeneratorJrPacmanMachineCircuitboard
     - type: FuelGenerator
-      targetPower: 6000 # Frontier - 2000<6000
+      targetPower: 9000 # Frontier - 2000<6000
       minTargetPower: 1000
-      optimalPower: 6000 # Frontier - 2000<6000
-      maxTargetPower: 20000 # Mono
+      optimalPower: 9000 # Frontier - 2000<6000
+      maxTargetPower: 30000 # Mono
       # 30~ minutes at full tank.
       optimalBurnRate: 0.11111111
       # Shallow curve

@@ -226,6 +226,11 @@
     state: bonesetter
   - type: Item
     sprite: _Shitmed/Objects/Specific/Medical/Surgery/bonesetter.rsi
+  - type: SurgeryTool
+    startSound:
+      path: /Audio/_Shitmed/Medical/Surgery/bone_setter.ogg
+    endSound:
+      path: /Audio/_Shitmed/Medical/Surgery/bone_setter.ogg
   - type: BoneSetter
 
 # Bone Gel - Shitmed Change

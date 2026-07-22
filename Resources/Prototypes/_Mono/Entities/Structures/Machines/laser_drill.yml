@@ -57,9 +57,9 @@
 
 - type: entity
   id: LaserDrill
-  name: automated laser drill
+  name: expeditionary matter synthesizer
   parent: LaserDrillBase
-  description: A large automated drill that digs up random materials when powered with 50 kW of HV. Only works on expedition planets.
+  description: A large automated matter synthesizer that produces random materials when powered with 50 kW of HV. Only works on expedition planets.
   components:
   - type: PlanetMiner
     requireExpedition: true
@@ -67,12 +67,10 @@
 
 - type: entity
   id: StationLaserDrill
-  name: advanced automated laser drill
+  name: universal matter synthesizer
   parent: LaserDrillBase
-  description: A large bluespace automated drill that digs up random materials when powered with 50 kW of HV. Now works in space! You can just make out a scratched off logo starting with an embossed 'N' on the side.
+  description: A large bluespace matter synthesizer that produces random materials when powered with 50 kW of HV. Works in space and on expedition planets.
   components:
-  - type: Anchorable
-    flags: None # 1984
   - type: ItemMiner
     interval: 10 # previously 20
 
@@ -80,7 +78,7 @@
   name: random ores
   id: SpawnLootOres15
   parent: MarkerBasePlaceFree
-  suffix: "Laser Drill, 15"
+  suffix: "Matter Synthesizer, 15"
   components:
   - type: Sprite
     layers:

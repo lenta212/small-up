@@ -347,6 +347,7 @@
       #   tableId: CargoGiftsTable # Frontier
       - !type:NestedSelector
         tableId: CalmPestEventsTable
+      - id: ShadowCatPortalEvent
       # - !type:NestedSelector # Frontier
       #   tableId: SpicyPestEventsTable # Frontier
 

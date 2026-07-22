@@ -5217,7 +5217,7 @@ entities:
     - type: Transform
       pos: -3.5,-15.5
       parent: 1
-- proto: PoweredDimSmallLight
+- proto: CivilianAlwaysPoweredSmallLight
   entities:
   - uid: 1073
     components:
@@ -5231,7 +5231,7 @@ entities:
       rot: 1.5707963267948966 rad
       pos: -8.5,0.5
       parent: 1
-- proto: PoweredlightLED
+- proto: CivilianAlwaysPoweredLightLED
   entities:
   - uid: 1055
     components:

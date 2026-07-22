@@ -133,3 +133,39 @@
   - type: Drink
   - type: Label
     currentLabel: reagent-name-soysauce
+
+- type: entity
+  parent: [DrinkBottleVisualsOpenable, DrinkBottlePlasticBaseFull]
+  id: JugNanocaf
+  name: nanocaf jug
+  suffix: For Drinks, Full
+  description: A jug of nanocaf. It has the word coffee* written on it followed by a LOT of small print.
+  components:
+  - type: SolutionContainerManager
+    solutions:
+      drink:
+        maxVol: 300
+        reagents:
+        - ReagentId: Nanocaf
+          Quantity: 300
+  - type: Drink
+  - type: Label
+    currentLabel: reagent-name-nanocaf
+
+- type: entity
+  parent: [DrinkBottleVisualsOpenable, DrinkBottlePlasticBaseFull]
+  id: JugWater
+  name: water powder jug
+  suffix: For Drinks, Full
+  description: A jug of water. Also probably microplastics.
+  components:
+  - type: SolutionContainerManager
+    solutions:
+      drink:
+        maxVol: 300
+        reagents:
+        - ReagentId: Water
+          Quantity: 300
+  - type: Drink
+  - type: Label
+    currentLabel: reagent-name-water

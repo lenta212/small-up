@@ -13,6 +13,8 @@
   cost: 45000
   recipeUnlocks:
   - ShitmedOmnimedTool
+  - AdvancedBoneGel
+  - ClothingHandsGlovesSurgical
   - AutodocCircuitboard
   technologyPrerequisites:
   - CyberneticEnhancements

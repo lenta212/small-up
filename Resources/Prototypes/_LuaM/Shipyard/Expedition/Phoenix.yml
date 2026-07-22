@@ -1,0 +1,46 @@
+# Original design by fox76055.
+
+- type: vessel
+  id: Phoenix
+  parent: BaseVessel
+  name: FXD Phoenix
+  description: Тяжёлый экспедиционный корвет с бронёй легче, чем у полноценного боевого корабля. Объединяет медицину, химию, науку и утилизацию с шестью пушками Bofors и четырьмя орудиями Longbow для опасных операций в глубоком космосе.
+  limit: 2
+  price: 420000
+  category: Large
+  group: Expedition
+  access: Mercenary
+  shuttlePath: /Maps/_LuaM/Shuttles/Expedition/Phoenix.yml
+  guidebookPage: null
+  class:
+  - Medical
+  - Chemistry
+  - Pursuit
+  - Expedition
+  - Science
+  - Salvage
+  engine:
+  - NFR
+
+- type: gameMap
+  id: Phoenix
+  mapName: 'FXD Phoenix'
+  mapPath: /Maps/_LuaM/Shuttles/Expedition/Phoenix.yml
+  minPlayers: 0
+  stations:
+    Phoenix:
+      stationProto: StandardFrontierExpeditionVessel
+      gridComponents:
+      - type: VesselInfo
+        description: Крупный вооружённый экспедиционный корвет с полноценными исследовательскими, медицинскими, химическими и утилизационными отсеками.
+      components:
+      - type: StationNameSetup
+        mapNameTemplate: 'Phoenix EXP{1}'
+        nameGenerator:
+          !type:NanotrasenNameGenerator
+          prefixCreator: '14'
+      - type: StationJobs
+        availableJobs:
+          Contractor: [ 0, 0 ]
+          Pilot: [ 0, 0 ]
+          Mercenary: [ 0, 0 ]

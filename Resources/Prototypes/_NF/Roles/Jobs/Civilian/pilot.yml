@@ -13,6 +13,9 @@
   accessGroups: # Frontier
   - GeneralAccess
   special:
+  - !type:AddImplantSpecial
+    implants: [ MedicalTrackingImplant ] # LuaM: civilians report critical/death coordinates to Medical.
+    applyOnClone: true
   - !type:GiveItemOnHolidaySpecial
     holiday: FrontierBirthday
     prototype: FrontierBirthdayGift

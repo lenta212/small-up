@@ -94,5 +94,6 @@
   - ContainmentFieldGeneratorCircuitboard # Mono
   - TelecomServerCircuitboard
   - SMESAdvancedMachineCircuitboard
+  - PlasticProcessorMachineCircuitboard # LuaM
   - CrystallizerMachineCircuitboard # Mono/Funky
   # - HolopadMachineCircuitboard # Frontier: use NF variant

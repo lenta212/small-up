@@ -91,11 +91,11 @@
     variation: 0.125
   sounds:
     Scream:
-      collection: MaleScreams
+      collection: VulpkaninMaleScreams # LuaM: keep the masculine Vulpkanin voice
     Laugh:
-      collection: MaleLaugh
+      collection: VulpkaninLaugh # LuaM: species-specific fox laugh
     Sneeze:
-      collection: MaleSneezes
+      collection: VulpkaninSneezes # LuaM: species-specific fox sneeze
     Cough:
       collection: MaleCoughs
     Yawn:
@@ -107,7 +107,7 @@
     Sigh:
       collection: MaleSigh
     Crying:
-      collection: MaleCry
+      collection: VulpkaninCry # LuaM: species-specific fox cry
     Whistle:
       collection: Whistles
     Weh:
@@ -143,11 +143,11 @@
     variation: 0.125
   sounds:
     Scream:
-      collection: FemaleScreams
+      collection: VulpkaninFemaleScreams # LuaM: keep the feminine Vulpkanin voice
     Laugh:
-      collection: FemaleLaugh
+      collection: VulpkaninLaugh # LuaM: species-specific fox laugh
     Sneeze:
-      collection: FemaleSneezes
+      collection: VulpkaninSneezes # LuaM: species-specific fox sneeze
     Cough:
       collection: FemaleCoughs
     Yawn:
@@ -159,7 +159,7 @@
     Sigh:
       collection: FemaleSigh
     Crying:
-      collection: FemaleCry
+      collection: VulpkaninCry # LuaM: species-specific fox cry
     Whistle:
       collection: Whistles
     Weh:

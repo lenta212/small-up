@@ -5,6 +5,7 @@
   completetime: 10
   materials:
     Steel: 500
+    Copper: 200
     Glass: 400
     Plasma: 200
     Gold: 100

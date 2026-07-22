@@ -269,6 +269,17 @@
   - LockerWallMedicalFilled
   name: medicine wall locker
   suffix: Filled, Frontier
+
+- type: entity
+  id: LockerWallColorParamedicFilled
+  parent: LockerWallColorParamedic
+  name: paramedic's wall locker
+  suffix: Filled, Frontier
+  components:
+  - type: EntityTableContainerFill
+    containers:
+      storagebase: !type:NestedSelector
+        tableId: NFStorageFillGearParamedic
 # endregion
 
 # region Chemistry
@@ -300,3 +311,21 @@
   - BaseStructureWallmount  
   name: botanist wall locker
 # endregion
+- type: entity
+  parent: [ LockerWallColorBananium, StorageFillMaterialsFuelBananium2 ]
+  id: LockerWallMaterialsFuelBananiumFilled2
+  suffix: Filled, Bananium (x2 Generators)
+
+- type: entity
+  parent: LockerWallColorPilot
+  id: LockerWallColorPilotFilled
+  suffix: Filled, Frontier
+  components:
+  - type: EntityTableContainerFill
+    containers:
+      storagebase: !type:NestedSelector
+        tableId: NFStorageFillGearPilot
+- type: entity
+  parent: [ LockerWallEVAColorFsc, StorageFillEVASuitFsc ]
+  id: LockerWallEVAColorFscFilled
+  suffix: Frontier, Filled

@@ -7,6 +7,7 @@
   completetime: 2.5
   materials:
     Steel: 120
+    Copper: 100
     Plastic: 120
     Plasma: 75
     Gold: 50
@@ -18,6 +19,7 @@
   completetime: 3
   materials:
     Steel: 150
+    Copper: 150
     Plastic: 150
     Plasma: 75
     Gold: 75

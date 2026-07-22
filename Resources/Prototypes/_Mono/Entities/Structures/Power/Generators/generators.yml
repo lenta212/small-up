@@ -162,12 +162,12 @@
   name: SKR CR-class Z-pinch nuclear fusion reactor
   description: |-
     Industrial fuel-grade plasma burning miniature fusion reactor. Highly efficient
-    Ideal power production is 105 kW. Minimum and maximum power production is 60 and 160 kW.
+    Ideal power production is 160 kW. Minimum and maximum power production is 60 and 240 kW.
     Highly radioactive without protection due to the light Iridite frame of the reactor.
   parent:
   - StaticGeneratorBase
   id: GeneratorCRPinch
-  suffix: Plasma, Rad+, 105 kW
+  suffix: Plasma, Rad+, 160 kW
   placement:
     mode: AlignTileAny
   components:
@@ -190,9 +190,9 @@
           False: { state: portgen0 }
   - type: FuelGenerator
     minTargetPower: 50000
-    maxTargetPower: 160000
-    targetPower: 105000
-    optimalPower: 105000
+    maxTargetPower: 240000
+    targetPower: 160000
+    optimalPower: 160000
     optimalBurnRate: 0.004
     fuelEfficiencyConstant: 0.95
     radiationColor: "#662040"
@@ -248,7 +248,7 @@
   - BaseGeneratorShuttle
   - GeneratorCRPinch
   id: GeneratorCRPinchShuttle
-  suffix: Plasma, Rad+, 105 kW, Ship
+  suffix: Plasma, Rad+, 160 kW, Ship
   components:
   - type: MaterialStorage
     storage:

@@ -1,0 +1,6 @@
+- type: latheRecipe
+  id: BaseCrateStorageRackFlatpack
+  result: CrateStorageRackFlatpack
+  materials:
+    Steel: 700
+  completetime: 1

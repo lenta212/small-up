@@ -47,6 +47,11 @@
     Glass: 900
 
 - type: latheRecipe
+  id: NFScreenTimerElectronics
+  parent: BaseCircuitboardRecipe
+  result: ScreenTimerElectronics
+
+- type: latheRecipe
   parent: BaseCircuitboardRecipe
   id: CondimentDispenserCircuitboard
   result: CondimentDispenserCircuitboard

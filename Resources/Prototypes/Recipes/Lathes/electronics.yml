@@ -349,6 +349,11 @@
 
 - type: latheRecipe
   parent: BaseCircuitboardRecipe
+  id: PlasticProcessorMachineCircuitboard
+  result: PlasticProcessorMachineCircuitboard
+
+- type: latheRecipe
+  parent: BaseCircuitboardRecipe
   id: OreProcessorMachineCircuitboard
   result: OreProcessorMachineCircuitboard
 

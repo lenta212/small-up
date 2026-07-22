@@ -72,6 +72,27 @@
     repairCost: 2
 
 - type: entity
+  parent: LightPostSmall
+  id: CivilianAlwaysPoweredLightPostSmall
+  name: reinforced civilian post light
+  description: "A reinforced always-powered post light for civilian and outpost areas."
+  suffix: Always powered, reinforced
+  components:
+  - type: PointLight
+    radius: 10
+    energy: 3.125
+    softness: 0.9
+    color: "#EEEEFF"
+  - type: Destructible
+    thresholds:
+    - trigger:
+        !type:DamageTrigger
+        damage: 1000000
+      behaviors:
+      - !type:DoActsBehavior
+        acts: [ "Destruction" ]
+
+- type: entity
   id: PoweredLightPostSmallEmpty
   name: post light
   description: "A small light post."
