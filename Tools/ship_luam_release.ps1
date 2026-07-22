@@ -152,10 +152,12 @@ try {
         "-ReleaseReceiptPath", [string]$binary.data.releaseReceipt,
         "-ExpectedReleaseReceiptSha256", [string]$binary.data.releaseReceiptSha256,
         "-Tag", $Tag,
-        "-ConfigSourcePath", $ConfigSourcePath,
         "-RemoteConfigPath", $RemoteConfigPath,
         "-RemoteDataDir", $RemoteDataDir,
         "-RequireDataBackup")
+    if (-not [string]::IsNullOrWhiteSpace($ConfigSourcePath)) {
+        $serverDeployArgs += @("-ConfigSourcePath", $ConfigSourcePath)
+    }
     if ($Force) { $serverDeployArgs += "-Force" }
     if ($LegacyShipSaveBootstrap) { $serverDeployArgs += "-LegacyShipSaveBootstrap" }
 

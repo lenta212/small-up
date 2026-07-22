@@ -290,6 +290,9 @@ Assert-Contract ($shipPipelineText.Contains('[switch]$LegacyShipSaveBootstrap'))
 Assert-Contract ($shipPipelineText.Contains('$serverDeployArgs += "-LegacyShipSaveBootstrap"')) "Ship release orchestrator does not pass the legacy bootstrap guard to server deploy/dry-run arguments."
 Assert-Contract ($shipPipelineText.Contains('legacy_ship_save_bootstrap = [bool]$LegacyShipSaveBootstrap')) "Ship release summary does not record the legacy bootstrap mode."
 Assert-Contract ([regex]::Matches($shipPipelineText, '\[AllowEmptyString\(\)\]\s*\[string\[\]\]\$Arguments').Count -eq 2) "Ship release orchestrator cannot forward an intentionally empty config-source argument."
+Assert-Contract ($shipPipelineText.Contains('if (-not [string]::IsNullOrWhiteSpace($ConfigSourcePath))')) "Ship release orchestrator does not treat an empty config source as live-config preservation."
+Assert-Contract ($shipPipelineText.Contains('$serverDeployArgs += @("-ConfigSourcePath", $ConfigSourcePath)')) "Ship release orchestrator does not append a non-empty config source explicitly."
+Assert-Contract (-not $shipPipelineText.Contains('"-ConfigSourcePath", $ConfigSourcePath,')) "Ship release orchestrator still passes an empty config-source value to child PowerShell."
 
 # Execute the exact Python validator embedded into the remote deploy script.
 $validatorMatch = [regex]::Match(

@@ -1,6 +1,6 @@
 ﻿# Monolith-DS iteration journal
 
-Updated: 2026-07-22 06:35 MSK
+Updated: 2026-07-22 07:29 MSK
 
 ## 2026-07-22 -- accumulated release split and docking scope corrected
 
@@ -22,6 +22,10 @@ Updated: 2026-07-22 06:35 MSK
 - A fresh production preflight at `2026-07-22T03:30:13Z` again proved zero players in round 149, active healthy services, old endpoint HTTP 404, SQLite `quick_check=ok`, zero Active/Restoring ship rows and leases, protected token files, matching server-journal mirror, and about 14.81 GB available. Immutable client version `3087b48b0001df0e17d1f9f373a70739b9f0597ebb6eec31b9c0145a5792e9a1` was then published successfully and returned HTTP 200.
 - The guarded server command confirmed zero players but failed locally before starting SSH or making a server mutation because its large base64 preflight exceeded the Windows process command-line limit. Follow-up proved the old server/client pair remained advertised, both services stayed active, and the new immutable client remained available. `Invoke-RemoteBash` now streams the encoded script through UTF-8 stdin and permits the expected PowerShell CRLF during GNU base64 decoding; the orchestrator explicitly permits empty argument elements. Parser checks, the release contract, an extracted empty-argument invocation, and a harmless 121,200-byte real SSH stdin probe passed. The first probe failed decoding on the CR transport byte; the next transported successfully but its local assertion intentionally disagreed with a literal `\\n`; the corrected `echo` probe passed. No probe mutated production.
 - The updated production journal mirror was installed byte-identically as `root:root` mode `0644`; both services remained active and round 149 remained at zero players.
+- A fourth clean-HEAD gate for `9d114e4bc97d627ac08c34ad27d91076d436bec2` again passed production tests/smoke, source packaging/verification, binary construction, zero-violation audit, and client dry-run. It produced source SHA256 `75f52f6d9fe0e408a60226e591e12a2b4614cffb146210f7a1224cbeff960e66`, payload digest `def41ba83584887b56b6d504927f22071263c1bdbb887544a1f4c77e2a80da1e`, client/version `9643610e6c726c773be4b31c7420866af55b3f8733250a49dc2a8bd9b209e3e0`, server SHA256 `9f5c03f2a33ab64af53b3d8ce1e6237246253a681add68eee97982ad7a7eb586`, and receipt SHA256 `7bea9669ddc27b4b1388ffa093eb6e7bc3e96340331d40c736ef3ffe25beab17`. Its outer server dry-run failed because native Windows PowerShell removed the empty string and left `-ConfigSourcePath` without a value; a direct exact invocation passed the current receipt-bound server dry-run.
+- Final production preflight at `2026-07-22T03:56:33Z` found one connected player, one Active/Restoring ship snapshot, and one presence lease. Every other health, endpoint, database, token, journal, and storage check remained good. The newer `964361...` client was not published and no server/gateway mutation began. A 20-second aggregate monitor ran from `03:57Z` for 30 minutes; every minute through `04:26Z` still showed one player, then the command intentionally exited 2. No player was kicked and `-Force` was not used.
+- The orchestrator now omits `-ConfigSourcePath` when it is empty instead of trying to preserve an empty native argument; non-empty sources are appended explicitly. The policy release contract and an AST-level regression passed both branches. This is an ops-only follow-up; it does not change the verified runtime binaries above.
+- The updated production journal mirror was installed byte-identically as `root:root` mode `0644`; both services remained active and the final status check still showed one player in round 149.
 
 Commands and outcomes:
 
@@ -58,16 +62,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File Tools/deploy_luam_server_rel
 Invoke-RemoteBash <121200-byte harmless SSH stdin probes>
 scp Tools/AI_SERVER_JOURNAL.md monolith-new:/tmp/AI_SERVER_JOURNAL.20260722T0335Z.md
 ssh monolith-new "<install journal root:root 0644 and verify hash/services/status>"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -SkipLocalFast -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/deploy_luam_server_release.ps1 <current receipt-bound arguments> -ConfigSourcePath ([string]::Empty) -RequireDataBackup -LegacyShipSaveBootstrap -DryRun
+Invoke-RestMethod http://188.127.225.57:1212/status # aggregate 20-second monitor; timed out after 30 minutes with one player
 ```
 
-Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. Three artifact-gate attempts failed closed and exposed clean-worktree scalar handling, mixed binary stdout/JSON, and empty-argument forwarding respectively; the third otherwise completed all expensive package/binary/audit checks. The immutable client is published, but the server and gateway are still on their prior versions. The server attempt did not reach SSH. The transport and forwarding regressions are now green, but their commit changes HEAD, so a new receipt is required before retrying server deployment.
+Result: commit splitting, data repair, integration build, final 724/724 LuaM run, localization/news contracts, Python gateway/generator tests, and the release contract completed successfully. The earlier 721/724 run is explicitly superseded by the final green rerun. One still-earlier broad 344-test command exceeded ten minutes and was interrupted; it is not counted as a green result. Four orchestration attempts failed closed and exposed clean-worktree scalar handling, mixed binary stdout/JSON, two layers of empty-argument forwarding, and an overlong SSH command. The current runtime artifacts and direct server dry-run are fully verified. Immutable client `3087b48...` is published but unadvertised; the newer current-receipt client is not published. The server and gateway remain on prior versions because one player plus an active ship lease occupied the complete 30-minute wait. No server mutation is claimed.
 
-Next action: install the updated server-journal mirror, commit the stdin transport/empty-argument repair with both journals, require a clean tree, then produce a new policy-bound receipt before retrying the guarded server deployment:
+Next action: install the updated server-journal mirror and commit the final empty-config orchestration repair with both journals. When public status reaches zero, re-read both journals, require zero Active/Restoring rows and leases, then use the already verified runtime receipt for direct client/server/gateway deployment without `-Force`:
 
 ```powershell
-git add -- Tools/deploy_luam_server_release.ps1 Tools/ship_luam_release.ps1 Tools/test_luam_release_contract.ps1 Tools/AI_SERVER_JOURNAL.md .agents/ITERATION_LOG.md
-git commit -m "fix(release): stream guarded deploy scripts over ssh"
-powershell -NoProfile -ExecutionPolicy Bypass -File Tools/ship_luam_release.ps1 -Tag luam-20260722-accumulated -LegacyShipSaveBootstrap -ConfigSourcePath ([string]::Empty) -RemoteConfigPath /opt/monolith-ds/server/server_config.toml -RemoteDataDir /opt/monolith-ds/data -SkipLocalFast -Json
+git add -- Tools/ship_luam_release.ps1 Tools/test_luam_release_contract.ps1 Tools/AI_SERVER_JOURNAL.md .agents/ITERATION_LOG.md
+git commit -m "fix(release): preserve live config without empty native args"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/provision_monolith_client_static.ps1 -ClientPackagePath release/SS14.Client.zip -ExpectedSha256 9643610e6c726c773be4b31c7420866af55b3f8733250a49dc2a8bd9b209e3e0 -Version 9643610e6c726c773be4b31c7420866af55b3f8733250a49dc2a8bd9b209e3e0 -ReleaseReceiptPath release/luam-binary-release-receipt.json -ExpectedReleaseReceiptSha256 7bea9669ddc27b4b1388ffa093eb6e7bc3e96340331d40c736ef3ffe25beab17
 ```
 
 ## 2026-07-22 -- damaged-AI unknown-shuttle accumulation diagnosis
