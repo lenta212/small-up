@@ -1320,10 +1320,26 @@ if [ -n "`$remote_data_dir" ]; then
     echo "deploy-step=backup-data-skipped-missing"
   else
     echo "deploy-step=backup-data"
+    if ! sudo install -o root -g root -m 0600 /dev/null "`$data_backup"; then
+      sudo systemctl start "`$service_name" || true
+      exit 19
+    fi
     sudo tar -C "`$(dirname -- "`$remote_data_dir")" -czf "`$data_backup" "`$(basename -- "`$remote_data_dir")" || {
+      sudo rm -f -- "`$data_backup"
       sudo systemctl start "`$service_name" || true
       exit 19
     }
+    data_backup_owner_mode=""
+    if ! sudo chown root:root "`$data_backup" ||
+       ! sudo chmod 0600 "`$data_backup" ||
+       ! sudo gzip -t "`$data_backup" ||
+       ! data_backup_owner_mode=`$(sudo stat -c '%U:%G:%a' "`$data_backup") ||
+       [ "`$data_backup_owner_mode" != "root:root:600" ]; then
+      echo "Required data backup permission or integrity check failed: `$data_backup" >&2
+      sudo rm -f -- "`$data_backup"
+      sudo systemctl start "`$service_name" || true
+      exit 20
+    fi
   fi
 fi
 echo "deploy-step=swap-server"

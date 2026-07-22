@@ -278,6 +278,14 @@ Assert-Contract ($deployText.Contains('select count(*) from luam_ship_presence_l
 Assert-Contract ($deployText.Contains('tables != expected_tables')) "Legacy bootstrap does not fail closed on a partial persistence schema."
 Assert-Contract ($deployText.Contains('$encoded | & $sshCommand $SshTarget "base64 --decode --ignore-garbage | bash"')) "Server deploy does not stream remote scripts over SSH stdin."
 Assert-Contract (-not $deployText.Contains('"printf %s $encoded | base64 -d | bash"')) "Server deploy still passes remote scripts through the Windows command line."
+$secureDataBackupCreatePosition = $deployText.IndexOf('sudo install -o root -g root -m 0600 /dev/null "`$data_backup"', [StringComparison]::Ordinal)
+$dataBackupArchiveWritePosition = $deployText.IndexOf('sudo tar -C', [StringComparison]::Ordinal)
+$dataBackupCleanupPosition = $deployText.IndexOf('sudo rm -f -- "`$data_backup"', $dataBackupArchiveWritePosition, [StringComparison]::Ordinal)
+Assert-Contract ($secureDataBackupCreatePosition -ge 0 -and
+                 $dataBackupArchiveWritePosition -gt $secureDataBackupCreatePosition) "Required production data backups are not root-only before their first archive byte is written."
+Assert-Contract ($dataBackupCleanupPosition -gt $dataBackupArchiveWritePosition -and
+                 $deployText.Contains('sudo gzip -t "`$data_backup"') -and
+                 $deployText.Contains('data_backup_owner_mode=`$(sudo stat -c')) "Required production data backups lack failure cleanup or final permission/integrity verification."
 
 $shipSaveValidatorStart = $deployText.IndexOf('# LUAM_SHIP_SAVE_RECEIPT_VALIDATOR_BEGIN', [StringComparison]::Ordinal)
 $shipSaveValidatorEnd = $deployText.IndexOf('# LUAM_SHIP_SAVE_RECEIPT_VALIDATOR_END', [StringComparison]::Ordinal)
