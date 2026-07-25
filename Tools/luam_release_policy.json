@@ -1,16 +1,15 @@
 ﻿{
-    "remoteDeployFrozen":  false,
-    "reason":  "The operator explicitly requested immediate correction and production deployment after the first ghostrespawn hotfix failed its live smoke. Scripted ship-save, backup, integrity, and health barriers remain mandatory.",
+    "remoteDeployFrozen":  true,
+    "reason":  "Production rollout luam-20260725-ghostrespawn-suspended-hotfix completed. Remote deployment is frozen again; every later production mutation requires fresh explicit authorization and a new policy-bound release gate.",
     "lastReviewed":  "2026-07-25",
     "deploymentAuthorization":  {
-                                    "state":  "authorized",
-                                    "approvalId":  "user-ghostrespawn-suspended-body-hotfix-20260725",
-                                    "approvedBy":  "server-operator",
-                                    "approvedAtUtc":  "2026-07-25T20:02:13Z",
-                                    "expiresAtUtc":  "2026-07-26T02:02:13Z",
+                                    "state":  "frozen",
+                                    "approvalId":  null,
+                                    "approvedBy":  null,
+                                    "approvedAtUtc":  null,
+                                    "expiresAtUtc":  null,
                                     "allowedMutations":  [
-                                                             "server-release",
-                                                             "client-static"
+
                                                          ]
                                 },
     "releaseGate":  {
@@ -377,7 +376,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260725-ghostrespawn-suspended-body-hotfix",
-                                         "state":  "deployment-authorized",
+                                         "state":  "local-package-only",
                                          "packageSelection":  "Emergency restoration of the exact locally suspended Playable body after ghostrespawn, including regression coverage and operational records.",
                                          "packageScopes":  [
                                                                ".agents",
