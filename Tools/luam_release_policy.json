@@ -1,15 +1,16 @@
 ﻿{
-    "remoteDeployFrozen":  true,
-    "reason":  "The verified release may be prepared locally, but the operator requested a separate confirmation immediately before any production-server update.",
+    "remoteDeployFrozen":  false,
+    "reason":  "The operator explicitly confirmed the complete verified production update on 2026-07-25 after reviewing the separate deployment prompt. Scripted backup, ship-save, integrity, and health barriers remain mandatory.",
     "lastReviewed":  "2026-07-25",
     "deploymentAuthorization":  {
-                                    "state":  "frozen",
-                                    "approvalId":  null,
-                                    "approvedBy":  null,
-                                    "approvedAtUtc":  null,
-                                    "expiresAtUtc":  null,
+                                    "state":  "authorized",
+                                    "approvalId":  "user-production-update-20260725",
+                                    "approvedBy":  "server-operator",
+                                    "approvedAtUtc":  "2026-07-25T17:32:00Z",
+                                    "expiresAtUtc":  "2026-07-26T00:00:00Z",
                                     "allowedMutations":  [
-
+                                                              "server-release",
+                                                              "client-static"
                                                          ]
                                 },
     "releaseGate":  {
@@ -376,7 +377,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260722-accumulated-interface-ship-persistence-release",
-                                         "state":  "local-package-only",
+                                         "state":  "deployment-authorized",
                                          "packageSelection":  "verified accumulated production batch covering persistent player vessels, exact docking safeguards, transactional player services, the Industrial Nano interface refresh, frontier content, rescue and sector AI, and guarded release operations",
                                          "packageScopes":  [
                                                                ".agents",

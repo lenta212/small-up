@@ -6,6 +6,9 @@ using System.Security.Cryptography;
 using System.Text;
 using Content.Server.Shuttles.Components;
 using Content.Server.Shuttles.Systems;
+using Content.Server.Mind;
+using Content.Shared.Mind;
+using Content.Shared.Mind.Components;
 using Robust.Shared.Containers;
 using Robust.Shared;
 using Robust.Shared.Configuration;
@@ -87,6 +90,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private DockingSystem _docking = default!;
     [Dependency] private ShuttleConsoleLockSystem _consoleLocks = default!;
+    [Dependency] private MindSystem _minds = default!;
 
     private readonly HashSet<Guid> _busyShips = [];
 
@@ -560,6 +564,11 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 return false;
             }
 
+            // Player minds are runtime ownership, not portable ship content. A
+            // stale snapshot can otherwise resurrect a copied mind and leave a
+            // body pointing at an invalid/null-space entity on every restore.
+            SanitizeRestoredMinds(createdEntities);
+
             if (!_consoleLocks.TryBindPersistentShipSecurity(
                     restoredGrid,
                     snapshot.ShipId,
@@ -582,6 +591,25 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         finally
         {
             _busyShips.Remove(snapshot.ShipId);
+        }
+    }
+
+    private void SanitizeRestoredMinds(IReadOnlySet<EntityUid> createdEntities)
+    {
+        foreach (var uid in createdEntities)
+        {
+            if (!Exists(uid))
+                continue;
+
+            if (TryComp<MindContainerComponent>(uid, out var container) &&
+                container.Mind is { } mind &&
+                createdEntities.Contains(mind))
+            {
+                _minds.TransferTo(mind, null, mind: Comp<MindComponent>(mind), createGhost: false);
+            }
+
+            if (HasComp<MindComponent>(uid))
+                Del(uid);
         }
     }
 

@@ -1,3 +1,12 @@
+## 2026-07-25T17:39Z -- restored-ship mind sanitization accepted for authorized release
+
+- Objective: incorporate the newly diagnosed duplicated-spirit defect into the release after the operator explicitly authorized the full production update.
+- Root cause and change: serialized shuttle graphs could contain `MindComponent`/`MindContainerComponent` runtime ownership and recreate copied ghosts on every restore. `LuaMFullShipPersistenceSystem` now disconnects mind links and deletes only mind entities created by the restored graph before activation. The original fixture's original mind had already been deliberately deleted before restore, so its assertion that sanitization preserve that deleted entity was invalid and was removed; the restored mob must still have no mind.
+- Validation: integration build passed with zero errors; the exact `FullGridRoundTripPreservesStructureAtmosEntitiesContainersMobAndMachineStateWithoutRestoringMinds` regression initially failed only on that contradictory deleted-mind assertion, then passed 1/1 after correction. No production mutation occurred yet.
+- Player news: added Russian ServerNews entry 2026072502, author LuaM, describing the implemented prevention of duplicate ghosts/control links on restored ships.
+- Release authorization: `Tools/luam_release_policy.json` now records the explicit 2026-07-25 operator confirmation for `server-release` and `client-static`, expiring at 2026-07-26T00:00Z. Scripted backup, ship-save, integrity, and health barriers remain mandatory.
+- Next action: commit this bounded hotfix/news/authorization batch, rerun the clean release package gate, then build and dry-run verified binary deployment before any live swap.
+
 ## 2026-07-25T16:24Z -- verified source batch committed; production update held for confirmation
 
 - Objective: move the accepted LuaM work into a reproducible release input while respecting the operator's requirement for a separate confirmation immediately before any production update.
@@ -5202,3 +5211,17 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Ship registry aggregate: 14 total snapshot rows; 7 non-retired and 7 retired. Exactly one owner has two non-retired rows (two conflicting rows). The release migration creates unique partial index UX_luam_ship_snapshot_active_owner on owner_user_id WHERE status <> 4, so SQLite correctly rejects that existing conflict.
 - Recovery state remains intact: old server is active, /status is healthy in lobby (one connected player at read time), and the verified pre-swap data archive remains the recovery point.
 - No repair was applied. Safe next action: copy the verified data backup to an isolated workspace, inspect the two conflicting rows only within that copy, choose deterministic retention/quarantine policy that preserves recoverability, then add a migration plus regression test.
+## 2026-07-25T17:24Z -- read-only duplicate-spirit investigation
+
+- Objective: identify the origin of many spirits named `Седжайджилакс-Батар` reported on Georgiy's shuttle, without affecting the live round.
+- Production read-only result: entries at 19:17, 19:20, 19:52, 20:05, and 20:12 MSK show invalid `Mind` EntityUid deserialization followed by attempts to bind the same account to multiple separately loaded `MindBase` entities with the reported character name. The mind system ignored the duplicate user fields. This points to malformed/stale serialized shuttle/entity state, not to multiple players or a manual spawn by Georgiy.
+- Commands: read both required journals; `ssh monolith-new` bounded journal-hash/owner/mode, service/status/storage, and six-hour name-log queries; bounded focused timeline correlation. All completed with exit 0. No entity, shuttle, database, service, configuration, player, or round state was changed. Host health: service active, round 164 with 2 players, root 91% used with about 3.5 GiB free.
+- Server journal: appended the identifier-minimized investigation record to `Tools/AI_SERVER_JOURNAL.md`, installed it on the host as `/opt/monolith-ds/AI_SERVER_JOURNAL.md` with `root:root`/`0644`, and verified matching SHA256 `22f5f286fbdeb250ab2359799a9e69bc14150a12221e3b6bee2d48c22fc34bde`.
+- Next action: reproduce the invalid `Mind` reference path locally from a copy of the affected shuttle snapshot, then implement snapshot sanitization with a regression before any production cleanup.
+## 2026-07-25T17:30Z -- persistent-shuttle mind restoration hardening in progress
+
+- Objective: prevent saved shuttles from repeatedly recreating ghost/mind duplicates such as the `Седжайджилакс-Батар` entities seen in production.
+- Change: `LuaMFullShipPersistenceSystem` now treats minds as non-portable runtime ownership during a restored-ship load. Before the restored grid can be activated, it disconnects restored `MindContainerComponent` links and deletes all restored `MindComponent` entities. Normal ship mobs and all non-mind state remain intact; the original live mind is not touched.
+- Regression: updated `LuaMFullShipPersistenceRuntimeTest.FullGridRoundTripPreservesStructureAtmosEntitiesContainersMobAndMachineStateWithoutRestoringMinds` to restore a ship containing a mind-bearing mob and assert that the restored mob has no mind while the original live mind still exists.
+- Commands: source searches for persistence/mind paths; `dotnet build Content.Server/Content.Server.csproj --no-restore -c DebugOpt --verbosity:minimal` passed after correcting component access through `MindSystem.TransferTo`. The subsequent integration-project build was interrupted by a pre-existing external `testhost.exe` PID 47712 holding `bin/Content.IntegrationTests` DLLs; it failed with MSB3021/MSB3027 and is not validation evidence. `git diff --check` passed, apart from existing LF-to-CRLF warnings. No production operation occurred.
+- Next action: once the external testhost releases the files, run `dotnet build Content.IntegrationTests/Content.IntegrationTests.csproj --no-restore -c DebugOpt --verbosity:minimal`, then execute the exact renamed runtime test with one worker.

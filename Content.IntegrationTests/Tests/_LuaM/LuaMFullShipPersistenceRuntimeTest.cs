@@ -638,7 +638,7 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
     }
 
     [Test]
-    public async Task FullGridRoundTripPreservesStructureAtmosEntitiesContainersMobMindAndMachineState()
+    public async Task FullGridRoundTripPreservesStructureAtmosEntitiesContainersMobAndMachineStateWithoutRestoringMinds()
     {
         var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
         var server = pair.Server;
@@ -859,12 +859,10 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
 
                 var restoredMouse = RequireNamedDescendant(entities, restoredGrid, MouseName);
                 var restoredMindContainer = entities.GetComponent<MindContainerComponent>(restoredMouse);
-                Assert.That(restoredMindContainer.Mind, Is.Not.Null);
-                var restoredMind = entities.GetComponent<MindComponent>(restoredMindContainer.Mind!.Value);
                 Assert.Multiple(() =>
                 {
-                    Assert.That(restoredMind.CharacterName, Is.EqualTo(MindName));
-                    Assert.That(restoredMind.OwnedEntity, Is.EqualTo(restoredMouse));
+                    Assert.That(restoredMindContainer.Mind, Is.Null,
+                        "A ship snapshot must never restore a copied player mind.");
                     Assert.That(
                         entities.GetComponent<MetaDataComponent>(restoredMouse).EntityPrototype?.MapSavable,
                         Is.False);

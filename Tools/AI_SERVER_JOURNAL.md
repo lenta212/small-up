@@ -2,6 +2,14 @@
 
 This is the persistent operational handoff for AI-assisted production-server work. Read it together with `.agents/ITERATION_LOG.md` before accessing the host. The installed mirror is `/opt/monolith-ds/AI_SERVER_JOURNAL.md`.
 
+## 2026-07-25T17:39Z -- duplicate-mind restoration hotfix accepted for authorized rollout
+
+- Scope: incorporate the read-only production diagnosis of repeated copied spirits into the verified release after the operator explicitly confirmed the production update. No production package, service, database, round, ship, or player mutation has occurred at the time of this entry.
+- Change: restored shuttle graphs now discard serialized `MindComponent` entities and disconnect their restored mind-container links before the grid is activated. Minds are runtime player ownership and must not be portable ship content. The exact full-grid regression passed 1/1 after correcting a fixture assertion that referred to an original mind the fixture had deliberately deleted before restoration.
+- Authorization/recovery constraints: the release policy permits `server-release` and `client-static` until `2026-07-26T00:00:00Z`. The deploy scripts must still pass package hashes, release receipt, data/config/server backup, ship-save, player-safety, migration, and post-start health barriers. Root storage was recently 91% used, so backup/package space must be checked immediately before mutation.
+- Commands: integration project build and exact one-worker full-grid regression; both final commands passed. No command was interrupted. No rollback is required because this entry precedes deployment.
+- Next action: produce a clean committed source package and verified client/server binaries, execute all dry runs, then run the authorized deployment only if the current production preflight and backup gates pass.
+
 ## 2026-07-25T16:20Z -- release preparation preflight; deployment remains frozen
 
 - Scope: reconcile the production journal and inspect current health before preparing a local release. The operator requires a separate confirmation immediately before any actual server update, so no package upload, client publication, migration, service restart, database mutation, or gameplay mutation was attempted.
@@ -1148,3 +1156,12 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Ship registry aggregate: 14 total snapshot rows; 7 non-retired and 7 retired. Exactly one owner has two non-retired rows (two conflicting rows). The release migration creates unique partial index UX_luam_ship_snapshot_active_owner on owner_user_id WHERE status <> 4, so SQLite correctly rejects that existing conflict.
 - Recovery state remains intact: old server is active, /status is healthy in lobby (one connected player at read time), and the verified pre-swap data archive remains the recovery point.
 - No repair was applied. Safe next action: copy the verified data backup to an isolated workspace, inspect the two conflicting rows only within that copy, choose deterministic retention/quarantine policy that preserves recoverability, then add a migration plus regression test.
+
+## 2026-07-25T17:24Z -- read-only duplicate-spirit investigation
+
+- User reported numerous spirits named `Седжайджилакс-Батар` on Georgiy's shuttle. Read-only journal inspection found repeated invalid `Mind` entity-reference deserialization during map/entity loads, followed by duplicate assignment attempts for the same account to distinct `MindBase` entities with that character name.
+- Observed occurrences were at 19:17, 19:20, 19:52, 20:05, and 20:12 MSK. The server correctly ignored each duplicate user field, so this is not evidence that multiple players created those spirits or that Georgiy spawned them manually. The records point to a malformed or stale serialized shuttle/entity state being loaded repeatedly.
+- No entity, shuttle, database, service, configuration, player, or round mutation was performed. Host health at inspection: `monolith-ds.service` active; round 164 running with 2 players; root storage 91% used with about 3.5 GiB free. The installed server journal matched the pre-update repository copy and was `root:root` mode `0644`.
+- Recovery: no action was taken. Do not delete entities or restart the service while players are active without a separately authorized, bounded remediation plan.
+
+Next action: reproduce the invalid `Mind` reference path locally from a copy of the affected shuttle snapshot, then add snapshot sanitization and a regression before any production cleanup.
