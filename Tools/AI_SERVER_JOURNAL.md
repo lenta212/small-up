@@ -2,10 +2,250 @@
 
 This is the persistent operational handoff for AI-assisted production-server work. Read it together with `.agents/ITERATION_LOG.md` before accessing the host. The installed mirror is `/opt/monolith-ds/AI_SERVER_JOURNAL.md`.
 
+## 2026-07-25T16:20Z -- release preparation preflight; deployment remains frozen
+
+- Scope: reconcile the production journal and inspect current health before preparing a local release. The operator requires a separate confirmation immediately before any actual server update, so no package upload, client publication, migration, service restart, database mutation, or gameplay mutation was attempted.
+- Journal reconciliation: the repository journal was newer than the installed host copy. The installed copy contained no newer operational entry, so the repository history was retained and this preflight entry was added before reinstalling the required mirror.
+- Health/storage: `monolith-ds.service` is active with `NRestarts=0` and `ExecMainStatus=0`; loopback `/status` reports round 164, run level 1, and two players. Root storage is 91% used with 3,737,280,512 bytes available. The low free-space margin must be considered by the package/deployment backup gates.
+- Local release facts: the release contract passed with `remoteDeployFrozen=true`. An initial readiness capture wrote its output inside the release-scoped `.agents` directory while the gate was hashing it, so that run failed and is not readiness evidence; the accidental file was moved outside the repository. A subsequent no-test readiness audit passed its static/dependency/feature checks but reported the expected frozen deployment state and a gateway smoke runner failure; full package preparation remains local-only pending clean committed input.
+- Commands: repository and installed journal SHA256/owner/mode comparison; bounded installed journal heading read; `systemctl is-active/show`, loopback `/status`, and `df`; local release-contract and readiness scripts. No command was interrupted. Rollback is not applicable because production behavior and data were unchanged.
+- Next action: commit the verified source batch, build and verify local release artifacts, then request explicit operator confirmation before running any non-dry-run production update command.
+
+## 2026-07-24T21:27Z -- all-time game-account versus retained SSH brute-force comparison
+
+- Scope: compare all game accounts/source addresses recorded by the current production database with source addresses present in retained SSH authentication-failure logs. This was aggregate/read-only security analysis; no usernames attempted over SSH, game account names, UUIDs, hardware IDs, or raw player records are retained here.
+- Pre-access reconciliation: repository and installed journal SHA256 matched at `4bd2670ac178e1f8a32007ab65493d2d7fd4cc7ce7b8eced8b97207eb9d5d9ae`.
+- Game population: the current database contains 102 player accounts. `connection_log` covers all 102 accounts with 682 connection rows from 141 distinct game-source addresses between `2026-06-29T08:01:58Z` and `2026-07-24T21:18:24Z`; no connection row is marked denied.
+- SSH attack evidence: retained `ssh` journald data covers `2026-07-16T13:57:46+03:00` through `2026-07-25T00:26:12+03:00`. It contains 3,690 `Failed password` events from 489 source addresses and 2,008 `Invalid user` messages from 449 addresses. PAM duplicates many failed-password events, so the broader raw marker count of 9,700 is not an independent attempt count and must not be reported as one. Fail2ban currently has 13 addresses banned.
+- Correlation result: zero of the 567 distinct addresses seen across the broad retained SSH failure markers overlap any of the 141 game connection addresses. Zero current fail2ban-banned addresses overlap game addresses. Retained successful SSH logins came from three addresses, and none of those addresses appears among SSH failure sources; one is also a known game-source address, consistent with legitimate administration rather than brute force.
+- Highest retained failed-password sources by count: `175.101.46.58` (767), `185.49.240.109` (408), `89.169.61.250` (279), `94.154.43.56` (179), `109.197.49.27` (133), `193.151.145.198` (72), `170.81.145.238` (30), and `130.49.129.81` (28). These are observational source addresses, not attribution to persons.
+- Health/storage: `monolith-ds.service` remained active; `/status` reported round 160 with seven players; root storage remained 87% used with about 5.1 GiB free.
+- Commands run: required journal reads and SHA256 comparison; Python SQLite URI `mode=ro` aggregates over `player` and `connection_log`; bounded `journalctl -u ssh`; `fail2ban-client status`; privacy-preserving Python parsing/correlation; `systemctl is-active`, `/status`, and `df`. An initial JavaScript wrapper failed at parse time before its nested command ran. A later PowerShell wrapper partially ran but local PowerShell captured Bash command substitution and attempted `C:\dev\null`; the final Python-over-SSH commands completed successfully.
+- Mutation/rollback: no service, database, firewall, fail2ban, configuration, player, or round mutation occurred. Rollback is not applicable. Only this updated journal mirror is installed with `root:root` ownership and mode `0644`.
+- Next action: if durable historical attribution is required, configure privacy-bounded aggregation before journald retention expires; do not infer identity from source IP alone.
+
+## 2026-07-24T21:20Z -- read-only 24-hour connection-attempt count
+
+- Scope: answer the user's request for the aggregate number of connection attempts during the preceding rolling 24 hours. No player identifiers, addresses, hardware identifiers, or individual connection records were retained or reported.
+- Pre-access reconciliation: repository and installed journal SHA256 values matched at `d6c511638e0e98ebfbe23fdbd59f384a0b1e1379f52c389a010d7ec5b7beeb55`.
+- Result: a read-only query of `connection_log` from cutoff `2026-07-23T21:20:16Z` through `2026-07-24T21:20:16Z` counted 33 connection attempts from 12 distinct account IDs. All 33 rows were not denied (`denied IS NULL`); zero rows had `denied = 1`. Recorded attempts spanned `2026-07-24 00:30:54Z` through `2026-07-24 21:18:24Z`.
+- Health/storage: `monolith-ds.service` remained active; `/status` reported round 160 running with seven players; root storage remained 87% used with about 5.1 GiB free.
+- Bounded operations: compared journal hashes over SSH; inspected bounded service journal/file inventory to locate the authoritative log; opened `/opt/monolith-ds/data/preferences.db` through Python SQLite URI `mode=ro`; inspected only table schemas and aggregate counts for the rolling window; checked service, `/status`, and root storage. One journal keyword search returned no matches; one quoted remote `sqlite3` attempt failed before querying because the host has no `sqlite3` CLI; one `/status` parsing wrapper fetched status but its Python projection failed from shell quoting, then a direct bounded `/status` request succeeded.
+- Mutation/rollback: no game, database, service, configuration, player, or round mutation occurred. Rollback is not applicable. Only this required journal mirror was updated and installed with `root:root` ownership and mode `0644`. The first PowerShell pipeline installation changed line endings and therefore produced a different host hash; a binary `scp` plus `install` corrected it, after which local and host SHA256 matched at `f8d171b0be09ade0eccbaa8119a0957cc354d766a5088f6224901e95bed152a9`.
+- Next action: if trend monitoring is desired, add a privacy-preserving aggregate report over `connection_log` grouped by hour and denied status, without emitting account IDs or addresses.
+
 Never record secrets, credentials, raw environment files, private player data, or private keys here.
+
+## 2026-07-22T11:19Z -- repeated deep-cryo report checked read-only
+
+- Scope: correlate the new report that a character still does not enter deep cryo with the active production process, without touching the character, pod, round, database, binaries, configuration, or services. Both mandatory journals were reread first. The repository and installed journal SHA256 matched at `819981de185173feb323188c5375c7edd4a37f25ef81d7d5c8881f5ed109c76d`; the installed mirror was `root:root`, mode `0644`.
+- The most recent 30-minute service window contained no deep-cryo or entity-serialization marker, so no new server-side capture attempt was visible during that exact window. The bounded three-hour window still contains the previously diagnosed 18 `entity-serialization-failed` refusals and 18 matching `KillTrackerComponent` serializer exceptions. No player or entity identifier is retained here.
+- This confirms that production still exhibits the already diagnosed old-build failure when an affected damaged character reaches capture. The refusal occurs before the snapshot database write, so it does not delete the body, inventory, or an existing durable save. The local `KillTracker` correction remains undeployed while its accumulated cryo/ship/silo release batch is under final crash-window review.
+- Current health/storage: `monolith-ds.service` active, `NRestarts=0`, `ExecMainStatus=0`; loopback `/status` healthy in round 151/run level 1 with two players; root filesystem 42,174,005,248 bytes total with 13,236,277,248 bytes available (67% used). No restart, deployment, player mutation, database mutation, or gameplay mutation was performed. Recovery/rollback is not applicable; the only host mutation after inspection is installation of this required journal mirror.
+
+Commands and outcomes:
+
+```powershell
+(Get-FileHash -Algorithm SHA256 -LiteralPath 'Tools/AI_SERVER_JOURNAL.md').Hash.ToLowerInvariant()
+ssh monolith-new "<installed-journal SHA256/owner/mode pre-check>"
+ssh monolith-new "<bounded service/restart/status check plus 30-minute cryo/serializer tail>"
+ssh monolith-new "<identifier-free three-hour refusal and KillTracker exception counts plus storage check>"
+```
+
+Result: the server is healthy and unchanged; no fresh capture event appeared in the last 30 minutes, while the existing affected-character attempts remain the same deterministic serializer failure on the old production build.
+
+Interrupted/partial operations: the first identifier-free aggregation wrapper was parsed by local PowerShell because remote command substitutions were insufficiently protected and never reached SSH. A second quoting attempt reached the host but split spaced arguments and produced only parser/grep diagnostics. The final bounded commands used simple fixed filters and succeeded. Neither failed wrapper changed local or host state.
+
+Next action: stop retries on the current binary, finish and rerun the local two-phase cryo publication regressions, then schedule a separately authorized backed-up maintenance deployment. If a player tries the pod again before deployment and no capture marker appears, inspect the pod interaction/do-after path as a distinct pre-capture symptom.
+
+## 2026-07-22T10:30Z -- current ship/cryo/silo release status verified read-only
+
+- Scope: determine whether the locally repaired saved-ship, deep-cryo, and ore-silo behavior is already live, while leaving the active round, players, ships, snapshots, database, configuration, binaries, services, and network policy unchanged. Both mandatory journals were reread before host access.
+- The repository and installed server-journal SHA256 matched at `0ca5e1857a0e84455e3a28ea32c50616871184d50999a0c6638629be154f7a40`; the installed mirror was `root:root`, mode `0644`, size 142,554 bytes.
+- Both `monolith-ds.service` and `luam-ai-gateway.service` were active. The game service reported `NRestarts=0` and `ExecMainStatus=0`. Loopback `/status` was healthy in round 151/run level 1 with three players. Root storage was 42,174,005,248 bytes total with 13,254,885,376 bytes available (67% used).
+- Production still advertises immutable client/build version `9643610e6c726c773be4b31c7420866af55b3f8733250a49dc2a8bd9b209e3e0`. Installed `Resources/Assemblies/Content.Server.dll` SHA256 is `dd85906e581d7f129ed2719af774da79ec8221d65d47cbc9b22b279e4ac12bb2`, with an installed timestamp predating the later local ship rollback, damaged-character cryo, nested capability, and silo-link fixes. Those fixes are therefore not yet deployed.
+- Local release policy remains frozen and local-package-only. A read-only local readiness audit passed every executed gate and found no release-scope issue, but correctly reported `productionEligible=false` because remote deployment is frozen and two test files remain untracked. No package, upload, client publication, restart, or deployment was attempted.
+- Recovery/rollback: not applicable; all host checks were read-only. The only host mutation after this inspection is installation of this required journal mirror, which does not restart either service or change gameplay.
+
+Commands and outcomes:
+
+```powershell
+(Get-FileHash -Algorithm SHA256 -LiteralPath 'Tools/AI_SERVER_JOURNAL.md').Hash.ToLowerInvariant()
+ssh monolith-new "<installed-journal hash/owner/mode, service state/restarts, installed server DLL path/hash, loopback status/info, and storage checks>"
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/test_luam_release_contract.ps1 -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File Tools/check_luam_release_ready.ps1 -AllowUntracked -Json
+```
+
+Result: the active server is healthy but still runs the earlier `964361...` build, so the newly verified local behavior cannot yet be claimed live. The release contract returned `ok=true`; local readiness returned `ok=true`, `productionEligible=false`, with only the intentional freeze and two untracked test files as release-status warnings.
+
+Interrupted/partial operations: the first host wrapper verified the journal and both service states, then stopped at an obsolete `/opt/monolith-ds/server/Content.Server.dll` path. A bounded `find` located the actual immutable assembly at `/opt/monolith-ds/server/Resources/Assemblies/Content.Server.dll`; the remaining hash/status/info/storage checks were rerun successfully. The first journal-install wrapper uploaded the exact temporary file but PowerShell interpreted remote command substitution locally, so the malformed SSH script exited before `install`. A corrected SHA256-gated wrapper uploaded the same exact path, installed the mirror as `root:root` mode `0644`, removed the temporary file, and verified both services active plus loopback status healthy. Neither partial command changed gameplay or the database.
+
+Next action: finish the independent local completion audit and its newly identified docking/restore-publication regressions. Only after all focused and combined checks pass may a fresh release be prepared; production still requires new explicit authorization, policy-bound artifacts, a checked data backup, and a verified zero-player window.
+
+## 2026-07-22T08:56Z -- damaged-character deep-cryo serialization failure diagnosed; fix prepared locally
+
+- Scope: diagnose the live report that a character would not enter cryosleep, without deleting or moving the character, forcing cryo, changing the database, restarting the active round, or deploying code. Both mandatory journals were reread first. Repository and installed journal SHA256 matched at `c624b22155604c2ec4f5c8579ce6086bf4662677e6cf8034710b751c6a8ad90e`; the installed copy was `root:root` mode `0644`.
+- Identifier-bounded live logs contained 18 identical refused deep-cryo stores during the reported interval. Each failed at synchronous entity capture with `entity-serialization-failed` before a database write. The underlying exception was `Yaml mapping keys must serialize to a ValueDataNode` while serializing `KillTrackerComponent`; the standard failure path restored the original mind/body attachment and ejected the body. No character, inventory, or durable snapshot was lost or duplicated.
+- Confirmed cause: spawned players receive a kill tracker, and positive damage populates its `Dictionary<KillSource, FixedPoint2>`. A polymorphic `KillSource` becomes a YAML mapping and cannot serve as a scalar mapping key. This explains why undamaged test bodies passed while the live damaged body consistently failed.
+- Local correction, not deployed: make only `LifetimeDamage` runtime state while retaining serialized `KillState`. The ledger is current-life attribution, can contain live entity or player identifiers, is absent from all prototype YAML, and was already cleared deliberately on deep-cryo restore. No payload/database migration is required because non-empty ledgers could not previously serialize. A real-damage capture/load regression proves the live ledger is not mutated by capture, does not enter the payload, and is empty after restore.
+- A second local retry safeguard was completed in the same bounded subsystem: serialized payloads continue to discard active do-after operations, but capture returns an empty do-after capability to a live body for database-failure retries, and canonical wake restoration re-adds that capability when required by the current body prototype. The final deep-cryo runtime/database plus ServerNews suite passed 17/17; server compilation passed. Player news entry `2026072204` records the implemented behavior. No release package or deployment was produced.
+- Final health/storage: `monolith-ds.service` and `luam-ai-gateway.service` active; game `NRestarts=0` and `ExecMainStatus=0`; round 151 running with four players; loopback `/status` healthy; root filesystem 42,174,005,248 bytes total with 13,267,181,568 bytes available, 67% used. Recovery/rollback is not applicable because all production inspection was read-only. The finalized journal was installed byte-identically at `/opt/monolith-ds/AI_SERVER_JOURNAL.md`, owner `root:root`, mode `0644`; this journal-only mirror did not restart either service.
+
+Bounded operations and outcomes:
+
+```powershell
+Get-Content -LiteralPath .agents/ITERATION_LOG.md -Raw -Encoding utf8
+Get-Content -LiteralPath Tools/AI_SERVER_JOURNAL.md -Raw -Encoding utf8
+ssh monolith-new "<installed-journal SHA256/owner/mode plus service/restart/status/storage pre-check>"
+ssh monolith-new "<bounded recent cryo and serializer stack inspection; player identifiers not retained>"
+ssh monolith-new "<identifier-free refusal/error counts plus final service/restart/status/storage check>"
+rg -n -i "cryo|KillTracker|TryCapturePayload|TrySaveEntity|DoAfter" Content.Server Content.Shared Content.IntegrationTests Resources
+dotnet test Content.IntegrationTests/Content.IntegrationTests.csproj --no-restore -m:1 --verbosity:minimal --filter "FullyQualifiedName~LuaMDeepCryoRuntimeTest|FullyQualifiedName~LuaMDeepCryoPersistenceTest|FullyQualifiedName~LuaMServerNewsChangelogTest" -- NUnit.NumberOfTestWorkers=1
+dotnet msbuild Content.Server/Content.Server.csproj /t:Compile /m:1 /v:minimal
+scp Tools/AI_SERVER_JOURNAL.md monolith-new:/tmp/AI_SERVER_JOURNAL.20260722T0856Z.md
+ssh monolith-new "<SHA256-gated journal install, exact temporary-file removal, owner/mode/service/status verification>"
+```
+
+Result: the live failure is a deterministic non-empty kill-attribution serialization defect; its local fix and repeat-action safeguard passed the full focused regression set. Production remains on the previous binary, so affected players should stop retrying until a separately authorized maintenance deployment.
+
+Interrupted/partial operations: the first local regression failed compilation because its setup directly mutated an access-restricted component field; the corrected setup used real damage. The corrected pre-fix test then intentionally reproduced the live YAML-key failure. A later three-test run used an overly broad payload assertion that also matched the expected `missingComponents` marker; after narrowing it to actual transient operation fields, the exact run passed. None of these local checks affected production.
+
+Next action: during a separately approved maintenance window, build and deploy the accumulated server batch through the normal data-backup gate, then verify damaged-character enter/wake/re-enter behavior before closing the live incident.
+
+## 2026-07-22T08:22Z -- stored-ship call failure diagnosed read-only
+
+- Scope: diagnose one player's inability to call a previously stored ship without attempting another restore, altering any ship or player record, moving entities, restarting the round or services, or deploying code. Both required journals were reread first. The repository journal was newer than the installed mirror only by previously completed local-test facts; the host had no newer operational fact to reconcile.
+- A bounded exact-account read-only database check confirmed that current snapshots remain in `Stored` state with no active lease or quarantine. Failed call claims returned safely to `Stored`; no durable ship save was deleted or stranded. SQLite `PRAGMA quick_check` returned `ok`. Player, ship, snapshot, and entity identifiers were deliberately omitted from this journal.
+- The first observed call in the current server process passed deserialization and graph/manifest validation, then failed because the selected free shipyard gate did not provide valid docking geometry for that ship. Later calls for the available stored snapshots repeatedly failed earlier with `restored-entity-graph-or-manifest-mismatch`.
+- Source inspection confirms an incomplete post-load rollback boundary. The persistence loader owns and can synchronously delete the complete set of entities created during deserialization, including auto-included nullspace support. After successful loading, however, the orchestrator retains only the restored grid; when placement rejects it, `DeleteGrid` queues deletion of that grid root. Separate support roots in nullspace can therefore survive. This is a confirmed cleanup defect and is consistent with the observed transition from a placement failure to later graph mismatches. The precise path from surviving support state to the later manifest result still needs a focused integration regression and is not claimed as proven here.
+- Recovery: stop repeated call attempts in the current process. A controlled restart when the server is empty will clear transient restored entities; the next attempt should use a genuinely suitable free gate. Permanent correction is to retain the full created-entity set beyond deserialization and use bounded synchronous full-set cleanup after placement rejection, with a regression that includes an auto-included nullspace entity and proves a subsequent retry succeeds. No rollback is needed because this operation made no gameplay or database mutation.
+- Health/storage at the check: `monolith-ds.service` and `luam-ai-gateway.service` active; game `NRestarts=0` and `ExecMainStatus=0`; round 151 with five connected players; loopback `/status` healthy; root filesystem 42,174,005,248 bytes total with 13,279,170,560 bytes available, 67% used. No restart was authorized or performed. The finalized journal was installed byte-identically at `/opt/monolith-ds/AI_SERVER_JOURNAL.md` with owner `root:root` and mode `0644`; the journal-only mirror did not restart either service.
+
+Bounded operations and outcomes:
+
+```powershell
+Get-Content -LiteralPath .agents/ITERATION_LOG.md -Raw -Encoding utf8
+Get-Content -LiteralPath Tools/AI_SERVER_JOURNAL.md -Raw -Encoding utf8
+ssh monolith-new "<installed-journal SHA256/owner/mode and repository-versus-host heading comparison>"
+ssh monolith-new "<bounded service/restart/status/storage checks and database-file discovery>"
+ssh monolith-new "<read-only Python SQLite quick_check plus exact-account snapshot/lease/quarantine lifecycle query; identifiers not retained>"
+ssh monolith-new "<identifier-filtered restore sequence and failure aggregate; raw identifiers not retained>"
+rg -n "TryRestoreSnapshot|DeleteGrid|RestoreCoreAsync|createdEntities|manifest" Content.Server Content.Shared Content.IntegrationTests
+scp Tools/AI_SERVER_JOURNAL.md monolith-new:/tmp/AI_SERVER_JOURNAL.20260722T0822Z.md
+ssh monolith-new "<SHA256-gated journal install, temporary-file removal, owner/mode/service/status verification>"
+```
+
+Result: durable stored-ship records remain intact and reusable after recovery; a first gate-geometry failure was followed by repeated graph mismatches in the same process, and the placement-failure cleanup scope is incomplete. All production inspection was read-only apart from the required journal mirror.
+
+Interrupted/partial operations: the first health wrapper reached its final `sqlite3 -readonly` check and exited 1 because the CLI is not installed. The check was rerun through Python's SQLite module using a read-only URI and returned `ok`; preceding health facts were also reconfirmed. The first journal-install wrapper exited before `install` because nested quoting left GNU `cut` without its delimiter; the operation failed closed after the temporary upload and did not replace the installed journal. A corrected hash-gated wrapper then installed the finalized copy and removed the exact temporary file. No gameplay or database state changed.
+
+Next action: add the focused placement-rejection/full-created-set cleanup retry regression locally; schedule a controlled service restart only when no players are connected, then retry the stored ship at a gate with sufficient docking geometry.
+
+## 2026-07-22T07:18Z -- restored shuttle gravity desynchronization diagnosed read-only
+
+- Scope: diagnose the reported loss of gravity aboard the active shuttle after its expedition visit without moving or mutating any shuttle, player, map, round, service, configuration, or database. Both required journals were reread first. Repository and installed journal SHA256 matched at `eeeae009f0bad2d8812d06ae766064d3faef4b25c91ba5f460fa0e5f9af84e36`; the installed copy was `root:root` mode `0644`.
+- At `07:08:48Z`, round 151 was running with two players and both services active. Identifier-free journald aggregation found no gravity/power/EMP marker, damage/explosion marker, expedition-end marker, or FTL fault since the expedition began. A new expedition FTL transition was detected at `07:09:33Z`; through `07:15Z` there was no inability-to-FTL, invalid state, stuck-expedition, anti-collision correction, or general shuttle fault.
+- A read-only round-151 admin-log aggregate, processed remotely without emitting messages, JSON, identities, entity IDs, or coordinates, found one existing `GravityGeneratorMini` used between `07:00:50Z` and `07:08:37Z`. It was switched off and immediately back on six times between `07:01:05Z` and `07:05:55Z`, with on as the last state. No damage, destruction, unanchor, cable-cut, APC, SMES, anti-gravity equipment, gravity anomaly, or gravity-smite marker was present. Two additional mini gravity generators were spawned at `07:08:29Z` and `07:08:44Z`, but no log proves either was anchored to powered cabling.
+- Source and loader ordering identify the defect. Full-grid persistence restores serialized `PowerChargeComponent.Active`, while `GravityGeneratorComponent.GravityActive` is runtime-only. Deserialization precedes component/map initialization, so a previously active generator can load with `PowerCharge.Active=true` and `GravityActive=false`. Grid gravity initialization consequently sees no gravity-active generator. `PowerChargeSystem.OnMapInit` refreshes visuals/load but does not raise an activation event, and later ticks also emit no activation edge while `Active` remains true.
+- `NFVirologyLab` always selects a real biome and enables gravity on its expedition map. Effective gravity is enabled when either the current grid or map has gravity, so the expedition map masked the shuttle-grid defect. The hyperspace map has no gravity, and FTL/docking contains no generator-state repair path. The new map transition exposed the existing restore mismatch; it did not damage the generator.
+- Immediate recovery is player-operated and requires a full state edge: leave the existing mini generator off until its normalized charge reaches zero (up to approximately 100 seconds), then provide at least 500 W, switch it on, and wait until full charge (up to approximately 100 seconds). Only the zero/full `Active` transitions raise the deactivation/activation events; quick toggles do not. A newly spawned replacement must be anchored on powered cabling.
+- Current health/storage at `07:17:54Z`: `monolith-ds.service` and `luam-ai-gateway.service` active; loopback `/status` HTTP 200; root filesystem 42,174,005,248 bytes total with 13,327,101,952 bytes available, 67% used. Recovery/rollback: none required because all game/server/database checks were read-only. The finalized journal was installed byte-identically at `/opt/monolith-ds/AI_SERVER_JOURNAL.md`, owner `root:root`, mode `0644`, without restarting either service. No ServerNews entry was added because no player-facing behavior changed.
+
+Bounded operations and outcomes:
+
+```powershell
+Get-Content -LiteralPath .agents/ITERATION_LOG.md -Raw -Encoding utf8
+Get-Content -LiteralPath Tools/AI_SERVER_JOURNAL.md -Raw -Encoding utf8
+ssh monolith-new "<installed journal SHA256/owner/mode pre-check>"
+ssh monolith-new "<identifier-free service/status/metrics and categorized journald aggregate since 06:20Z>"
+ssh monolith-new "<read-only SQLite schema and round-151 gravity/power/admin-event aggregates without message, JSON, identity, entity ID, or coordinate output>"
+ssh monolith-new "<identifier-free current FTL/fault aggregate and health/storage check>"
+rg -n "GravityGenerator|PowerCharge|GravityComponent|NFVirologyLab|FTL" Content.Server Content.Shared Resources --glob '*.{cs,yml}'
+```
+
+Result: the restored shuttle's grid-gravity activation state is desynchronized. Expedition map gravity concealed it until the next FTL/map transition. No production behavior was changed.
+
+Interrupted/partial checks: one broad local gravity search ended exit 1 after `Select-Object -First` closed the pipe, and one local `LogType` read used the wrong dotted project path. Corrected targeted reads succeeded; no host command failed.
+
+Next action: use the complete off-to-zero, powered on-to-full workaround now. Then add a focused full-grid restore regression and reconcile runtime `GravityActive` from the restored power-charge state before any separately authorized deployment.
+
+## 2026-07-22T06:53Z -- player shuttle located at normal virology-lab expedition
+
+- Scope: identify the destination of the reported two-player shuttle jump without moving the ship, reading private player records, or issuing an in-game command. Both required journals were reread; the installed copy initially matched repository SHA256 `7b15572a69b69770c52420885bd41a382b4be6778532ef4fec5407ccf6c5c122`, owner/mode `root:root`/`0644`, and the first bounded journal update installed SHA256 `1a45edaef75c317c5f9af9038be91eb0c67fbc55c3dbcea58d0a583753cd7b34`. The game service remained active.
+- The user supplied the visible label `Миксина-84-E`. Identifier-free correlation proved that `NFVirologyLab` generation began there at `06:27:32Z`, expedition FTL began at `06:27:47Z`, and arrival occurred at `06:28:41Z`. No FTL failure, anti-collision correction, invalid state, or stuck-expedition error was logged.
+- `Миксина-84-E` is a normal procedural salvage expedition, localized as a virology laboratory, not either later temporary scrap-dungeon event grid. Expedition time modifiers are 2,700-3,600 seconds; the active console timer is authoritative. The prior 900-second event-grid warning for this destination was withdrawn.
+- This expedition generation is temporally inside the earlier entity surge from 181,922 at `06:20Z` to 245,468 at `06:30Z`. It replaces the earlier attribution of that whole increase to a low-pop random dungeon event. Concurrent `BluespaceErrorRule` work was measured as well, so the evidence supports expedition-generation plus background-event load rather than assigning all approximately 66k added entities to one source.
+- A distinct recurring bluespace event later created two `NFVGRoidScrap` grids at `06:45Z`, publicly named `Сертулярия-87-K` and `Нереис-13-M`; those concrete event prototypes set `extendIfPopulated: false`. They are not the players' expedition.
+- At `06:52:34Z`, round 151 still had three players, 232,324 entities, 433 active physics movers, zero active NPCs, and an active service. Recovery: none required. No ship, player, map, event, service, database, configuration, or round state was mutated, and no restart occurred. The finalized journal is mirrored byte-identically with `root:root` ownership and mode `0644` without restarting either service.
+
+Commands and outcomes:
+
+```powershell
+ssh monolith-new "<installed journal SHA/mode and service/status check>"
+ssh monolith-new "<bounded current entity/physics gauges and identifier-free 15-minute FTL/dungeon/main-loop aggregate>"
+ssh monolith-new "<bounded public destination history and sanitized expedition-generation/arrival correlation>"
+rg -n "NFVirologyLab|FTL|TryFTLProximity|SpawnSalvageMissionJob|BluespaceErrorRule|extendIfPopulated|minDuration|maxDuration" Content.Server Content.Shared Resources --glob '*.{cs,yml}'
+```
+
+Result: the players arrived normally at the `Миксина-84-E` virology-lab salvage expedition. No FTL fault is logged, and the expedition's generation materially contributed to the measured server load.
+
+Interrupted/partial check: the first mirror/status one-liner verified journal hash, mode, and active service, then failed only in its final JSON-formatting fragment due shell quoting. It made no mutation; a corrected base64 wrapper completed the status and event checks.
+
+Next action: use the expedition-console timer as the deadline, complete or abandon the virology-lab mission normally, and return by FTL before it expires; no emergency host action is needed.
+
+## 2026-07-22T06:36Z -- live lag diagnosed read-only
+
+- Scope: investigate the live lag report with privacy-bounded service, host, Prometheus, SQLite, network, and journald aggregates. The game, gateway, configuration, database, ships, maps, events, players, and round were not mutated; no restart, admin command, authenticated maintenance request, profiler, dump, or deployment occurred.
+- Mandatory journal pre-check at `2026-07-22T06:15:37Z` passed: repository and installed copies both had SHA256 `a3bb3cec381bfa839802772a68f3c51ea6403367644646b268c5c4a88d60c8c5`; the installed copy was `root:root` mode `0644`. Both services were active; the game had `NRestarts=0`, `ExecMainStatus=0`, and three players in round 151.
+- Host health excludes general resource exhaustion: four vCPUs, load `1.62/2.19/2.29`, about 11.79 GB available RAM, negligible swap use, 13,353,578,496 bytes free on `/`, zero current memory/I/O pressure, no cgroup CPU throttling, and no OOM events. The gateway used about 1.3% CPU. SQLite `quick_check` was `ok`, no busy/lock markers were present, `db_executing_ops=0`, and database/WAL sizes were about 783.2 MB/4.3 MB.
+- The game update path is CPU-bound. A 15-second Prometheus delta at `06:20Z` showed 89.8% of one core and 27.2 ms average frame time. After the next dungeon generation, the `06:30Z` delta showed 105.1% of one core and 35.2 ms average frame time. Eleven `MainLoop: Cannot keep up!` warnings occurred through `06:30:18Z`; with tick rate 20 and five queued ticks, each proves more than 250 ms backlog and the warning is limited to once per 15 seconds.
+- The dominant current load is entity-system work: about 32.8 ms/tick versus 0.8 ms/tick in game-state processing. Representative post-surge costs were `PhysicsSystem` 9.9 ms/tick, `LuaMBehaviorSystem` 5.9, `DungeonSystem` 2.6, `LuaMStationaryTurretBehaviorAdapterSystem` 2.1, and `AtmosphereSystem` 1.8. The latter two LuaM systems are new broad base-prototype behavior in the deployed release and are a proved persistent contributor.
+- Large procedural map generation is the dominant current surge. A player-selected `NFVirologyLab` salvage expedition began generating at `06:27:32Z` and entered FTL at `06:27:47Z`; entities rose from 181,922 at `06:20Z` to 245,468 at `06:30Z`, then stabilized near 247,900 in a 35-second trend. Active physics movers rose from 407 to 462-467. Concurrent `BluespaceErrorRule` work was also present, so the approximately 66k rise is attributed to expedition plus background-event generation, not solely to a low-pop random dungeon. A later `06:45Z` event created two temporary scrap grids whose prototypes disable population-based extension.
+- Full-ship restore introduced a separate persistent PVS defect. Ten invalid `OreSilo`/`OreSiloClient` entity references were logged at `05:46:39Z`. PVS began at `05:47:36Z` to add one nonexistent target for two sessions and has continued at exactly 2,400 errors/minute (40/s), exceeding 100,000 events during the audit. Aggregate inspection of the relevant current-round restored payload found one `OreSilo`, three `OreSiloClient`, one `Store`, and two `HTN` component tokens; no payload, identity, owner, name, or entity ID was emitted or retained. Local source confirms `OreSiloSystem` adds the referenced silo to a session PVS override without checking that it exists.
+- A transient 3,425-event `KeyNotFoundException` burst ran at about 20/s from `06:13Z` through `06:16:38Z`, rooted in `AltInteractOperator.Update` requesting absent NPC blackboard key `Owner`. This aligns with the first 1,800-second Apocalypse damaged-AI shuttle trigger after round start, and prior/source evidence shows those low-pop rules load persistent unknown-vessel grids. Because the selected live rule ID was not logged, treat this as a high-confidence secondary correlation rather than direct proof. The burst had stopped by final sampling.
+- Current transport is healthy: a 15-second delta had zero Robust packet drops, zero kernel IP/UDP discard/error increments, zero UDP/1212 queue or socket drops, and 0.67 ms average loopback status latency. The PVS spam is still incorrect and wasteful, but current network loss, the database, docking persistence I/O, gateway, RAM, disk, and swap are not the active bottlenecks.
+- Recovery: none required because the audit was read-only. The finalized repository journal, including the pre-existing local-only Unknown radio candidate entry and this production diagnosis, is installed byte-identically at `/opt/monolith-ds/AI_SERVER_JOURNAL.md` with `root:root` ownership and mode `0644`; this journal-only mirror operation does not restart either service.
+
+Commands and outcomes:
+
+```powershell
+ssh monolith-new "<journal SHA/mode, service state, and aggregate /status pre-check>"
+ssh monolith-new "<bounded systemd, process, cgroup, PSI, storage, network, SQLite, and sanitized journald aggregates>"
+ssh monolith-new "<15-second and 35-second loopback Prometheus delta/trend scrapes for entity systems, frames, entities, physics, GC, and network>"
+rg -n "AddPvsOverride|PvsOverrideSystem|LuaMBehaviorAgent|LuaMStationaryTurretBehaviorAdapter|BluespaceErrorRule|MonoAISTCShuttleSpawnerSchedulerApocalypse" Content.Server Content.Shared RobustToolbox Resources --glob '*.{cs,yml}'
+```
+
+Result: the lag is confirmed server-side. The main current cause is the roughly 66k-entity expedition/background-event surge feeding physics/entity systems, amplified by about 8 ms/tick of new broad LuaM behavior/turret work. A restored-ship OreSilo reference independently causes a permanent 40-error/s PVS loop; a timed damaged-AI/HTN exception burst was transient. No production behavior was changed.
+
+Interrupted/partial checks: the first hash command had an `awk` quoting error after only a timestamp; the first broad script stopped at non-root `/proc/<pid>/io` access after useful partial output; one `curl | head` metrics probe ended with an expected broken pipe; two direct SSH/Python one-liners failed from quoting and made no mutation; an early template view was abandoned because redaction was insufficient. Corrected identifier-free base64/stdin wrappers completed the required checks.
+
+Next action: make no live-round mutation without new authorization. Prepare and test a local three-part hotfix: constrain low-pop dungeon/damaged-AI spawning, budget/narrow LuaM behavior and turret adapters, and validate or clear OreSilo references before adding PVS overrides; deploy only in a separately authorized player-safe window.
+
+## 2026-07-22T06:30Z -- Unknown radio marker and dialogue fix prepared locally; no host operation
+
+- Scope: document a local release candidate for the player-visible Unknown radio defect. The supplied production screenshot showed the raw `__LUAM_AI_RADIO__<token>|` marker, attributed the line to `гарнитура пассажира`, and included mechanical `Сейчас главное:` coaching.
+- Root cause: the game raises `RadioTransformMessageEvent` as a directed, non-broadcast event on the radio source, while the LuaM system subscribed as though it were broadcast/global. Its transform handler therefore did not consume the pending token, replace the speaker with Unknown, or strip the transport prefix before radio delivery.
+- Local correction: the handler now subscribes through the source entity's `MetaDataComponent`, consumes valid token/actor metadata, and censors unknown or expired markers. The Unknown path stays silent after death, absence, disablement, or round end. Replies are shorter and stage-aware without quest-style prompts; ordinary conversation does not count as survival advice or a mistake; only concrete action-plus-object guidance advances the scenario. Advice parsing is fail-closed for questions, conditions, warnings, local and shared negation, hard sentence boundaries, and unrelated nearby objects while preserving polite/subordinate commands; recent complete replies are avoided when alternatives exist.
+- Local evidence: `Content.Server` compilation passed. Final verification at `2026-07-22T07:47Z` passed 251/251 focused cases: 246 parsing cases and 5 radio cases. The radio test now exercises an actual `неизвестный, статус` request before verifying token cleanup, actor replacement, and marker removal. An earlier combined run used an isolated output directory and failed to mount `Resources`; that environment-only attempt is not counted as a product failure.
+- Production state: this candidate is not deployed. No host file, service, configuration, database, data, round, or player state was changed, and no restart occurred. The deployment policy is frozen and four players were connected at the final observation. A production update requires new explicit authorization, fresh policy-bound artifacts, and a verified zero-player window.
+- Recovery: none required because no host operation occurred.
+
+Commands and outcomes:
+
+```powershell
+dotnet msbuild Content.Server\Content.Server.csproj /t:Compile /m:1 /v:minimal
+dotnet test Content.IntegrationTests\Content.IntegrationTests.csproj --no-restore --filter "FullyQualifiedName~LuaMAiDirectorParsingTest" -- NUnit.NumberOfTestWorkers=1
+dotnet test Content.IntegrationTests\Content.IntegrationTests.csproj --no-restore --filter "FullyQualifiedName~LuaMRadioAiReceiveTest" -- NUnit.NumberOfTestWorkers=1
+```
+
+Result: the defect is corrected only in the local source candidate; the live server remains on the prior deployed build and behavior.
+
+Next action: run the complete release gate and schedule a separately authorized zero-player deployment without forcing or interrupting the active round.
 
 ## Current state
 
+- Latest player location: `Миксина-84-E` is a normal `NFVirologyLab` salvage expedition. Generation began at `06:27:32Z`, expedition FTL at `06:27:47Z`, and arrival at `06:28:41Z`; no FTL fault is logged. Use its 45-60 minute console timer, not the unrelated 15-minute bluespace-event lifetime.
+- Latest lag diagnosis: round 151 remained active with three players and no service restarts. The game is CPU-bound by a large procedural expedition plus concurrent background-event generation and broad LuaM AI/turret passes; restored-ship OreSilo references also produce one missing-target PVS error for two sessions at 40 events/s. Host memory/disk, SQLite, gateway, and current packet transport are healthy. No runtime mutation was performed.
 - Latest production rollout: `luam-20260722-accumulated` completed at `2026-07-22T05:50Z`. The game advertises external client/version `9643610e6c726c773be4b31c7420866af55b3f8733250a49dc2a8bd9b209e3e0`; the public client is 333,944,765 bytes and returns HTTP 200. The matching server package SHA256 is `9f5c03f2a33ab64af53b3d8ce1e6237246253a681add68eee97982ad7a7eb586`.
 - Live health: `monolith-ds.service` and `luam-ai-gateway.service` are active/running with `NRestarts=0`, `ExecMainStatus=0`, and zero warning-or-higher entries since their rollout starts. Round 151 is visible through `/status` and the public hub; two players were online at the final `2026-07-22T05:50Z` verification.
 - Game access is open. The temporary `inet luam_deploy_guard` table that blocked non-loopback UDP/1212 only during the replacement window was deleted and proved absent; the game listens on two UDP/1212 sockets.
@@ -803,3 +1043,108 @@ Next action: configure a scheduled retention job that preserves the active clien
 - No external notification transport is configured. Alerts are currently available through `journalctl -t monolith-security` and the protected status file. Discord delivery requires a webhook for a private channel stored only in a root-owned environment file.
 
 Next action: obtain the private Discord webhook or another notification destination, add rate-limited delivery with recovery notifications, and test it with a synthetic non-attack warning.
+
+## 2026-07-24T15:30Z -- repository reconciliation before requested player playtime grant
+
+- The installed server journal was newer than the repository copy during the pre-mutation check. Its recorded 2026-07-23 facts were reconciled here: forced persistent-ship hotfix deployment completed, global persistent-ship cleanup removed only ship snapshots/leases, and a later normal deployment preflight/attempt made no additional server mutation.
+- Current read-only preflight: `monolith-ds.service` active, round 158 in progress with four players, root filesystem 82% used with about 6.8 GiB free.
+- Pending user-authorized scope: one-time playtime grant for accounts already existing at the time of the operation only; new accounts are not changed. No role bans or permissions will be altered. Exact database backup, transaction, aggregate validation, and service health checks are required before completion.
+- Next action: inspect the production play_time schema and existing-account count read-only, then stop the service, back up preferences.db, and atomically set all current accounts to at least 24 hours in every defined playtime tracker.
+
+## 2026-07-24T17:17Z -- one-time existing-account playtime grant
+
+- Read-only audit found 101 existing accounts, a healthy `play_time` schema, no duplicate account/tracker rows, and `PRAGMA quick_check` = `ok`. The defined tracker set contains 52 trackers, including `Overall`.
+- The service was stopped briefly to prevent database writes, then `preferences.db` was copied before mutation to `/opt/monolith-ds/backups/preferences-before-playtime-grant-20260724T171745Z.db` (907,182,080 bytes, SHA256 `25d89f2e71c139273a9ce289271e5f8acd93ef77ffba39f871259eba78fa4110`, `root:root`, mode `0600`).
+- In one SQLite transaction, only accounts present in `player` at execution time received missing play-time rows for every defined tracker, at `1.00:00:00` (24 hours). Result: 5,252 rows inserted, 0 lower existing rows raised; validation confirmed 101 x 52 = 5,252 target rows, none below target, no duplicates, and `quick_check` = `ok`. No bans, permissions, profiles, currency, or new accounts were changed.
+- The service restart ended the active round: preflight was round 158 with four players; post-operation `/status` is healthy on round 160, lobby state, zero players. Root filesystem is 87% used with about 5.1 GiB free.
+- No persistent-ship snapshot, lease, cleanup, or ship database operation was performed in this playtime task. Rollback for the playtime change: stop the service, restore the backup database above, then start the service.
+
+Next action: before any unrelated production change, notify players if a service restart is required and verify the installed journal matches this repository copy.
+
+## 2026-07-24T18:10Z -- read-only holodilnik66 persistence-log audit
+
+- User explicitly requested inspection of logs for `holodilnik66` concerning shuttle and item persistence. Read-only `journalctl` queries were performed; no service, database, snapshot, cleanup, or configuration mutation occurred.
+- At 2026-07-24 20:20-20:35 MSK, the player registered `HT Sagittarius EXP-405` and reported that a filled locker persisted. The same player reported not seeing another player's shuttle; this is ownership/visibility context, not proof of a failed save.
+- Confirmed persistence-risk errors around saves: serializer references to missing/deleted entities, invalid `EntityUid` deserialization (including `ShipRepairData`), and container operations against terminating entities. A repeated `KillTracker` YAML serialization exception also affected save attempts.
+- `luam.shipgen` HTTP 400 warnings explicitly state that saved-ship analysis failed while persistence remained unaffected; they are not evidence of a failed shuttle save.
+- Next action: reproduce the serializer/container cases locally and harden snapshot capture to reject or sanitize invalid references before a ship snapshot is committed. Any production repair, reload, snapshot mutation, or restart requires explicit user approval.
+
+## 2026-07-24T18:28Z -- forced production rollout authorized; preflight
+
+- User explicitly authorized a forced production update despite players online and the outstanding deep-cryo release blocker. Intended scope is the current repository release, including persistent-shuttle restoration fixes and the configured lobby music; this will restart `monolith-ds.service`.
+- Read-only preflight: service is active; `/status` reported round 160 running with 6 players; root filesystem is 87% used with approximately 5.0 GiB available.
+- Risk: this repository has known unfinished deep-cryo callback/replay coverage and a full ship-persistence test class that exceeded the local harness timeout. The user accepted the forced rollout risk.
+- Planned safeguards: create and verify a source package and binary receipt, publish the matching client, take the deployment script's required data backup, perform the atomic server swap/restart, then verify service status, API health, and available storage.
+- Recovery: the deployment script will record the exact server/config/data backup paths after it completes; rollback will use that recorded set.
+
+Next action: mirror this journal to the host, run the release package/build gates, then force deploy only the verified generated artifacts.
+
+## 2026-07-24T19:25Z -- forced rollout blocked before mutation by release gate
+
+- The user reconfirmed authorization to restart with players online. No deployment mutation occurred.
+- Completed checks: current service was active with 6 players; forced authorization policy contract passed; source-package readiness/smoke checks passed after release-scoped untracked files were staged and local diagnostic files were moved outside the repository.
+- Blocking result: the required full production test batch was started but was interrupted by the user after approximately 11 minutes. The generated source package is therefore explicitly `productionEligible=false`, and the receipt-bound server deploy tool correctly refuses a package without completed production verification.
+- The server has not been stopped, restarted, swapped, or changed; no database, snapshots, configuration, or game data were mutated. Current preflight health remains the prior active service with 6 players and about 5.0 GiB free.
+- Recovery/rollback: not applicable; no deployment began.
+
+Next action: rerun the required production test batch to completion, then create the production-eligible source/binary receipts and execute the already authorized forced deploy.
+
+## 2026-07-25T00:05Z -- forced deployment reconfirmed; read-only preflight
+
+- User explicitly reconfirmed authorization for the deployment and restart while players are online.
+- Before host access, the installed `/opt/monolith-ds/AI_SERVER_JOURNAL.md` SHA256 exactly matched the repository copy: `ade582a846c129e9d1e66e177346afec9ca5413ba09ffd6a819a1c492a9a588e`.
+- Read-only preflight: `monolith-ds.service` active; `/status` reported round 160 in progress with 7 players; root filesystem 87% used with about 5.0 GiB free.
+- Candidate source package is locally verified and production-eligible, but its temporary authorization metadata expired before this explicitly reconfirmed deployment. A new policy-bound source receipt and matching binary receipt are required before any server mutation.
+- No server data, service, deployment, configuration, snapshots, or database state was changed in this preflight.
+
+Next action: renew the local authorization metadata, rerun the formal package gate for a fresh receipt, then build and verify the receipt-bound client/server artifacts before the user-authorized forced deployment.
+
+## 2026-07-25T00:19Z -- forced deploy attempt stopped safely at active-ship save barrier
+
+- User explicitly authorized deployment/restart with players online. Verified receipt-bound artifacts and passed client/server release-surface audit before mutation.
+- Client publication: static client archive `24ec9a764241f4357c24f448186bd7b831220214fdc41b6e37685b1509576ed3` was published successfully; HTTP verification returned 200.
+- Deployment attempt: guarded deploy reached extract verification, CDN metadata verification, config staging, and the required authenticated ship-save barrier. With 5 players in round 160, the barrier endpoint returned HTTP 409. The tool refuses to bypass this barrier even with `-Force`, so no service stop/restart, server swap, database mutation, snapshot mutation, or config replacement occurred.
+- Pre-existing temporary staging data may remain under `/opt/monolith-ds/deploy-staging`; the live server directory and live config remain unchanged.
+- Recovery: not required because the live service was not stopped or replaced.
+
+Next action: wait briefly and retry the guarded deployment so the active-ship save barrier can produce a fresh receipt. Do not bypass the barrier; if it continues returning 409, inspect its bounded reason and resolve only the saving condition.
+
+## 2026-07-25T00:28Z -- round restarted but deployment barrier still protects connected sessions
+
+- User reported restarting the round and again requested deployment. Read required journals and verified the installed journal hash before the retry.
+- Read-only preflight found `monolith-ds.service` active, new round 161 in lobby (`run_level=0`), 6 connected sessions, and root filesystem 89% used with about 4.4 GiB free.
+- Retried the exact receipt-bound forced deploy. It again passed staging/extract/config/CDN checks, then the authenticated ship-save barrier returned HTTP 409. Source inspection confirms the current live endpoint deliberately returns this status whenever any session is connected, regardless of round state; it will not freeze/save active persistent ships while sessions exist.
+- No service stop/restart, server swap, live config replacement, database mutation, or ship snapshot mutation occurred. The externally published matching client archive remains available.
+- Recovery: not applicable; live server remains unchanged.
+
+Next action: require all six sessions to disconnect, then immediately rerun the guarded deploy; the barrier will save/freeze ships, back up data, swap the server, restart it, and run health checks.
+
+## 2026-07-25T00:11Z -- user-authorized direct service restart; deployment remains unapplied
+
+- User explicitly instructed a server restart despite connected players after the guarded deployment barrier repeatedly refused active sessions.
+- Performed bounded operation: `sudo systemctl restart monolith-ds.service`. This restarted the prior live server directory; no server package swap, config replacement, database backup/mutation, snapshot mutation, or release artifact installation was performed.
+- Result: service is active under a new process, `/status` is healthy with round 162 in lobby and 0 players. Root filesystem is 89% used with about 4.4 GiB free. Startup logs show server Ready and hub advertisement; only existing duplicate-emote warnings and one initial `Cannot keep up` startup warning were observed.
+- Important release state: the verified client archive remains published, but the new persistent-shuttle server binary has NOT been deployed because the mandatory ship-save barrier requires zero sessions before a guarded swap.
+- Recovery: service restart itself needs no file rollback. If required, restart the service again with `sudo systemctl restart monolith-ds.service`.
+
+Next action: while player count remains zero, rerun the receipt-bound guarded deploy so it can obtain a valid ship-save receipt, back up `/opt/monolith-ds/data`, swap the prepared server, and perform post-deploy verification.
+
+## 2026-07-24T23:20:18Z -- direct authorized release swap rolled back after migration startup failure
+
+- User explicitly authorized a direct production update and restart even with connected players after the guarded ship-save barrier repeatedly returned HTTP 409. The direct operation retained artifact checksum verification, a full pre-stop data backup, a live-config backup, directory-level atomic swap, and automatic rollback.
+- Verified staged server ZIP SHA256 56933fe22aa529b582b9a39d4efda82a4959f19a1701f36151a75293ce56364 and staged config SHA256 2378ff06a422ac7a6d60a3dc6f007218ef98350ea0ad61494aba9ea70321074; release client was already published as 24ec9a764241f4357c24f448186bd7b831220214fdc41b6e37685b1509576ed3.
+- Created and verified recovery material before stop: /opt/monolith-ds/backups/data-luam-20260725-shuttle-persistence-direct-authorized.tar.gz (gzip test passed, root-only) and /opt/monolith-ds/backups/server_config-before-luam-20260725-shuttle-persistence-direct-authorized.toml (root-only).
+- The new server began startup but database migration failed with SQLite Error 19: UNIQUE constraint failed: luam_ship_snapshot.owner_user_id. The health wait timed out and the script automatically restored the prior server directory and config, then restarted the prior service. Do not treat the new server binary as deployed.
+- Post-rollback health: monolith-ds.service active; /status healthy in round 163 lobby with zero players; /info advertises previous client hash 2962b8600c4b05eb5082ceae2d488fe7616b19c0b4223b32c709c0dffb814766; root storage 89% used with about 4.3 GiB free.
+- Database caution: the failed migration was attempted against live data before the process aborted. The deployment data archive is the recovery point; inspect migration SQL and database migration history against a copy before any further deployment.
+- Rollback/recovery: the prior server directory and config are active. If database recovery is necessary, stop the service and restore /opt/monolith-ds/data from the verified archive above, then start the service.
+
+Next action: reproduce the duplicate-owner snapshot data and migration failure against a copy of the backed-up database; add a deterministic deduplication or migration repair and test it before building a new release artifact.
+
+## 2026-07-24T23:23:03Z -- read-only analysis of blocked one-ship migration
+
+- Read-only production database inspection used SQLite URI mode=ro and aggregate-only results; no player identifiers, raw snapshots, or row payloads were read or retained.
+- Database integrity: PRAGMA quick_check returned ok. The production migration history ends at 20260720164259_LuaMShipPayloadRevision; the failed 20260723210901_LuaMOnePersistentShipPerOwner migration is not recorded as applied.
+- Ship registry aggregate: 14 total snapshot rows; 7 non-retired and 7 retired. Exactly one owner has two non-retired rows (two conflicting rows). The release migration creates unique partial index UX_luam_ship_snapshot_active_owner on owner_user_id WHERE status <> 4, so SQLite correctly rejects that existing conflict.
+- Recovery state remains intact: old server is active, /status is healthy in lobby (one connected player at read time), and the verified pre-swap data archive remains the recovery point.
+- No repair was applied. Safe next action: copy the verified data backup to an isolated workspace, inspect the two conflicting rows only within that copy, choose deterministic retention/quarantine policy that preserves recoverability, then add a migration plus regression test.

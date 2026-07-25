@@ -1,7 +1,7 @@
 ﻿{
     "remoteDeployFrozen":  true,
-    "reason":  "Production rollout luam-20260722-accumulated completed for the verified client, server, and AI gateway. Remote deployment is frozen again; every later production mutation requires fresh explicit authorization and a new policy-bound release gate.",
-    "lastReviewed":  "2026-07-22",
+    "reason":  "The verified release may be prepared locally, but the operator requested a separate confirmation immediately before any production-server update.",
+    "lastReviewed":  "2026-07-25",
     "deploymentAuthorization":  {
                                     "state":  "frozen",
                                     "approvalId":  null,
