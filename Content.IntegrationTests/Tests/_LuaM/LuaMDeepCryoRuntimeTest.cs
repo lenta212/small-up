@@ -4567,6 +4567,85 @@ public sealed class LuaMDeepCryoRuntimeTest
     }
 
     [Test]
+    public async Task FreshSpawnReattachesExactLocalPlayableBodyAfterMindWipe()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false,
+        });
+        var server = pair.Server;
+        var clientSession = pair.Client.Session;
+        Assert.That(clientSession, Is.Not.Null);
+
+        var players = server.ResolveDependency<IPlayerManager>();
+        var session = players.GetSessionById(clientSession!.UserId);
+        var entities = server.ResolveDependency<IEntityManager>();
+        var preferences = server.ResolveDependency<IServerPreferencesManager>();
+        var prototypes = server.ResolveDependency<IPrototypeManager>();
+        var db = server.ResolveDependency<IServerDbManager>();
+        var cryo = entities.System<LuaMDeepCryoPersistenceSystem>();
+        var minds = entities.System<MindSystem>();
+        var testMap = await pair.CreateTestMap();
+        var selected = preferences.GetPreferences(session.UserId);
+        var slot = selected.SelectedCharacterIndex;
+        var profile = (HumanoidCharacterProfile) selected.SelectedCharacter;
+        var species = prototypes.Index<SpeciesPrototype>(profile.Species).Prototype.Id;
+        var profileId = await db.GetCharacterIdAsync(session.UserId, slot);
+        Assert.That(profileId, Is.Not.Null);
+        var authority = await EnsurePlayableAuthorityAsync(db, session.UserId, profileId!.Value, slot);
+
+        EntityUid body = default;
+        await server.WaitAssertion(() =>
+        {
+            body = entities.SpawnEntity(species, testMap.GridCoords);
+            var identity = entities.EnsureComponent<LuaMDeepCryoIdentityComponent>(body);
+            BindPlayableTestIdentity(identity, session.UserId, profileId.Value, slot, authority);
+            identity.SlotGeneration = preferences.GetCharacterSlotGeneration(session.UserId, slot);
+            AttachSessionToBody(entities, players, minds, session, body,
+                nameof(FreshSpawnReattachesExactLocalPlayableBodyAfterMindWipe));
+            minds.WipeMind(session);
+            Assert.That(session.AttachedEntity, Is.Not.EqualTo(body));
+        });
+
+        var beforeSpawn = new PlayerBeforeSpawnEvent(
+            session,
+            profile,
+            jobId: null,
+            lateJoin: true,
+            station: EntityUid.Invalid);
+        await server.WaitPost(() => InvokePrivateEventHandler(cryo, "OnPlayerBeforeSpawn", beforeSpawn));
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (session.AttachedEntity != body && DateTime.UtcNow < deadline)
+        {
+            await server.WaitIdleAsync();
+            await pair.RunTicksSync(1);
+        }
+
+        await server.WaitAssertion(() =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(beforeSpawn.Handled, Is.True);
+                Assert.That(session.AttachedEntity, Is.EqualTo(body));
+                Assert.That(entities.EntityExists(body), Is.True);
+                Assert.That(entities.GetComponent<TransformComponent>(body).MapID, Is.Not.EqualTo(MapId.Nullspace));
+            });
+        });
+
+        var after = await db.GetLuaMDeepCryoStorePreconditionAsync(session.UserId, profileId.Value, slot);
+        Assert.Multiple(() =>
+        {
+            Assert.That(after?.Authority?.LeaseId, Is.EqualTo(authority.LeaseId));
+            Assert.That(after?.Authority?.Phase, Is.EqualTo(DbLuaMCharacterPresencePhase.Playable));
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
     public async Task SpawnLifecycleTicketIsConsumedBeforeFailedLookupAndCannotBeReused()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings

@@ -1,3 +1,12 @@
+﻿## 2026-07-25T18:59:22Z -- ghostrespawn local playable-body recovery hotfix validated
+
+- Objective: repair the production regression where ghostrespawn wipes the runtime mind but leaves the exact body and durable Playable presence active, causing subsequent join/respawn attempts to remain observers and report an occupied capsule.
+- Change: fresh-spawn preparation now reattaches only to one exact, valid local Playable body when server instance, round, profile, slot generation, lease, revision, lifecycle, and snapshot identity all match. It fails closed for foreign epochs, duplicate matches, pending Store/restore, suspended bodies, deleted bodies, and nullspace bodies; it does not weaken deep-cryo duplicate prevention.
+- Validation: dependency restore completed. Integration project build passed with 0 errors and 112 existing warnings. Focused FreshSpawnReattachesExactLocalPlayableBodyAfterMindWipe passed 1/1. LuaMServerNewsChangelogTest passed 1/1. git diff --check passed with only line-ending notices, and the release contract passed with ok=true while deployment remains frozen.
+- Player news: added Russian ServerNews entry 2026072503, author LuaM, describing the implemented return to the existing body.
+- Production/server operations: none in this iteration. No host access, service, package, database, ship, round, or player state was changed.
+- Next action: commit the hotfix and explicit deployment authorization, run powershell -NoProfile -ExecutionPolicy Bypass -File Tools/build_luam_release_package.ps1 -RunTests -RunLocalSmoke -Json, then build and guarded-deploy the receipt-bound release with a required data backup.
+
 ## 2026-07-25T18:35Z -- comprehensive release deployed to production
 
 - Objective: complete the explicitly authorized production rollout after incorporating restored-mind sanitization.

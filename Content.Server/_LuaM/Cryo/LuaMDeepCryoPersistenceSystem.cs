@@ -1914,6 +1914,13 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
             SpawnLifecycleTicket ticket;
             if (precondition.Authority is { } authority)
             {
+                if (authority.Phase == DbLuaMCharacterPresencePhase.Playable &&
+                    authority.ExpiresAtUtc > now &&
+                    TryResumeLocalPlayableBody(key, pending.SlotGeneration, authority))
+                {
+                    return;
+                }
+
                 if (authority.Phase is not (DbLuaMCharacterPresencePhase.FreshReserved or DbLuaMCharacterPresencePhase.Playable) || authority.ExpiresAtUtc > now)
                 {
                     Log.Warning($"Blocked fresh spawn for {key}: durable presence authority {authority.Phase} is active.");
@@ -1955,6 +1962,61 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
         {
             _discardPending.Remove(key);
         }
+    }
+
+    private bool TryResumeLocalPlayableBody(
+        CharacterKey key,
+        long slotGeneration,
+        LuaMCharacterPresenceAuthorityRecord authority)
+    {
+        if (authority.ServerInstanceId != _serverInstanceId || authority.RoundId != _gameTicker.RoundId)
+            return false;
+
+        if (_pendingStoreKeys.ContainsKey(key) || IsRestorePublicationActive(key))
+            return false;
+
+        EntityUid? matchingBody = null;
+        var query = EntityQueryEnumerator<LuaMDeepCryoIdentityComponent>();
+        while (query.MoveNext(out var body, out var identity))
+        {
+            if (identity.UserId != key.UserId ||
+                identity.ProfileId != key.ProfileId ||
+                identity.Slot != key.Slot ||
+                identity.SlotGeneration != slotGeneration ||
+                identity.PresenceLeaseId != authority.LeaseId ||
+                identity.PresencePhase != DbLuaMCharacterPresencePhase.Playable ||
+                identity.PresenceLeaseRevision != authority.Revision ||
+                identity.LifecycleRevision != authority.AuthorityLifecycleRevision ||
+                identity.PresenceSnapshotId != authority.SnapshotId ||
+                HasComp<LuaMDeepCryoPresenceSuspendedComponent>(body) ||
+                TerminatingOrDeleted(body) ||
+                Transform(body).MapID == MapId.Nullspace)
+            {
+                continue;
+            }
+
+            // Never guess between duplicate bodies: the durable identity must resolve uniquely.
+            if (matchingBody != null)
+            {
+                Log.Error($"Blocked local playable resume for {key}: multiple exact bodies match the durable authority.");
+                return false;
+            }
+
+            matchingBody = body;
+        }
+
+        if (matchingBody is not { } target ||
+            !_players.TryGetSessionById(key.UserId, out var session))
+        {
+            return false;
+        }
+
+        _minds.ControlMob(key.UserId, target);
+        if (session.AttachedEntity != target)
+            return false;
+
+        _liveBodies[key] = target;
+        return true;
     }
 
     private static bool IsDefinitiveForeignSpawnAuthority(
