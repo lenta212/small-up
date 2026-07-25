@@ -2,6 +2,16 @@
 
 This is the persistent operational handoff for AI-assisted production-server work. Read it together with `.agents/ITERATION_LOG.md` before accessing the host. The installed mirror is `/opt/monolith-ds/AI_SERVER_JOURNAL.md`.
 
+## 2026-07-25T18:35Z -- comprehensive LuaM release deployed and verified
+
+- Scope: deploy the explicitly authorized comprehensive LuaM release containing deep-cryo/presence authority, persistent-ship, silo, map-load, AI, bank/PDA, reagent-dispenser, and restored-mind sanitization repairs. Source package `4f6ec312d363255e7cf0a2bb769e71c2569a175fceb6594f46771bcfdbff452d` was production-eligible and independently verified; server package SHA256 was `481cfa3b93497a1b66a1f211ba665cce8f2c3c7067e32e3bdc871113f3106a7e`, client/build version is `3bb954e677fe31a7db348364da0e0f8d90d4ec65a63127beab2f4952353298e7`, and release receipt SHA256 was `6197aa59a399bec17108e46231d31f241210b3fd70dede2ff8cb014496aaaa15`.
+- Safety sequence: client static publication succeeded first and returned HTTP 200. Two server attempts while sessions were active stopped safely at the authenticated ship-save barrier with HTTP 409 before stopping or replacing the service. A temporary `inet luam_deploy_guard` blocked new non-loopback UDP/1212 sessions; after the existing sessions drained to zero, the guarded deployment completed and the table was deleted and proved absent.
+- Deployment: authenticated ship-save barrier `e5f1a3cc-73a4-4e08-8bb1-a7d3a042d19d` completed with attempted/saved/failed/activeRemaining all zero and froze publication. The script stopped the service, created data/config/server rollback material, swapped the verified package, and restarted successfully as tag `luam-20260725-comprehensive`.
+- Recovery: data archive `/opt/monolith-ds/backups/data-luam-20260725-comprehensive.tar.gz` passes `gzip -t`, is `root:root` mode `0600`, size 109,942,130 bytes. Server rollback is `/opt/monolith-ds/backups/server-luam-20260725-comprehensive`; config rollback is `/opt/monolith-ds/backups/server_config-before-luam-20260725-comprehensive.toml`.
+- Health: `monolith-ds.service` active with `NRestarts=0` and `ExecMainStatus=0`; `/status` reports round 167 and the server is accepting the new build. `/info` advertises exact version `3bb954e677fe31a7db348364da0e0f8d90d4ec65a63127beab2f4952353298e7` and its matching external client URL. Installed `Content.Server.dll` SHA256 is `03c402b58308f632864a198414578022881217aa483dd146783807dfd3afcee1`. Root storage is 83% used with about 6.6 GiB free. Startup logs show no fatal/migration failure; observed warnings were an obsolete `RandomItem`, disconnected-client sends, and one transform attachment warning.
+- Commands: complete source gate/tests/smokes; source verification; binary build and surface audit; client/server dry runs; client publication; bounded status polling; temporary nft ingress guard; final deploy with required data backup; service/status/info/hash/archive/log/storage verification. The two barrier-refused attempts and one public-status 503 during an independently starting server were partial/failed pre-deployment checks and made no server-file swap. One local PowerShell HEAD request failed from a cmdlet null-reference after `/info` had already proved the exact URL; server-side publication verification had already returned HTTP 200.
+- Policy/next action: deployment is frozen again. Run a real player smoke for login, deep cryo enter/wake/re-enter, restored ship summon, reagent dispenser slots, and absence of duplicated spirits; do not mutate production further without new explicit authorization.
+
 ## 2026-07-25T17:39Z -- duplicate-mind restoration hotfix accepted for authorized rollout
 
 - Scope: incorporate the read-only production diagnosis of repeated copied spirits into the verified release after the operator explicitly confirmed the production update. No production package, service, database, round, ship, or player mutation has occurred at the time of this entry.
@@ -1165,3 +1175,33 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Recovery: no action was taken. Do not delete entities or restart the service while players are active without a separately authorized, bounded remediation plan.
 
 Next action: reproduce the invalid `Mind` reference path locally from a copy of the affected shuttle snapshot, then add snapshot sanitization and a regression before any production cleanup.
+
+## 2026-07-25T18:15Z -- read-only intrusion indicators audit
+
+- Performed a bounded, read-only 24-hour audit of SSH authentication, fail2ban, privilege/service-change records, enabled units, listening sockets, game health, storage, and journal mirror metadata. No host mutation was made.
+- No unrecognized successful SSH authentication was found: all retained successful SSH entries used the expected `monolithadmin` public-key identity. The privilege/service records were consistent with the documented deployment/restart activity; no unexpected account, SSH-key, sudoers, service-enable, or cron-install entry was found in the bounded query.
+- SSH is under continued password-brute-force pressure: 1,287 failed/invalid authentication events in the preceding 24 hours. Fail2ban had 16 currently banned addresses and 497 total bans; this is attack traffic, not proof of a successful intrusion.
+- Listener review showed only expected public SSH, HTTP, game ports, and documented loopback services. `monolith-ds.service` was active with zero restarts since its documented startup; round 164 had four players. Root storage remained 91% used with about 3.5 GiB free.
+- Assessment: the inspected evidence shows no sign of successful external penetration, but retained logs cannot prove absence of compromise. Continue monitoring and investigate immediately if an unfamiliar successful SSH key/user, new listener, unapproved privileged action, or unexpected unit appears.
+
+Next action: retain the current fail2ban/SSH monitoring and perform a separate integrity-baseline audit of authorized keys, sudo policy, systemd units, and deployed binaries before the next production release.
+
+## 2026-07-25T18:23Z -- bounded disk-space recovery
+
+- User requested disk-space recovery. Read-only preflight found the root filesystem at 93% used with about 2.9 GiB free while round 164 was running with five players; `monolith-ds.service` was active.
+- Removed only verified obsolete deployment material: five `server.prev-*` rollback directories from 2026-07-02/03 and stale failed/obsolete deployment-stage extracts, ZIPs, and Python cache. The current `server-luam-20260725-comprehensive` staging directory and ZIP were deliberately retained.
+- No live server directory, `/opt/monolith-ds/data`, database, configuration, active client publication, current staging input, backup set, service, player, or round state was changed.
+- Result: root free space increased to 7,133,229,056 bytes (about 6.6 GiB), 83% used. The remaining deployment staging is about 307 MiB.
+- Recovery: deleted files were obsolete rollback/deployment copies only; current production remains unchanged. If an old July 2/3 rollback artifact is exceptionally needed, recover it from an external/off-host source rather than the live server.
+
+Next action: retain the current staging release input until its deployment outcome is resolved; separately define backup/client retention before deleting any retained recovery or public-client artifacts.
+
+## 2026-07-25T18:28Z -- user-authorized service restart
+
+- User explicitly requested a server restart while round 165 had six connected players. Preflight confirmed the active service, journal mirror metadata, and about 7.13 GB free on root.
+- Restarted only `monolith-ds.service` with `sudo systemctl restart monolith-ds.service`; no package swap, configuration change, database mutation, snapshot mutation, or cleanup was performed.
+- Initial status probes during startup failed because the local status listener was not ready yet; this was transient. The service log then reported `Ready`, hub advertisement succeeded, and the final `/status` check reported round 166 in lobby with zero players.
+- Post-restart health: service active, game listener restored on TCP/UDP 1212, root free space 7,140,171,776 bytes (83% used). Startup emitted existing duplicate-emote warnings and one initial main-loop catch-up warning only.
+- Recovery: restarting the same service is the rollback action if needed: `sudo systemctl restart monolith-ds.service`.
+
+Next action: monitor player reconnection and do not assume the un-deployed release changes are present; this restart used the existing live server directory.
