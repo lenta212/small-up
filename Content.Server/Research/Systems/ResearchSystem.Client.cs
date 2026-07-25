@@ -11,6 +11,7 @@ public sealed partial class ResearchSystem
     private void InitializeClient()
     {
         SubscribeLocalEvent<ResearchClientComponent, MapInitEvent>(OnClientMapInit);
+        SubscribeLocalEvent<ResearchClientComponent, EntParentChangedMessage>(OnClientParentChanged);
         SubscribeLocalEvent<ResearchClientComponent, ComponentShutdown>(OnClientShutdown);
         SubscribeLocalEvent<ResearchClientComponent, BoundUIOpenedEvent>(OnClientUIOpen);
         SubscribeLocalEvent<ResearchClientComponent, ConsoleServerSelectionMessage>(OnConsoleSelect);
@@ -58,6 +59,22 @@ public sealed partial class ResearchSystem
     }
 
     private void OnClientMapInit(EntityUid uid, ResearchClientComponent component, MapInitEvent args)
+    {
+        RegisterClientWithLocalServers(uid, component);
+    }
+
+    private void OnClientParentChanged(
+        EntityUid uid,
+        ResearchClientComponent component,
+        ref EntParentChangedMessage args)
+    {
+        // Persisted grids are already map-initialized, so MapInitEvent is not
+        // raised during their load. The final parent assignment is the point at
+        // which the restored console can safely discover its local R&D server.
+        RegisterClientWithLocalServers(uid, component);
+    }
+
+    private void RegisterClientWithLocalServers(EntityUid uid, ResearchClientComponent component)
     {
         var maybeGrid = Transform(uid).GridUid;
         if (maybeGrid is { } grid)

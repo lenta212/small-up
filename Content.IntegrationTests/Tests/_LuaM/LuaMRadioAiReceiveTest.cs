@@ -7,6 +7,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using Content.Server._NF.Radio;
 using Content.Server._LuaM.Sector;
 using Content.Server.Chat.V2;
 using Content.Server.Mind;
@@ -70,7 +71,8 @@ public sealed class LuaMRadioAiReceiveTest
             var radioChannel = proto.Index<RadioChannelPrototype>(SharedChatSystem.CommonChannel);
             var language = SharedLanguageSystem.Universal;
             var component = new ActiveRadioComponent();
-            var message = new ChatMessage(ChatChannel.Radio, "ИИ, статус", "ИИ, статус", NetEntity.Invalid, null);
+            var messageText = "\u043d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u044b\u0439, \u0441\u0442\u0430\u0442\u0443\u0441";
+            var message = new ChatMessage(ChatChannel.Radio, messageText, messageText, NetEntity.Invalid, null);
             var eventArgs = new RadioReceiveEvent(speaker, radioChannel, message, message, language, speaker, []);
 
             var method = typeof(LuaMSectorAiDirectorSystem).GetMethod(
@@ -88,11 +90,51 @@ public sealed class LuaMRadioAiReceiveTest
             await server.WaitAssertion(() =>
             {
                 var tokens = GetPrivateDictionary<string, TimeSpan>(director, "_pendingAiRadioReplyTokens");
+                var actors = GetPrivateDictionary<string, string>(director, "_pendingAiRadioReplyActors");
                 var payloads = GetPrivateDictionary<string, TimeSpan>(director, "_recentAiRadioPayloads");
 
-                Assert.That(tokens.Count, Is.GreaterThanOrEqualTo(1));
+                Assert.That(tokens, Is.Empty);
+                Assert.That(actors, Is.Empty);
                 Assert.That(payloads.Count, Is.GreaterThanOrEqualTo(1));
                 Assert.That(payloads.Keys.Any(key => key.Contains(radioChannel.ID, StringComparison.OrdinalIgnoreCase)), Is.True);
+            });
+
+            var transformMethod = typeof(LuaMSectorAiDirectorSystem).GetMethod(
+                "OnRadioTransformMessage",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(transformMethod, Is.Not.Null, "Missing private OnRadioTransformMessage method");
+
+            await server.WaitPost(() =>
+            {
+                const string knownToken = "known-radio-transform-token";
+                const string replyText = "\u041d\u0435 \u043f\u043e\u043d\u044f\u043b, \u043a\u0430\u043a \u044d\u0442\u043e \u0441\u0434\u0435\u043b\u0430\u0442\u044c.";
+                const string replyActor = "\u041d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u044b\u0439";
+                var tokens = GetPrivateDictionary<string, TimeSpan>(director, "_pendingAiRadioReplyTokens");
+                var actors = GetPrivateDictionary<string, string>(director, "_pendingAiRadioReplyActors");
+                tokens[knownToken] = TimeSpan.MaxValue;
+                actors[knownToken] = replyActor;
+
+                var transform = new RadioTransformMessageEvent(
+                    radioChannel,
+                    speaker,
+                    "ignored",
+                    $"__LUAM_AI_RADIO__{knownToken}|{replyText}",
+                    speaker);
+                object[] invokeArgs =
+                [
+                    speaker,
+                    entMan.GetComponent<MetaDataComponent>(speaker),
+                    transform,
+                ];
+
+                transformMethod!.Invoke(director, invokeArgs);
+                var result = (RadioTransformMessageEvent) invokeArgs[2];
+
+                Assert.That(result.Message, Is.EqualTo(replyText));
+                Assert.That(result.Message, Does.Not.Contain("__LUAM_AI_RADIO__"));
+                Assert.That(result.Name, Is.EqualTo(replyActor));
+                Assert.That(tokens, Is.Empty);
+                Assert.That(actors, Is.Empty);
             });
         }
         finally
@@ -163,8 +205,8 @@ public sealed class LuaMRadioAiReceiveTest
                 var actors = GetPrivateDictionary<string, string>(director, "_pendingAiRadioReplyActors");
                 var payloads = GetPrivateDictionary<string, TimeSpan>(director, "_recentAiRadioPayloads");
 
-                Assert.That(tokens.Count, Is.GreaterThanOrEqualTo(1));
-                Assert.That(actors.Values, Does.Contain("\u0410\u0439\u0431\u043e\u043b\u0438\u0442"));
+                Assert.That(tokens, Is.Empty);
+                Assert.That(actors, Is.Empty);
                 Assert.That(payloads.Keys.Any(key => key.Contains("\u0410\u0439\u0431\u043e\u043b\u0438\u0442 \u043d\u0430 \u0441\u0432\u044f\u0437\u0438.", StringComparison.Ordinal)), Is.True);
                 Assert.That(payloads.Keys.Any(key => key.Contains("Медканал чистый", StringComparison.Ordinal)), Is.True);
                 Assert.That(payloads.Keys.Any(key => key.Contains("Секторная память LuaM", StringComparison.Ordinal)), Is.True);
@@ -252,8 +294,8 @@ public sealed class LuaMRadioAiReceiveTest
                 Assert.That(handler.LastBody, Does.Contain("current-status"));
                 Assert.That(handler.LastBody, Does.Contain("local-fallback-style"));
                 Assert.That(handler.LastBody, Does.Contain("\"allowedActions\":[\"none\"]"));
-                Assert.That(tokens.Count, Is.GreaterThanOrEqualTo(1));
-                Assert.That(actors.Values, Does.Contain("\u0410\u0439\u0431\u043e\u043b\u0438\u0442"));
+                Assert.That(tokens, Is.Empty);
+                Assert.That(actors, Is.Empty);
                 Assert.That(payloads.Keys.Any(key => key.Contains("Еду по текущему медсигналу", StringComparison.Ordinal)), Is.True);
             });
         }
@@ -288,6 +330,10 @@ public sealed class LuaMRadioAiReceiveTest
             var mindSystem = entMan.System<MindSystem>();
             var proto = server.ResolveDependency<IPrototypeManager>();
             var director = entMan.System<LuaMSectorAiDirectorSystem>();
+            var unknownOperatorField = typeof(LuaMSectorAiDirectorSystem).GetField(
+                "_unknownOperator",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(unknownOperatorField, Is.Not.Null, "Missing private _unknownOperator field");
             var testMap = await pair.CreateTestMap();
             EntityUid speaker = default;
 
@@ -297,6 +343,7 @@ public sealed class LuaMRadioAiReceiveTest
                 var mind = mindSystem.CreateMind(serverSession.UserId, "LuaMSharedPlayerAiCooldownTest");
                 mindSystem.TransferTo(mind, speaker);
                 playerMan.SetAttachedEntity(serverSession, speaker);
+                unknownOperatorField!.SetValue(director, speaker);
 
                 GetPrivateDictionary<NetUserId, TimeSpan>(director, "_nextPlayerWorldActionByUser").Clear();
                 GetPrivateDictionary<string, TimeSpan>(director, "_recentRadioAiRequests").Clear();

@@ -2,12 +2,14 @@
 
 using System.Collections;
 using System.Collections.Generic;
+using System.Numerics;
 using Content.Server._LuaM.Sector;
 using Content.Server._NF.SectorServices;
 using Content.Shared.CCVar;
 using System.Reflection;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
+using Robust.Shared.Player;
 using Robust.Server.Player;
 using NUnit.Framework;
 
@@ -366,6 +368,7 @@ public sealed class LuaMPlayerAiRequestTest
             string reply = string.Empty;
             await server.WaitPost(() =>
             {
+                AttachActiveBody(entMan, playerMan, serverSession);
                 reply = director.HandlePlayerAiRequest(serverSession, "mission", "integration");
             });
 
@@ -403,6 +406,7 @@ public sealed class LuaMPlayerAiRequestTest
             string reply = string.Empty;
             await server.WaitPost(() =>
             {
+                AttachActiveBody(entMan, playerMan, serverSession);
                 reply = director.HandlePlayerAiRequest(serverSession, "врата", "integration");
             });
 
@@ -440,6 +444,7 @@ public sealed class LuaMPlayerAiRequestTest
             string reply = string.Empty;
             await server.WaitPost(() =>
             {
+                AttachActiveBody(entMan, playerMan, serverSession);
                 reply = director.HandlePlayerAiRequest(serverSession, "опасность", "integration");
             });
 
@@ -450,6 +455,17 @@ public sealed class LuaMPlayerAiRequestTest
         {
             await pair.CleanReturnAsync();
         }
+    }
+
+    private static void AttachActiveBody(
+        IEntityManager entityManager,
+        IPlayerManager playerManager,
+        ICommonSession session)
+    {
+        var maps = entityManager.System<SharedMapSystem>();
+        maps.CreateMap(out var mapId);
+        var body = entityManager.SpawnEntity("MobHuman", new MapCoordinates(Vector2.Zero, mapId));
+        playerManager.SetAttachedEntity(session, body, true);
     }
 
     [Test]

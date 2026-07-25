@@ -1110,17 +1110,34 @@ namespace Content.Server.Database.Migrations.Postgres
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("expires_at_utc");
 
+                    b.Property<long>("AuthorityLifecycleRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("authority_lifecycle_revision");
+
                     b.Property<Guid>("LeaseId")
                         .HasColumnType("uuid")
                         .HasColumnName("lease_id");
+
+                    b.Property<string>("LastRenewalOperationIdentityKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("last_renewal_operation_identity_key");
+
+                    b.Property<Guid?>("LastRenewalOperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_renewal_operation_id");
+
+                    b.Property<int>("Phase")
+                        .HasColumnType("integer")
+                        .HasColumnName("phase");
 
                     b.Property<DateTime>("RenewedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("renewed_at_utc");
 
-                    b.Property<int>("RestoreRoundId")
+                    b.Property<int>("RoundId")
                         .HasColumnType("integer")
-                        .HasColumnName("restore_round_id");
+                        .HasColumnName("round_id");
 
                     b.Property<long>("Revision")
                         .IsConcurrencyToken()
@@ -1133,7 +1150,7 @@ namespace Content.Server.Database.Migrations.Postgres
                         .HasColumnType("character varying(128)")
                         .HasColumnName("server_instance_id");
 
-                    b.Property<long>("SnapshotId")
+                    b.Property<long?>("SnapshotId")
                         .HasColumnType("bigint")
                         .HasColumnName("snapshot_id");
 
@@ -1144,8 +1161,11 @@ namespace Content.Server.Database.Migrations.Postgres
 
                     b.HasIndex(new[] { "ExpiresAtUtc" }, "IX_luam_cryo_lease_expires");
 
+                    b.HasIndex(new[] { "Phase", "ExpiresAtUtc" }, "IX_luam_cryo_lease_phase_expires");
+
                     b.HasIndex(new[] { "SnapshotId" }, "UX_luam_cryo_lease_snapshot")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("snapshot_id IS NOT NULL");
 
                     b.HasIndex(new[] { "LeaseId" }, "UX_luam_cryo_lease_token")
                         .IsUnique();
@@ -1154,9 +1174,126 @@ namespace Content.Server.Database.Migrations.Postgres
                         {
                             t.HasCheckConstraint("CK_luam_cryo_lease_dates", "acquired_at_utc <= renewed_at_utc AND renewed_at_utc < expires_at_utc");
 
-                            t.HasCheckConstraint("CK_luam_cryo_lease_revision", "revision >= 0");
+                            t.HasCheckConstraint("CK_luam_cryo_lease_last_renewal", "(last_renewal_operation_id IS NULL AND last_renewal_operation_identity_key IS NULL) OR (last_renewal_operation_id IS NOT NULL AND last_renewal_operation_identity_key IS NOT NULL AND length(last_renewal_operation_identity_key) = 64)");
 
-                            t.HasCheckConstraint("CK_luam_cryo_lease_round", "restore_round_id >= 0");
+                            t.HasCheckConstraint("CK_luam_cryo_lease_phase", "phase >= 0 AND phase <= 2");
+
+                            t.HasCheckConstraint("CK_luam_cryo_lease_revision", "revision >= 0 AND authority_lifecycle_revision >= 0");
+
+                            t.HasCheckConstraint("CK_luam_cryo_lease_round", "round_id >= 0");
+
+                            t.HasCheckConstraint("CK_luam_cryo_lease_snapshot_phase", "(phase = 0 AND snapshot_id IS NOT NULL) OR (phase = 1 AND snapshot_id IS NULL) OR phase = 2");
+                        });
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCharacterPresenceOperation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("lua_m_character_presence_operations_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("operation_id");
+
+                    b.Property<string>("OperationIdentityKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("operation_identity_key");
+
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("integer")
+                        .HasColumnName("profile_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTime?>("ResultAcquiredAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("result_acquired_at_utc");
+
+                    b.Property<long?>("ResultAuthorityLifecycleRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("result_authority_lifecycle_revision");
+
+                    b.Property<DateTime?>("ResultExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("result_expires_at_utc");
+
+                    b.Property<bool>("ResultHasAuthority")
+                        .HasColumnType("boolean")
+                        .HasColumnName("result_has_authority");
+
+                    b.Property<Guid?>("ResultLeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("result_lease_id");
+
+                    b.Property<long?>("ResultLeaseRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("result_lease_revision");
+
+                    b.Property<long>("ResultLifecycleRevision")
+                        .HasColumnType("bigint")
+                        .HasColumnName("result_lifecycle_revision");
+
+                    b.Property<int?>("ResultPhase")
+                        .HasColumnType("integer")
+                        .HasColumnName("result_phase");
+
+                    b.Property<DateTime?>("ResultRenewedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("result_renewed_at_utc");
+
+                    b.Property<int?>("ResultRoundId")
+                        .HasColumnType("integer")
+                        .HasColumnName("result_round_id");
+
+                    b.Property<string>("ResultServerInstanceId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("result_server_instance_id");
+
+                    b.Property<long?>("ResultSnapshotId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("result_snapshot_id");
+
+                    b.HasKey("Id")
+                        .HasName("PK_luam_character_presence_operation");
+
+                    b.HasIndex(new[] { "ProfileId", "CreatedAtUtc" }, "IX_luam_presence_operation_profile_created");
+
+                    b.HasIndex(new[] { "OperationId" }, "UX_luam_presence_operation_id")
+                        .IsUnique();
+
+                    b.ToTable("luam_character_presence_operation", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_luam_presence_operation_authority", "(result_has_authority = FALSE AND result_snapshot_id IS NULL AND result_lease_id IS NULL AND result_phase IS NULL AND result_server_instance_id IS NULL AND result_round_id IS NULL AND result_acquired_at_utc IS NULL AND result_renewed_at_utc IS NULL AND result_expires_at_utc IS NULL AND result_lease_revision IS NULL AND result_authority_lifecycle_revision IS NULL) OR (result_has_authority = TRUE AND result_lease_id IS NOT NULL AND result_phase IS NOT NULL AND result_phase BETWEEN 0 AND 2 AND result_server_instance_id IS NOT NULL AND result_round_id IS NOT NULL AND result_round_id >= 0 AND result_acquired_at_utc IS NOT NULL AND result_renewed_at_utc IS NOT NULL AND result_expires_at_utc IS NOT NULL AND result_acquired_at_utc <= result_renewed_at_utc AND result_renewed_at_utc < result_expires_at_utc AND result_lease_revision IS NOT NULL AND result_lease_revision >= 0 AND result_authority_lifecycle_revision IS NOT NULL AND result_authority_lifecycle_revision >= 0)");
+
+                            t.HasCheckConstraint("CK_luam_presence_operation_epoch", "result_has_authority = FALSE OR result_authority_lifecycle_revision = result_lifecycle_revision");
+
+                            t.HasCheckConstraint("CK_luam_presence_operation_identity", "length(operation_identity_key) = 64");
+
+                            t.HasCheckConstraint("CK_luam_presence_operation_kind", "kind >= 0 AND kind <= 3");
+
+                            t.HasCheckConstraint("CK_luam_presence_operation_kind_result", "(kind = 0 AND result_has_authority = TRUE AND result_phase = 1 AND result_snapshot_id IS NULL AND reason IS NULL) OR (kind = 1 AND result_has_authority = TRUE AND result_phase = 2 AND result_snapshot_id IS NULL AND reason IS NULL) OR (kind = 2 AND result_has_authority = FALSE AND reason IS NOT NULL) OR (kind = 3 AND result_has_authority = TRUE AND result_phase = 1 AND result_snapshot_id IS NULL AND reason IS NULL)");
+
+                            t.HasCheckConstraint("CK_luam_presence_operation_revision", "result_lifecycle_revision >= 0 AND (result_lease_revision IS NULL OR result_lease_revision >= 0) AND (result_authority_lifecycle_revision IS NULL OR result_authority_lifecycle_revision >= 0)");
+
+                            t.HasCheckConstraint("CK_luam_presence_operation_snapshot_phase", "result_has_authority = FALSE OR (result_phase <> 0 OR result_snapshot_id IS NOT NULL)");
                         });
                 });
 
@@ -3464,8 +3601,17 @@ namespace Content.Server.Database.Migrations.Postgres
                         .HasForeignKey("SnapshotId", "ProfileId")
                         .HasPrincipalKey("Id", "ProfileId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
                         .HasConstraintName("FK_luam_character_presence_lease_luam_deep_cryo_snapshot_lua_m~");
+                });
+
+            modelBuilder.Entity("Content.Server.Database.LuaMCharacterPresenceOperation", b =>
+                {
+                    b.HasOne("Content.Server.Database.Profile", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_luam_character_presence_operation_profile_profile_id");
                 });
 
             modelBuilder.Entity("Content.Server.Database.LuaMDeepCryoOperation", b =>

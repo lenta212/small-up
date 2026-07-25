@@ -8,6 +8,7 @@ using System.Threading;
 using Content.Server._Mono.MonoCoins;
 using Content.Server.Database;
 using Content.Server._NF.Bank;
+using Content.Server.Preferences.Managers;
 using Content.Shared._NF.Bank.Components;
 using Content.Shared.Preferences;
 using NUnit.Framework;
@@ -49,6 +50,27 @@ public sealed class LuaMBankPersistenceTest
         proxyState.Inner = realDb;
         EntityUid actor = default;
         Task<bool>? withdrawal = null;
+        var preferences = server.ResolveDependency<IServerPreferencesManager>();
+
+        var durable = await realDb.GetPlayerPreferencesSnapshotAsync(session.UserId);
+        Assert.That(durable, Is.Not.Null);
+        var slot = Enumerable.Range(0, 30)
+            .First(candidate => !durable!.Preferences.Characters.ContainsKey(candidate));
+        var fixtureProfile = new HumanoidCharacterProfile
+        {
+            Name = $"Bank teardown {Guid.NewGuid():N}"[..31],
+            FlavorText = string.Empty,
+            Species = "Human",
+            Age = 30,
+            Appearance = new(
+                "Afro", Color.Aqua, "Shaved", Color.Aquamarine,
+                Color.Azure, Color.Beige, new()),
+        };
+        await realDb.SaveCharacterSlotAsync(session.UserId, fixtureProfile, slot);
+        await realDb.SaveSelectedCharacterIndexAsync(session.UserId, slot);
+        Task? refresh = null;
+        await server.WaitPost(() => refresh = preferences.RefreshPreferencesAsync(session, default));
+        await refresh!;
 
         async Task DrainWithdrawalAsync()
         {
@@ -72,7 +94,12 @@ public sealed class LuaMBankPersistenceTest
             await server.WaitPost(() =>
             {
                 actor = entityManager.SpawnEntity("MobHuman", map.GridCoords);
-                playerManager.SetAttachedEntity(session, actor);
+                var minds = entityManager.System<Content.Server.Mind.MindSystem>();
+                var mind = minds.TryGetMind(session.UserId, out var mindId, out var mindComponent)
+                    ? new Entity<Content.Shared.Mind.MindComponent>(mindId.Value, mindComponent)
+                    : minds.CreateMind(session.UserId, nameof(LuaMBankPersistenceTest));
+                minds.TransferTo(mind, actor, createGhost: false, mind: mind.Comp);
+                playerManager.SetAttachedEntity(session, actor, true);
                 entityManager.EnsureComponent<BankAccountComponent>(actor);
                 bank.SyncBankBalance(actor);
             });
@@ -84,13 +111,13 @@ public sealed class LuaMBankPersistenceTest
                 Assert.That(bank.TryGetBalance(actor, out originalBalance), Is.True);
                 Assert.That(originalBalance, Is.GreaterThan(100));
             });
-            var profileId = await realDb.GetCharacterIdAsync(session.UserId, 0);
+            var profileId = await realDb.GetCharacterIdAsync(session.UserId, slot);
             Assert.That(profileId, Is.Not.Null, "The teardown regression requires a durable profile identity.");
             Assert.That(
                 await realDb.GetCharacterBankBalanceAsync(
                     session.UserId,
                     profileId.GetValueOrDefault(),
-                    0),
+                    slot),
                 Is.EqualTo(originalBalance),
                 "The runtime projection must start from the exact durable profile balance.");
 
@@ -127,7 +154,7 @@ public sealed class LuaMBankPersistenceTest
             var durableBalance = await realDb.GetCharacterBankBalanceAsync(
                 session.UserId,
                 profileId.GetValueOrDefault(),
-                0);
+                slot);
             Assert.Multiple(() =>
             {
                 Assert.That(writes, Has.Count.EqualTo(2));

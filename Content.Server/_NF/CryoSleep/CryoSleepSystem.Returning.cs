@@ -73,11 +73,23 @@ public sealed partial class CryoSleepSystem
         }
 
         var body = handle.Body;
+        var retainedEpisodePod = EntityUid.Invalid;
+        var retainedEpisodeRevision = 0L;
+        if (_storedBodies.TryGetValue(id.Value, out var retainedEpisode) &&
+            retainedEpisode is { } episode &&
+            episode.Body == body &&
+            episode.SnapshotId == handle.SnapshotId)
+        {
+            retainedEpisodePod = episode.Cryopod;
+            retainedEpisodeRevision = episode.Revision;
+        }
+
         if (!Exists(body))
         {
             await _deepCryo.AbortRestoreAsync(handle, "claimed-body-missing");
             return ReturnToBodyStatus.BodyMissing;
         }
+        var unpublishedCoordinates = Transform(body).Coordinates;
 
         if (!TryReserveRestorePod(id.Value, body, handle.LeaseId, out var cryopod, out var cryoComp))
         {
@@ -87,13 +99,38 @@ public sealed partial class CryoSleepSystem
 
         // The reservation prevents another player entering this pod while the
         // durable CAS transition is in flight.
-        if (!await _deepCryo.ConsumeRestoreAsync(handle))
+        var consume = await _deepCryo.ConsumeRestoreAsync(handle, FinalizeDetachedTerminal);
+        if (consume.Status == LuaMDeepCryoConsumeStatus.Busy)
+        {
+            Log.Warning($"Ignored duplicate deep-cryo consume for {id.Value}; the original publication owner retains its receipt and reservation.");
+            return ReturnToBodyStatus.BodyMissing;
+        }
+        if (consume.Status == LuaMDeepCryoConsumeStatus.Failed)
         {
             ClearRestoreReservation(cryopod, handle.LeaseId);
             return ReturnToBodyStatus.BodyMissing;
         }
+        if (!_deepCryo.TryResolvePublicationReceipt(handle, consume.Receipt, out var receipt))
+        {
+            Log.Error($"Deep-cryo consume for {id.Value} returned {consume.Status} without its internally retained publication receipt; retaining its body, reservation, and fence.");
+            return ReturnToBodyStatus.BodyMissing;
+        }
+        if (consume.Status == LuaMDeepCryoConsumeStatus.Indeterminate)
+        {
+            if (!await _deepCryo.RollbackUnpublishedRestoreAsync(
+                    receipt,
+                    "frontier-complete-outcome-indeterminate",
+                    RestoreUnpublishedWorldState))
+                Log.Error($"Deep-cryo completion for {id.Value} remains indeterminate; body and reservation stay unpublished.");
 
-        var published = false;
+            return ReturnToBodyStatus.BodyMissing;
+        }
+
+        var acknowledged = false;
+        var authorized = false;
+        var terminalResolved = false;
+        var controlConfirmed = false;
+        var publicationFailure = "frontier-publication-failed-before-control";
         try
         {
             if (!Exists(body) || !Exists(cryopod) ||
@@ -102,6 +139,7 @@ public sealed partial class CryoSleepSystem
                 !TryComp<CryoSleepComponent>(cryopod, out cryoComp) ||
                 cryoComp.BodyContainer.ContainedEntity != null)
             {
+                publicationFailure = "frontier-pod-invalid-after-consume";
                 return ReturnToBodyStatus.Occupied;
             }
 
@@ -110,32 +148,169 @@ public sealed partial class CryoSleepSystem
             // insert so its insertion guard does not reject our own body.
             ClearRestoreReservation(cryopod, handle.LeaseId);
             if (!_container.Insert(body, cryoComp.BodyContainer))
+            {
+                publicationFailure = "frontier-body-insert-failed-after-consume";
                 return ReturnToBodyStatus.Occupied;
+            }
 
-            _storedBodies.Remove(id.Value);
-            _mind.ControlMob(id.Value, body);
-            published = true;
+            // Keep the body physically closed while the durable ACK is pending.
+            EnsureComp<LuaMDeepCryoRestoreReservationComponent>(cryopod).LeaseId = handle.LeaseId;
 
-            // Returning means the player explicitly chose to wake up. Clear the
-            // restored sleep state (and its action) and place them outside the pod.
+            var authorization = await _deepCryo.AuthorizeRestorePublicationAsync(receipt);
+            if (authorization != LuaMDeepCryoAuthorizationStatus.Authorized)
+            {
+                terminalResolved = authorization == LuaMDeepCryoAuthorizationStatus.Terminal;
+                publicationFailure = "frontier-authorization-rejected-before-exposure";
+                return ReturnToBodyStatus.BodyMissing;
+            }
+
+            authorized = true;
+            if (!_deepCryo.IsRestorePublicationGenerationCurrent(receipt))
+            {
+                publicationFailure = "frontier-round-ended-after-authorization";
+                return ReturnToBodyStatus.BodyMissing;
+            }
+
+            try
+            {
+                _mind.ControlMob(id.Value, body);
+            }
+            catch (Exception e)
+            {
+                Log.Error($"Deep-cryo control transfer threw for {id.Value}: {e}");
+            }
+
+            controlConfirmed = mind.OwnedEntity == body &&
+                               mind.CurrentEntity == body &&
+                               _player.TryGetSessionById(id.Value, out var playerSession) &&
+                               playerSession.AttachedEntity == body;
+            if (!controlConfirmed)
+            {
+                Log.Error($"Deep-cryo control transfer for {id.Value} could not be proven complete; retaining the prepared lease and physical fence.");
+                return ReturnToBodyStatus.BodyMissing;
+            }
+
+            acknowledged = await _deepCryo.AcknowledgeRestorePublicationAsync(receipt, FinalizeAcknowledgedWake);
+            if (!acknowledged)
+            {
+                Log.Error($"Deep-cryo ACK for {id.Value} is pending; body remains closed in its reserved pod.");
+                return ReturnToBodyStatus.BodyMissing;
+            }
+
+            return ReturnToBodyStatus.Success;
+        }
+        finally
+        {
+            if (!terminalResolved && !_deepCryo.IsRestorePublicationGenerationCurrent(receipt))
+                terminalResolved = true;
+
+            if (terminalResolved)
+            {
+                // The pending AUTH was resolved by round cleanup and its exact
+                // rollback/quarantine callback already handled the body fence.
+            }
+            else if (controlConfirmed)
+            {
+                if (!acknowledged && Exists(cryopod))
+                    EnsureComp<LuaMDeepCryoRestoreReservationComponent>(cryopod).LeaseId = handle.LeaseId;
+            }
+            else if (authorized)
+            {
+                // AUTH is the durable point of no return. If live attachment was
+                // not proven, retain the payload for operators instead of ACKing
+                // a missing body or reopening it to Stored.
+                if (Exists(cryopod))
+                    EnsureComp<LuaMDeepCryoRestoreReservationComponent>(cryopod).LeaseId = handle.LeaseId;
+
+                if (!await _deepCryo.QuarantineAuthorizedPublicationAsync(
+                        receipt,
+                        "frontier-authorized-publication-unconfirmed",
+                        FinalizeAuthorizedFailure))
+                {
+                    Log.Error($"Deep-cryo authorized failure quarantine for {id.Value} is pending; body remains physically fenced.");
+                }
+            }
+            else if (!await _deepCryo.RollbackUnpublishedRestoreAsync(
+                         receipt,
+                         publicationFailure,
+                         RestoreUnpublishedWorldState))
+            {
+                if (Exists(cryopod))
+                    EnsureComp<LuaMDeepCryoRestoreReservationComponent>(cryopod).LeaseId = handle.LeaseId;
+                Log.Error($"Deep-cryo rollback for {id.Value} is unresolved; retaining the unpublished body and publication fence.");
+            }
+        }
+
+        void RestoreUnpublishedWorldState()
+        {
+            if (!handle.Deserialized && Exists(body))
+            {
+                if (_container.TryGetContainingContainer((body, null, null), out var currentContainer))
+                    _container.Remove(body, currentContainer, reparent: false, force: true);
+                Transform(body).Coordinates = unpublishedCoordinates;
+            }
+
+            if (retainedEpisodePod.Valid &&
+                UpdateStoredBodyEpisodeRevision(
+                    id.Value,
+                    body,
+                    retainedEpisodePod,
+                    handle.SnapshotId,
+                    retainedEpisodeRevision,
+                    receipt.PreparedRevision + 1))
+            {
+                retainedEpisodeRevision = receipt.PreparedRevision + 1;
+            }
+
+            ClearRestoreReservation(cryopod, handle.LeaseId);
+        }
+
+        void FinalizeAuthorizedFailure()
+        {
+            ForgetRetainedEpisode();
+            ClearRestoreReservation(cryopod, handle.LeaseId);
+            if (Exists(body))
+                QueueDel(body);
+        }
+
+        void FinalizeDetachedTerminal()
+        {
+            ForgetRetainedEpisode();
+            ClearRestoreReservation(cryopod, handle.LeaseId);
+            if (_deepCryo.IsExactRestoreBody(handle))
+                QueueDel(body);
+        }
+
+        void FinalizeAcknowledgedWake()
+        {
+            ForgetRetainedEpisode();
+            ClearRestoreReservation(cryopod, handle.LeaseId);
+            if (!Exists(body) || !Exists(cryopod) || !TryComp<CryoSleepComponent>(cryopod, out var currentCryo))
+                return;
+
             _sleeping.TryWaking(body, force: true);
-            if (!EjectBody(cryopod, cryoComp, body))
+            if (!EjectBody(cryopod, currentCryo, body))
             {
                 Log.Error($"Restored deep-cryo body {ToPrettyString(body)} remained in {ToPrettyString(cryopod)}; forcing container removal.");
-                _container.Remove(body, cryoComp.BodyContainer, force: true);
+                _container.Remove(body, currentCryo.BodyContainer, force: true);
             }
 
             _popup.PopupEntity(Loc.GetString("cryopod-wake-up", ("entity", body)), body);
             RaiseLocalEvent(body, new CryosleepWakeUpEvent(cryopod, id), true);
             _adminLogger.Add(LogType.LateJoin, LogImpact.Medium, $"{id.Value} has returned from durable deep cryosleep!");
-            return ReturnToBodyStatus.Success;
         }
-        finally
+
+        void ForgetRetainedEpisode()
         {
-            if (!published && Exists(body))
-                QueueDel(body);
-            ClearRestoreReservation(cryopod, handle.LeaseId);
-            _deepCryo.FinishRestorePublication(handle);
+            if (retainedEpisodePod.Valid)
+            {
+                RemoveStoredBodyEpisode(
+                    id.Value,
+                    body,
+                    retainedEpisodePod,
+                    handle.SnapshotId,
+                    retainedEpisodeRevision);
+            }
         }
     }
 
@@ -189,15 +364,67 @@ public sealed partial class CryoSleepSystem
         }
     }
 
+    private bool RemoveStoredBodyEpisode(
+        NetUserId id,
+        EntityUid expectedBody,
+        EntityUid expectedPod,
+        long expectedSnapshotId,
+        long expectedRevision)
+    {
+        if (!_storedBodies.TryGetValue(id, out var retained) ||
+            retained is not { } episode ||
+            episode.Body != expectedBody ||
+            episode.Cryopod != expectedPod ||
+            episode.SnapshotId != expectedSnapshotId ||
+            episode.Revision != expectedRevision)
+        {
+            return false;
+        }
+
+        return _storedBodies.Remove(id);
+    }
+
+    private bool UpdateStoredBodyEpisodeRevision(
+        NetUserId id,
+        EntityUid expectedBody,
+        EntityUid expectedPod,
+        long expectedSnapshotId,
+        long expectedRevision,
+        long updatedRevision)
+    {
+        if (!_storedBodies.TryGetValue(id, out var retained) ||
+            retained is not { } episode ||
+            episode.Body != expectedBody ||
+            episode.Cryopod != expectedPod ||
+            episode.SnapshotId != expectedSnapshotId ||
+            episode.Revision != expectedRevision)
+        {
+            return false;
+        }
+
+        episode.Revision = updatedRevision;
+        _storedBodies[id] = episode;
+        return true;
+    }
+
     /// <summary>
     /// Drops only the same-process body cache. Durable state is intentionally not
     /// touched; this is used by local expiry/cleanup after a successful store.
     /// </summary>
-    public void ResetCryosleepState(NetUserId id)
+    public void ResetCryosleepState(
+        NetUserId id,
+        EntityUid expectedBody,
+        long expectedSnapshotId,
+        long expectedRevision)
     {
         var body = _storedBodies.GetValueOrDefault(id, null);
 
-        if (body != null && _storedBodies.Remove(id) && Exists(body.Value.Body) &&
+        if (body != null &&
+            body.Value.Body == expectedBody &&
+            body.Value.SnapshotId == expectedSnapshotId &&
+            body.Value.Revision == expectedRevision &&
+            _storedBodies.Remove(id) &&
+            Exists(body.Value.Body) &&
             Transform(body.Value.Body).ParentUid == _storageMap)
         {
             QueueDel(body.Value.Body);

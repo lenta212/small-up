@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Content.Server._LuaM.ShipPersistence;
 using Content.Server.Atmos.EntitySystems;
+using Content.Server.Gravity;
 using Content.Server.Mind;
 using Content.Server.Lathe;
 using Content.Server.Power.Components;
@@ -16,6 +17,7 @@ using Content.Server.Station.Systems;
 using Content.Shared.Access.Components;
 using Content.Shared.Atmos;
 using Content.Shared.Containers;
+using Content.Shared.Gravity;
 using Content.Shared.Power.Components;
 using Content.Shared.Maps;
 using Content.Shared.Mind;
@@ -166,6 +168,97 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                         externalDock),
                     Is.True,
                     $"A restored parked ship must be callable to the exact player-selected gate. Restored docks: {restoredDockInfo}; target anchored={targetDockXform.Anchored}, docked={entities.GetComponent<DockingComponent>(externalDock).Docked}, type={entities.GetComponent<DockingComponent>(externalDock).DockType}");
+            });
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (maps.MapExists(sourceMap))
+                    maps.DeleteMap(sourceMap);
+                if (maps.MapExists(targetMap))
+                    maps.DeleteMap(targetMap);
+            });
+
+            pair.Kill();
+        }
+    }
+
+    [Test]
+    public async Task ActiveGravityGeneratorReconcilesAfterFullGridRestore()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapManager = server.ResolveDependency<IMapManager>();
+        var maps = entities.System<SharedMapSystem>();
+        var persistence = entities.System<LuaMFullShipPersistenceSystem>();
+
+        MapId sourceMap = default;
+        MapId targetMap = default;
+        EntityUid sourceGrid = EntityUid.Invalid;
+        EntityUid generator = EntityUid.Invalid;
+
+        try
+        {
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out sourceMap);
+                var grid = mapManager.CreateGridEntity(sourceMap);
+                sourceGrid = grid.Owner;
+                maps.SetTile(grid, grid, Vector2i.Zero, new Tile(1));
+
+                generator = entities.SpawnEntity(
+                    "GravityGeneratorMini",
+                    new EntityCoordinates(sourceGrid, new Vector2(0.5f, 0.5f)));
+                entities.GetComponent<ApcPowerReceiverComponent>(generator).NeedsPower = false;
+            });
+
+            await server.WaitRunTicks(25);
+
+            await server.WaitPost(() =>
+            {
+                Assert.Multiple(() =>
+                {
+                    Assert.That(entities.GetComponent<PowerChargeComponent>(generator).Active, Is.True);
+                    Assert.That(entities.GetComponent<GravityGeneratorComponent>(generator).GravityActive, Is.True);
+                    Assert.That(entities.GetComponent<GravityComponent>(sourceGrid).Enabled, Is.True);
+                });
+
+                // Capture the production failure shape: the durable charge state
+                // is active, but no always-powered prototype override is needed
+                // to make it so after restore.
+                entities.GetComponent<ApcPowerReceiverComponent>(generator).NeedsPower = true;
+                Assert.That(
+                    persistence.TryCaptureSnapshot(sourceGrid, 1, out var snapshot, out var captureReason),
+                    Is.True,
+                    captureReason);
+
+                entities.DeleteEntity(sourceGrid);
+                sourceGrid = EntityUid.Invalid;
+                maps.CreateMap(out targetMap);
+
+                Assert.That(
+                    persistence.TryRestoreSnapshot(snapshot, targetMap, out var restoredGrid, out var restoreReason),
+                    Is.True,
+                    restoreReason);
+
+                var restoredGenerator = RequirePrototypeDescendant(entities, restoredGrid, "GravityGeneratorMini");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(
+                        entities.GetComponent<PowerChargeComponent>(restoredGenerator).Active,
+                        Is.True,
+                        "The snapshot must restore the durable charged-machine state that exposed the mismatch.");
+                    Assert.That(
+                        entities.GetComponent<GravityGeneratorComponent>(restoredGenerator).GravityActive,
+                        Is.True,
+                        "Component initialization must rebuild the runtime-only gravity-generator state.");
+                    Assert.That(
+                        entities.GetComponent<GravityComponent>(restoredGrid).Enabled,
+                        Is.True,
+                        "An active restored generator must immediately restore gravity on its grid.");
+                });
             });
         }
         finally

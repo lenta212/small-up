@@ -1,3 +1,4 @@
+using Content.Server.Database;
 using Robust.Shared.Network;
 
 namespace Content.Server._LuaM.Cryo;
@@ -14,7 +15,34 @@ public sealed partial class LuaMDeepCryoIdentityComponent : Component
     public int ProfileId;
     public int Slot;
     public long SlotGeneration;
+    /// <summary>
+    /// Exact profile lifecycle revision at which this body became the playable
+    /// authority. The sentinel prevents a body that bypassed the spawn/wake
+    /// handshake from accidentally inheriting legitimate epoch zero.
+    /// </summary>
+    public long LifecycleRevision = -1;
+    /// <summary>
+    /// Durable owner token for the playable body. A body without this exact
+    /// database presence authority may never enter Store or regain control.
+    /// </summary>
+    public Guid PresenceLeaseId;
+    public DbLuaMCharacterPresencePhase PresencePhase;
+    public long? PresenceSnapshotId;
+    /// <summary>
+    /// Optimistic revision used only by renew/release. Store deliberately binds
+    /// token + lifecycle epoch so an expiry-only renewal cannot rebase payload.
+    /// </summary>
+    public long PresenceLeaseRevision = -1;
+    public DateTime PresenceLeaseExpiresAtUtc;
 }
+
+/// <summary>
+/// Local fail-closed fence applied before a playable presence lease can expire.
+/// The body remains the sole retained character state but is moved out of the
+/// world and cannot be controlled until the same durable token is renewed.
+/// </summary>
+[RegisterComponent, UnsavedComponent]
+public sealed partial class LuaMDeepCryoPresenceSuspendedComponent : Component;
 
 /// <summary>
 /// Fences the asynchronous durable store. While present, the body must remain

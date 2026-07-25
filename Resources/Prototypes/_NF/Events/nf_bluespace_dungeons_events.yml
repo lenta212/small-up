@@ -13,6 +13,8 @@
     endRadioAnnouncementChannel: Supply
     weight: 5
     minimumPlayers: 2
+    maximumTotalEntities: 200000
+    blockDuringSalvageExpedition: true
     duration: 900 # 15 active minutes, followed by a 5-minute scheduler gap
     maxDuration: 900
     reoccurrenceDelay: 20

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
@@ -31,14 +32,17 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
     private string _serverInstanceId = "new_frontier";
     private TimeSpan _leaseDuration = DefaultLeaseDuration;
     private readonly Dictionary<Guid, LuaMActiveShipLease> _active = new();
+    private readonly HashSet<LuaMShipRestoreScope> _pendingRestoreRollbacks = new();
     private readonly HashSet<NetUserId> _restoredOwners = new();
     private readonly object _maintenanceSync = new();
     private bool _maintenanceFrozen;
     private bool _maintenanceSaveInProgress;
+    private bool _leaseMaintenanceRunning;
     private int _lifecycleMutationsInFlight;
     private TaskCompletionSource? _lifecycleMutationsDrained;
     private ISawmill _sawmill = default!;
     private float _renewAccumulator;
+    private float _restoreRollbackRetryAccumulator;
 
     public LuaMShipPersistenceOrchestrator()
     {
@@ -56,14 +60,20 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
     public override void Update(float frameTime)
     {
         base.Update(frameTime);
+        _restoreRollbackRetryAccumulator += frameTime;
+        if (_restoreRollbackRetryAccumulator >= 1f)
+        {
+            _restoreRollbackRetryAccumulator = 0f;
+            RetryPendingRestoreRollbacks();
+        }
+
         _renewAccumulator += frameTime;
         var renewEvery = Math.Max(1, _leaseDuration.TotalSeconds / 2);
         if (_renewAccumulator < renewEvery)
             return;
 
         _renewAccumulator = 0;
-        var task = MaintainLeasesAsync(DateTime.UtcNow);
-        _taskManager.BlockWaitOnTask(task);
+        StartLeaseMaintenance();
     }
 
     public void ConfigureForTesting(
@@ -77,6 +87,15 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         _runtime = runtime;
         _serverInstanceId = serverInstanceId;
         _leaseDuration = leaseDuration ?? DefaultLeaseDuration;
+        // Integration pairs are recycled without reconstructing every system.
+        // Test configuration must not inherit leases or retry scopes from a
+        // preceding fixture's mock database.
+        _active.Clear();
+        _pendingRestoreRollbacks.Clear();
+        _restoredOwners.Clear();
+        _renewAccumulator = 0;
+        _restoreRollbackRetryAccumulator = 0;
+        _leaseMaintenanceRunning = false;
         if (_leaseDuration <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(leaseDuration));
     }
@@ -384,6 +403,21 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         if (_active.ContainsKey(shipId))
             return Failure(LuaMShipPersistenceWriteStatus.InvalidState, "ship already active on this server");
 
+        // A failed local teardown keeps its exact restore scope for retry. Do
+        // not claim another durable snapshot while any such graph can still be
+        // present: a rapid retry could otherwise see the old identity and turn
+        // a recoverable cleanup fault into a quarantine-worthy mismatch.
+        if (_pendingRestoreRollbacks.Any(scope => scope.ShipId == shipId))
+        {
+            RetryPendingRestoreRollbacks();
+            if (_pendingRestoreRollbacks.Any(scope => scope.ShipId == shipId))
+            {
+                return Failure(
+                    LuaMShipPersistenceWriteStatus.InvalidState,
+                    "previous restored-ship cleanup is still pending");
+            }
+        }
+
         var stored = await _database.GetLuaMShipSnapshotAsync(shipId, ownerUserId, cancel);
         if (stored == null)
             return Failure(LuaMShipPersistenceWriteStatus.NotFound, "snapshot not found");
@@ -409,13 +443,14 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
             return Failure(LuaMShipPersistenceWriteStatus.InvalidRequest, decodeReason);
         }
 
-        if (!_runtime.TryRestoreSnapshot(snapshot, targetMap, out var grid, out var restoreReason))
+        if (!_runtime.TryBeginRestoreSnapshot(snapshot, targetMap, out var restore, out var restoreReason))
         {
             await AbortOrQuarantineAsync(claimed, claim.Revision.Value, leaseId, ownerUserId,
                 restoreReason, nowUtc, cancel);
             return Failure(LuaMShipPersistenceWriteStatus.InvalidRequest, restoreReason);
         }
 
+        var grid = restore.Grid;
         bool placementAccepted;
         try
         {
@@ -423,8 +458,10 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         }
         catch (Exception exception)
         {
-            _runtime.DeleteGrid(grid);
-            var placementReason = $"restored ship placement failed with {exception.GetType().Name}";
+            var rollbackFailure = TryRollbackRestore(restore);
+            var placementReason = WithRollbackFailure(
+                $"restored ship placement failed with {exception.GetType().Name}",
+                rollbackFailure);
             await AbortOrQuarantineAsync(claimed, claim.Revision.Value, leaseId, ownerUserId,
                 placementReason, nowUtc, CancellationToken.None);
             return Failure(LuaMShipPersistenceWriteStatus.InvalidState, placementReason);
@@ -432,10 +469,12 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
 
         if (!placementAccepted)
         {
-            _runtime.DeleteGrid(grid);
-            const string placementReason = "selected shipyard gate is occupied or cannot fit this ship";
+            var rollbackFailure = TryRollbackRestore(restore);
+            var placementReason = WithRollbackFailure(
+                "selected shipyard gate is occupied or cannot fit this ship",
+                rollbackFailure);
             await AbortOrQuarantineAsync(claimed, claim.Revision.Value, leaseId, ownerUserId,
-                placementReason, nowUtc, cancel);
+                placementReason, nowUtc, CancellationToken.None);
             return Failure(LuaMShipPersistenceWriteStatus.InvalidState, placementReason);
         }
 
@@ -451,16 +490,20 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         }
         catch (Exception exception)
         {
-            _runtime.DeleteGrid(grid);
-            var completionReason = $"restore completion failed with {exception.GetType().Name}";
+            var rollbackFailure = TryRollbackRestore(restore);
+            var completionReason = WithRollbackFailure(
+                $"restore completion failed with {exception.GetType().Name}",
+                rollbackFailure);
             await RollBackFailedRestoreAsync(claimed, claim.Revision.Value, leaseId, ownerUserId,
                 completionReason, nowUtc);
             return Failure(LuaMShipPersistenceWriteStatus.UnknownOutcome, completionReason);
         }
         if (!complete.Success || complete.Revision == null || complete.LeaseRevision == null)
         {
-            _runtime.DeleteGrid(grid);
-            var completionReason = $"restore completion failed: {complete.Status}";
+            var rollbackFailure = TryRollbackRestore(restore);
+            var completionReason = WithRollbackFailure(
+                $"restore completion failed: {complete.Status}",
+                rollbackFailure);
             var rolledBack = await RollBackFailedRestoreAsync(
                 claimed,
                 claim.Revision.Value,
@@ -473,6 +516,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
                 completionReason);
         }
 
+        _runtime.CommitRestore(restore);
         var active = new LuaMActiveShipLease(
             shipId,
             ownerUserId,
@@ -485,6 +529,64 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
             claimed.PayloadRevision);
         _active.Add(shipId, active);
         return new(true, complete.Status, active.RegistryRevision, active.LeaseId, grid, null);
+    }
+
+    private string? TryRollbackRestore(LuaMShipRestoreScope restore)
+    {
+        try
+        {
+            if (!_runtime.RollbackRestore(restore))
+            {
+                _pendingRestoreRollbacks.Remove(restore);
+                return "restore scope was already finalized";
+            }
+
+            _pendingRestoreRollbacks.Remove(restore);
+            return null;
+        }
+        catch (Exception exception)
+        {
+            // RollbackRestore keeps ownership in the scope until cleanup has
+            // completed, so retain the scope and retry without preventing the
+            // durable abort/release compensation from running now.
+            _pendingRestoreRollbacks.Add(restore);
+            _sawmill.Error(
+                $"Ship restore rollback cleanup failed and was queued for retry: {exception}");
+            return exception.GetType().Name;
+        }
+    }
+
+    private void RetryPendingRestoreRollbacks()
+    {
+        if (_pendingRestoreRollbacks.Count == 0)
+            return;
+
+        foreach (var restore in new List<LuaMShipRestoreScope>(_pendingRestoreRollbacks))
+        {
+            try
+            {
+                if (_runtime.RollbackRestore(restore))
+                {
+                    _pendingRestoreRollbacks.Remove(restore);
+                    _sawmill.Info("A deferred ship restore rollback completed successfully.");
+                    continue;
+                }
+
+                _pendingRestoreRollbacks.Remove(restore);
+                _sawmill.Warning("A deferred ship restore rollback scope was already finalized.");
+            }
+            catch (Exception exception)
+            {
+                _sawmill.Error($"Deferred ship restore rollback cleanup is still failing: {exception}");
+            }
+        }
+    }
+
+    private static string WithRollbackFailure(string reason, string? rollbackFailure)
+    {
+        return rollbackFailure == null
+            ? reason
+            : $"{reason}; local cleanup pending after {rollbackFailure}";
     }
 
     public Task<LuaMShipOrchestrationResult> RestoreClaimAsync(
@@ -786,8 +888,32 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
 
         // Parked ships stay stored until their owner explicitly chooses a free
         // shipyard gate. Login only recovers leases left by a crashed server.
-        var task = MaintainLeasesAsync(DateTime.UtcNow);
-        _taskManager.BlockWaitOnTask(task);
+        StartLeaseMaintenance();
+    }
+
+    private void StartLeaseMaintenance()
+    {
+        if (_leaseMaintenanceRunning)
+            return;
+
+        RunLeaseMaintenanceAsync();
+    }
+
+    private async void RunLeaseMaintenanceAsync()
+    {
+        _leaseMaintenanceRunning = true;
+        try
+        {
+            await MaintainLeasesAsync(DateTime.UtcNow);
+        }
+        catch (Exception e)
+        {
+            _sawmill.Error($"Asynchronous ship lease maintenance failed: {e}");
+        }
+        finally
+        {
+            _leaseMaintenanceRunning = false;
+        }
     }
 
     private async Task<bool> RenewAllActiveShipsAsync(DateTime nowUtc, CancellationToken cancel)

@@ -79,8 +79,15 @@ public sealed partial class ContentAudioSystem : SharedContentAudioSystem
         var playlist = _lobbyMusicCollection.PickFiles
                                             .Select(x => x.ToString())
                                             .ToArray();
-         _robustRandom.Shuffle(playlist);
+        if (playlist.Length <= 1)
+            return playlist;
 
-         return playlist;
+        // Keep the configured opening track first; shuffle only the songs that
+        // follow it so each lobby entry starts with the intended music.
+        var remaining = playlist[1..];
+        _robustRandom.Shuffle(remaining);
+        Array.Copy(remaining, 0, playlist, 1, remaining.Length);
+
+        return playlist;
     }
 }

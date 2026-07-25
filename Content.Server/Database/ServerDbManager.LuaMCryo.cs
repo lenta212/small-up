@@ -7,6 +7,45 @@ namespace Content.Server.Database;
 
 public sealed partial class ServerDbManager
 {
+    public Task<LuaMCharacterPresenceAuthorityRecord?> GetLuaMCharacterPresenceAuthorityAsync(
+        NetUserId userId,
+        int profileId,
+        int slot,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.GetLuaMCharacterPresenceAuthorityAsync(userId, profileId, slot, cancel));
+
+    public Task<LuaMCharacterPresenceWriteResult> ReserveLuaMCharacterPresenceAsync(
+        LuaMCharacterPresenceReserveRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.ReserveLuaMCharacterPresenceAsync(request, cancel));
+
+    public Task<LuaMCharacterPresenceWriteResult> PublishLuaMCharacterPresenceAsync(
+        LuaMCharacterPresencePublishRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.PublishLuaMCharacterPresenceAsync(request, cancel));
+
+    public Task<LuaMCharacterPresenceWriteResult> RenewLuaMCharacterPresenceAsync(
+        LuaMCharacterPresenceRenewRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.RenewLuaMCharacterPresenceAsync(request, cancel));
+
+    public Task<LuaMCharacterPresenceWriteResult> ReleaseLuaMCharacterPresenceAsync(
+        LuaMCharacterPresenceReleaseRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.ReleaseLuaMCharacterPresenceAsync(request, cancel));
+
+    public Task<LuaMCharacterPresenceWriteResult> ReclaimLuaMCharacterPresenceAsync(
+        LuaMCharacterPresenceReclaimRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.ReclaimLuaMCharacterPresenceAsync(request, cancel));
+
+    public Task<LuaMDeepCryoStorePrecondition?> GetLuaMDeepCryoStorePreconditionAsync(
+        NetUserId userId,
+        int profileId,
+        int slot,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.GetLuaMDeepCryoStorePreconditionAsync(userId, profileId, slot, cancel));
+
     public Task<LuaMDeepCryoWriteResult> StoreLuaMDeepCryoSnapshotAsync(
         LuaMDeepCryoStoreRequest request,
         CancellationToken cancel = default)
@@ -34,6 +73,31 @@ public sealed partial class ServerDbManager
         CancellationToken cancel = default)
         => RunDbCommand(() => _db.AbortLuaMDeepCryoRestoreAsync(request, cancel));
 
+    public Task<LuaMDeepCryoWriteResult> RollbackLuaMDeepCryoPublicationAsync(
+        LuaMDeepCryoRollbackPublicationRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.RollbackLuaMDeepCryoPublicationAsync(request, cancel));
+
+    public Task<LuaMDeepCryoWriteResult> AuthorizeLuaMDeepCryoPublicationAsync(
+        LuaMDeepCryoAuthorizePublicationRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.AuthorizeLuaMDeepCryoPublicationAsync(request, cancel));
+
+    public Task<LuaMDeepCryoWriteResult> AcknowledgeLuaMDeepCryoPublicationAsync(
+        LuaMDeepCryoAcknowledgePublicationRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.AcknowledgeLuaMDeepCryoPublicationAsync(request, cancel));
+
+    public Task<LuaMDeepCryoWriteResult> QuarantineAuthorizedLuaMDeepCryoPublicationAsync(
+        LuaMDeepCryoQuarantineAuthorizedPublicationRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.QuarantineAuthorizedLuaMDeepCryoPublicationAsync(request, cancel));
+
+    public Task<LuaMDeepCryoWriteResult> QuarantineAcknowledgedLuaMDeepCryoPublicationAsync(
+        LuaMDeepCryoQuarantineAcknowledgedPublicationRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.QuarantineAcknowledgedLuaMDeepCryoPublicationAsync(request, cancel));
+
     public Task<LuaMDeepCryoWriteResult> DiscardLuaMDeepCryoSnapshotAsync(
         LuaMDeepCryoDiscardRequest request,
         CancellationToken cancel = default)
@@ -46,9 +110,14 @@ public sealed partial class ServerDbManager
 
     public Task<int> RecoverExpiredLuaMDeepCryoLeasesAsync(
         DateTime nowUtc,
+        Guid[]? protectedLeaseIds = null,
         int maxCount = 100,
         CancellationToken cancel = default)
-        => RunDbCommand(() => _db.RecoverExpiredLuaMDeepCryoLeasesAsync(nowUtc, maxCount, cancel));
+        => RunDbCommand(() => _db.RecoverExpiredLuaMDeepCryoLeasesAsync(
+            nowUtc,
+            protectedLeaseIds,
+            maxCount,
+            cancel));
 
     public Task<bool> ValidateLuaMDeepCryoProfileAsync(
         NetUserId userId,

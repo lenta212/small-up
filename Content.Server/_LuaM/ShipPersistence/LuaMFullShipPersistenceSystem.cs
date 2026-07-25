@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Content.Server.Shuttles.Components;
 using Content.Server.Shuttles.Systems;
+using Robust.Shared.Containers;
 using Robust.Shared;
 using Robust.Shared.Configuration;
 using Robust.Shared.EntitySerialization;
@@ -17,6 +18,50 @@ using Robust.Shared.Prototypes;
 using YamlDotNet.RepresentationModel;
 
 namespace Content.Server._LuaM.ShipPersistence;
+
+/// <summary>
+/// Owns every entity created by one successful ship deserialization until the
+/// database restore transition is either committed or rolled back.
+/// </summary>
+public sealed class LuaMShipRestoreScope
+{
+    private HashSet<EntityUid>? _createdEntities;
+
+    public Guid ShipId { get; }
+    public EntityUid Grid { get; }
+
+    internal LuaMShipRestoreScope(Guid shipId, EntityUid grid, HashSet<EntityUid> createdEntities)
+    {
+        ShipId = shipId;
+        Grid = grid;
+        _createdEntities = createdEntities;
+    }
+
+    internal bool TryTakeCreatedEntities(out IReadOnlySet<EntityUid> createdEntities)
+    {
+        if (_createdEntities == null)
+        {
+            createdEntities = default!;
+            return false;
+        }
+
+        createdEntities = _createdEntities;
+        _createdEntities = null;
+        return true;
+    }
+
+    internal bool TryGetCreatedEntities(out IReadOnlySet<EntityUid> createdEntities)
+    {
+        if (_createdEntities == null)
+        {
+            createdEntities = default!;
+            return false;
+        }
+
+        createdEntities = _createdEntities;
+        return true;
+    }
+}
 
 /// <summary>
 /// Runtime core for complete ship-grid snapshots.
@@ -36,8 +81,10 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
     [Dependency] private IConfigurationManager _configuration = default!;
+    [Dependency] private SharedContainerSystem _containers = default!;
     [Dependency] private MapLoaderSystem _mapLoader = default!;
     [Dependency] private SharedMapSystem _maps = default!;
+    [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private DockingSystem _docking = default!;
     [Dependency] private ShuttleConsoleLockSystem _consoleLocks = default!;
 
@@ -391,13 +438,9 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     }
 
     /// <summary>
-    /// Restores a validated snapshot onto an existing target map.
+    /// Restores a validated snapshot onto an existing target map and transfers
+    /// ownership of the restored entities directly to the caller.
     /// </summary>
-    /// <remarks>
-    /// Every entity created during the synchronous load is tracked. If loading or
-    /// post-load validation fails, the entire created set (including auto-included
-    /// null-space entities) is deleted before this method returns.
-    /// </remarks>
     public bool TryRestoreSnapshot(
         LuaMFullShipSnapshot snapshot,
         MapId targetMap,
@@ -407,6 +450,32 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         Angle rotation = default)
     {
         grid = EntityUid.Invalid;
+        if (!TryBeginRestoreSnapshot(snapshot, targetMap, out var restore, out reason, offset, rotation))
+            return false;
+
+        grid = restore.Grid;
+        CommitRestore(restore);
+        return true;
+    }
+
+    /// <summary>
+    /// Restores a validated snapshot and retains ownership of every created
+    /// entity until the returned scope is explicitly committed or rolled back.
+    /// </summary>
+    /// <remarks>
+    /// Every entity created during the synchronous load is tracked. If loading or
+    /// post-load validation fails, the entire created set (including auto-included
+    /// null-space entities) is deleted before this method returns.
+    /// </remarks>
+    public bool TryBeginRestoreSnapshot(
+        LuaMFullShipSnapshot snapshot,
+        MapId targetMap,
+        out LuaMShipRestoreScope restore,
+        out string reason,
+        Vector2 offset = default,
+        Angle rotation = default)
+    {
+        restore = default!;
         reason = string.Empty;
 
         if (!TryValidateSnapshot(snapshot, out var yaml, out reason))
@@ -431,6 +500,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         }
 
         var entitiesBeforeLoad = EntityManager.GetEntities().ToHashSet();
+        HashSet<EntityUid>? createdEntities = null;
         try
         {
             using var reader = new StringReader(yaml);
@@ -450,31 +520,31 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     rotation) ||
                 loaded == null)
             {
-                CleanupCreatedEntities(entitiesBeforeLoad);
+                CleanupPartialLoadEntities(entitiesBeforeLoad);
                 reason = "grid-deserialization-failed";
                 return false;
             }
 
             var restoredGrid = loaded.Value.Owner;
+            createdEntities = EntityManager.GetEntities()
+                .Where(uid => !entitiesBeforeLoad.Contains(uid))
+                .ToHashSet();
             if (!TryComp<LuaMShipIdentityComponent>(restoredGrid, out var identity) ||
                 identity.ShipId != snapshot.ShipId ||
                 identity.SnapshotRevision != snapshot.Revision)
             {
-                CleanupCreatedEntities(entitiesBeforeLoad);
+                CleanupPartialLoadEntities(entitiesBeforeLoad);
                 reason = "restored-ship-identity-or-revision-mismatch";
                 return false;
             }
 
             if (TryFindActiveShip(snapshot.ShipId, restoredGrid, out _))
             {
-                CleanupCreatedEntities(entitiesBeforeLoad);
+                CleanupPartialLoadEntities(entitiesBeforeLoad);
                 reason = "duplicate-active-ship-identity";
                 return false;
             }
 
-            var createdEntities = EntityManager.GetEntities()
-                .Where(uid => !entitiesBeforeLoad.Contains(uid))
-                .ToHashSet();
             if (!createdEntities.Contains(restoredGrid) ||
                 !TryInspectEntitySet(
                     createdEntities,
@@ -484,7 +554,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 entityCount != snapshot.EntityCount ||
                 !FixedHashEquals(prototypeManifestHash, snapshot.PrototypeManifestHash))
             {
-                CleanupCreatedEntities(entitiesBeforeLoad);
+                CleanupPartialLoadEntities(entitiesBeforeLoad);
                 if (string.IsNullOrEmpty(reason))
                     reason = "restored-entity-graph-or-manifest-mismatch";
                 return false;
@@ -495,17 +565,17 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     snapshot.ShipId,
                     out var bindingReason))
             {
-                CleanupCreatedEntities(entitiesBeforeLoad);
+                CleanupPartialLoadEntities(entitiesBeforeLoad);
                 reason = $"restored-ship-security-binding-failed:{bindingReason}";
                 return false;
             }
 
-            grid = restoredGrid;
+            restore = new LuaMShipRestoreScope(snapshot.ShipId, restoredGrid, createdEntities);
             return true;
         }
         catch (Exception exception)
         {
-            CleanupCreatedEntities(entitiesBeforeLoad);
+            CleanupPartialLoadEntities(entitiesBeforeLoad);
             reason = $"snapshot-restore-exception:{exception.GetType().Name}";
             return false;
         }
@@ -805,18 +875,170 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     }
 
     /// <summary>
-    /// Deletes a restored grid after orchestration fails to complete its database CAS transition.
+    /// Forgets the exact restored entity set after the database CAS transition succeeds.
     /// </summary>
-    public void DeleteGrid(EntityUid grid)
+    public bool CommitRestore(LuaMShipRestoreScope restore)
     {
-        if (Exists(grid))
-            QueueDel(grid);
+        return restore.TryTakeCreatedEntities(out _);
     }
 
-    private void CleanupCreatedEntities(IReadOnlySet<EntityUid> entitiesBeforeLoad)
+    /// <summary>
+    /// Synchronously deletes the exact entity set owned by an uncommitted restore.
+    /// </summary>
+    public bool RollbackRestore(LuaMShipRestoreScope restore)
     {
-        // Teardown hooks can detach or create helper entities. Repeat a bounded
-        // diff so those entities do not escape a failed restore attempt.
+        if (!restore.TryGetCreatedEntities(out var createdEntities))
+            return false;
+
+        CleanupRestoreEntities(createdEntities);
+        return restore.TryTakeCreatedEntities(out _);
+    }
+
+    private void CleanupRestoreEntities(IReadOnlySet<EntityUid> ownedEntities)
+    {
+        // Take the rollback-local baseline before any cleanup event can create a
+        // helper. No entity baseline crosses the database await; entities that
+        // appeared while the restore was pending are retained unless they were
+        // created by the teardown below.
+        var retainedEntities = EntityManager.GetEntities()
+            .Where(uid => !ownedEntities.Contains(uid))
+            .ToHashSet();
+
+        // Deleting an owned transform root recursively deletes all of its current
+        // children, even when those children were not part of deserialization.
+        // Move every retained boundary root (passengers, newly inserted items,
+        // and their complete retained subtrees) to the map before deleting the
+        // restored graph.
+        PreserveRetainedTransformSubtrees(ownedEntities, retainedEntities);
+
+        // A successful placement may have docked the restored ship to a
+        // pre-existing station gate before the database transition failed. Dock
+        // shutdown is skipped once recursive deletion marks the ship graph as
+        // terminating, so explicitly sever only exact reciprocal pairs that
+        // cross the restore ownership boundary before deleting either side.
+        UndockOwnedExternalConnections(ownedEntities);
+
+        CleanupEntities(ownedEntities);
+        for (var pass = 0; pass < 3; pass++)
+        {
+            var teardownEntities = EntityManager.GetEntities()
+                .Where(uid => !retainedEntities.Contains(uid))
+                .ToHashSet();
+            if (teardownEntities.Count == 0)
+                return;
+
+            CleanupEntities(teardownEntities);
+        }
+    }
+
+    private void PreserveRetainedTransformSubtrees(
+        IReadOnlySet<EntityUid> ownedEntities,
+        IReadOnlySet<EntityUid> retainedEntities)
+    {
+        var retainedBoundaryRoots = retainedEntities
+            .Where(uid =>
+                Exists(uid) &&
+                TryComp<TransformComponent>(uid, out var xform) &&
+                ownedEntities.Contains(xform.ParentUid))
+            .ToArray();
+
+        foreach (var uid in retainedBoundaryRoots)
+        {
+            if (!Exists(uid) || !TryComp<TransformComponent>(uid, out var xform))
+                throw new InvalidOperationException("A retained restore-boundary entity vanished during rollback.");
+
+            var mapCoordinates = _transform.GetMapCoordinates(xform);
+            var worldRotation = _transform.GetWorldRotation(xform);
+
+            // A retained item can have been inserted into a restored container
+            // while database completion was pending. Prove that the container is
+            // owned, then require force-removal to clear its index and metadata
+            // before changing the transform parent.
+            if (_containers.IsEntityInContainer(uid))
+            {
+                if (!_containers.TryGetContainingContainer(uid, out var containingContainer) ||
+                    !ownedEntities.Contains(containingContainer.Owner) ||
+                    !_containers.TryRemoveFromContainer(uid, force: true))
+                {
+                    throw new InvalidOperationException(
+                        $"Retained entity {uid} could not leave its restored container safely.");
+                }
+            }
+
+            if (!Exists(uid) || !TryComp<TransformComponent>(uid, out xform))
+                throw new InvalidOperationException("A retained entity was deleted while leaving a restored container.");
+
+            if (mapCoordinates.MapId != MapId.Nullspace && _maps.MapExists(mapCoordinates.MapId))
+            {
+                var mapUid = _maps.GetMap(mapCoordinates.MapId);
+                _transform.SetCoordinates(
+                    uid,
+                    xform,
+                    new EntityCoordinates(mapUid, mapCoordinates.Position),
+                    worldRotation);
+            }
+            else
+            {
+                _transform.DetachEntity(uid, xform);
+            }
+
+            if (Exists(uid) && HasOwnedTransformAncestor(uid, ownedEntities))
+            {
+                throw new InvalidOperationException(
+                    $"Retained entity {uid} could not be detached from the restored ship graph.");
+            }
+
+            if (Exists(uid) &&
+                (_containers.IsEntityInContainer(uid) ||
+                 _containers.TryGetContainingContainer(uid, out var remainingContainer) &&
+                 ownedEntities.Contains(remainingContainer.Owner)))
+            {
+                throw new InvalidOperationException(
+                    $"Retained entity {uid} still belongs to a restored container after detachment.");
+            }
+        }
+    }
+
+    private bool HasOwnedTransformAncestor(EntityUid uid, IReadOnlySet<EntityUid> ownedEntities)
+    {
+        var visited = new HashSet<EntityUid>();
+        while (Exists(uid) && TryComp<TransformComponent>(uid, out var xform) && xform.ParentUid.IsValid())
+        {
+            var parent = xform.ParentUid;
+            if (ownedEntities.Contains(parent))
+                return true;
+
+            if (!visited.Add(parent))
+                throw new InvalidOperationException($"Transform cycle encountered while preserving retained entity {uid}.");
+
+            uid = parent;
+        }
+
+        return false;
+    }
+
+    private void UndockOwnedExternalConnections(IReadOnlySet<EntityUid> ownedEntities)
+    {
+        foreach (var uid in ownedEntities)
+        {
+            if (!Exists(uid) ||
+                !TryComp<DockingComponent>(uid, out var ownedDock) ||
+                ownedDock.DockedWith is not { } externalDockUid ||
+                ownedEntities.Contains(externalDockUid) ||
+                !TryComp<DockingComponent>(externalDockUid, out var externalDock) ||
+                externalDock.DockedWith != uid)
+            {
+                continue;
+            }
+
+            _docking.Undock((uid, ownedDock));
+        }
+    }
+
+    private void CleanupPartialLoadEntities(IReadOnlySet<EntityUid> entitiesBeforeLoad)
+    {
+        // A failed deserializer cannot return an ownership scope. It is still
+        // synchronous here, so a bounded baseline diff can recover partial output.
         for (var pass = 0; pass < 3; pass++)
         {
             var created = EntityManager.GetEntities()

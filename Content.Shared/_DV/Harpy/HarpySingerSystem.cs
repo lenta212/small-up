@@ -11,10 +11,21 @@ namespace Content.Shared._DV.Harpy
             base.Initialize();
 
             SubscribeLocalEvent<HarpySingerComponent, ComponentStartup>(OnStartup);
+            SubscribeLocalEvent<HarpySingerComponent, MapInitEvent>(OnMapInit);
             SubscribeLocalEvent<HarpySingerComponent, ComponentShutdown>(OnShutdown);
         }
 
         private void OnStartup(EntityUid uid, HarpySingerComponent component, ComponentStartup args)
+        {
+            // Serialized action entities are not necessarily in their container
+            // while MapLoader is still materializing the graph.
+            if (MetaData(uid).EntityLifeStage < EntityLifeStage.MapInitialized)
+                return;
+
+            _actionsSystem.AddAction(uid, ref component.MidiAction, component.MidiActionId);
+        }
+
+        private void OnMapInit(EntityUid uid, HarpySingerComponent component, MapInitEvent args)
         {
             _actionsSystem.AddAction(uid, ref component.MidiAction, component.MidiActionId);
         }

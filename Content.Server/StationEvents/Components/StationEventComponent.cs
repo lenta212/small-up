@@ -115,6 +115,19 @@ public sealed partial class StationEventComponent : Component
     public int MaximumPlayers = 999;
 
     /// <summary>
+    ///     Optional upper bound for the total number of live entities when this event is selected.
+    ///     Intended for generation-heavy events that should wait until the round is below a safe load ceiling.
+    /// </summary>
+    [DataField]
+    public int? MaximumTotalEntities;
+
+    /// <summary>
+    ///     Frontier: Prevent this event from being selected while a salvage expedition map is active.
+    /// </summary>
+    [DataField]
+    public bool BlockDuringSalvageExpedition;
+
+    /// <summary>
     ///     How many times this even can occur in a single round
     /// </summary>
     [DataField]

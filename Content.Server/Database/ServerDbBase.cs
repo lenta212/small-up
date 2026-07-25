@@ -969,13 +969,25 @@ namespace Content.Server.Database
 
             var activeCryoSnapshot = await db.LuaMDeepCryoSnapshots.AsNoTracking().AnyAsync(value =>
                 value.ProfileId == profile.Id && value.Status != DbLuaMDeepCryoSnapshotStatus.Consumed);
-            var activePresenceLease = await db.LuaMCharacterPresenceLeases.AsNoTracking()
-                .AnyAsync(value => value.ProfileId == profile.Id);
-            if (activeCryoSnapshot || activePresenceLease)
+            var presenceLease = await db.LuaMCharacterPresenceLeases
+                .SingleOrDefaultAsync(value => value.ProfileId == profile.Id);
+            var now = DateTime.UtcNow;
+            var blockingPresenceLease = presenceLease != null &&
+                                        (presenceLease.Phase == DbLuaMCharacterPresencePhase.RestoreClaim ||
+                                         presenceLease.ExpiresAtUtc > now);
+            if (activeCryoSnapshot || blockingPresenceLease)
             {
                 throw new InvalidOperationException(
                     "A character with an active or quarantined deep-cryo snapshot cannot be archived.");
             }
+
+            // Expired fresh/playable rows deliberately remain durable CAS
+            // tombstones until an exact mutation wins. Archiving is such a
+            // mutation: delete the tracked row in the same SaveChanges that
+            // increments the profile epoch and archives the character. A late
+            // renew/reclaim changes the lease revision and makes this fail closed.
+            if (presenceLease != null)
+                db.LuaMCharacterPresenceLeases.Remove(presenceLease);
 
             var career = await db.LuaMCharacterCareers
                 .SingleOrDefaultAsync(value => value.ProfileId == profile.Id);

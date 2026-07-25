@@ -38,6 +38,18 @@ public sealed partial class BluespaceErrorRuleComponent : Component
     public List<MapId> MapsUid = new();
 
     /// <summary>
+    /// Prevents re-entrant cleanup while grids and their linked children are being removed.
+    /// </summary>
+    [ViewVariables]
+    public bool CleanupInProgress;
+
+    /// <summary>
+    /// Prevents component shutdown from repeating cleanup and rewards after a normal event end.
+    /// </summary>
+    [ViewVariables]
+    public bool CleanupCompleted;
+
+    /// <summary>
     /// If true, the grids are anchored after warping in.
     /// </summary>
     [DataField]

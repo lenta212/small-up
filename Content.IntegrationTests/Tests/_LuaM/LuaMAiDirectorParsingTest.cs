@@ -389,11 +389,165 @@ public sealed class LuaMAiDirectorParsingTest
     [TestCase("\u0441\u043d\u0438\u043c\u0438 \u0448\u043b\u0435\u043c", true)]
     [TestCase("\u0432\u044b\u043f\u0443\u0441\u0442\u0438 \u043a\u0438\u0441\u043b\u043e\u0440\u043e\u0434", true)]
     [TestCase("\u043d\u0435 \u043e\u0442\u043a\u0440\u044b\u0432\u0430\u0439 \u0448\u043b\u044e\u0437", false)]
+    [TestCase("\u043d\u0435 \u0432\u0437\u043e\u0440\u0432\u0438 \u0433\u0435\u043d\u0435\u0440\u0430\u0442\u043e\u0440", false)]
+    [TestCase("\u043d\u0435 \u043f\u043e\u0434\u043e\u0436\u0433\u0438 \u0442\u043e\u043f\u043b\u0438\u0432\u043e", false)]
+    [TestCase("\u043d\u0435 \u0441\u0442\u0440\u0430\u0432\u0438 \u043a\u0438\u0441\u043b\u043e\u0440\u043e\u0434", false)]
+    [TestCase("\u043d\u0435 \u0440\u0430\u0437\u0431\u0435\u0439 \u043a\u0430\u043d\u0438\u0441\u0442\u0440\u0443", false)]
+    [TestCase("не открывай шлюз и не снимай шлем", false)]
+    [TestCase("не открывай шлюз, а сними шлем", true)]
+    [TestCase("не взорви генератор, потом взорви канистру", true)]
+    [TestCase("попробуй открыть шлюз", true)]
+    [TestCase("откройте шлюз", true)]
+    [TestCase("шлюз открой", true)]
+    [TestCase("не открывай шлюз, а шлем сними", true)]
+    [TestCase("не пытайся открыть шлюз", false)]
+    [TestCase("можно открыть шлюз?", false)]
+    [TestCase("шлюз не открывай", false)]
+    [TestCase("можно ли открыть шлюз?", false)]
+    [TestCase("надо открыть шлюз?", false)]
+    [TestCase("что будет, если открыть шлюз?", false)]
+    [TestCase("почему нельзя открыть шлюз?", false)]
+    [TestCase("нельзя открыть шлюз", false)]
+    [TestCase("не вздумай открыть шлюз", false)]
+    [TestCase("не смей открыть шлюз", false)]
+    [TestCase("можно открыть шлюз", true)]
+    [TestCase("не открывай шлюз и обязательно открой дверь", false)]
+    [TestCase("шлюз открыть нельзя", false)]
+    [TestCase("ты не должен открыть шлюз", false)]
+    [TestCase("а если открыть шлюз", false)]
+    [TestCase("что случится если открыть шлюз", false)]
+    [TestCase("что произойдёт если открыть шлюз", false)]
+    [TestCase("опасно открыть шлюз", false)]
+    [TestCase("открыть шлюз — плохая идея", false)]
+    [TestCase("открой не шлюз, а дверь", false)]
+    [TestCase("открой шлюз если давление нормальное", false)]
+    [TestCase("как открыть шлюз", false)]
+    [TestCase("зачем открыть шлюз", false)]
+    [TestCase("открой дверь. шлюз повреждён", false)]
+    [TestCase("открой дверь; шлюз повреждён", false)]
+    [TestCase("не могу открыть шлюз", false)]
+    [TestCase("не хочу взорвать генератор", false)]
+    [TestCase("нельзя ни при каких обстоятельствах открыть шлюз", false)]
+    [TestCase("не пытайся открыть и снять шлем", false)]
+    [TestCase("не смей открыть и снять шлем", false)]
     [TestCase("\u043f\u0440\u043e\u0432\u0435\u0440\u044c \u0433\u0435\u0440\u043c\u0435\u0442\u0438\u0447\u043d\u043e\u0441\u0442\u044c \u043a\u043e\u0440\u043f\u0443\u0441\u0430", false)]
     public void UnknownSurvivalRecognizesDangerousAdvice(string message, bool expected)
     {
         Assert.That(
             InvokePrivateStatic<bool>(typeof(LuaMSectorAiDirectorSystem), "IsUnknownDangerousAdvice", message),
+            Is.EqualTo(expected));
+    }
+
+    [TestCase("InspectHull", "\u043f\u0440\u043e\u0432\u0435\u0440\u044c")]
+    [TestCase("RestorePower", "\u0433\u0435\u043d\u0435\u0440\u0430\u0442\u043e\u0440")]
+    [TestCase("StabilizeOxygen", "\u043a\u0438\u0441\u043b\u043e\u0440\u043e\u0434")]
+    [TestCase("StartHydroponics", "\u0432\u043e\u0434\u0443")]
+    [TestCase("RepairRadio", "\u0440\u0430\u0446\u0438\u044f")]
+    [TestCase("AwaitRescue", "\u043f\u043e\u043c\u043e\u0449\u044c")]
+    [TestCase("RestorePower", "не включай генератор")]
+    [TestCase("StabilizeOxygen", "не подключай кислородную канистру")]
+    [TestCase("StartHydroponics", "не поливай грядки")]
+    [TestCase("RepairRadio", "не закрепляй провод")]
+    [TestCase("AwaitRescue", "не жди и не оставайся у рации")]
+    [TestCase("RestorePower", "не включай генератор и проверь корпус")]
+    [TestCase("StabilizeOxygen", "не подключай кислород и открой дверь")]
+    [TestCase("RepairRadio", "не закрепляй провод и включи генератор")]
+    [TestCase("RestorePower", "ты уже включил генератор?")]
+    [TestCase("StabilizeOxygen", "кислород уже подключился?")]
+    [TestCase("StartHydroponics", "ты посадил семена?")]
+    [TestCase("RepairRadio", "ты починил рацию?")]
+    [TestCase("RestorePower", "не нужно включить генератор")]
+    [TestCase("AwaitRescue", "не надо ждать спасателей")]
+    [TestCase("RestorePower", "не включай генератор — лучше проверь корпус")]
+    [TestCase("StabilizeOxygen", "не подключай кислород и лучше проверь генератор")]
+    [TestCase("RestorePower", "не советую включить генератор")]
+    [TestCase("StabilizeOxygen", "не подключай кислород, пожалуйста, проверь генератор")]
+    [TestCase("StabilizeOxygen", "не подключай кислород и обязательно проверь генератор")]
+    [TestCase("RestorePower", "генератор включить нельзя")]
+    [TestCase("RestorePower", "проверь не генератор, а корпус")]
+    [TestCase("RestorePower", "включи свет возле генератора")]
+    [TestCase("StabilizeOxygen", "подключи не кислород, а питание")]
+    [TestCase("StabilizeOxygen", "открой дверь рядом с кислородной канистрой")]
+    [TestCase("InspectHull", "проверь генератор возле корпуса")]
+    [TestCase("StabilizeOxygen", "не подключай кислород вместо этого проверь генератор")]
+    [TestCase("RestorePower", "у генератора проверь дверь")]
+    [TestCase("RestorePower", "проверь у генератора дверь")]
+    [TestCase("RepairRadio", "проверь рацион")]
+    [TestCase("InspectHull", "проверь стенд")]
+    [TestCase("RestorePower", "проверь окно. генератор сломан")]
+    [TestCase("RestorePower", "проверь окно; генератор сломан")]
+    [TestCase("StabilizeOxygen", "не могу подключить кислородную канистру")]
+    [TestCase("RestorePower", "не нужно проверить и включить генератор")]
+    public void UnknownSurvivalRejectsSingleWordStageHints(string stageName, string advice)
+    {
+        Assert.That(InvokeUnknownStageAdviceFilter(stageName, advice), Is.False);
+    }
+
+    [TestCase("InspectHull", "\u043f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043e\u0440\u043f\u0443\u0441 \u043d\u0430 \u0443\u0442\u0435\u0447\u043a\u0438")]
+    [TestCase("RestorePower", "\u0432\u043a\u043b\u044e\u0447\u0438 \u0433\u0435\u043d\u0435\u0440\u0430\u0442\u043e\u0440")]
+    [TestCase("StabilizeOxygen", "\u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438 \u043a\u0438\u0441\u043b\u043e\u0440\u043e\u0434\u043d\u0443\u044e \u043a\u0430\u043d\u0438\u0441\u0442\u0440\u0443")]
+    [TestCase("StartHydroponics", "\u043f\u043e\u043b\u0435\u0439 \u0432\u043e\u0434\u043e\u0439 \u0433\u0440\u044f\u0434\u043a\u0438")]
+    [TestCase("RepairRadio", "\u043f\u043e\u0447\u0438\u043d\u0438 \u0440\u0430\u0446\u0438\u044e")]
+    [TestCase("AwaitRescue", "\u043e\u0441\u0442\u0430\u0432\u0430\u0439\u0441\u044f \u0443 \u0440\u0430\u0446\u0438\u0438 \u0438 \u0436\u0434\u0438 \u043f\u043e\u043c\u043e\u0449\u044c")]
+    [TestCase("StabilizeOxygen", "подключи, пожалуйста, кислородную канистру")]
+    [TestCase("InspectHull", "проверь, где утечка в корпусе")]
+    [TestCase("InspectHull", "посмотри, есть ли утечка")]
+    [TestCase("StabilizeOxygen", "подключи большую и синюю кислородную канистру")]
+    [TestCase("RestorePower", "нужно включить генератор")]
+    public void UnknownSurvivalAcceptsConcreteStageAdvice(string stageName, string advice)
+    {
+        Assert.That(InvokeUnknownStageAdviceFilter(stageName, advice), Is.True);
+    }
+
+    [Test]
+    public void UnknownSurvivalReplyHistoryIsBounded()
+    {
+        var replyLimitField = typeof(LuaMSectorAiDirectorSystem).GetField(
+            "UnknownRecentReplyLimit",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        Assert.That(replyLimitField, Is.Not.Null);
+        Assert.That(replyLimitField!.GetRawConstantValue(), Is.EqualTo(6));
+    }
+
+    [TestCase("\u043a\u0430\u043a \u0442\u0435\u0431\u044f \u0437\u043e\u0432\u0443\u0442", false)]
+    [TestCase("\u0433\u0434\u0435 \u0442\u044b", false)]
+    [TestCase("\u043d\u0435 \u0431\u043e\u0439\u0441\u044f, \u043c\u044b \u0440\u044f\u0434\u043e\u043c", false)]
+    [TestCase("\u0433\u0435\u043d\u0435\u0440\u0430\u0442\u043e\u0440", false)]
+    [TestCase("\u043d\u0435 \u0432\u0437\u043e\u0440\u0432\u0438 \u0433\u0435\u043d\u0435\u0440\u0430\u0442\u043e\u0440", false)]
+    [TestCase("слушай, как тебя зовут?", false)]
+    [TestCase("попробуй вспомнить, что случилось", false)]
+    [TestCase("посмотри в окно, что видишь?", false)]
+    [TestCase("слушай у двери, где шипит воздух", true)]
+    [TestCase("слушай, генератор сильно шумит?", false)]
+    [TestCase("слушай генератор сильно шумит?", false)]
+    [TestCase("ты уже включил генератор?", false)]
+    [TestCase("не нужно включить генератор", false)]
+    [TestCase("слушай кислорода мало", false)]
+    [TestCase("смотри канистра пустая", false)]
+    [TestCase("слушай не надо включить генератор", false)]
+    [TestCase("смотри генератор дымится", false)]
+    [TestCase("а если открыть шлюз", false)]
+    [TestCase("шлюз открыть нельзя", false)]
+    [TestCase("ты не должен открыть шлюз", false)]
+    [TestCase("опасно открыть шлюз", false)]
+    [TestCase("включи свет возле генератора", false)]
+    [TestCase("открой дверь рядом с кислородной канистрой", true)]
+    [TestCase("как открыть шлюз", false)]
+    [TestCase("проверь рацион", false)]
+    [TestCase("проверь стенд", false)]
+    [TestCase("не могу открыть шлюз", false)]
+    [TestCase("не хочу взорвать генератор", false)]
+    [TestCase("нельзя ни при каких обстоятельствах открыть шлюз", false)]
+    [TestCase("не пытайся открыть и снять шлем", false)]
+    [TestCase("не подключай кислородную канистру", false)]
+    [TestCase("не закрепляй провод", false)]
+    [TestCase("\u0437\u0430\u043f\u0443\u0441\u0442\u0438 \u0433\u0435\u043d\u0435\u0440\u0430\u0442\u043e\u0440", true)]
+    [TestCase("\u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438 \u043a\u0430\u043d\u0438\u0441\u0442\u0440\u0443", true)]
+    public void UnknownSurvivalSeparatesConversationFromInstructions(string message, bool expected)
+    {
+        Assert.That(
+            InvokePrivateStatic<bool>(typeof(LuaMSectorAiDirectorSystem), "IsUnknownSurvivalInstruction", message),
             Is.EqualTo(expected));
     }
 
@@ -494,6 +648,21 @@ public sealed class LuaMAiDirectorParsingTest
         Assert.That(
             InvokePrivateStatic<bool>(typeof(LuaMSectorAiDirectorSystem), "IsPersonalAiAdultDenial", message),
             Is.True);
+    }
+
+    private static bool InvokeUnknownStageAdviceFilter(string stageName, string advice)
+    {
+        var stageType = typeof(LuaMSectorAiDirectorSystem).GetNestedType(
+            "UnknownSurvivalStage",
+            BindingFlags.NonPublic);
+        Assert.That(stageType, Is.Not.Null);
+
+        var stage = Enum.Parse(stageType!, stageName);
+        return InvokePrivateStatic<bool>(
+            typeof(LuaMSectorAiDirectorSystem),
+            "IsAdviceForUnknownStage",
+            stage,
+            advice);
     }
 
     private static (TFirst first, TSecond second) InvokePrivateStatic<TFirst, TSecond>(

@@ -47,11 +47,16 @@ public sealed partial class BluespaceErrorRule : StationEventSystem<BluespaceErr
     public override void Initialize()
     {
         base.Initialize();
+
+        SubscribeLocalEvent<BluespaceErrorRuleComponent, ComponentShutdown>(OnComponentShutdown);
     }
 
     protected override void Started(EntityUid uid, BluespaceErrorRuleComponent component, GameRuleComponent gameRule, GameRuleStartedEvent args)
     {
         base.Started(uid, component, gameRule, args);
+
+        component.CleanupInProgress = false;
+        component.CleanupCompleted = false;
 
         if (!_map.TryGetMap(GameTicker.DefaultMap, out var mapUid))
             return;
@@ -123,7 +128,7 @@ public sealed partial class BluespaceErrorRule : StationEventSystem<BluespaceErr
 
                 EntityManager.AddComponents(spawned, group.AddComponents);
 
-                component.GridsUid.Add(spawned);
+                TrackGrid(component, spawned);
 
                 if (component.ExtendIfPopulated)
                     _autoExtend.AutoExtend(uid, spawned);
@@ -162,8 +167,18 @@ public sealed partial class BluespaceErrorRule : StationEventSystem<BluespaceErr
         _dungeon.GenerateDungeon(dungeonProto, dungeonProto.ID, spawnedGrid.Owner, spawnedGrid.Comp, Vector2i.Zero, _random.Next(), spawnCoords); // Frontier: add dungeonProto.ID
 
         spawned = spawnedGrid.Owner;
-        component.MapsUid.Add(mapId);
+        TrackTemporaryMap(component, mapId);
         return true;
+    }
+
+    public void TrackGrid(BluespaceErrorRuleComponent component, EntityUid gridUid)
+    {
+        component.GridsUid.Add(gridUid);
+    }
+
+    public void TrackTemporaryMap(BluespaceErrorRuleComponent component, MapId mapId)
+    {
+        component.MapsUid.Add(mapId);
     }
 
     private bool TryGridSpawn(EntityCoordinates spawnCoords, EntityUid stationUid, MapId mapId, ref BluespaceGridSpawnGroup group, int i, out EntityUid spawned)
@@ -210,32 +225,58 @@ public sealed partial class BluespaceErrorRule : StationEventSystem<BluespaceErr
     {
         base.Ended(uid, component, gameRule, args);
 
-        if (component.GridsUid == null)
+        CleanupTrackedGrids(component, awardRewards: true);
+    }
+
+    private void OnComponentShutdown(EntityUid uid, BluespaceErrorRuleComponent component, ComponentShutdown args)
+    {
+        CleanupTrackedGrids(component, awardRewards: false);
+    }
+
+    /// <summary>
+    /// Deletes every unclaimed grid and temporary map owned by an event.
+    /// Claimed grids, and the maps that currently contain them, are detached from event ownership.
+    /// </summary>
+    public void CleanupTrackedGrids(BluespaceErrorRuleComponent component, bool awardRewards)
+    {
+        if (component.CleanupInProgress || component.CleanupCompleted)
             return;
 
-        foreach (var componentGridUid in component.GridsUid)
+        component.CleanupInProgress = true;
+
+        try
         {
-            if (!EntityManager.TryGetComponent<TransformComponent>(componentGridUid, out var gridTransform))
-            {
-                Log.Error("bluespace error objective was missing transform component");
-                return;
-            }
+            var preservedMaps = new HashSet<MapId>();
 
-            if (gridTransform.GridUid is not EntityUid gridUid)
+            foreach (var componentGridUid in component.GridsUid.ToArray())
             {
-                Log.Error("bluespace error has no associated grid?");
-                return;
-            }
+                if (!TryComp<TransformComponent>(componentGridUid, out var gridTransform))
+                {
+                    Log.Warning($"Bluespace error grid {componentGridUid} was missing its transform during cleanup.");
+                    continue;
+                }
 
-            // don't delete it if claimed
-            if (TryComp<ClaimableGridComponent>(componentGridUid, out var claimable) && claimable.Claimed)
-                return;
+                if (gridTransform.GridUid is not EntityUid gridUid)
+                {
+                    Log.Warning($"Bluespace error entity {ToPrettyString(componentGridUid)} had no associated grid during cleanup.");
+                    continue;
+                }
 
-            if (component.DeleteGridsOnEnd)
-            {
-                // Handle mobrestrictions getting deleted
+                // A claimed grid is no longer owned by this event. Its current map must survive too.
+                if (TryComp<ClaimableGridComponent>(gridUid, out var claimable) && claimable.Claimed)
+                {
+                    preservedMaps.Add(gridTransform.MapID);
+                    continue;
+                }
+
+                if (!component.DeleteGridsOnEnd)
+                {
+                    preservedMaps.Add(gridTransform.MapID);
+                    continue;
+                }
+
+                // Handle mob restrictions getting deleted.
                 var query = AllEntityQuery<NFSalvageMobRestrictionsComponent>();
-
                 while (query.MoveNext(out var salvUid, out var salvMob))
                 {
                     if (!salvMob.DespawnIfOffLinkedGrid)
@@ -254,34 +295,38 @@ public sealed partial class BluespaceErrorRule : StationEventSystem<BluespaceErr
                     }
                 }
 
-                var playerMobs = _linkedLifecycleGrid.GetEntitiesToReparent(gridUid);
-                foreach (var mob in playerMobs)
+                var entitiesToReparent = _linkedLifecycleGrid.GetEntitiesToReparent(gridUid);
+                if (entitiesToReparent.Count > 0)
+                    preservedMaps.Add(gridTransform.MapID);
+
+                var gridValue = awardRewards ? _pricing.AppraiseGrid(gridUid, null) : 0;
+                _linkedLifecycleGrid.UnparentPlayersFromGrid(gridUid, deleteGrid: true);
+
+                if (awardRewards)
                 {
-                    _transform.DetachEntity(mob.Entity.Owner, mob.Entity.Comp);
-                }
-
-                var gridValue = _pricing.AppraiseGrid(gridUid, null);
-
-                // Deletion has to happen before grid traversal re-parents players.
-                Del(gridUid);
-
-                foreach (var mob in playerMobs)
-                {
-                    _transform.SetCoordinates(mob.Entity.Owner, new EntityCoordinates(mob.MapUid, mob.MapPosition));
-                }
-
-                foreach (var (account, rewardCoeff) in component.RewardAccounts)
-                {
-                    var reward = (int)(gridValue * rewardCoeff);
-                    _bank.TrySectorDeposit(account, reward, LedgerEntryType.BluespaceReward);
+                    foreach (var (account, rewardCoeff) in component.RewardAccounts)
+                    {
+                        var reward = (int)(gridValue * rewardCoeff);
+                        _bank.TrySectorDeposit(account, reward, LedgerEntryType.BluespaceReward);
+                    }
                 }
             }
-        }
 
-        foreach (MapId mapId in component.MapsUid)
-        {
-            if (_map.MapExists(mapId))
+            foreach (var mapId in component.MapsUid.ToArray())
+            {
+                if (preservedMaps.Contains(mapId) || !_map.MapExists(mapId))
+                    continue;
+
                 _map.DeleteMap(mapId);
+            }
+
+            component.GridsUid.Clear();
+            component.MapsUid.Clear();
+            component.CleanupCompleted = true;
+        }
+        finally
+        {
+            component.CleanupInProgress = false;
         }
     }
 }

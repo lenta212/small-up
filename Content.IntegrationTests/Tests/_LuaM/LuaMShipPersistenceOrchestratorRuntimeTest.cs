@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Security.Cryptography;
@@ -7,11 +8,19 @@ using System.Text.Json;
 using System.Threading;
 using Content.Server.Database;
 using Content.Server._LuaM.ShipPersistence;
+using Content.Server.Shuttles.Components;
+using Content.Server.Shuttles.Systems;
+using Content.Server.Station.Systems;
+using Content.Shared.Maps;
+using Content.Shared.Station.Components;
 using Moq;
+using Robust.Shared.Containers;
 using Robust.Shared.EntitySerialization.Systems;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
+using Robust.Shared.Maths;
 using Robust.Shared.Network;
+using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
 
 namespace Content.IntegrationTests.Tests._LuaM;
@@ -322,8 +331,13 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
         var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
         var server = pair.Server;
         var entities = server.ResolveDependency<IEntityManager>();
+        var prototypes = server.ResolveDependency<IPrototypeManager>();
         var loader = entities.System<MapLoaderSystem>();
         var maps = entities.System<SharedMapSystem>();
+        var containers = entities.System<SharedContainerSystem>();
+        var docking = entities.System<DockingSystem>();
+        var shuttles = entities.System<ShuttleSystem>();
+        var stations = entities.System<StationSystem>();
         var transforms = entities.System<SharedTransformSystem>();
         var runtime = entities.System<LuaMFullShipPersistenceSystem>();
         var database = new Mock<IServerDbManager>(MockBehavior.Strict);
@@ -334,14 +348,93 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
         var leaseId = Guid.Empty;
         var abortCount = 0;
         var completeCount = 0;
+        var releaseCount = 0;
         LuaMShipSnapshotStoreRequest? legacyStore = null;
         LuaMShipSnapshotStoreRequest? replacementStore = null;
         MapId sourceMap = default;
         MapId restoreMap = default;
+        MapId targetMap = default;
         EntityUid sourceGrid = EntityUid.Invalid;
+        EntityUid sourceStation = EntityUid.Invalid;
+        EntityUid targetGrid = EntityUid.Invalid;
+        EntityUid targetStation = EntityUid.Invalid;
+        EntityUid targetGate = EntityUid.Invalid;
         EntityUid failedPlacementGrid = EntityUid.Invalid;
+        EntityUid failedPlacementStation = EntityUid.Invalid;
         EntityUid failedCompletionGrid = EntityUid.Invalid;
+        EntityUid failedCompletionStation = EntityUid.Invalid;
+        EntityUid failedCompletionShipDock = EntityUid.Invalid;
+        DockingComponent? failedCompletionShipDockComponent = null;
+        EntityUid retainedPassenger = EntityUid.Invalid;
+        EntityUid retainedItem = EntityUid.Invalid;
+        MapCoordinates retainedPassengerCoordinates = default;
+        Angle retainedPassengerRotation = default;
+        MapCoordinates retainedItemCoordinates = default;
+        Angle retainedItemRotation = default;
         EntityUid restoredGrid = EntityUid.Invalid;
+        EntityUid restoredStation = EntityUid.Invalid;
+        EntityUid restoredShipDock = EntityUid.Invalid;
+        HashSet<EntityUid>? firstRestoreBaseline = null;
+        HashSet<EntityUid>? secondRestoreBaseline = null;
+        HashSet<EntityUid>? failedPlacementEntities = null;
+        HashSet<EntityUid>? failedCompletionEntities = null;
+
+        void AssertRestoreGraphRolledBack(
+            IReadOnlySet<EntityUid>? failedEntities,
+            IReadOnlySet<EntityUid>? restoreBaseline,
+            string message)
+        {
+            Assert.That(failedEntities, Is.Not.Null);
+            Assert.That(restoreBaseline, Is.Not.Null);
+            Assert.Multiple(() =>
+            {
+                Assert.That(failedEntities!.All(uid => !entities.EntityExists(uid)), Is.True,
+                    $"{message}: every entity created by deserialization must be gone.");
+                Assert.That(entities.GetEntities().ToHashSet().SetEquals(restoreBaseline!), Is.True,
+                    $"{message}: rollback must preserve the exact pre-existing entity set.");
+            });
+        }
+
+        void AssertRetainedPassengerSurvived(string message)
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(entities.EntityExists(retainedPassenger), Is.True,
+                    $"{message}: the retained passenger must survive rollback.");
+                Assert.That(entities.EntityExists(retainedItem), Is.True,
+                    $"{message}: the passenger's retained item must survive rollback.");
+            });
+            if (!entities.EntityExists(retainedPassenger) || !entities.EntityExists(retainedItem))
+                return;
+
+            var passengerTransform = entities.GetComponent<TransformComponent>(retainedPassenger);
+            var passengerCoordinates = transforms.GetMapCoordinates(retainedPassenger, passengerTransform);
+            var itemTransform = entities.GetComponent<TransformComponent>(retainedItem);
+            var itemCoordinates = transforms.GetMapCoordinates(retainedItem, itemTransform);
+            Assert.Multiple(() =>
+            {
+                Assert.That(passengerTransform.ParentUid, Is.EqualTo(maps.GetMap(targetMap)),
+                    $"{message}: rollback must move the retained subtree off the deleted grid.");
+                Assert.That(passengerCoordinates.MapId, Is.EqualTo(retainedPassengerCoordinates.MapId));
+                Assert.That(passengerCoordinates.Position.X,
+                    Is.EqualTo(retainedPassengerCoordinates.Position.X).Within(0.001f));
+                Assert.That(passengerCoordinates.Position.Y,
+                    Is.EqualTo(retainedPassengerCoordinates.Position.Y).Within(0.001f));
+                Assert.That(transforms.GetWorldRotation(passengerTransform).Theta,
+                    Is.EqualTo(retainedPassengerRotation.Theta).Within(0.001));
+                Assert.That(itemTransform.ParentUid, Is.EqualTo(maps.GetMap(targetMap)),
+                    $"{message}: the retained item must be ejected from the deleted container.");
+                Assert.That(containers.IsEntityInContainer(retainedItem), Is.False,
+                    $"{message}: the retained item must not keep stale container membership.");
+                Assert.That(itemCoordinates.MapId, Is.EqualTo(retainedItemCoordinates.MapId));
+                Assert.That(itemCoordinates.Position.X,
+                    Is.EqualTo(retainedItemCoordinates.Position.X).Within(0.001f));
+                Assert.That(itemCoordinates.Position.Y,
+                    Is.EqualTo(retainedItemCoordinates.Position.Y).Within(0.001f));
+                Assert.That(transforms.GetWorldRotation(itemTransform).Theta,
+                    Is.EqualTo(retainedItemRotation.Theta).Within(0.001));
+            });
+        }
 
         database
             .Setup(db => db.GetLuaMShipSnapshotAsync(
@@ -350,25 +443,28 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid shipId, NetUserId _, CancellationToken _) =>
             {
+                var durableStore = replacementStore ?? legacyStore;
                 Assert.Multiple(() =>
                 {
-                    Assert.That(legacyStore, Is.Not.Null);
-                    Assert.That(shipId, Is.EqualTo(legacyStore!.ShipId));
+                    Assert.That(durableStore, Is.Not.Null);
+                    Assert.That(shipId, Is.EqualTo(durableStore!.ShipId));
                     Assert.That(status, Is.AnyOf(
                         DbLuaMShipSnapshotStatus.Stored,
-                        DbLuaMShipSnapshotStatus.Restoring));
+                        DbLuaMShipSnapshotStatus.Restoring,
+                        DbLuaMShipSnapshotStatus.Active));
                 });
-                var restoring = status == DbLuaMShipSnapshotStatus.Restoring;
+                var leasePresent = status is DbLuaMShipSnapshotStatus.Restoring or
+                    DbLuaMShipSnapshotStatus.Active;
                 return ToRecord(
-                    legacyStore!,
+                    durableStore!,
                     lifecycleRevision,
                     status,
-                    restoring ? leaseId : null,
-                    restoring ? "legacy-retry-test" : null,
-                    restoring ? 431 : null,
-                    restoring ? 0 : null) with
+                    leasePresent ? leaseId : null,
+                    leasePresent ? "legacy-retry-test" : null,
+                    leasePresent ? 431 : null,
+                    leasePresent ? 0 : null) with
                 {
-                    PayloadRevision = null,
+                    PayloadRevision = replacementStore == null ? null : durableStore!.PayloadRevision,
                 };
             });
         database
@@ -385,8 +481,9 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 leaseId = request.LeaseId;
                 status = DbLuaMShipSnapshotStatus.Restoring;
                 lifecycleRevision++;
+                var durableStore = replacementStore ?? legacyStore!;
                 var record = ToRecord(
-                    legacyStore!,
+                    durableStore,
                     lifecycleRevision,
                     status,
                     leaseId,
@@ -394,7 +491,7 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                     request.RestoreRoundId,
                     0) with
                 {
-                    PayloadRevision = null,
+                    PayloadRevision = replacementStore == null ? null : durableStore.PayloadRevision,
                 };
                 return new LuaMShipPersistenceWriteResult(
                     LuaMShipPersistenceWriteStatus.Success,
@@ -417,18 +514,23 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                     Assert.That(request.LeaseId, Is.EqualTo(leaseId));
                     Assert.That(status, Is.EqualTo(DbLuaMShipSnapshotStatus.Restoring));
                 });
+                AssertRestoreGraphRolledBack(
+                    failedPlacementEntities,
+                    firstRestoreBaseline,
+                    "Placement rollback before DB abort");
                 abortCount++;
                 status = DbLuaMShipSnapshotStatus.Stored;
                 lifecycleRevision++;
                 leaseId = Guid.Empty;
+                var durableStore = replacementStore ?? legacyStore!;
                 return new LuaMShipPersistenceWriteResult(
                     LuaMShipPersistenceWriteStatus.Success,
                     request.ShipId,
                     lifecycleRevision,
                     status,
-                    Snapshot: ToRecord(legacyStore!, lifecycleRevision, status, null, null, null, null) with
+                    Snapshot: ToRecord(durableStore, lifecycleRevision, status, null, null, null, null) with
                     {
-                        PayloadRevision = null,
+                        PayloadRevision = replacementStore == null ? null : durableStore.PayloadRevision,
                     });
             });
         database
@@ -444,10 +546,36 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                     Assert.That(status, Is.EqualTo(DbLuaMShipSnapshotStatus.Restoring));
                 });
                 completeCount++;
-                if (completeCount == 1)
-                    throw new InvalidOperationException("simulated completion transport failure");
                 status = DbLuaMShipSnapshotStatus.Active;
                 lifecycleRevision++;
+                if (completeCount == 2)
+                {
+                    // Simulate a player and carried item entering the restored
+                    // graph while the durable completion request is in flight.
+                    // They predate deserialization and therefore must not be
+                    // recursively deleted with the restored grid on lost reply.
+                    Assert.That(failedCompletionGrid.Valid, Is.True);
+                    transforms.SetParent(retainedPassenger, failedCompletionGrid);
+                    var restoredContainer = containers.EnsureContainer<Container>(
+                        failedCompletionGrid,
+                        "restore-rollback-retained-item");
+                    Assert.That(containers.Insert(retainedItem, restoredContainer), Is.True);
+                    retainedPassengerCoordinates = transforms.GetMapCoordinates(retainedPassenger);
+                    retainedPassengerRotation = transforms.GetWorldRotation(retainedPassenger);
+                    retainedItemCoordinates = transforms.GetMapCoordinates(retainedItem);
+                    retainedItemRotation = transforms.GetWorldRotation(retainedItem);
+                    Assert.Multiple(() =>
+                    {
+                        Assert.That(entities.GetComponent<TransformComponent>(retainedPassenger).ParentUid,
+                            Is.EqualTo(failedCompletionGrid));
+                        Assert.That(entities.GetComponent<TransformComponent>(retainedItem).ParentUid,
+                            Is.EqualTo(failedCompletionGrid));
+                        Assert.That(containers.IsEntityInContainer(retainedItem), Is.True);
+                    });
+                    throw new InvalidOperationException(
+                        "simulated lost response after the durable completion commit");
+                }
+
                 return new LuaMShipPersistenceWriteResult(
                     LuaMShipPersistenceWriteStatus.Success,
                     request.ShipId,
@@ -455,6 +583,46 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                     status,
                     leaseId,
                     0);
+            });
+        database
+            .Setup(db => db.ReleaseLuaMShipPresenceAsync(
+                It.IsAny<LuaMShipPresenceReleaseRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((LuaMShipPresenceReleaseRequest request, CancellationToken _) =>
+            {
+                Assert.Multiple(() =>
+                {
+                    Assert.That(status, Is.EqualTo(DbLuaMShipSnapshotStatus.Active));
+                    Assert.That(request.ExpectedRevision, Is.EqualTo(lifecycleRevision));
+                    Assert.That(request.LeaseId, Is.EqualTo(leaseId));
+                    Assert.That(entities.EntityExists(targetGate), Is.True);
+                    Assert.That(entities.EntityExists(failedCompletionShipDock), Is.False);
+                    Assert.That(failedCompletionShipDockComponent, Is.Not.Null);
+                    Assert.That(failedCompletionShipDockComponent!.DockedWith, Is.Null,
+                        "The owned side must be explicitly undocked before its entity is deleted.");
+                    Assert.That(entities.GetComponent<DockingComponent>(targetGate).DockedWith, Is.Null,
+                        "The pre-existing station gate must be released before DB rollback awaits.");
+                });
+                AssertRestoreGraphRolledBack(
+                    failedCompletionEntities,
+                    secondRestoreBaseline,
+                    "Committed completion rollback before presence release");
+                AssertRetainedPassengerSurvived("Committed completion rollback before presence release");
+
+                releaseCount++;
+                status = DbLuaMShipSnapshotStatus.Stored;
+                lifecycleRevision++;
+                leaseId = Guid.Empty;
+                var durableStore = replacementStore ?? legacyStore!;
+                return new LuaMShipPersistenceWriteResult(
+                    LuaMShipPersistenceWriteStatus.Success,
+                    request.ShipId,
+                    lifecycleRevision,
+                    status,
+                    Snapshot: ToRecord(durableStore, lifecycleRevision, status, null, null, null, null) with
+                    {
+                        PayloadRevision = replacementStore == null ? null : durableStore.PayloadRevision,
+                    });
             });
         database
             .Setup(db => db.StoreLuaMShipSnapshotAsync(
@@ -510,9 +678,28 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
             {
                 maps.CreateMap(out sourceMap);
                 maps.CreateMap(out restoreMap);
+                maps.CreateMap(out targetMap);
                 Assert.That(loader.TryLoadGrid(sourceMap, SeedPath, out var loaded), Is.True);
                 Assert.That(loaded, Is.Not.Null);
                 sourceGrid = loaded!.Value.Owner;
+                Assert.That(loader.TryLoadGrid(targetMap, SeedPath, out var targetLoaded), Is.True);
+                Assert.That(targetLoaded, Is.Not.Null);
+                targetGrid = targetLoaded!.Value.Owner;
+                var gameMap = prototypes.Index<GameMapPrototype>("McChicken");
+                sourceStation = stations.InitializeNewStation(
+                    gameMap.Stations["McChicken"],
+                    [sourceGrid],
+                    "LuaM rollback fixture station");
+                targetStation = stations.InitializeNewStation(
+                    gameMap.Stations["McChicken"],
+                    [targetGrid],
+                    "LuaM rollback target station");
+                entities.SpawnEntity(
+                    "AirlockShuttle",
+                    new EntityCoordinates(sourceGrid, new Vector2(0.5f, 0.5f)));
+                targetGate = entities.SpawnEntity(
+                    "AirlockShuttle",
+                    new EntityCoordinates(targetGrid, new Vector2(0.5f, 0.5f)));
                 Assert.That(runtime.TryCaptureSnapshot(sourceGrid, 1, out var snapshot, out var reason),
                     Is.True,
                     reason);
@@ -539,10 +726,12 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                     snapshot.PrototypeManifestHash,
                     now);
                 entities.DeleteEntity(sourceGrid);
+                entities.DeleteEntity(sourceStation);
             });
 
             var orchestrator = entities.System<LuaMShipPersistenceOrchestrator>();
             orchestrator.ConfigureForTesting(database.Object, runtime, "legacy-retry-test");
+            await server.WaitPost(() => firstRestoreBaseline = entities.GetEntities().ToHashSet());
             var first = await RunOnServerAsync(() => orchestrator.RestoreClaimAsync(
                 legacyStore!.ShipId,
                 owner,
@@ -552,8 +741,19 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 restored =>
                 {
                     failedPlacementGrid = restored;
+                    failedPlacementStation = entities.GetComponent<StationMemberComponent>(restored).Station;
+                    failedPlacementEntities = entities.GetEntities()
+                        .Where(uid => !firstRestoreBaseline!.Contains(uid))
+                        .ToHashSet();
+                    Assert.Multiple(() =>
+                    {
+                        Assert.That(entities.EntityExists(failedPlacementStation), Is.True,
+                            "The fixture must deserialize the auto-included nullspace station root.");
+                        Assert.That(failedPlacementEntities!.Contains(failedPlacementGrid), Is.True);
+                        Assert.That(failedPlacementEntities.Contains(failedPlacementStation), Is.True);
+                    });
                     transforms.SetLocalPosition(restored, new Vector2(20f, 0f));
-                    throw new InvalidOperationException("simulated placement transaction failure");
+                    return false;
                 }));
 
             Assert.Multiple(() =>
@@ -565,9 +765,19 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 Assert.That(status, Is.EqualTo(DbLuaMShipSnapshotStatus.Stored));
             });
 
+            Assert.Multiple(() =>
+            {
+                Assert.That(entities.EntityExists(failedPlacementGrid), Is.False,
+                    "A rejected placement must not leak the partially moved restored grid.");
+                Assert.That(entities.EntityExists(failedPlacementStation), Is.False,
+                    "A rejected placement must not leak its auto-included nullspace station.");
+                Assert.That(failedPlacementEntities!.All(uid => !entities.EntityExists(uid)), Is.True,
+                    "A rejected placement must leave no deserialized support entity residue.");
+                Assert.That(entities.GetEntities().ToHashSet().SetEquals(firstRestoreBaseline!), Is.True,
+                    "A rejected placement must preserve the exact pre-existing entity set.");
+            });
             await pair.RunTicksSync(2);
-            Assert.That(entities.EntityExists(failedPlacementGrid), Is.False,
-                "A placement callback exception must not leak the partially moved restored grid.");
+
             var second = await RunOnServerAsync(() => orchestrator.RestoreClaimAsync(
                 legacyStore!.ShipId,
                 owner,
@@ -576,55 +786,171 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 now.AddSeconds(2),
                 restored =>
                 {
-                    failedCompletionGrid = restored;
+                    restoredStation = entities.GetComponent<StationMemberComponent>(restored).Station;
                     return true;
                 }));
+            restoredGrid = second.Grid ?? EntityUid.Invalid;
 
             Assert.Multiple(() =>
             {
-                Assert.That(second.Success, Is.False);
-                Assert.That(second.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.UnknownOutcome));
-                Assert.That(abortCount, Is.EqualTo(2));
-                Assert.That(lifecycleRevision, Is.EqualTo(434));
-                Assert.That(status, Is.EqualTo(DbLuaMShipSnapshotStatus.Stored));
-            });
-
-            await pair.RunTicksSync(2);
-            Assert.That(entities.EntityExists(failedCompletionGrid), Is.False,
-                "A completion exception must delete the restored grid before rolling back the claim.");
-            var third = await RunOnServerAsync(() => orchestrator.RestoreClaimAsync(
-                legacyStore!.ShipId,
-                owner,
-                431,
-                restoreMap,
-                now.AddSeconds(3),
-                _ => true));
-            restoredGrid = third.Grid ?? EntityUid.Invalid;
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(third.Success, Is.True, third.Reason);
-                Assert.That(third.Revision, Is.EqualTo(436));
+                Assert.That(second.Success, Is.True, second.Reason);
+                Assert.That(second.Revision, Is.EqualTo(434));
                 Assert.That(restoredGrid.Valid, Is.True);
-                Assert.That(completeCount, Is.EqualTo(2));
-                Assert.That(orchestrator.ActiveLeases.Single().RegistryRevision, Is.EqualTo(436));
+                Assert.That(entities.EntityExists(restoredStation), Is.True,
+                    "Retrying the same snapshot must restore its station after clean placement rollback.");
+                Assert.That(abortCount, Is.EqualTo(1));
+                Assert.That(completeCount, Is.EqualTo(1));
+                Assert.That(lifecycleRevision, Is.EqualTo(434));
+                Assert.That(status, Is.EqualTo(DbLuaMShipSnapshotStatus.Active));
+                Assert.That(orchestrator.ActiveLeases.Single().RegistryRevision, Is.EqualTo(434));
                 Assert.That(orchestrator.ActiveLeases.Single().PayloadRevision, Is.EqualTo(1));
-                Assert.That(entities.GetComponent<LuaMShipIdentityComponent>(restoredGrid).SnapshotRevision,
-                    Is.EqualTo(1));
             });
 
             var stored = await RunOnServerAsync(() => orchestrator.StoreAndDeactivateAsync(
                 legacyStore!.ShipId,
                 431,
-                now.AddSeconds(4)));
+                now.AddSeconds(3)));
             Assert.Multiple(() =>
             {
                 Assert.That(stored.Success, Is.True, stored.Reason);
-                Assert.That(stored.Revision, Is.EqualTo(437));
+                Assert.That(stored.Revision, Is.EqualTo(435));
                 Assert.That(replacementStore, Is.Not.Null);
                 Assert.That(replacementStore!.PayloadRevision, Is.EqualTo(2));
                 Assert.That(JsonSerializer.Deserialize<LuaMFullShipSnapshot>(replacementStore.Payload)!.Revision,
                     Is.EqualTo(2));
+            });
+
+            await server.WaitPost(() =>
+            {
+                entities.DeleteEntity(restoredGrid);
+                entities.DeleteEntity(restoredStation);
+                restoredGrid = EntityUid.Invalid;
+                restoredStation = EntityUid.Invalid;
+                retainedPassenger = entities.SpawnEntity(
+                    "MobHuman",
+                    new EntityCoordinates(targetGrid, new Vector2(0.25f, 0.25f)));
+                retainedItem = entities.SpawnEntity(
+                    "Crowbar",
+                    new EntityCoordinates(retainedPassenger, new Vector2(0.1f, 0f)));
+                secondRestoreBaseline = entities.GetEntities().ToHashSet();
+            });
+            var third = await RunOnServerAsync(() => orchestrator.RestoreClaimAsync(
+                legacyStore!.ShipId,
+                owner,
+                431,
+                restoreMap,
+                now.AddSeconds(4),
+                restored =>
+                {
+                    failedCompletionGrid = restored;
+                    failedCompletionStation = entities.GetComponent<StationMemberComponent>(restored).Station;
+                    Assert.That(entities.GetComponent<DockingComponent>(targetGate).Docked, Is.False,
+                        "The exact target gate must be free before the real placement attempt.");
+                    Assert.That(
+                        shuttles.TryFTLDockAtDock(
+                            restored,
+                            entities.GetComponent<ShuttleComponent>(restored),
+                            targetGrid,
+                            targetGate),
+                        Is.True,
+                        "The completion-failure fixture must perform the real geometry-checked placement.");
+                    var placedDock = docking.GetDocks(restored)
+                        .Single(candidate => candidate.Comp.DockedWith == targetGate);
+                    failedCompletionShipDock = placedDock.Owner;
+                    failedCompletionShipDockComponent = placedDock.Comp;
+                    Assert.That(
+                        entities.GetComponent<DockingComponent>(targetGate).DockedWith,
+                        Is.EqualTo(failedCompletionShipDock));
+                    failedCompletionEntities = entities.GetEntities()
+                        .Where(uid => !secondRestoreBaseline!.Contains(uid))
+                        .ToHashSet();
+                    Assert.Multiple(() =>
+                    {
+                        Assert.That(failedCompletionEntities.Contains(failedCompletionShipDock), Is.True,
+                            "The dock being removed must belong to the exact restored entity set.");
+                        Assert.That(failedCompletionEntities.Contains(targetGate), Is.False,
+                            "The pre-existing target gate must remain outside restore ownership.");
+                        Assert.That(failedCompletionEntities.Contains(retainedPassenger), Is.False,
+                            "The pre-existing passenger must remain outside restore ownership.");
+                        Assert.That(failedCompletionEntities.Contains(retainedItem), Is.False,
+                            "The pre-existing carried item must remain outside restore ownership.");
+                    });
+                    return true;
+                }));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(third.Success, Is.False);
+                Assert.That(third.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.UnknownOutcome));
+                Assert.That(abortCount, Is.EqualTo(1));
+                Assert.That(releaseCount, Is.EqualTo(1));
+                Assert.That(completeCount, Is.EqualTo(2));
+                Assert.That(lifecycleRevision, Is.EqualTo(438));
+                Assert.That(status, Is.EqualTo(DbLuaMShipSnapshotStatus.Stored));
+            });
+            Assert.Multiple(() =>
+            {
+                Assert.That(entities.EntityExists(failedCompletionGrid), Is.False,
+                    "A completion exception must delete the restored grid before rolling back the claim.");
+                Assert.That(entities.EntityExists(failedCompletionStation), Is.False,
+                    "A completion exception must delete the auto-included station before rolling back the claim.");
+                Assert.That(failedCompletionEntities!.All(uid => !entities.EntityExists(uid)), Is.True,
+                    "A completion exception must leave no deserialized support entity residue.");
+                Assert.That(failedCompletionShipDockComponent, Is.Not.Null);
+                Assert.That(failedCompletionShipDockComponent!.DockedWith, Is.Null,
+                    "Rollback must explicitly undock the owned port before deleting it.");
+                Assert.That(entities.GetComponent<DockingComponent>(targetGate).DockedWith, Is.Null,
+                    "Rollback must leave the external station gate reusable.");
+                Assert.That(entities.GetEntities().ToHashSet().SetEquals(secondRestoreBaseline!), Is.True,
+                    "A completion exception must preserve the exact pre-existing entity set.");
+            });
+            AssertRetainedPassengerSurvived("Completion exception result");
+            await pair.RunTicksSync(2);
+
+            var fourth = await RunOnServerAsync(() => orchestrator.RestoreClaimAsync(
+                legacyStore!.ShipId,
+                owner,
+                431,
+                restoreMap,
+                now.AddSeconds(5),
+                restored =>
+                {
+                    restoredStation = entities.GetComponent<StationMemberComponent>(restored).Station;
+                    Assert.That(entities.GetComponent<DockingComponent>(targetGate).Docked, Is.False,
+                        "The same station gate must be reusable immediately after rollback.");
+                    Assert.That(
+                        shuttles.TryFTLDockAtDock(
+                            restored,
+                            entities.GetComponent<ShuttleComponent>(restored),
+                            targetGrid,
+                            targetGate),
+                        Is.True,
+                        "Immediate retry must pass the same real docking geometry.");
+                    restoredShipDock = docking.GetDocks(restored)
+                        .Single(candidate => candidate.Comp.DockedWith == targetGate)
+                        .Owner;
+                    return true;
+                }));
+            restoredGrid = fourth.Grid ?? EntityUid.Invalid;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(fourth.Success, Is.True, fourth.Reason);
+                Assert.That(fourth.Revision, Is.EqualTo(440));
+                Assert.That(restoredGrid.Valid, Is.True);
+                Assert.That(entities.EntityExists(restoredStation), Is.True,
+                    "Retrying after a completion rollback must restore the station again.");
+                Assert.That(completeCount, Is.EqualTo(3));
+                Assert.That(orchestrator.ActiveLeases.Single().RegistryRevision, Is.EqualTo(440));
+                Assert.That(orchestrator.ActiveLeases.Single().PayloadRevision, Is.EqualTo(2));
+                Assert.That(entities.GetComponent<LuaMShipIdentityComponent>(restoredGrid).SnapshotRevision,
+                    Is.EqualTo(2));
+                Assert.That(
+                    entities.GetComponent<DockingComponent>(restoredShipDock).DockedWith,
+                    Is.EqualTo(targetGate));
+                Assert.That(
+                    entities.GetComponent<DockingComponent>(targetGate).DockedWith,
+                    Is.EqualTo(restoredShipDock));
             });
             database.VerifyAll();
         }
@@ -632,18 +958,40 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
         {
             await server.WaitPost(() =>
             {
+                if (entities.EntityExists(restoredShipDock) &&
+                    entities.TryGetComponent<DockingComponent>(restoredShipDock, out var restoredDock) &&
+                    restoredDock.DockedWith == targetGate)
+                {
+                    docking.Undock((restoredShipDock, restoredDock));
+                }
                 if (entities.EntityExists(sourceGrid))
                     entities.DeleteEntity(sourceGrid);
+                if (entities.EntityExists(sourceStation))
+                    entities.DeleteEntity(sourceStation);
+                if (entities.EntityExists(retainedPassenger))
+                    entities.DeleteEntity(retainedPassenger);
+                if (entities.EntityExists(retainedItem))
+                    entities.DeleteEntity(retainedItem);
+                if (entities.EntityExists(targetStation))
+                    entities.DeleteEntity(targetStation);
                 if (entities.EntityExists(failedPlacementGrid))
                     entities.DeleteEntity(failedPlacementGrid);
+                if (entities.EntityExists(failedPlacementStation))
+                    entities.DeleteEntity(failedPlacementStation);
                 if (entities.EntityExists(failedCompletionGrid))
                     entities.DeleteEntity(failedCompletionGrid);
+                if (entities.EntityExists(failedCompletionStation))
+                    entities.DeleteEntity(failedCompletionStation);
                 if (entities.EntityExists(restoredGrid))
                     entities.DeleteEntity(restoredGrid);
+                if (entities.EntityExists(restoredStation))
+                    entities.DeleteEntity(restoredStation);
                 if (maps.MapExists(sourceMap))
                     maps.DeleteMap(sourceMap);
                 if (maps.MapExists(restoreMap))
                     maps.DeleteMap(restoreMap);
+                if (maps.MapExists(targetMap))
+                    maps.DeleteMap(targetMap);
             });
             await pair.CleanReturnAsync();
         }

@@ -64,6 +64,7 @@ namespace Content.Server.Database
         public DbSet<LuaMCareerXpLedger> LuaMCareerXpLedger { get; set; } = null!;
         public DbSet<LuaMDeepCryoSnapshot> LuaMDeepCryoSnapshots { get; set; } = null!;
         public DbSet<LuaMCharacterPresenceLease> LuaMCharacterPresenceLeases { get; set; } = null!;
+        public DbSet<LuaMCharacterPresenceOperation> LuaMCharacterPresenceOperations { get; set; } = null!;
         public DbSet<LuaMDeepCryoOperation> LuaMDeepCryoOperations { get; set; } = null!;
         public DbSet<LuaMShipSnapshot> LuaMShipSnapshots { get; set; } = null!;
         public DbSet<LuaMShipPresenceLease> LuaMShipPresenceLeases { get; set; } = null!;

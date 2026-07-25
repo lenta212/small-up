@@ -15,6 +15,7 @@ public sealed partial class GravityGeneratorSystem : EntitySystem
         base.Initialize();
 
         SubscribeLocalEvent<GravityGeneratorComponent, EntParentChangedMessage>(OnParentChanged);
+        SubscribeLocalEvent<GravityGeneratorComponent, ComponentInit>(OnComponentInit);
         SubscribeLocalEvent<GravityGeneratorComponent, ChargedMachineActivatedEvent>(OnActivated);
         SubscribeLocalEvent<GravityGeneratorComponent, ChargedMachineDeactivatedEvent>(OnDeactivated);
         // SubscribeLocalEvent<GravityGeneratorComponent, EmpPulseEvent>(OnEmpPulse); // Frontier: Upstream - #28984
@@ -33,6 +34,25 @@ public sealed partial class GravityGeneratorSystem : EntitySystem
             _lights.SetRadius(uid, MathHelper.Lerp(grav.LightRadiusMin, grav.LightRadiusMax, charge.Charge),
                 pointLight);
         }
+    }
+
+    private void OnComponentInit(Entity<GravityGeneratorComponent> ent, ref ComponentInit args)
+    {
+        // Snapshots preserve the map-initialized life stage, so MapInitEvent is not raised again on restore.
+        // ComponentInit still runs after the saved component data and entity hierarchy have been restored.
+        if (!TryComp<PowerChargeComponent>(ent, out var charge))
+            return;
+
+        ent.Comp.GravityActive = charge.Active;
+
+        var xform = Transform(ent);
+        if (!TryComp(xform.ParentUid, out GravityComponent? gravity))
+            return;
+
+        if (ent.Comp.GravityActive)
+            _gravitySystem.EnableGravity(xform.ParentUid, gravity);
+        else
+            _gravitySystem.RefreshGravity(xform.ParentUid, gravity);
     }
 
     private void OnActivated(Entity<GravityGeneratorComponent> ent, ref ChargedMachineActivatedEvent args)

@@ -22,6 +22,7 @@ using Robust.Shared.Maths;
 using Robust.Shared.Map;
 using Robust.Shared.Network;
 using Robust.Shared.Player;
+using Robust.UnitTesting;
 using Robust.Shared.Prototypes;
 using Robust.Server.Player;
 using Robust.Shared.Utility;
@@ -786,6 +787,8 @@ public sealed class LuaMBankAndPdaContractsTest
             var pdaSystem = entMan.System<PdaSystem>();
             var testMap = await pair.CreateTestMap();
 
+            await SelectFreshBankProfile(server, session, "PDA replacement fixture");
+
             var recipientId = new NetUserId(Guid.NewGuid());
             var recipientProfile = NewBankProfile("Recreate Recipient", 1_000);
             await db.InitPrefsAsync(recipientId, recipientProfile, default);
@@ -816,7 +819,7 @@ public sealed class LuaMBankAndPdaContractsTest
             await server.WaitPost(() =>
             {
                 actor = entMan.SpawnEntity("MobHuman", testMap.GridCoords);
-                playerMan.SetAttachedEntity(session, actor);
+                AttachBankBody(entMan, playerMan, session, actor);
                 entMan.EnsureComponent<BankAccountComponent>(actor);
                 bankSystem.SyncBankBalance(actor);
             });
@@ -1377,6 +1380,8 @@ public sealed class LuaMBankAndPdaContractsTest
             var bank = entityManager.System<BankSystem>();
             var map = await pair.CreateTestMap();
 
+            await SelectFreshBankProfile(server, session, "Archived debit fixture");
+
             var slot = -1;
             var capturedProfileId = 0;
             HumanoidCharacterProfile? capturedProfile = null;
@@ -1406,7 +1411,7 @@ public sealed class LuaMBankAndPdaContractsTest
             await server.WaitPost(() =>
             {
                 spawned = entityManager.SpawnEntity("MobHuman", map.GridCoords);
-                playerMan.SetAttachedEntity(session, spawned);
+                AttachBankBody(entityManager, playerMan, session, spawned);
             });
 
             var finalized = false;
@@ -1595,6 +1600,7 @@ public sealed class LuaMBankAndPdaContractsTest
             var entMan = server.ResolveDependency<IEntityManager>();
             var bankSystem = entMan.System<BankSystem>();
             var testMap = await pair.CreateTestMap();
+
             var payrollAvailable = false;
             var hourly = 0;
             var nextSeconds = 0;
@@ -1669,11 +1675,13 @@ public sealed class LuaMBankAndPdaContractsTest
             var bankSystem = entMan.System<BankSystem>();
             var testMap = await pair.CreateTestMap();
 
+            await SelectFreshBankProfile(server, serverSession, "Payroll fixture");
+
             EntityUid worker = default;
             await server.WaitPost(() =>
             {
                 worker = entMan.SpawnEntity("MobHuman", testMap.GridCoords);
-                playerMan.SetAttachedEntity(serverSession, worker);
+                AttachBankBody(entMan, playerMan, serverSession, worker);
                 entMan.EnsureComponent<BankAccountComponent>(worker);
                 var job = entMan.EnsureComponent<PlayerJobComponent>(worker);
                 job.JobPrototype = "Passenger";
@@ -1723,11 +1731,13 @@ public sealed class LuaMBankAndPdaContractsTest
             var bankSystem = entMan.System<BankSystem>();
             var testMap = await pair.CreateTestMap();
 
+            await SelectFreshBankProfile(server, serverSession, "Deposit rollback fixture");
+
             EntityUid worker = default;
             await server.WaitPost(() =>
             {
                 worker = entMan.SpawnEntity("MobHuman", testMap.GridCoords);
-                playerMan.SetAttachedEntity(serverSession, worker);
+                AttachBankBody(entMan, playerMan, serverSession, worker);
                 entMan.EnsureComponent<BankAccountComponent>(worker);
                 bankSystem.SyncBankBalance(worker);
             });
@@ -2081,6 +2091,46 @@ public sealed class LuaMBankAndPdaContractsTest
                 Color.Beige,
                 new()),
         }.WithBankBalance(bankBalance);
+    }
+
+    private static async Task SelectFreshBankProfile(
+        RobustIntegrationTest.ServerIntegrationInstance server,
+        ICommonSession session,
+        string name)
+    {
+        var db = server.ResolveDependency<IServerDbManager>();
+        var preferences = server.ResolveDependency<IServerPreferencesManager>();
+        var durable = await db.GetPlayerPreferencesSnapshotAsync(session.UserId);
+        Assert.That(durable, Is.Not.Null);
+
+        var slot = Enumerable.Range(0, 30)
+            .First(candidate => !durable!.Preferences.Characters.ContainsKey(candidate));
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        await db.SaveCharacterSlotAsync(
+            session.UserId,
+            NewBankProfile($"{name} {suffix}",
+                HumanoidCharacterProfile.SectorPioneerGrant),
+            slot);
+        await db.SaveSelectedCharacterIndexAsync(session.UserId, slot);
+
+        Task? refresh = null;
+        await server.WaitPost(() => refresh = preferences.RefreshPreferencesAsync(session, default));
+        await refresh!;
+        Assert.That(preferences.GetPreferences(session.UserId).SelectedCharacterIndex, Is.EqualTo(slot));
+    }
+
+    private static void AttachBankBody(
+        IEntityManager entityManager,
+        IPlayerManager playerManager,
+        ICommonSession session,
+        EntityUid body)
+    {
+        var minds = entityManager.System<Content.Server.Mind.MindSystem>();
+        var mind = minds.TryGetMind(session.UserId, out var mindId, out var mindComponent)
+            ? new Entity<Content.Shared.Mind.MindComponent>(mindId.Value, mindComponent)
+            : minds.CreateMind(session.UserId, nameof(LuaMBankAndPdaContractsTest));
+        minds.TransferTo(mind, body, createGhost: false, mind: mind.Comp);
+        playerManager.SetAttachedEntity(session, body, true);
     }
 
     private static async Task DetachAttachedSession(

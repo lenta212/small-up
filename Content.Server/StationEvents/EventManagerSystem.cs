@@ -11,6 +11,7 @@ using Content.Shared.EntityTable.EntitySelectors;
 using Content.Shared.EntityTable;
 using Content.Server.Station.Systems; // Frontier
 using Content.Server.Station.Components; // Frontier
+using Content.Server.Salvage.Expeditions;
 
 namespace Content.Server.StationEvents;
 
@@ -188,7 +189,8 @@ public sealed partial class EventManagerSystem : EntitySystem
     public Dictionary<EntityPrototype, StationEventComponent> AvailableEvents(
         bool ignoreEarliestStart = false,
         int? playerCountOverride = null,
-        TimeSpan? currentTimeOverride = null)
+        TimeSpan? currentTimeOverride = null,
+        int? totalEntityCountOverride = null)
     {
         var playerCount = playerCountOverride ?? _playerManager.PlayerCount;
         if (playerCount <= 0)
@@ -198,12 +200,20 @@ public sealed partial class EventManagerSystem : EntitySystem
         var currentTime = currentTimeOverride ?? (!ignoreEarliestStart
             ? GameTicker.RoundDuration()
             : TimeSpan.Zero);
+        var totalEntityCount = totalEntityCountOverride ?? EntityManager.EntityCount;
+        var hasActiveSalvageExpedition = HasActiveSalvageExpedition();
 
         var result = new Dictionary<EntityPrototype, StationEventComponent>();
 
         foreach (var (proto, stationEvent) in AllEvents())
         {
-            if (CanRun(proto, stationEvent, playerCount, currentTime))
+            if (CanRun(
+                    proto,
+                    stationEvent,
+                    playerCount,
+                    currentTime,
+                    totalEntityCount,
+                    hasActiveSalvageExpedition))
             {
                 result.Add(proto, stationEvent);
             }
@@ -250,7 +260,13 @@ public sealed partial class EventManagerSystem : EntitySystem
         return TimeSpan.Zero;
     }
 
-    private bool CanRun(EntityPrototype prototype, StationEventComponent stationEvent, int playerCount, TimeSpan currentTime)
+    private bool CanRun(
+        EntityPrototype prototype,
+        StationEventComponent stationEvent,
+        int playerCount,
+        TimeSpan currentTime,
+        int totalEntityCount,
+        bool hasActiveSalvageExpedition)
     {
         if (GameTicker.IsGameRuleActive(prototype.ID))
             return false;
@@ -283,6 +299,17 @@ public sealed partial class EventManagerSystem : EntitySystem
             return false;
         }
 
+        if (stationEvent.MaximumTotalEntities is { } maximumTotalEntities &&
+            totalEntityCount >= maximumTotalEntities)
+        {
+            return false;
+        }
+
+        if (stationEvent.BlockDuringSalvageExpedition && hasActiveSalvageExpedition)
+        {
+            return false;
+        }
+
         // Frontier: require jobs to run event - TODO: actually count jobs, compare vs. numJobs
         foreach (var (jobProtoId, numJobs) in stationEvent.RequiredJobs)
         {
@@ -303,5 +330,17 @@ public sealed partial class EventManagerSystem : EntitySystem
         }
 
         return true;
+    }
+
+    private bool HasActiveSalvageExpedition()
+    {
+        var query = AllEntityQuery<SalvageExpeditionComponent>();
+        while (query.MoveNext(out var uid, out _))
+        {
+            if (!TerminatingOrDeleted(uid))
+                return true;
+        }
+
+        return false;
     }
 }

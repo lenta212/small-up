@@ -70,6 +70,9 @@ public sealed class LuaMServerNewsChangelogTest
                 Assert.That(ids, Does.Contain(2026072117));
                 Assert.That(ids, Does.Contain(2026072120));
                 Assert.That(ids, Does.Contain(2026072122));
+                Assert.That(ids, Does.Contain(2026072203));
+                Assert.That(ids, Does.Contain(2026072204));
+                Assert.That(ids, Does.Contain(2026072205));
                 Assert.That(ids[^1], Is.GreaterThanOrEqualTo(2026072122));
             });
 
@@ -162,6 +165,14 @@ public sealed class LuaMServerNewsChangelogTest
                 Assert.That(messages, Does.Contain("R&D-консоли"));
                 Assert.That(messages, Does.Contain("озвучка внутриигровой речи персонажей"));
                 Assert.That(messages, Does.Contain("шлюзом синтеза речи"));
+                Assert.That(messages, Does.Contain("восстанавливают искусственную гравитацию"));
+                Assert.That(messages, Does.Contain("парой блюспейс-планетоидов"));
+                Assert.That(messages, Does.Contain("очистка проходит по всей паре"));
+                Assert.That(messages, Does.Contain("получившие урон"));
+                Assert.That(messages, Does.Contain("повторно запустить вход в криосон"));
+                Assert.That(messages, Does.Contain("тот же корабль можно сразу вызвать повторно"));
+                Assert.That(messages, Does.Contain("Связи материального силоса"));
+                Assert.That(messages, Does.Contain("вложенные устройства"));
             });
         });
 

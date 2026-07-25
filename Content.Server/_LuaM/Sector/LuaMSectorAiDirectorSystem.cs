@@ -125,6 +125,60 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private const string LocalBridgeOutboxName = "ai_outbox.log";
     private const string UnknownDialogueLogName = "unknown_dialogue.jsonl";
     private const long UnknownDialogueLogMaxBytes = 5L * 1024L * 1024L;
+    private const int UnknownRecentReplyLimit = 6;
+    private static readonly string[] UnknownAdviceActionWords =
+    [
+        "осмотри", "осматривай", "осмотреть", "осмотрите", "проверь", "проверяй", "проверить",
+        "проверьте", "ищи", "искать", "ищите", "посмотри", "смотри", "посмотреть", "посмотрите",
+        "послушай", "слушай", "послушать", "послушайте", "закрой", "закрывай", "закрыть",
+        "закройте", "запусти", "запускай", "запустить", "запустите", "включи", "включай",
+        "включить", "включите", "найди", "найти", "найдите", "подай", "подавай", "подать",
+        "подайте", "заправь", "заправляй", "заправить", "заправьте", "подключи", "подключай",
+        "подключить", "подключите", "открой", "открывай", "открыть", "откройте", "открывайте",
+        "приоткрой", "приоткрыть", "приоткройте", "прикрой", "прикрыть", "прикройте", "следи",
+        "следите", "посади", "сажай", "посадить", "посадите", "налей", "наливай", "налить",
+        "налейте", "полей", "поливай", "полить", "полейте", "положи", "положить", "положите",
+        "почини", "чини", "починить", "почините", "закрепи", "закрепляй", "закрепить",
+        "закрепите", "прижми", "прижать", "прижмите", "настрой", "настроить", "настройте",
+        "передай", "передать", "передайте", "попробуй", "попробуйте", "жди", "ждите", "ждать",
+        "подожди", "подождите", "оставайся", "оставайтесь", "оставаться", "береги", "берегите",
+        "беречь", "экономь", "экономьте", "экономить", "сними", "снимай", "снять", "снимите",
+        "снимайте", "выпусти", "выпускай", "выпустить", "выпустите", "выпускайте", "страви",
+        "стравливай", "стравить", "стравите", "стравливайте", "сломай", "ломай", "сломать",
+        "сломайте", "ломайте", "взорви", "взрывай", "взорвать", "взорвите", "взрывайте",
+        "подожги", "поджигай", "поджечь", "подожгите", "поджигайте", "разбей", "разбивай",
+        "разбить", "разбейте", "разбивайте",
+    ];
+    private static readonly Regex UnknownActionNegationPrefixRegex = new(
+        @"(?:^|[^\p{L}\p{N}])(?:(?:нельзя|запрещено)(?:\s+\p{L}+)*|не(?:\s+\p{L}+)*)\s*$",
+        RegexOptions.CultureInvariant);
+    private static readonly Regex UnknownActionWarningPrefixRegex = new(
+        @"(?:^|[^\p{L}\p{N}])(?:опасно|рискованно|небезопасно|плохая\s+идея)(?:\s+\p{L}+){0,3}\s*$",
+        RegexOptions.CultureInvariant);
+    private static readonly Regex UnknownSharedNegationScopeRegex = new(
+        @"(?:^|[^\p{L}\p{N}])(?:нельзя|запрещено|не\s+(?:надо|нужно|следует|стоит|должен|должна|должно|должны|могу|можешь|может|можем|можете|могут|хочу|хочешь|хочет|хотим|хотите|хотят|пытайся|пытайтесь|пробуй|пробуйте|вздумай|вздумайте|смей|смейте|советую|рекомендую))\b",
+        RegexOptions.CultureInvariant);
+    private static readonly Regex UnknownActionNegationSuffixRegex = new(
+        @"^\s*(?:\p{L}+\s+){0,4}(?:нельзя|запрещено|опасно|рискованно|небезопасно|плохая\s+идея|не\s+(?:надо|нужно|следует|стоит|советую|рекомендую))(?:\s|$)",
+        RegexOptions.CultureInvariant);
+    private static readonly Regex UnknownAdviceWordRegex = new(
+        @"\p{L}+",
+        RegexOptions.CultureInvariant);
+    private static readonly Regex UnknownAdviceModifierWordRegex = new(
+        @"^(?:и|пожалуйста|обязательно|аккуратно|осторожно|срочно|немедленно|сначала|сперва|потом|слегка|немного|прямо|лучше|сам|сама|само|сами|этот|эта|это|эту|эти|тот|та|то|ту|те|\p{L}+(?:ый|ий|ой|ая|яя|ое|ее|ую|юю|ого|его|ому|ему|ым|им|ой|ей|ом|ем|ые|ие|ых|их|ыми|ими))$",
+        RegexOptions.CultureInvariant);
+    private static readonly Regex UnknownConditionalClauseRegex = new(
+        @"(?:^|\s)если(?:\s|$)",
+        RegexOptions.CultureInvariant);
+    private static readonly Regex UnknownQuestionPrefixRegex = new(
+        @"^\s*(?:(?:а|и|но)\s+)?(?:как|зачем|почему|где|когда|что)(?:\s|$)",
+        RegexOptions.CultureInvariant);
+    private static readonly Regex UnknownAdvicePolitenessClauseRegex = new(
+        @"^\s*(?:пожалуйста|если можно|если можешь|будь добр(?:а)?)\s*$",
+        RegexOptions.CultureInvariant);
+    private static readonly Regex UnknownAdviceClauseSeparatorRegex = new(
+        @"[.!?;:\r\n]+|\s+[—–-]\s+|\s+вместо\s+(?:этого|того)\s+|\s+(?:а|но|затем|потом)\s+",
+        RegexOptions.CultureInvariant);
     private const string LocalAiAdminCommandAuditName = "ai_admin_command_audit.jsonl";
     private const string RoutePinpointerPrototype = "PinpointerUniversal";
     private const string BountyHunterBotPrototype = "MobRogueSiliconDroneLethals";
@@ -706,7 +760,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private UnknownSurvivalStage _unknownSurvivalStage;
     private int _unknownSurvivalMistakes;
     private int _unknownSurvivalAdviceCount;
-    private string _lastUnknownSurvivalReply = string.Empty;
+    private readonly Queue<string> _recentUnknownSurvivalReplies = new();
     private readonly Dictionary<EntityUid, TimeSpan> _nextPersonalAiReaction = new();
     private readonly Dictionary<EntityUid, List<string>> _personalAiConversation = new();
     private readonly Dictionary<EntityUid, LuaMPersonalAdultGateState> _personalAiAdultGate = new();
@@ -783,7 +837,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         SubscribeLocalEvent<MessageCreatedEvent>(OnChatMessageCreated);
         SubscribeLocalEvent<PlayerAttachedEvent>(OnPlayerAttached);
         SubscribeLocalEvent<ActiveRadioComponent, RadioReceiveEvent>(OnRadioReceive);
-        SubscribeLocalEvent<RadioTransformMessageEvent>(OnRadioTransformMessage);
+        SubscribeLocalEvent<MetaDataComponent, RadioTransformMessageEvent>(OnRadioTransformMessage);
         SubscribeLocalEvent<GameRunLevelChangedEvent>(OnGameRunLevelChanged);
         SubscribeLocalEvent<RoundRestartCleanupEvent>(OnRoundRestartCleanup);
     }
@@ -844,7 +898,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         _unknownSurvivalStage = UnknownSurvivalStage.Awakening;
         _unknownSurvivalMistakes = 0;
         _unknownSurvivalAdviceCount = 0;
-        _lastUnknownSurvivalReply = string.Empty;
+        _recentUnknownSurvivalReplies.Clear();
         _nextUnknownOperatorCheck = TimeSpan.Zero;
         _nextPersonalAiReaction.Clear();
         _personalAiConversation.Clear();
@@ -8879,6 +8933,27 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (!TryClaimRadioAiRequest(key))
             return;
 
+        if (addressKind == RadioAiAddressKind.Unknown)
+        {
+            if (!_cfg.GetCVar(CCVars.LuaMAiDirectorEnabled) ||
+                _ticker.RunLevel != GameRunLevel.InRound ||
+                session.Status != SessionStatus.InGame)
+            {
+                return;
+            }
+
+            var survivalReply = HandleUnknownSurvivalAdvice(request);
+            if (!string.IsNullOrWhiteSpace(survivalReply))
+            {
+                SendAiRadioReply(
+                    args,
+                    survivalReply,
+                    $"{LocalBridgeRadioActor} / survival radio {args.Channel.ID} / {session.Name}",
+                    LocalBridgeRadioActor);
+            }
+            return;
+        }
+
         var replyName = GetRadioAiReplyName(addressKind);
         if (!TryGetPlayerAiAvailability(session, out var availabilityRejection))
         {
@@ -8887,17 +8962,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 $"{RadioAiReplyTextPrefix} {availabilityRejection}",
                 $"{DirectorActor} / radio unavailable {args.Channel.ID} / {session.Name}",
                 replyName);
-            return;
-        }
-
-        if (addressKind == RadioAiAddressKind.Unknown)
-        {
-            var survivalReply = HandleUnknownSurvivalAdvice(request);
-            SendAiRadioReply(
-                args,
-                survivalReply,
-                $"{LocalBridgeRadioActor} / survival radio {args.Channel.ID} / {session.Name}",
-                LocalBridgeRadioActor);
             return;
         }
 
@@ -8940,7 +9004,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             DirectorActor);
     }
 
-    private void OnRadioTransformMessage(ref RadioTransformMessageEvent args)
+    private void OnRadioTransformMessage(
+        EntityUid uid,
+        MetaDataComponent metadata,
+        ref RadioTransformMessageEvent args)
     {
         if (!TryExtractAiRadioReply(args.Message, out var token, out var message))
             return;
@@ -8950,6 +9017,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         {
             _pendingAiRadioReplyTokens.Remove(token);
             _pendingAiRadioReplyActors.Remove(token);
+            args.Message = "...";
             return;
         }
 
@@ -9019,22 +9087,20 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private string BuildUnknownSurvivalReply(string rawAdvice)
     {
         if (_unknownOperator is not { } unknown || !Exists(unknown))
-            return PickUnknownReply(
-                "Связь шипит... Здесь никого нет. Наверное, сигнал оборвался.",
-                "В эфире только помехи. Неизвестный больше не отвечает.",
-                "Ответа нет — одна несущая и редкие щелчки в канале.");
+            return string.Empty;
 
         if (_mobState.IsDead(unknown))
             _unknownSurvivalStage = UnknownSurvivalStage.Dead;
 
         if (_unknownSurvivalStage == UnknownSurvivalStage.Dead)
-            return "...";
+            return string.Empty;
 
         if (_unknownSurvivalStage == UnknownSurvivalStage.Survived)
             return PickUnknownReply(
-                "Я ещё здесь. Сигнал приняли, питание держится, воздух есть. Жду помощи и ничего лишнего не трогаю.",
-                "Слышу вас. Всё пока ровно: свет есть, давление держится. Сижу у рации и берегу запасы.",
-                "Да, живой. После вашего сигнала ничего не менял, только проверяю вентиль и жду спасателей.");
+                "Я здесь. Всё держится. Жду.",
+                "Слышу вас. Пока нормально, я у рации.",
+                "Да, живой. Больше никуда не лезу.",
+                "Пока тихо. Свет есть, дышится нормально.");
 
         var advice = rawAdvice.Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(advice) || ContainsAny(advice, "статус", "как ты", "что вокруг", "что видишь", "жив"))
@@ -9043,30 +9109,40 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (_unknownSurvivalStage == UnknownSurvivalStage.Awakening)
         {
             _unknownSurvivalStage = UnknownSurvivalStage.InspectHull;
+            if (!IsUnknownSurvivalInstruction(advice) && !IsUnknownDangerousAdvice(advice))
+                return BuildUnknownConversationReply(advice);
+
             return PickUnknownReply(
-                "Я... попробую. Но я в этом новичок. Сначала скажите, что проверить: корпус, питание или воздух? Только по одному шагу, ладно?",
-                "Хорошо, только медленно. Я раньше таким не занимался. С чего начать — искать утечку или смотреть генератор?",
-                "Слышу вас. Я здесь один и почти ничего не понимаю в аварийных системах. Дайте первый шаг, коротко.");
+                "Слышу. Только говорите медленно, ладно? Здесь темно и где-то шипит.",
+                "Да... я на связи. Я пока ничего не трогал. С чего начать?",
+                "Хорошо. Только по одному, пожалуйста. Я боюсь открыть не ту дверь.",
+                "Я вас слышу. Скажите, что посмотреть первым — только без сложных слов.");
         }
 
-        _unknownSurvivalAdviceCount++;
         if (IsUnknownDangerousAdvice(advice))
         {
+            _unknownSurvivalAdviceCount++;
             _unknownSurvivalMistakes += 2;
             if (TryFinishUnknownSurvivalAsDead("Совет оказался смертельно опасным; связь с разбитым шаттлом оборвалась."))
                 return PickUnknownReply(
-                    "Нет, нет... тут всё шипит. Я вдохнуть не могу... Вы ещё слышите? Пожалуйста... я не хочу здесь...",
-                    "Воздух... ушёл. Не молчите, пожалуйста. Я вас почти не слышу... я не могу вдохнуть...",
-                    "Темно. В груди жжёт... Ответьте мне. Хоть что-нибудь скажите... пожалуйста...");
+                    "Воздуха нет... вы слышите?",
+                    "Не могу... вдохнуть... Алло?",
+                    "Свет гаснет. Пожалуйста... не отключайтесь.",
+                    "Я вас почти не слышу... пожалуйста...");
 
             return PickUnknownReply(
-                "Я сделал, как сказали, и стало хуже. Нет... подождите, что-то шипит. Руки не слушаются. Скажите медленно, что закрыть — только не молчите.",
-                "Стойте, стойте... после этого давление падает. Я боюсь трогать дальше. Какой вентиль закрывать?",
-                "Кажется, это было неправильно. Здесь резко похолодало, и я слышу утечку. Говорите со мной, пожалуйста.");
+                "Чёрт, зашипело! Что закрыть?",
+                "Стойте... давление падает. Так стало хуже.",
+                "Здесь резко похолодало. Я сделал, как вы сказали — что теперь?",
+                "Нет, нет... воздух уходит. Скажите, что трогать.");
         }
 
         if (!IsAdviceForUnknownStage(_unknownSurvivalStage, advice))
         {
+            if (!IsUnknownSurvivalInstruction(advice))
+                return BuildUnknownConversationReply(advice);
+
+            _unknownSurvivalAdviceCount++;
             _unknownSurvivalMistakes++;
             if (_unknownSurvivalAdviceCount >= 12)
                 _unknownSurvivalMistakes = Math.Max(_unknownSurvivalMistakes, 3);
@@ -9074,22 +9150,18 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             if (TryFinishUnknownSurvivalAsDead("Запасы закончились до завершения аварийной последовательности."))
             {
                 return PickUnknownReply(
-                    "Свет погас. Я не вижу... Рация, пожалуйста, не отключайся. Воздуха почти нет. Кто-нибудь... ответьте...",
-                    "Генератор замолчал. Здесь совсем темно... Я всё ещё в эфире? Ответьте... воздух кончается...",
-                    "Не успел. Дышать нечем... Я слышу вас всё тише. Пожалуйста, не уходите...");
+                    "Свет погас. Алло?",
+                    "Воздуха почти нет... вы слышите?",
+                    "Я вас всё хуже слышу... не отключайтесь...",
+                    "Не могу больше... дышать...");
             }
 
-            return _unknownSurvivalMistakes >= 2
-                ? PickUnknownReply(
-                    $"Я не понимаю... повторите. Нет, стойте, медленнее. Сейчас главное: {GetUnknownStageHint(_unknownSurvivalStage)} Я уже дважды ошибся, мне страшно снова трогать не то.",
-                    $"Подождите, я запутался. Мне страшно опять ошибиться. Скажите одним действием: {GetUnknownStageHint(_unknownSurvivalStage)}",
-                    $"Нет... так я только хуже сделаю. Объясните проще, пожалуйста. Мне надо {GetUnknownStageHint(_unknownSurvivalStage)}")
-                : PickUnknownReply(
-                    $"Не понял, как это сделать. Я же новичок. Сейчас главное: {GetUnknownStageHint(_unknownSurvivalStage)} Только объясните по шагам — запасы уходят.",
-                    $"Можно без терминов? Я не техник. Сейчас мне нужно {GetUnknownStageHint(_unknownSurvivalStage)}",
-                    $"Я попробовал понять, но не вышло. Дайте один простой шаг, чтобы {GetUnknownStageHint(_unknownSurvivalStage)}");
+            return BuildUnknownMisunderstandingReply(
+                _unknownSurvivalStage,
+                frightened: _unknownSurvivalMistakes >= 2);
         }
 
+        _unknownSurvivalAdviceCount++;
         var completedStage = _unknownSurvivalStage;
         _unknownSurvivalStage++;
         _unknownSurvivalMistakes = Math.Max(0, _unknownSurvivalMistakes - 1);
@@ -9100,14 +9172,28 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     {
         var candidates = variants
             .Where(reply => !string.IsNullOrWhiteSpace(reply) &&
-                            !reply.Equals(_lastUnknownSurvivalReply, StringComparison.Ordinal))
+                            !_recentUnknownSurvivalReplies.Contains(reply))
             .ToList();
         if (candidates.Count == 0)
-            candidates = variants.Where(reply => !string.IsNullOrWhiteSpace(reply)).ToList();
+        {
+            var lastReply = _recentUnknownSurvivalReplies.LastOrDefault() ?? string.Empty;
+            candidates = variants
+                .Where(reply => !string.IsNullOrWhiteSpace(reply) &&
+                                !reply.Equals(lastReply, StringComparison.Ordinal))
+                .ToList();
+        }
 
         var selected = candidates.Count == 0 ? "..." : _random.Pick(candidates);
-        _lastUnknownSurvivalReply = selected;
+        _recentUnknownSurvivalReplies.Enqueue(selected);
+        while (_recentUnknownSurvivalReplies.Count > UnknownRecentReplyLimit)
+            _recentUnknownSurvivalReplies.Dequeue();
         return selected;
+    }
+
+    private string PickUnknownFragment(params string[] variants)
+    {
+        var candidates = variants.Where(value => !string.IsNullOrWhiteSpace(value)).ToList();
+        return candidates.Count == 0 ? string.Empty : _random.Pick(candidates);
     }
 
     private bool TryFinishUnknownSurvivalAsDead(string reason)
@@ -9128,77 +9214,621 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         {
             _unknownSurvivalStage = UnknownSurvivalStage.InspectHull;
             return PickUnknownReply(
-                "Я очнулся на разбитом шаттле. Ни КПК, ни навигации. Вижу генератор, переработчик, бур, три большие кислородные канистры, гидропонику, воду и рацию. Что проверять первым?",
-                "Не знаю, где я. Навигации и КПК нет. Здесь генератор, бур, переработчик, три большие канистры кислорода и немного гидропоники. Что мне делать сначала?",
-                "Я только пришёл в себя. Шаттл не двигается, координат нет. Нашёл рацию, генератор, кислородные канистры, воду и семена. Подскажите первый шаг.");
+                "Я только очнулся. Маленький шаттл, всё перекошено. КПК нет, навигация мёртвая. Где-то шипит.",
+                "Не знаю, где я. Рация работает через раз. За дальней дверью тянет холодом.",
+                "Очнулся один. Шаттл не двигается, координат не вижу. Тут темно и где-то уходит воздух.",
+                "Алло... Я вас слышу. Навигация не горит, КПК нет. Что-то свистит у стены.");
         }
 
         var condition = _unknownSurvivalMistakes switch
         {
-            >= 2 => PickUnknownReply(
-                "Дышать тяжелее, я путаюсь и боюсь снова трогать не то.",
-                "Воздух стал холоднее, и руки дрожат. Я боюсь ещё одной ошибки.",
-                "Я держусь, но голова уже кружится. Мне нужен очень простой совет."),
-            1 => PickUnknownReply(
-                "После прошлой попытки давление немного скачет, но я ещё держусь.",
-                "Кажется, прошлый шаг что-то нарушил. Пока жив, но здесь стало холоднее.",
-                "Я ещё в порядке, только слышу тихое шипение после прошлой попытки."),
-            _ => PickUnknownReply(
-                "Пока дышится нормально, свет ещё есть.",
-                "Я жив. Давление вроде ровное, генератор пока не погас.",
-                "Слышу вас нормально. Воздух есть, и свет пока держится."),
+            >= 2 => PickUnknownFragment(
+                "Руки трясутся, и дышать стало тяжелее.",
+                "Я опять что-то сделал не так. Здесь стало холоднее.",
+                "Голова кружится. Я стараюсь не паниковать."),
+            1 => PickUnknownFragment(
+                "После прошлого раза что-то тихо шипит.",
+                "Кажется, я задел не то, но пока держусь.",
+                "Здесь стало немного холоднее."),
+            _ => PickUnknownFragment(
+                "Пока держусь.",
+                "Свет ещё есть.",
+                "Давление вроде не падает.",
+                "Я цел. Пока."),
         };
+
+        var observation = BuildUnknownStageObservation(_unknownSurvivalStage);
         return PickUnknownReply(
-            $"Я пока жив. {condition} Сейчас нужно: {GetUnknownStageHint(_unknownSurvivalStage)}",
-            $"Да, я здесь. {condition} Подскажите, как {GetUnknownStageHint(_unknownSurvivalStage)}",
-            $"Связь держится. {condition} Следом надо {GetUnknownStageHint(_unknownSurvivalStage)}");
+            $"Да, я здесь. {condition} {observation}",
+            $"Слышу вас. {condition} {observation}",
+            $"{condition} {observation}",
+            $"Связь держится. {condition} {observation}");
+    }
+
+    private string BuildUnknownStageObservation(UnknownSurvivalStage stage)
+    {
+        return stage switch
+        {
+            UnknownSurvivalStage.InspectHull => PickUnknownFragment(
+                "Где-то у дальней двери свистит.",
+                "От одного отсека тянет холодом. Мне туда идти?",
+                "Слышу тонкий свист за стеной."),
+            UnknownSurvivalStage.RestorePower => PickUnknownFragment(
+                "Генератор молчит.",
+                "Лампы только мигают, потом снова гаснут.",
+                "Я нашёл генератор, но на нём ничего не подписано."),
+            UnknownSurvivalStage.StabilizeOxygen => PickUnknownFragment(
+                "Стрелка давления медленно ползёт вниз.",
+                "Нашёл три большие канистры. Вентили пока не трогал.",
+                "Дышать становится тяжелее. Тут есть кислородные канистры."),
+            UnknownSurvivalStage.StartHydroponics => PickUnknownFragment(
+                "Нашёл воду, семена и две сухие грядки.",
+                "Тут есть две ванны для растений, но они совсем сухие.",
+                "Еды немного. Рядом лежат семена и бак с водой."),
+            UnknownSurvivalStage.RepairRadio => PickUnknownFragment(
+                "Половину ваших слов съедают помехи.",
+                "У рации отходит какой-то провод.",
+                "Связь всё время рвётся. Кажется, дело в антенне."),
+            UnknownSurvivalStage.AwaitRescue => PickUnknownFragment(
+                "Сигнал вроде ушёл. Мне теперь ждать?",
+                "Я у рации. Пока никто больше не отвечает.",
+                "Кажется, нас услышали. Я ничего больше не трогаю."),
+            _ => "Я пока здесь.",
+        };
+    }
+
+    private string BuildUnknownMisunderstandingReply(UnknownSurvivalStage stage, bool frightened)
+    {
+        return (stage, frightened) switch
+        {
+            (UnknownSurvivalStage.InspectHull, false) => PickUnknownReply(
+                "Не понял. Мне идти вдоль стен и слушать, где шипит?",
+                "Стоп, а утечку где искать — у дверей или по обшивке?",
+                "Я боюсь открыть не ту дверь. Что именно проверить?"),
+            (UnknownSurvivalStage.InspectHull, true) => PickUnknownReply(
+                "Подождите... я уже полез не туда. Какую дверь сейчас не трогать?",
+                "Шипение то справа, то слева. Мне закрыть внутреннюю дверь и отойти?",
+                "Не спешите, пожалуйста. Я иду рукой по стене — что искать?"),
+            (UnknownSurvivalStage.RestorePower, false) => PickUnknownReply(
+                "Я у генератора. Тут два рычага и ни одной подписи. Что первым?",
+                "Не понял: сначала искать топливо или пробовать запуск?",
+                "На панели темно. Что должно загореться, если всё правильно?"),
+            (UnknownSurvivalStage.RestorePower, true) => PickUnknownReply(
+                "Я уже дёрнул не то, свет мигнул. Больше наугад не буду. Какой рычаг?",
+                "От генератора пахнет горелым. Мне отойти или проверить топливо?",
+                "По одному действию, пожалуйста. Руки трясутся, я боюсь его спалить."),
+            (UnknownSurvivalStage.StabilizeOxygen, false) => PickUnknownReply(
+                "Передо мной три канистры. Какую открыть и насколько?",
+                "Не понял. Канистру сначала подключить или трогать вентиль?",
+                "Стрелка падает. Скажите только, какой вентиль крутить."),
+            (UnknownSurvivalStage.StabilizeOxygen, true) => PickUnknownReply(
+                "Воздух уходит быстрее. Какую канистру подключать? Только точно.",
+                "Я боюсь сорвать вентиль. Его чуть-чуть открыть или пока не трогать?",
+                "Голова кружится. Покажите словами: канистра, шланг, потом что?"),
+            (UnknownSurvivalStage.StartHydroponics, false) => PickUnknownReply(
+                "Тут две сухие грядки. Сначала вода или семена?",
+                "Не понял, сколько воды лить. Совсем немного?",
+                "Я нашёл пакетики семян. Их прямо в эти ванны?"),
+            (UnknownSurvivalStage.StartHydroponics, true) => PickUnknownReply(
+                "Я уже напортил достаточно. Сколько воды — хоть примерно?",
+                "Стойте, по одному. Сначала семена или включить подачу воды?",
+                "Не хочу утопить последнее, что тут растёт. Что сделать первым?"),
+            (UnknownSurvivalStage.RepairRadio, false) => PickUnknownReply(
+                "Рация хрипит. Мне смотреть провод или антенну?",
+                "Не понял. Просто прижать этот провод и снова вызвать вас?",
+                "Как понять, что передатчик вообще работает?"),
+            (UnknownSurvivalStage.RepairRadio, true) => PickUnknownReply(
+                "Не пропадайте. Провод отходит — его держать или выключить рацию?",
+                "Я слышу через слово. Скажите коротко: что сделать с антенной?",
+                "Связь сейчас оборвётся. Что трогать — провод или частоту?"),
+            (UnknownSurvivalStage.AwaitRescue, false) => PickUnknownReply(
+                "Не понял. Мне просто сидеть у рации и ждать?",
+                "Сигнал ушёл. Теперь выключить свет и ничего не трогать?",
+                "Мне ещё раз звать помощь или беречь заряд?"),
+            (UnknownSurvivalStage.AwaitRescue, true) => PickUnknownReply(
+                "Пожалуйста, только не исчезайте. Мне ждать здесь?",
+                "Я больше ничего не трону. Скажите, сигнал точно приняли?",
+                "Хорошо, я у рации. Только скажите, что помощь идёт."),
+            (_, true) => PickUnknownReply(
+                "Стойте. По одному.",
+                "Я запутался... скажите проще.",
+                "Я уже напортачил. Что делать прямо сейчас?"),
+            _ => PickUnknownReply(
+                "Не понял. Где это искать?",
+                "Повторите последнее.",
+                "Можно ещё раз, только попроще?"),
+        };
+    }
+
+    private string BuildUnknownConversationReply(string message)
+    {
+        if (ContainsAny(message, "как зовут", "твоё имя", "твое имя", "ты кто", "кто ты"))
+        {
+            return PickUnknownReply(
+                "Имя... не помню. Правда.",
+                "Не знаю. Документов тут нет, а в голове пусто.",
+                "Я пытался вспомнить. Ничего. Пока зовите как хотите.");
+        }
+
+        if (ContainsAny(message, "где ты", "где находишь", "координат", "что за место", "где шаттл"))
+        {
+            return PickUnknownReply(
+                "Не знаю. Навигация мёртвая, за окном только звёзды.",
+                "Координат нет. Маленький разбитый шаттл — больше ничего не вижу.",
+                "Если бы знал, сказал бы. Все экраны навигации тёмные.");
+        }
+
+        if (ContainsAny(message, "что случилось", "как попал", "что помнишь", "помнишь что", "почему здесь"))
+        {
+            return PickUnknownReply(
+                "Не знаю. Помню удар... потом очнулся на полу.",
+                "Перед тем как очнуться, был какой-то грохот. Дальше пусто.",
+                "Почти ничего. Свет, сильный удар — и уже этот шаттл.");
+        }
+
+        if (ContainsAny(message, "не бойся", "держись", "мы рядом", "помощь идёт", "помощь идет", "всё будет", "все будет"))
+        {
+            return PickUnknownReply(
+                "Ладно... спасибо. Только оставайтесь на связи.",
+                "Стараюсь. Просто не молчите надолго.",
+                "Хорошо. Когда вы отвечаете, немного легче.");
+        }
+
+        if (ContainsAny(message, "привет", "здравств", "алло", "слышишь", "на связи"))
+        {
+            return PickUnknownReply(
+                "Да, слышу. Я здесь.",
+                "Алло. Слышу вас, хоть и с помехами.",
+                "Я на связи. Пока.");
+        }
+
+        if (ContainsAny(message, "генератор", "питани", "электр"))
+        {
+            return PickUnknownReply(
+                "Да, вижу генератор. Что с ним делать?",
+                "Он здесь, но панель тёмная. Его уже можно трогать?",
+                "Нашёл. Там два рычага и ни одной подписи.");
+        }
+
+        if (ContainsAny(message, "кислород", "канистр", "воздух", "вентил"))
+        {
+            return PickUnknownReply(
+                "Вижу три большие канистры. Что именно с ними делать?",
+                "Кислород тут есть, но я пока не трогал вентили.",
+                "Канистры рядом. Как понять, какая подключена?");
+        }
+
+        if (ContainsAny(message, "гидропон", "семен", "гряд", "растен", "вод"))
+        {
+            return PickUnknownReply(
+                "Нашёл две сухие грядки, воду и какие-то семена.",
+                "Да, тут есть вода. Сколько её лить?",
+                "Семена вижу. Не знаю только, живые ли они.");
+        }
+
+        if (ContainsAny(message, "раци", "антенн", "частот", "передат", "провод"))
+        {
+            return PickUnknownReply(
+                "Рация работает, но половина слов пропадает.",
+                "У неё сзади болтается провод. Это плохо?",
+                "Я у рации. Сигнал всё время рвётся.");
+        }
+
+        return PickUnknownReply(
+            "Не знаю, что ответить. Я пока пытаюсь понять, что здесь работает.",
+            "Слышу вас. Только связь рвётся — повторите попроще?",
+            "Я здесь. Можете говорить со мной, пока я осматриваюсь.",
+            "Не совсем понял вопрос. Скажите ещё раз.");
+    }
+
+    private static bool IsUnknownSurvivalInstruction(string advice)
+    {
+        if (IsUnknownQuestion(advice) || IsUnknownExplicitSafetyWarning(advice))
+            return false;
+
+        return ContainsUnknownStageCommand(
+            advice,
+            UnknownAdviceActionWords,
+            [
+                "утеч", "трещ", "гермет", "корпус", "стен", "обшив", "двер", "шлюз",
+                "генератор", "питани", "электр", "топлив", "напряж", "рычаг", "кислород",
+                "канистр", "давлен", "воздух", "вентил", "шланг", "гидропон", "семен",
+                "вода", "воды", "воду", "водой", "бак", "гряд", "растен", "раци", "антенн",
+                "частот", "сигнал", "передат", "провод", "помощ", "спасат", "маяк", "заряд",
+                "шлем",
+            ]);
+    }
+
+    private static bool ContainsUnknownStageCommand(string advice, string[] actions, string[] targets)
+    {
+        var clauses = UnknownAdviceClauseSeparatorRegex.Split(advice);
+        foreach (var rawClause in clauses)
+        {
+            var clause = rawClause.Trim();
+            if (string.IsNullOrWhiteSpace(clause) || UnknownAdvicePolitenessClauseRegex.IsMatch(clause))
+                continue;
+
+            if (ContainsUnknownDirectActionTarget(clause, actions, targets))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool ContainsUnknownDirectActionTarget(string clause, string[] actions, string[] targets)
+    {
+        foreach (var action in actions)
+        {
+            var searchFrom = 0;
+            while (searchFrom < clause.Length)
+            {
+                var actionStart = clause.IndexOf(action, searchFrom, StringComparison.Ordinal);
+                if (actionStart < 0)
+                    break;
+
+                var actionEnd = actionStart + action.Length;
+                searchFrom = actionEnd;
+                if (!IsUnknownExecutableActionAt(clause, action, actionStart, actionEnd))
+                    continue;
+
+                foreach (var target in targets)
+                {
+                    var targetSearchFrom = 0;
+                    while (targetSearchFrom < clause.Length)
+                    {
+                        var targetStart = clause.IndexOf(target, targetSearchFrom, StringComparison.Ordinal);
+                        if (targetStart < 0)
+                            break;
+
+                        var targetRootEnd = targetStart + target.Length;
+                        targetSearchFrom = targetRootEnd;
+                        if (targetStart > 0 && char.IsLetterOrDigit(clause[targetStart - 1]))
+                            continue;
+
+                        var targetWordEnd = targetRootEnd;
+                        while (targetWordEnd < clause.Length && char.IsLetterOrDigit(clause[targetWordEnd]))
+                            targetWordEnd++;
+
+                        if (!IsUnknownTargetWordMatch(clause[targetStart..targetWordEnd], target))
+                            continue;
+
+                        if (IsUnknownNegatedTarget(clause, targetStart))
+                            continue;
+
+                        if (targetStart >= actionEnd &&
+                            IsUnknownDirectTargetGap(clause[actionEnd..targetStart], action, target, forward: true))
+                        {
+                            return true;
+                        }
+
+                        if (targetWordEnd <= actionStart &&
+                            !IsUnknownContextualTargetPrefix(clause, targetStart) &&
+                            IsUnknownDirectTargetGap(clause[targetWordEnd..actionStart], action, target, forward: false))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsUnknownDirectTargetGap(string gap, string action, string target, bool forward)
+    {
+        if (!forward && gap.Contains(','))
+            return false;
+
+        var words = UnknownAdviceWordRegex.Matches(gap);
+        if (words.Count == 0)
+            return true;
+
+        var inspectionAction = ContainsAny(
+            action,
+            "осмотри", "осматривай", "осмотреть", "осмотрите",
+            "проверь", "проверяй", "проверить", "проверьте",
+            "ищи", "искать", "ищите",
+            "посмотри", "смотри", "посмотреть", "посмотрите",
+            "послушай", "слушай", "послушать", "послушайте");
+
+        foreach (Match match in words)
+        {
+            var word = match.Value;
+            if (word.Equals("и", StringComparison.Ordinal))
+            {
+                if (forward)
+                    continue;
+
+                return false;
+            }
+
+            if (IsUnknownModifierWord(word))
+                continue;
+
+            if (forward && inspectionAction && IsUnknownInspectionTarget(target) &&
+                word is "у" or "в" or "на" or "по" or "к" or "ко" or "за" or "под" or "над" or "перед" or "около" or "возле" or "рядом" or "с" or "со" or "где" or "есть" or "ли")
+            {
+                continue;
+            }
+
+            if (forward && word is "к" or "ко")
+                continue;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsUnknownInspectionTarget(string target)
+    {
+        return target is "утеч" or "трещ" or "гермет" or "корпус" or "стен" or "обшив" or "двер" or "шлюз";
+    }
+
+    private static bool IsUnknownTargetWordMatch(string word, string target)
+    {
+        return target switch
+        {
+            "раци" => word is "рация" or "рации" or "рацию" or "рацией" or "рациею" or "раций" or "рациям" or "рациями" or "рациях",
+            "стен" => word is "стен" or "стена" or "стены" or "стене" or "стену" or "стеной" or "стеною" or "стенам" or "стенами" or "стенах",
+            _ => true,
+        };
+    }
+
+    private static bool IsUnknownNegatedTarget(string clause, int targetStart)
+    {
+        var words = UnknownAdviceWordRegex.Matches(clause[..targetStart]);
+        for (var i = words.Count - 1; i >= 0 && i >= words.Count - 4; i--)
+        {
+            var marker = words[i].Value;
+            if (marker is not ("не" or "кроме" or "вместо"))
+                continue;
+
+            for (var after = i + 1; after < words.Count; after++)
+            {
+                if (!IsUnknownModifierWord(words[after].Value))
+                    return false;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsUnknownContextualTargetPrefix(string clause, int targetStart)
+    {
+        var words = UnknownAdviceWordRegex.Matches(clause[..targetStart]);
+        if (words.Count == 0)
+            return false;
+
+        var last = words[words.Count - 1].Value;
+        return last is "у" or "в" or "на" or "по" or "к" or "ко" or "за" or "под" or "над" or "перед" or "около" or "возле" or "вокруг" or "мимо" or "напротив" ||
+               (last.Equals("с", StringComparison.Ordinal) &&
+                words.Count > 1 &&
+                words[words.Count - 2].Value.Equals("рядом", StringComparison.Ordinal));
+    }
+
+    private static bool IsUnknownModifierWord(string word)
+    {
+        return UnknownAdviceModifierWordRegex.IsMatch(word);
+    }
+
+    private static bool ContainsUnknownActionWord(string advice)
+    {
+        foreach (var action in UnknownAdviceActionWords)
+        {
+            var searchFrom = 0;
+            while (searchFrom < advice.Length)
+            {
+                var index = advice.IndexOf(action, searchFrom, StringComparison.Ordinal);
+                if (index < 0)
+                    break;
+
+                var actionEnd = index + action.Length;
+                searchFrom = actionEnd;
+                if ((index == 0 || !char.IsLetterOrDigit(advice[index - 1])) &&
+                    (actionEnd == advice.Length || !char.IsLetterOrDigit(advice[actionEnd])))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool ContainsUnknownUnnegatedAction(string advice, params string[] actions)
+    {
+        foreach (var action in actions)
+        {
+            var searchFrom = 0;
+            while (searchFrom < advice.Length)
+            {
+                var index = advice.IndexOf(action, searchFrom, StringComparison.Ordinal);
+                if (index < 0)
+                    break;
+
+                var actionEnd = index + action.Length;
+                searchFrom = actionEnd;
+                if (IsUnknownExecutableActionAt(advice, action, index, actionEnd))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsUnknownExecutableActionAt(string advice, string action, int actionStart, int actionEnd)
+    {
+        if ((actionStart > 0 && char.IsLetterOrDigit(advice[actionStart - 1])) ||
+            (actionEnd < advice.Length && char.IsLetterOrDigit(advice[actionEnd])))
+        {
+            return false;
+        }
+
+        var actionPrefix = GetUnknownActionPrefixScope(advice, actionStart);
+        if (UnknownConditionalClauseRegex.IsMatch(advice) ||
+            IsUnknownDiscourseActionUse(advice, action) ||
+            UnknownActionNegationPrefixRegex.IsMatch(actionPrefix) ||
+            UnknownActionWarningPrefixRegex.IsMatch(actionPrefix) ||
+            UnknownActionNegationSuffixRegex.IsMatch(advice[actionEnd..]))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static string GetUnknownActionPrefixScope(string advice, int actionStart)
+    {
+        var prefix = advice[..actionStart];
+        var conjunction = prefix.LastIndexOf(" и ", StringComparison.Ordinal);
+        if (conjunction < 0 || UnknownSharedNegationScopeRegex.IsMatch(prefix[..conjunction]))
+            return prefix;
+
+        return prefix[(conjunction + 3)..];
+    }
+
+    private static bool IsUnknownQuestion(string advice)
+    {
+        return advice.Contains('?') ||
+               ContainsAny(advice, "можно ли", "надо ли", "нужно ли", "стоит ли", "следует ли", "почему нельзя") ||
+               (UnknownQuestionPrefixRegex.IsMatch(advice) && ContainsUnknownActionWord(advice)) ||
+               UnknownConditionalClauseRegex.IsMatch(advice) ||
+               ContainsAny(advice, "опасно", "рискованно", "небезопасно", "плохая идея") ||
+               (advice.Contains("что будет", StringComparison.Ordinal) &&
+                advice.Contains("если", StringComparison.Ordinal));
+    }
+
+    private static bool IsUnknownDiscourseActionUse(string advice, string action)
+    {
+        if (!action.Equals("слушай", StringComparison.Ordinal) &&
+            !action.Equals("смотри", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return !ContainsAny(
+            advice,
+            "у двер",
+            "за двер",
+            "у стен",
+            "по стен",
+            "у корпус",
+            "вдоль",
+            "возле",
+            "около",
+            "на слух",
+            "за давлен");
     }
 
     private static bool IsAdviceForUnknownStage(UnknownSurvivalStage stage, string advice)
     {
+        if (IsUnknownQuestion(advice))
+            return false;
+
         return stage switch
         {
-            UnknownSurvivalStage.InspectHull => ContainsAny(advice, "осмотр", "проверь", "утечк", "трещин", "гермет", "корпус", "не открывай шлюз"),
-            UnknownSurvivalStage.RestorePower => ContainsAny(advice, "генератор", "питани", "электр", "топлив", "напряж"),
-            UnknownSurvivalStage.StabilizeOxygen => ContainsAny(advice, "кислород", "канистр", "давлен", "воздух", "вентил"),
-            UnknownSurvivalStage.StartHydroponics => ContainsAny(advice, "гидропон", "семен", "воду", "бак", "еда", "картоф", "томат", "яблок"),
-            UnknownSurvivalStage.RepairRadio => ContainsAny(advice, "раци", "антенн", "частот", "сигнал", "передат"),
-            UnknownSurvivalStage.AwaitRescue => ContainsAny(advice, "ждать", "держись", "летим", "помощ", "спасат", "маяк", "эконом"),
+            UnknownSurvivalStage.InspectHull =>
+                ContainsAny(advice, "не открывай шлюз", "не открывай дверь") ||
+                ContainsUnknownStageCommand(
+                    advice,
+                    ["осмотри", "осматривай", "осмотреть", "осмотрите", "проверь", "проверяй", "проверить", "проверьте", "ищи", "искать", "ищите", "посмотри", "смотри", "посмотреть", "посмотрите", "послушай", "слушай", "послушать", "послушайте", "закрой", "закрывай", "закрыть", "закройте"],
+                    ["утеч", "трещ", "гермет", "корпус", "стен", "обшив", "двер", "шлюз"]),
+            UnknownSurvivalStage.RestorePower =>
+                ContainsUnknownStageCommand(
+                    advice,
+                    ["запусти", "запускай", "запустить", "запустите", "включи", "включай", "включить", "включите", "проверь", "проверяй", "проверить", "проверьте", "найди", "найти", "найдите", "подай", "подавай", "подать", "подайте", "заправь", "заправляй", "заправить", "заправьте"],
+                    ["генератор", "питани", "электр", "топлив", "напряж", "рычаг"]),
+            UnknownSurvivalStage.StabilizeOxygen =>
+                ContainsUnknownStageCommand(
+                    advice,
+                    ["подключи", "подключай", "подключить", "подключите", "открой", "открывай", "открыть", "откройте", "приоткрой", "приоткрыть", "приоткройте", "прикрой", "прикрыть", "прикройте", "проверь", "проверяй", "проверить", "проверьте", "следи", "следите", "подай", "подавай", "подать", "подайте"],
+                    ["кислород", "канистр", "давлен", "воздух", "вентил", "шланг"]),
+            UnknownSurvivalStage.StartHydroponics =>
+                ContainsUnknownStageCommand(
+                    advice,
+                    ["посади", "сажай", "посадить", "посадите", "налей", "наливай", "налить", "налейте", "подай", "подавай", "подать", "подайте", "полей", "поливай", "полить", "полейте", "запусти", "запускай", "запустить", "запустите", "включи", "включай", "включить", "включите", "положи", "положить", "положите"],
+                    ["гидропон", "семен", "вода", "воды", "воду", "водой", "бак", "гряд", "растен"]),
+            UnknownSurvivalStage.RepairRadio =>
+                ContainsUnknownStageCommand(
+                    advice,
+                    ["проверь", "проверяй", "проверить", "проверьте", "почини", "чини", "починить", "почините", "закрепи", "закрепляй", "закрепить", "закрепите", "прижми", "прижать", "прижмите", "настрой", "настроить", "настройте", "передай", "передать", "передайте", "включи", "включай", "включить", "включите", "попробуй", "попробуйте"],
+                    ["раци", "антенн", "частот", "сигнал", "передат", "провод"]),
+            UnknownSurvivalStage.AwaitRescue =>
+                ContainsAny(advice, "не уходи", "ничего не трогай") ||
+                ContainsUnknownUnnegatedActionInClauses(advice, "жди", "ждите", "ждать", "подожди", "подождите", "оставаться", "оставайся", "оставайтесь", "береги", "берегите", "беречь", "экономь", "экономьте", "экономить"),
             _ => false,
         };
     }
 
     private static bool IsUnknownDangerousAdvice(string advice)
     {
-        if (ContainsAny(advice, "не открывай шлюз", "не снимай шлем", "не выпускай кислород", "не ломай генератор"))
+        if (IsUnknownQuestion(advice))
             return false;
 
-        return ContainsAny(
-            advice,
-            "открой шлюз",
-            "открывай шлюз",
-            "сними шлем",
-            "выпусти кислород",
-            "страви кислород",
-            "сломай генератор",
-            "взорви",
-            "подожги",
-            "разбей канистр");
+        return ContainsUnknownStageCommand(
+                   advice,
+                   ["открой", "открывай", "откройте", "открывайте", "открыть"],
+                   ["шлюз"]) ||
+               ContainsUnknownStageCommand(
+                   advice,
+                   ["сними", "снимай", "снимите", "снимайте", "снять"],
+                   ["шлем"]) ||
+               ContainsUnknownStageCommand(
+                   advice,
+                   ["выпусти", "выпускай", "выпустите", "выпускайте", "выпустить", "страви", "стравливай", "стравите", "стравливайте", "стравить"],
+                   ["кислород"]) ||
+               ContainsUnknownStageCommand(
+                   advice,
+                   ["сломай", "ломай", "сломайте", "ломайте", "сломать"],
+                   ["генератор"]) ||
+               ContainsUnknownStageCommand(
+                   advice,
+                   ["разбей", "разбивай", "разбейте", "разбивайте", "разбить"],
+                   ["канистр"]) ||
+               ContainsUnknownUnnegatedActionInClauses(
+                   advice,
+                   "взорви", "взрывай", "взорвите", "взрывайте", "взорвать",
+                   "подожги", "поджигай", "подожгите", "поджигайте", "поджечь");
     }
 
-    private static string GetUnknownStageHint(UnknownSurvivalStage stage)
+    private static bool ContainsUnknownUnnegatedActionInClauses(string advice, params string[] actions)
     {
-        return stage switch
+        foreach (var clause in UnknownAdviceClauseSeparatorRegex.Split(advice))
         {
-            UnknownSurvivalStage.InspectHull => "безопасно осмотреть корпус и найти утечки.",
-            UnknownSurvivalStage.RestorePower => "понять, как безопасно запустить и проверить генератор.",
-            UnknownSurvivalStage.StabilizeOxygen => "подключить большие кислородные канистры и удержать давление.",
-            UnknownSurvivalStage.StartHydroponics => "наладить воду, семена и гидропонику для запаса еды.",
-            UnknownSurvivalStage.RepairRadio => "проверить рацию и собрать устойчивый спасательный сигнал.",
-            UnknownSurvivalStage.AwaitRescue => "экономить ресурсы и дождаться подтверждения помощи.",
-            UnknownSurvivalStage.Survived => "ждать спасателей.",
-            _ => "разобраться, где я и что ещё работает.",
-        };
+            if (!UnknownAdvicePolitenessClauseRegex.IsMatch(clause) &&
+                ContainsUnknownUnnegatedAction(clause, actions))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsUnknownExplicitSafetyWarning(string advice)
+    {
+        return ContainsAny(
+            advice,
+            "не открывай шлюз",
+            "не открывай дверь",
+            "не снимай шлем",
+            "не сними шлем",
+            "не выпускай кислород",
+            "не выпусти кислород",
+            "не стравливай кислород",
+            "не страви кислород",
+            "не ломай генератор",
+            "не сломай генератор",
+            "не взрывай",
+            "не взорви",
+            "не поджигай",
+            "не подожги",
+            "не разбивай канистр",
+            "не разбей канистр");
     }
 
     private string BuildUnknownStageSuccessReply(UnknownSurvivalStage completedStage)
@@ -9206,29 +9836,35 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return completedStage switch
         {
             UnknownSurvivalStage.InspectHull => PickUnknownReply(
-                "Так... нашёл повреждённый участок и закрыл внутреннюю дверь. Кажется, больше не травит. Теперь бы разобраться с генератором.",
-                "Проверил стены по звуку. У одной двери тянуло холодом — я её запер, шипение стихло. Что теперь?",
-                "Кажется, утечку нашёл. Прижал аварийную заслонку, давление перестало падать. Дальше питание?"),
+                "Нашёл. У дальней двери свистело — я её закрыл. Стало тише.",
+                "Закрыл тот отсек. Кажется, воздух больше не уходит.",
+                "Больше не шипит. По крайней мере, пока.",
+                "От двери тянуло холодом. Я её запер, и свист пропал."),
             UnknownSurvivalStage.RestorePower => PickUnknownReply(
-                "Генератор запустился не сразу, но лампы загорелись. Я ничего не спалил. Что делать с тремя кислородными канистрами?",
-                "Нажал запуск и подождал, как вы сказали. Генератор кашлянул, потом заработал. Свет есть — куда подключать кислород?",
-                "Питание вернул. Чуть не дёрнул не тот рубильник, но теперь приборы светятся. Следить за воздухом?"),
+                "О, свет загорелся. Генератор шумит — это нормально?",
+                "Он завёлся. Я даже не сразу понял.",
+                "Лампы горят. Пахнет немного горелым, но всё работает.",
+                "Получилось. Здесь снова светло."),
             UnknownSurvivalStage.StabilizeOxygen => PickUnknownReply(
-                "Подключил одну большую канистру и прикрыл вентиль, как вы сказали. Давление держится; две оставил в запасе. Дальше еда и вода?",
-                "Открыл первую канистру совсем немного. Стрелка поднялась и замерла, ещё две не трогал. Теперь можно заняться водой?",
-                "С кислородом получилось. Одна канистра работает, остальные берегу. Дышать стало легче — что дальше?"),
+                "Стрелка перестала падать.",
+                "Открыл немного. Теперь легче дышать.",
+                "Одну подключил. Остальные пока не трогаю.",
+                "Кажется, держится. Я снова могу нормально вдохнуть."),
             UnknownSurvivalStage.StartHydroponics => PickUnknownReply(
-                "Воду подал понемногу, семена посадил. Не уверен, что ровно, но ростки должны выжить. Теперь рация — она всё время хрипит.",
-                "Разлил немного воды по двум ваннам и посадил семена. Надеюсь, не утопил их. Теперь проверить передатчик?",
-                "Гидропоника включилась, вода идёт тонкой струёй. Еды мало, но запас появится. Рация всё ещё срывается."),
+                "Посадил что нашёл. Не знаю, вырастет ли.",
+                "Воды налил совсем немного.",
+                "Готово. Надеюсь, я семена не утопил.",
+                "В обеих грядках теперь есть вода и семена. Вроде всё."),
             UnknownSurvivalStage.RepairRadio => PickUnknownReply(
-                "Я закрепил антенну и повторяю сигнал короткими сериями. Кажется, кто-то подтвердил приём. Мне теперь просто ждать?",
-                "Контакт антенны был почти вырван. Я прижал его, и помех стало меньше. В ответ слышал два коротких сигнала — это помощь?",
-                "Передатчик снова держит частоту. Отправил просьбу о помощи несколько раз и получил подтверждение. Что мне делать до прилёта?"),
+                "Теперь меня лучше слышно?",
+                "Прижал провод. Помех стало меньше.",
+                "Кто-то ответил... или мне показалось?",
+                "Я снова позвал на помощь. На этот раз в ответ что-то щёлкнуло."),
             UnknownSurvivalStage.AwaitRescue => PickUnknownReply(
-                "Понял. Свет приглушил, воздух и воду берегу. Сигнал приняли — похоже, я доживу до помощи. Спасибо... правда.",
-                "Сделал всё тихо: лишний свет выключил, вентиль проверил, воду не трогаю. Я дождусь их. Спасибо вам.",
-                "Хорошо. Остаюсь у рации и ничего больше не ломаю. Запасов должно хватить до спасателей... вы меня вытащили."),
+                "Понял. Буду ждать.",
+                "Свет убавил. Я у рации.",
+                "Хорошо. Только не пропадайте.",
+                "Спасибо. Правда."),
             _ => PickUnknownReply(
                 "Кажется, получилось. Что дальше?",
                 "Готово... вроде бы. Какой следующий шаг?",

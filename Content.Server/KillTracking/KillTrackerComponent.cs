@@ -17,9 +17,11 @@ public sealed partial class KillTrackerComponent : Component
     public MobState KillState = MobState.Critical;
 
     /// <summary>
-    /// A dictionary of sources and how much damage they've done to this entity over time.
+    /// A dictionary of sources and how much damage they've done during this live body lifetime.
+    /// This is round-local attribution: its keys can contain live entity IDs or player IDs and
+    /// must not be written into map, ship, or deep-cryo snapshots.
     /// </summary>
-    [DataField("lifetimeDamage")]
+    [ViewVariables]
     public Dictionary<KillSource, FixedPoint2> LifetimeDamage = new();
 }
 

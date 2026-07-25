@@ -60,6 +60,14 @@ namespace Content.Server.Chemistry.EntitySystems
             SubscribeLocalEvent<ReagentDispenserComponent, ReagentDispenserClearContainerSolutionMessage>(OnClearContainerSolutionMessage);
 
             SubscribeLocalEvent<ReagentDispenserComponent, MapInitEvent>(OnMapInit, before: new []{typeof(ItemSlotsSystem)});
+            SubscribeLocalEvent<ReagentDispenserComponent, ComponentInit>(OnComponentInit);
+        }
+
+        private void OnComponentInit(EntityUid uid, ReagentDispenserComponent component, ComponentInit args)
+        {
+            // Snapshot loading bypasses MapInit. Reconnect serialized item slots
+            // to their container instances without respawning the saved jugs.
+            EnsureRestoredSlots(uid, component);
         }
 
         private void SubscribeUpdateUiState<T>(Entity<ReagentDispenserComponent> ent, ref T ev)
@@ -272,7 +280,7 @@ namespace Content.Server.Chemistry.EntitySystems
             }
             */ // End Frontier: no need to change slots, already done through RefreshParts
 
-            _itemSlotsSystem.AddItemSlot(uid, SharedReagentDispenser.OutputSlotName, component.BeakerSlot);
+            EnsureRestoredSlots(uid, component);
 
             // Frontier: spawn slot contents
             if (component.PackPrototypeId is not null
@@ -288,6 +296,19 @@ namespace Content.Server.Chemistry.EntitySystems
                 }
             }
             // End Frontier
+        }
+
+        private void EnsureRestoredSlots(EntityUid uid, ReagentDispenserComponent component)
+        {
+            if (!_itemSlotsSystem.TryGetSlot(uid, SharedReagentDispenser.OutputSlotName, out _))
+                _itemSlotsSystem.AddItemSlot(uid, SharedReagentDispenser.OutputSlotName, component.BeakerSlot);
+
+            var slotCount = Math.Min(component.StorageSlotIds.Count, component.StorageSlots.Count);
+            for (var i = 0; i < slotCount; i++)
+            {
+                if (!_itemSlotsSystem.TryGetSlot(uid, component.StorageSlotIds[i], out _))
+                    _itemSlotsSystem.AddItemSlot(uid, component.StorageSlotIds[i], component.StorageSlots[i]);
+            }
         }
 
         // Frontier: upgradable parts
