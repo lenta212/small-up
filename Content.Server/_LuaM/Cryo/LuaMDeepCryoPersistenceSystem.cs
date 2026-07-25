@@ -1976,6 +1976,7 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
             return false;
 
         EntityUid? matchingBody = null;
+        var matchingBodySuspended = false;
         var query = EntityQueryEnumerator<LuaMDeepCryoIdentityComponent>();
         while (query.MoveNext(out var body, out var identity))
         {
@@ -1988,9 +1989,14 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
                 identity.PresenceLeaseRevision != authority.Revision ||
                 identity.LifecycleRevision != authority.AuthorityLifecycleRevision ||
                 identity.PresenceSnapshotId != authority.SnapshotId ||
-                HasComp<LuaMDeepCryoPresenceSuspendedComponent>(body) ||
-                TerminatingOrDeleted(body) ||
-                Transform(body).MapID == MapId.Nullspace)
+                TerminatingOrDeleted(body))
+            {
+                continue;
+            }
+
+            var suspended = HasComp<LuaMDeepCryoPresenceSuspendedComponent>(body);
+            if (suspended != _suspendedPresenceBodies.ContainsKey(body) ||
+                (!suspended && Transform(body).MapID == MapId.Nullspace))
             {
                 continue;
             }
@@ -2003,6 +2009,7 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
             }
 
             matchingBody = body;
+            matchingBodySuspended = suspended;
         }
 
         if (matchingBody is not { } target ||
@@ -2010,6 +2017,9 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
         {
             return false;
         }
+
+        if (matchingBodySuspended && !RestoreSuspendedPresenceBody(target, key))
+            return false;
 
         _minds.ControlMob(key.UserId, target);
         if (session.AttachedEntity != target)

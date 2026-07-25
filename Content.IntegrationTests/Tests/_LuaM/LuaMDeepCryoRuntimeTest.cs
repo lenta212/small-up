@@ -4605,6 +4605,9 @@ public sealed class LuaMDeepCryoRuntimeTest
             identity.SlotGeneration = preferences.GetCharacterSlotGeneration(session.UserId, slot);
             AttachSessionToBody(entities, players, minds, session, body,
                 nameof(FreshSpawnReattachesExactLocalPlayableBodyAfterMindWipe));
+            var key = new LuaMDeepCryoPersistenceSystem.CharacterKey(session.UserId, profileId.Value, slot);
+            Assert.That(InvokePrivateMethod<bool>(cryo, "SuspendPresenceBody", body, key), Is.True);
+            Assert.That(entities.GetComponent<TransformComponent>(body).MapID, Is.EqualTo(MapId.Nullspace));
             minds.WipeMind(session);
             Assert.That(session.AttachedEntity, Is.Not.EqualTo(body));
         });
@@ -5145,6 +5148,15 @@ public sealed class LuaMDeepCryoRuntimeTest
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.That(method, Is.Not.Null, $"Missing event handler {methodName}");
         method!.Invoke(instance, new[] { ev });
+    }
+
+    private static T InvokePrivateMethod<T>(object instance, string methodName, params object[] args)
+    {
+        var method = instance.GetType().GetMethod(
+            methodName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.That(method, Is.Not.Null, $"Missing method {methodName}");
+        return (T) method!.Invoke(instance, args)!;
     }
 
     [Virtual]
