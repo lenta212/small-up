@@ -376,7 +376,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260722-accumulated-interface-ship-persistence-release",
-                                         "state":  "deployed-and-frozen",
+                                         "state":  "release-candidate",
                                          "packageSelection":  "verified accumulated production batch covering persistent player vessels, exact docking safeguards, transactional player services, the Industrial Nano interface refresh, frontier content, rescue and sector AI, and guarded release operations",
                                          "packageScopes":  [
                                                                ".agents",
