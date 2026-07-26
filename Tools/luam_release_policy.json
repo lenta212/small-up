@@ -1,16 +1,15 @@
 ﻿{
-    "remoteDeployFrozen":  false,
-    "reason":  "Operator explicitly authorized the comprehensive 2026-07-26 production update in chat. Authorization is limited to the receipt-bound client publication and guarded server release with mandatory backups and health checks.",
+    "remoteDeployFrozen":  true,
+    "reason":  "Production rollout luam-20260726-comprehensive completed successfully. Remote deployment is frozen again; every later production mutation requires fresh explicit authorization and a new policy-bound release gate.",
     "lastReviewed":  "2026-07-26",
     "deploymentAuthorization":  {
-                                    "state":  "authorized",
-                                    "approvalId":  "chat-20260726-comprehensive-update",
-                                    "approvedBy":  "operator",
-                                    "approvedAtUtc":  "2026-07-26T10:30:00Z",
-                                    "expiresAtUtc":  "2026-07-26T16:00:00Z",
+                                    "state":  "frozen",
+                                    "approvalId":  null,
+                                    "approvedBy":  null,
+                                    "approvedAtUtc":  null,
+                                    "expiresAtUtc":  null,
                                     "allowedMutations":  [
-                                                             "client-static",
-                                                             "server-release"
+
                                                          ]
                                 },
     "releaseGate":  {
@@ -377,7 +376,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260726-comprehensive-update",
-                                         "state":  "deployment-authorized",
+                                         "state":  "deployed",
                                          "packageSelection":  "Comprehensive verified update: new-body ghost respawn, restored-mind cleanup, Vanguard radio and uplink content, tile cutter technology chain, admin command restrictions and audit support, and asteroid-belt POI relocation.",
                                          "packageScopes":  [
                                                                ".agents",
