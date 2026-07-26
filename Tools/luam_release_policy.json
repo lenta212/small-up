@@ -376,7 +376,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260726-comprehensive-update",
-                                         "state":  "deployed",
+                                         "state":  "local-package-only",
                                          "packageSelection":  "Comprehensive verified update: new-body ghost respawn, restored-mind cleanup, Vanguard radio and uplink content, tile cutter technology chain, admin command restrictions and audit support, and asteroid-belt POI relocation.",
                                          "packageScopes":  [
                                                                ".agents",
