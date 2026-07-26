@@ -106,5 +106,12 @@
   keycode: 'ф' # LuaM - локалайз каналов
   frequency: 1985
   color: "#BF94E4"
+
+- type: radioChannel
+  id: Resistance
+  name: chat-radio-resistance
+  keycode: 'а'
+  frequency: 1986
+  color: "#D95D39"
   # long range since otherwise it'd defeat the point of a handheld radio independent of telecomms
   #longRange: true # Frontier - Move to server on cove

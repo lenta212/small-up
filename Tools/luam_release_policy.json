@@ -1,15 +1,16 @@
 ﻿{
-    "remoteDeployFrozen":  true,
-    "reason":  "Production rollout luam-20260725-ghostrespawn-suspended-hotfix completed. Remote deployment is frozen again; every later production mutation requires fresh explicit authorization and a new policy-bound release gate.",
-    "lastReviewed":  "2026-07-25",
+    "remoteDeployFrozen":  false,
+    "reason":  "Operator explicitly authorized the comprehensive 2026-07-26 production update in chat. Authorization is limited to the receipt-bound client publication and guarded server release with mandatory backups and health checks.",
+    "lastReviewed":  "2026-07-26",
     "deploymentAuthorization":  {
-                                    "state":  "frozen",
-                                    "approvalId":  null,
-                                    "approvedBy":  null,
-                                    "approvedAtUtc":  null,
-                                    "expiresAtUtc":  null,
+                                    "state":  "authorized",
+                                    "approvalId":  "chat-20260726-comprehensive-update",
+                                    "approvedBy":  "operator",
+                                    "approvedAtUtc":  "2026-07-26T10:30:00Z",
+                                    "expiresAtUtc":  "2026-07-26T16:00:00Z",
                                     "allowedMutations":  [
-
+                                                             "client-static",
+                                                             "server-release"
                                                          ]
                                 },
     "releaseGate":  {
@@ -375,9 +376,9 @@
                                      "AGENTS.md"
                                  ],
     "pendingLocalIntegrationBatch":  {
-                                         "name":  "20260725-ghostrespawn-suspended-body-hotfix",
-                                         "state":  "local-package-only",
-                                         "packageSelection":  "Emergency restoration of the exact locally suspended Playable body after ghostrespawn, including regression coverage and operational records.",
+                                         "name":  "20260726-comprehensive-update",
+                                         "state":  "deployment-authorized",
+                                         "packageSelection":  "Comprehensive verified update: new-body ghost respawn, restored-mind cleanup, Vanguard radio and uplink content, tile cutter technology chain, admin command restrictions and audit support, and asteroid-belt POI relocation.",
                                          "packageScopes":  [
                                                                ".agents",
                                                                ".github",
@@ -387,6 +388,7 @@
                                                                "Content.Server.Database",
                                                                "Content.Shared",
                                                                "Directory.Packages.props",
+                                                               "Docs",
                                                                "LEGAL.md",
                                                                "Resources/Audio",
                                                                "Resources/Changelog",

@@ -72,6 +72,7 @@
   cost: 12500
   recipeUnlocks:
   - FlatpackerMachineCircuitboard
+  - CutterMachineCircuitboard
   - RPED
   - NFBlueprintRped
   technologyPrerequisites:

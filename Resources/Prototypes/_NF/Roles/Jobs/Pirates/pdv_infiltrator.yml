@@ -38,9 +38,9 @@
       factions:
       - PirateNF
   - !type:AddImplantSpecial
-    implants: [ FreelanceTrackingImplant ]
+    implants: [ ResistanceTrackingImplant ]
   - !type:AddImplantSpecial
-    implants: [ RadioImplantFreelance ]
+    implants: [ RadioImplantResistance ]
   - !type:AddLanguageSpecial # Monolith - Languages
     languagesSpoken:
     - Freespeak
@@ -53,7 +53,7 @@
 - type: startingGear
   id: PDVInfiltratorGear
   equipment:
-    ears: ClothingHeadsetAltFreelancer
+    ears: ClothingHeadsetAltResistance
     #belt: ClothingBeltUtility
     pocket1: UndeterminedPDVInfiltratorKit
     pocket2: WeaponPistolHawk4

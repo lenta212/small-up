@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1160" viewBox="0 0 1600 1160">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071923"/>
+      <stop offset="0.55" stop-color="#102d35"/>
+      <stop offset="1" stop-color="#07161d"/>
+    </linearGradient>
+    <linearGradient id="danger" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff6b4a"/>
+      <stop offset="1" stop-color="#d73b38"/>
+    </linearGradient>
+    <linearGradient id="ok" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5de0bd"/>
+      <stop offset="1" stop-color="#1c9d91"/>
+    </linearGradient>
+    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse">
+      <path d="M42 0H0V42" fill="none" stroke="#8de4df" stroke-opacity="0.055"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="9" stdDeviation="12" flood-color="#000" flood-opacity="0.34"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10Z" fill="#7ad6d0"/>
+    </marker>
+    <marker id="arrowDanger" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10Z" fill="#ff7255"/>
+    </marker>
+    <style>
+      .title { font: 800 43px 'Segoe UI', sans-serif; fill: #f3fbf9; letter-spacing: .3px; }
+      .subtitle { font: 400 20px 'Segoe UI', sans-serif; fill: #9bc7c8; }
+      .section { font: 750 18px 'Segoe UI', sans-serif; fill: #71d5d0; letter-spacing: 2.6px; }
+      .head { font: 750 22px 'Segoe UI', sans-serif; fill: #f5fbfa; }
+      .body { font: 400 17px 'Segoe UI', sans-serif; fill: #c9dedf; }
+      .small { font: 400 15px 'Segoe UI', sans-serif; fill: #a9c5c6; }
+      .dangerHead { font: 800 23px 'Segoe UI', sans-serif; fill: #fff7f2; }
+      .dangerBody { font: 500 17px 'Segoe UI', sans-serif; fill: #fff2ed; }
+      .num { font: 800 24px 'Segoe UI', sans-serif; fill: #071923; }
+      .card { fill: #102b34; stroke: #2e5660; stroke-width: 2; rx: 18; filter: url(#shadow); }
+      .line { fill: none; stroke: #7ad6d0; stroke-width: 4; marker-end: url(#arrow); }
+      .dangerLine { fill: none; stroke: #ff7255; stroke-width: 5; stroke-dasharray: 12 8; marker-end: url(#arrowDanger); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1160" fill="url(#bg)"/>
+  <rect width="1600" height="1160" fill="url(#grid)"/>
+  <path d="M0 0H720L460 1160H0Z" fill="#0e3a43" opacity=".18"/>
+
+  <text x="70" y="74" class="title">Почему игрок остаётся призраком</text>
+  <text x="70" y="108" class="subtitle">Monolith-DS · диагностика цепочки спавна и Deep Cryo · фактическое воспроизведение</text>
+  <rect x="1250" y="48" width="280" height="48" rx="24" fill="#173c45" stroke="#3b6d75"/>
+  <circle cx="1280" cy="72" r="8" fill="#ff7255"/>
+  <text x="1300" y="78" class="small">Сбой подтверждён локально</text>
+
+  <text x="70" y="158" class="section">01 · ДВЕ ТОЧКИ ВХОДА</text>
+  <rect class="card" x="70" y="180" width="440" height="150"/>
+  <circle cx="112" cy="221" r="22" fill="#63d7d0"/><text x="105" y="229" class="num">A</text>
+  <text x="150" y="226" class="head">CryogenicSleepUnit</text>
+  <text x="100" y="264" class="body">Старая станционная капсула · Cryostorage</text>
+  <text x="100" y="294" class="small">Хранит тело на паузной карте; бывает точкой спавна.</text>
+
+  <rect class="card" x="560" y="180" width="440" height="150"/>
+  <circle cx="602" cy="221" r="22" fill="#63d7d0"/><text x="595" y="229" class="num">B</text>
+  <text x="640" y="226" class="head">MachineCryoSleepPod</text>
+  <text x="590" y="264" class="body">Frontier / Mono · CryoSleep</text>
+  <text x="590" y="294" class="small">Кнопка «Разморозить»; освобождает должностной слот.</text>
+
+  <rect class="card" x="1050" y="180" width="480" height="150" stroke="#4d8588"/>
+  <text x="1080" y="225" class="head">Общий слой Deep Cryo</text>
+  <text x="1080" y="258" class="body">LuaMDeepCryoPersistenceSystem</text>
+  <text x="1080" y="288" class="small">Snapshot + profile lifecycle + Presence lease</text>
+  <text x="1080" y="313" class="small">Обе капсулы сходятся здесь.</text>
+
+  <path class="line" d="M1000 255H1050"/>
+  <path d="M290 330V358H1290V330" fill="none" stroke="#7ad6d0" stroke-width="4" marker-end="url(#arrow)"/>
+
+  <text x="70" y="394" class="section">02 · ЦЕПОЧКА СПАВНА</text>
+  <rect class="card" x="70" y="418" width="260" height="132"/>
+  <circle cx="105" cy="452" r="18" fill="#5de0bd"/><text x="99" y="460" class="num">1</text>
+  <text x="136" y="459" class="head">Вход в роль</text>
+  <text x="96" y="495" class="small">Выбран профиль и слот</text>
+  <text x="96" y="520" class="small">создаётся FreshReserved</text>
+
+  <rect class="card" x="370" y="418" width="290" height="132"/>
+  <circle cx="405" cy="452" r="18" fill="#5de0bd"/><text x="399" y="460" class="num">2</text>
+  <text x="436" y="459" class="head">Создано тело</text>
+  <text x="396" y="495" class="small">Entity 163342 · MobVox</text>
+  <text x="396" y="520" class="small">Сессия на миг управляет им</text>
+
+  <rect class="card" x="700" y="418" width="300" height="132"/>
+  <circle cx="735" cy="452" r="18" fill="#5de0bd"/><text x="729" y="460" class="num">3</text>
+  <text x="766" y="459" class="head">Authority опубликован</text>
+  <text x="726" y="495" class="small">Lease переходит в Playable</text>
+  <text x="726" y="520" class="small">БД считает персонажа активным</text>
+
+  <rect x="1040" y="398" width="490" height="174" rx="20" fill="url(#danger)" filter="url(#shadow)"/>
+  <circle cx="1080" cy="438" r="20" fill="#fff3ed"/><text x="1073" y="447" class="num">4</text>
+  <text x="1118" y="446" class="dangerHead">ТОЧКА СБОЯ: handoff управления</text>
+  <text x="1070" y="484" class="dangerBody">Тело 163342 несёт Playable authority,</text>
+  <text x="1070" y="512" class="dangerBody">но управление переходит к призраку 163424.</text>
+  <text x="1070" y="542" class="dangerBody">Тело в БД активно, для игрока — недоступно.</text>
+
+  <path class="line" d="M330 484H370"/><path class="line" d="M660 484H700"/>
+  <path class="dangerLine" d="M1000 484H1040"/>
+
+  <text x="70" y="620" class="section">03 · ПОЧЕМУ ИГРОК ЗАБЛОКИРОВАН</text>
+  <rect class="card" x="70" y="644" width="460" height="180" stroke="#d45a4b"/>
+  <text x="100" y="688" class="head">ghostrespawn → новый персонаж</text>
+  <text x="100" y="724" class="body">Система видит активный Playable lease.</text>
+  <text x="100" y="754" class="body">Точное старое тело не удаётся согласовать</text>
+  <text x="100" y="784" class="body">с текущим призраком → fail-closed → отказ.</text>
+
+  <rect class="card" x="570" y="644" width="460" height="180" stroke="#d45a4b"/>
+  <text x="600" y="688" class="head">«Разморозить» → старое тело</text>
+  <text x="600" y="724" class="body">Snapshot в БД отсутствует, но lease есть.</text>
+  <text x="600" y="754" class="body">ClaimRestore трактует любой authority</text>
+  <text x="600" y="784" class="body">как Busy → сообщение «Капсула занята».</text>
+
+  <rect class="card" x="1070" y="644" width="460" height="180" stroke="#d45a4b"/>
+  <text x="1100" y="688" class="head">Корневая причина</text>
+  <text x="1100" y="724" class="body">Асинхронная публикация спавна и смена</text>
+  <text x="1100" y="754" class="body">контролируемой сущности расходятся.</text>
+  <text x="1100" y="784" class="body">Lease переживает потерю доступного тела.</text>
+
+  <path class="dangerLine" d="M1285 572V615H300V644"/>
+  <path class="dangerLine" d="M1285 615H800V644"/>
+  <path class="dangerLine" d="M1285 615V644"/>
+
+  <text x="70" y="874" class="section">04 · ВАРИАНТЫ РЕШЕНИЯ</text>
+  <rect x="70" y="898" width="460" height="202" rx="18" fill="#183840" stroke="#f0b95f" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="92" y="918" width="118" height="29" rx="14" fill="#f0b95f"/><text x="109" y="939" style="font:700 14px 'Segoe UI';fill:#17252a">СЕЙЧАС</text>
+  <text x="100" y="981" class="head">Временно вернуть обычный спавн</text>
+  <text x="100" y="1016" class="body">Отключить presence-gate для fresh spawn</text>
+  <text x="100" y="1045" class="body">и ghostrespawn. Игроки появятся сразу.</text>
+  <text x="100" y="1075" class="small">Цена: временно нет защиты от двух тел.</text>
+
+  <rect x="570" y="898" width="460" height="202" rx="18" fill="#183840" stroke="#5de0bd" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="592" y="918" width="170" height="29" rx="14" fill="#5de0bd"/><text x="608" y="939" style="font:700 14px 'Segoe UI';fill:#10272b">РЕКОМЕНДУЕТСЯ</text>
+  <text x="600" y="981" class="head">Исправить exact-body handoff</text>
+  <text x="600" y="1016" class="body">Связать ticket, body и текущий mind;</text>
+  <text x="600" y="1045" class="body">release старого lease перед новым телом.</text>
+  <text x="600" y="1075" class="small">Сохраняет защиту и возвращает respawn.</text>
+
+  <rect x="1070" y="898" width="460" height="202" rx="18" fill="#183840" stroke="#65a8d8" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="1092" y="918" width="150" height="29" rx="14" fill="#65a8d8"/><text x="1110" y="939" style="font:700 14px 'Segoe UI';fill:#10242b">ДОЛГОСРОЧНО</text>
+  <text x="1100" y="981" class="head">Единая state machine</text>
+  <text x="1100" y="1016" class="body">Spawn, Cryo и Ghost используют одну</text>
+  <text x="1100" y="1045" class="body">транзакционную смену владельца.</text>
+  <text x="1100" y="1075" class="small">Устраняет весь класс гонок состояний.</text>
+
+  <text x="70" y="1136" class="small">Факт из локального лога: body 163342 → session transferred → ghost 163424; БД: phase=Playable, snapshot=NULL.</text>
+</svg>

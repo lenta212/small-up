@@ -320,6 +320,10 @@ public sealed partial class NFAdventureRuleSystem : GameRuleSystem<NFAdventureRu
 
         foreach (var location in _proto.EnumeratePrototypes<PointOfInterestPrototype>())
         {
+            // The asteroid belt owns and generates these POIs on its separate map.
+            if (location.AsteroidBelt)
+                continue;
+
             // Check if any preset is accepted (empty) or if current preset is supported.
             var protoIds = location.SpawnGamePreset.ToList();
             if (location.SpawnGamePreset.Length > 0 && !protoIds.Contains(currentPreset))

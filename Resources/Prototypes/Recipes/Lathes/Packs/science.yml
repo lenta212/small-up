@@ -7,7 +7,6 @@
   - AutolatheMachineCircuitboard
   - CircuitImprinterMachineCircuitboard
   - ExosuitFabricatorMachineCircuitboard
-  - CutterMachineCircuitboard
   - BorgChargerCircuitboard
 
 - type: latheRecipePack
@@ -89,6 +88,7 @@
   #- CircuitImprinterHyperConvectionMachineCircuitboard
   # End DeltaV Removals
   - FlatpackerMachineCircuitboard
+  - CutterMachineCircuitboard
   - SheetifierMachineCircuitboard
   - PowerCageRechargerCircuitboard
   - AnalysisComputerCircuitboard

@@ -1,4 +1,5 @@
 using Content.Server._Corvax.Respawn;
+using Content.Server._LuaM.Cryo;
 using Content.Server.GameTicking;
 using Content.Server.Mind;
 using Content.Shared.Administration;
@@ -27,7 +28,7 @@ public sealed partial class GhostRespawnCommand : IConsoleCommand
     public string Description => "Allows the player to return to the lobby if they've been dead long enough, allowing re-entering the round AS ANOTHER CHARACTER.";
     public string Help => $"{Command}";
 
-    public void Execute(IConsoleShell shell, string argStr, string[] args)
+    public async void Execute(IConsoleShell shell, string argStr, string[] args)
     {
         if (!_configurationManager.GetCVar(NFCCVars.RespawnEnabled))
         {
@@ -63,6 +64,20 @@ public sealed partial class GhostRespawnCommand : IConsoleCommand
                 shell.WriteLine($"You haven't been dead long enough. You can respawn in {timeLeft} seconds.");
                 return;
             }
+        }
+
+        var cryo = _entityManager.EntitySysManager.GetEntitySystem<LuaMDeepCryoPersistenceSystem>();
+        if (!await cryo.PrepareGhostRespawnAsync(shell.Player))
+        {
+            shell.WriteLine("Your previous character is still being secured. Please try again shortly.");
+            return;
+        }
+
+        if (shell.Player.AttachedEntity is not { } attached ||
+            !_entityManager.HasComponent<GhostComponent>(attached))
+        {
+            shell.WriteLine("Your controlled entity changed while respawning. Please try again.");
+            return;
         }
 
         var gameTicker = _entityManager.EntitySysManager.GetEntitySystem<GameTicker>();

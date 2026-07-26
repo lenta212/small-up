@@ -55,6 +55,14 @@ public sealed partial class MindSystem : SharedMindSystem
         if (!TryGetMind(uid, out var mindId, out var mind, component))
             return;
 
+        // A deferred ghost deletion can run after the mind has already moved into a new body.
+        // Do not detach that body or manufacture an ownerless replacement ghost.
+        if (mind.OwnedEntity != uid)
+        {
+            component.Mind = null;
+            return;
+        }
+
         // If the player is currently visiting some other entity, simply attach to that entity.
         if (mind.VisitingEntity is {Valid: true} visiting
             && visiting != uid
@@ -70,7 +78,11 @@ public sealed partial class MindSystem : SharedMindSystem
         TransferTo(mindId, null, createGhost: false, mind: mind);
         DebugTools.AssertNull(mind.OwnedEntity);
 
-        if (!component.GhostOnShutdown || _gameTicker.RunLevel == GameRunLevel.PreRoundLobby)
+        // Deleting an observer must never manufacture another observer. The old ghost can
+        // terminate after a spawn handoff and otherwise leaves an ownerless ghost behind.
+        if (HasComp<GhostComponent>(uid) ||
+            !component.GhostOnShutdown ||
+            _gameTicker.RunLevel == GameRunLevel.PreRoundLobby)
             return;
 
         var ghost = _ghosts.SpawnGhost((mindId, mind), uid);

@@ -89,6 +89,12 @@ public sealed partial class PointOfInterestPrototype : IPrototype, IInheritingPr
     public string SpawnGroup { get; private set; } = "Optional";
 
     /// <summary>
+    ///     Spawn this POI on the dedicated LuaM asteroid belt map instead of the main sector map.
+    /// </summary>
+    [DataField]
+    public bool AsteroidBelt { get; private set; }
+
+    /// <summary>
     ///     the path to the grid
     /// </summary>
     [DataField(required: true)]

@@ -8,6 +8,14 @@
     implant: MedicalTrackingImplant
 
 - type: entity
+  id: ResistanceTrackingImplanter
+  suffix: resistance tracking
+  parent: BaseImplantOnlyImplanterSyndi
+  components:
+  - type: Implanter
+    implant: ResistanceTrackingImplant
+
+- type: entity
   id: FreelanceTrackingImplanter
   suffix: freelance tracking
   parent: BaseImplantOnlyImplanterSyndi
@@ -81,6 +89,14 @@
     currentLabel: implanter-label-bike-horn
 
 # Centcomm implanters
+
+- type: entity
+  id: RadioImplanterResistance
+  suffix: radio Resistance
+  parent: BaseImplantOnlyImplanter
+  components:
+  - type: Implanter
+    implant: RadioImplantResistance
 
 - type: entity
   id: RadioImplanterFreelance

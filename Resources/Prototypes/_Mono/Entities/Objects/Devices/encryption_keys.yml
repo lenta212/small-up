@@ -40,6 +40,21 @@
 
 - type: entity
   parent: EncryptionKey
+  id: EncryptionKeyResistance
+  name: resistance encryption key
+  description: A dedicated encryption key for the Vanguard resistance network.
+  components:
+  - type: EncryptionKey
+    channels:
+    - Resistance
+    defaultChannel: Resistance
+  - type: Sprite
+    layers:
+    - state: crypt_rusted
+    - state: pirate_label
+
+- type: entity
+  parent: EncryptionKey
   id: EncryptionKeyVanguardCommand
   name: vanguard command encryption key # mono
   description: An encryption key used by officers in the vanguard. # Mono

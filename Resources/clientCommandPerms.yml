@@ -8,7 +8,6 @@
     - hardquit
     - svbind
     - bind
-    - exec # macro moment
     - cls
     - vram
     - monitor
@@ -21,10 +20,6 @@
     - devwindow
     - fill
     - ">"
-    - gcf
-    - gc
-    - gc_mode
-    - cvar
     - midipanic
 #    - replay_recording_start # Frontier
 #    - replay_recording_stop # Frontier
@@ -36,7 +31,6 @@
     - replay_set_time
     - replay_stop
     - replay_load
-    - saveconfig
 
 - Flags: DEBUG
   Commands:

@@ -10,6 +10,7 @@ using System.Threading;
 using Content.Server.Bed.Cryostorage;
 using Content.Server.Database;
 using Content.Server.Ghost;
+using Content.Server.GameTicking;
 using Content.Server.KillTracking;
 using Content.Server.Mind;
 using Content.Server.PDA.Ringer;
@@ -4384,6 +4385,86 @@ public sealed class LuaMDeepCryoRuntimeTest
     }
 
     [Test]
+    public async Task GhostRespawnWithLocalEpochReleasesAuthorityAfterMindWipe()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false,
+        });
+        var server = pair.Server;
+        var clientSession = pair.Client.Session;
+        Assert.That(clientSession, Is.Not.Null);
+
+        var players = server.ResolveDependency<IPlayerManager>();
+        var session = players.GetSessionById(clientSession!.UserId);
+        var entities = server.ResolveDependency<IEntityManager>();
+        var preferences = server.ResolveDependency<IServerPreferencesManager>();
+        var prototypes = server.ResolveDependency<IPrototypeManager>();
+        var realDb = server.ResolveDependency<IServerDbManager>();
+        var cryo = entities.System<LuaMDeepCryoPersistenceSystem>();
+        var minds = entities.System<MindSystem>();
+        var ticker = entities.System<GameTicker>();
+        var testMap = await pair.CreateTestMap();
+        var selected = preferences.GetPreferences(session.UserId);
+        var slot = selected.SelectedCharacterIndex;
+        var profile = (HumanoidCharacterProfile) selected.SelectedCharacter;
+        var profileId = await realDb.GetCharacterIdAsync(session.UserId, slot);
+        Assert.That(profileId, Is.Not.Null);
+        var authority = await EnsurePlayableAuthorityAsync(realDb, session.UserId, profileId!.Value, slot);
+        authority = authority with
+        {
+            ServerInstanceId = GetPrivateField<string>(cryo, "_serverInstanceId"),
+            RoundId = ticker.RoundId,
+        };
+        var species = prototypes.Index<SpeciesPrototype>(profile.Species).Prototype.Id;
+        var proxy = DispatchProxy.Create<IServerDbManager, LocalPresenceAuthorityProxy>();
+        var proxyState = (LocalPresenceAuthorityProxy) (object) proxy;
+        proxyState.Inner = realDb;
+        proxyState.Authority = authority;
+        SetPrivateField(cryo, "_db", proxy);
+
+        EntityUid body = default;
+        try
+        {
+            await server.WaitAssertion(() =>
+            {
+                body = entities.SpawnEntity(species, testMap.GridCoords);
+                BindPlayableTestIdentity(
+                    entities.EnsureComponent<LuaMDeepCryoIdentityComponent>(body),
+                    session.UserId,
+                    profileId.Value,
+                    slot,
+                    authority);
+                AttachSessionToBody(entities, players, minds, session, body,
+                    nameof(GhostRespawnWithLocalEpochReleasesAuthorityAfterMindWipe));
+                minds.WipeMind(session);
+            });
+
+            Task<bool>? preparation = null;
+            await server.WaitPost(() => preparation = cryo.PrepareGhostRespawnAsync(session));
+            await DrainServerTaskAsync(pair, preparation!);
+            var prepared = await preparation!.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(prepared, Is.True);
+                Assert.That(entities.EntityExists(body), Is.False);
+                Assert.That(proxyState.ReleaseCalls, Is.EqualTo(1));
+            });
+            Assert.That(await realDb.GetLuaMCharacterPresenceAuthorityAsync(
+                session.UserId, profileId.Value, slot), Is.Null);
+        }
+        finally
+        {
+            SetPrivateField(cryo, "_db", realDb);
+        }
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
     public async Task UnresolvedStableIdentityBlocksFreshSpawnAndDeletesSpawnCompleteFallback()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings
@@ -4643,6 +4724,130 @@ public sealed class LuaMDeepCryoRuntimeTest
         {
             Assert.That(after?.Authority?.LeaseId, Is.EqualTo(authority.LeaseId));
             Assert.That(after?.Authority?.Phase, Is.EqualTo(DbLuaMCharacterPresencePhase.Playable));
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task FreshSpawnPublicationAcceptsReplacementObserverForOwnedBody()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false,
+        });
+        var server = pair.Server;
+        var clientSession = pair.Client.Session;
+        Assert.That(clientSession, Is.Not.Null);
+
+        var players = server.ResolveDependency<IPlayerManager>();
+        var session = players.GetSessionById(clientSession!.UserId);
+        var entities = server.ResolveDependency<IEntityManager>();
+        var preferences = server.ResolveDependency<IServerPreferencesManager>();
+        var prototypes = server.ResolveDependency<IPrototypeManager>();
+        var db = server.ResolveDependency<IServerDbManager>();
+        var cryo = entities.System<LuaMDeepCryoPersistenceSystem>();
+        var minds = entities.System<MindSystem>();
+        var selected = preferences.GetPreferences(session.UserId);
+        var slot = selected.SelectedCharacterIndex;
+        var profile = (HumanoidCharacterProfile) selected.SelectedCharacter;
+        var profileId = await db.GetCharacterIdAsync(session.UserId, slot);
+        Assert.That(profileId, Is.Not.Null);
+        var authority = await EnsurePlayableAuthorityAsync(db, session.UserId, profileId!.Value, slot);
+        var species = prototypes.Index<SpeciesPrototype>(profile.Species).Prototype.Id;
+
+        EntityUid body = default;
+        EntityUid replacementGhost = default;
+        await server.WaitAssertion(() =>
+        {
+            body = entities.SpawnEntity(species, MapCoordinates.Nullspace);
+            BindPlayableTestIdentity(
+                entities.EnsureComponent<LuaMDeepCryoIdentityComponent>(body),
+                session.UserId,
+                profileId.Value,
+                slot,
+                authority);
+            AttachSessionToBody(entities, players, minds, session, body,
+                nameof(FreshSpawnPublicationAcceptsReplacementObserverForOwnedBody));
+            var key = new LuaMDeepCryoPersistenceSystem.CharacterKey(session.UserId, profileId.Value, slot);
+            Assert.That(InvokePrivateMethod<bool>(cryo, "SuspendPresenceBody", body, key), Is.True);
+
+            replacementGhost = entities.SpawnEntity("MobObserver", MapCoordinates.Nullspace);
+            players.SetAttachedEntity(session, replacementGhost);
+        });
+
+        var ticket = CreatePrivateInstance(
+            cryo,
+            "SpawnLifecycleTicket",
+            new LuaMDeepCryoPersistenceSystem.CharacterKey(session.UserId, profileId.Value, slot),
+            preferences.GetCharacterSlotGeneration(session.UserId, slot),
+            authority.LeaseId,
+            null,
+            null);
+        var pending = CreatePrivateInstance(cryo, "PendingConsumedSpawnTicket", ticket, body, true, TimeSpan.Zero);
+
+        await server.WaitAssertion(() =>
+            Assert.That(InvokePrivateMethod<bool>(cryo, "IsConsumedSpawnTicketControlCurrent", pending), Is.True));
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task GhostRespawnReleasesExactPlayableAuthorityAndDeletesOldBody()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false,
+        });
+        var server = pair.Server;
+        var clientSession = pair.Client.Session;
+        Assert.That(clientSession, Is.Not.Null);
+
+        var players = server.ResolveDependency<IPlayerManager>();
+        var session = players.GetSessionById(clientSession!.UserId);
+        var entities = server.ResolveDependency<IEntityManager>();
+        var preferences = server.ResolveDependency<IServerPreferencesManager>();
+        var prototypes = server.ResolveDependency<IPrototypeManager>();
+        var db = server.ResolveDependency<IServerDbManager>();
+        var cryo = entities.System<LuaMDeepCryoPersistenceSystem>();
+        var selected = preferences.GetPreferences(session.UserId);
+        var slot = selected.SelectedCharacterIndex;
+        var profile = (HumanoidCharacterProfile) selected.SelectedCharacter;
+        var profileId = await db.GetCharacterIdAsync(session.UserId, slot);
+        Assert.That(profileId, Is.Not.Null);
+        var authority = await EnsurePlayableAuthorityAsync(db, session.UserId, profileId!.Value, slot);
+        authority = authority with
+        {
+            ServerInstanceId = GetPrivateField<string>(cryo, "_serverInstanceId"),
+            RoundId = entities.System<GameTicker>().RoundId,
+        };
+        var species = prototypes.Index<SpeciesPrototype>(profile.Species).Prototype.Id;
+        var testMap = await pair.CreateTestMap();
+
+        EntityUid body = default;
+        await server.WaitAssertion(() =>
+        {
+            body = entities.SpawnEntity(species, testMap.GridCoords);
+            var identity = entities.EnsureComponent<LuaMDeepCryoIdentityComponent>(body);
+            BindPlayableTestIdentity(identity, session.UserId, profileId.Value, slot, authority);
+            identity.SlotGeneration = preferences.GetCharacterSlotGeneration(session.UserId, slot);
+        });
+
+        Task<bool>? prepared = null;
+        await server.WaitPost(() => prepared = cryo.PrepareGhostRespawnAsync(session));
+        await DrainServerTaskAsync(pair, prepared!);
+        Assert.That(await prepared!.WaitAsync(TimeSpan.FromSeconds(5)), Is.True);
+
+        await server.WaitAssertion(() => Assert.That(entities.EntityExists(body), Is.False));
+        var after = await db.GetLuaMDeepCryoStorePreconditionAsync(session.UserId, profileId.Value, slot);
+        Assert.Multiple(() =>
+        {
+            Assert.That(after?.Authority, Is.Null);
+            Assert.That(after?.LifecycleRevision, Is.GreaterThan(authority.AuthorityLifecycleRevision));
         });
 
         await pair.CleanReturnAsync();
@@ -5139,6 +5344,29 @@ public sealed class LuaMDeepCryoRuntimeTest
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.That(field, Is.Not.Null, $"Missing field {fieldName}");
         field!.SetValue(instance, value);
+    }
+
+    private static T GetPrivateField<T>(object instance, string fieldName)
+    {
+        var field = instance.GetType().GetField(
+            fieldName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.That(field, Is.Not.Null, $"Missing field {fieldName}");
+        return (T) field!.GetValue(instance)!;
+    }
+
+    private static object CreatePrivateInstance(object owner, string nestedTypeName, params object?[] arguments)
+    {
+        var type = owner.GetType().GetNestedType(
+            nestedTypeName,
+            BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.That(type, Is.Not.Null, $"Missing nested type {nestedTypeName}");
+        return Activator.CreateInstance(
+            type!,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            args: arguments,
+            culture: null)!;
     }
 
     private static void InvokePrivateEventHandler(object instance, string methodName, object ev)
@@ -5799,6 +6027,28 @@ public sealed class LuaMDeepCryoRuntimeTest
                 .ConfigureAwait(false);
             QuarantineReturned.TrySetResult(true);
             return result;
+        }
+    }
+
+    [Virtual]
+    public class LocalPresenceAuthorityProxy : DispatchProxy
+    {
+        private int _releaseCalls;
+
+        public IServerDbManager Inner { get; set; } = default!;
+        public LuaMCharacterPresenceAuthorityRecord Authority { get; set; } = default!;
+        public int ReleaseCalls => Volatile.Read(ref _releaseCalls);
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod == null)
+                throw new InvalidOperationException("Presence database proxy received no target method.");
+            if (targetMethod.Name == nameof(IServerDbManager.GetLuaMCharacterPresenceAuthorityAsync))
+                return Task.FromResult<LuaMCharacterPresenceAuthorityRecord?>(Authority);
+            if (targetMethod.Name == nameof(IServerDbManager.ReleaseLuaMCharacterPresenceAsync))
+                Interlocked.Increment(ref _releaseCalls);
+
+            return targetMethod.Invoke(Inner, args);
         }
     }
 

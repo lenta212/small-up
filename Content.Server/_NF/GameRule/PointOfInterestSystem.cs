@@ -30,7 +30,7 @@ public sealed partial class PointOfInterestSystem : EntitySystem
     [Dependency] private StationRenameWarpsSystems _renameWarps = default!;
     [Dependency] private StationSystem _station = default!;
 
-    private List<Vector2> _stationCoords = new();
+    private readonly Dictionary<MapId, List<Vector2>> _stationCoords = new();
 
     public override void Initialize()
     {
@@ -44,9 +44,15 @@ public sealed partial class PointOfInterestSystem : EntitySystem
         _stationCoords.Clear();
     }
 
-    private void AddStationCoordsToSet(Vector2 coords)
+    private void AddStationCoordsToSet(MapId mapId, Vector2 coords)
     {
-        _stationCoords.Add(coords);
+        if (!_stationCoords.TryGetValue(mapId, out var coordinates))
+        {
+            coordinates = new List<Vector2>();
+            _stationCoords.Add(mapId, coordinates);
+        }
+
+        coordinates.Add(coords);
     }
 
     public void GenerateDepots(MapId mapUid, List<PointOfInterestPrototype> depotPrototypes, out List<EntityUid> depotStations)
@@ -95,7 +101,7 @@ public sealed partial class PointOfInterestSystem : EntitySystem
                         destComp.DestinationProto = "CargoOther";
                 }
                 depotStations.Add(depot);
-                AddStationCoordsToSet(offset); // adjust list of actual station coords
+                AddStationCoordsToSet(mapUid, offset); // adjust list of actual station coords
             }
         }
     }
@@ -124,13 +130,13 @@ public sealed partial class PointOfInterestSystem : EntitySystem
             if (marketsAdded >= marketCount)
                 break;
 
-            var offset = GetRandomPOICoord(proto.MinimumDistance, proto.MaximumDistance);
+            var offset = GetRandomPOICoord(mapUid, proto.MinimumDistance, proto.MaximumDistance);
 
             if (TrySpawnPoiGrid(mapUid, proto, offset, out var marketUid) && marketUid is { Valid: true } market)
             {
                 marketStations.Add(market);
                 marketsAdded++;
-                AddStationCoordsToSet(offset);
+                AddStationCoordsToSet(mapUid, offset);
             }
         }
     }
@@ -159,12 +165,12 @@ public sealed partial class PointOfInterestSystem : EntitySystem
             if (optionalsAdded >= optionalCount)
                 break;
 
-            var offset = GetRandomPOICoord(proto.MinimumDistance, proto.MaximumDistance);
+            var offset = GetRandomPOICoord(mapUid, proto.MinimumDistance, proto.MaximumDistance);
 
             if (TrySpawnPoiGrid(mapUid, proto, offset, out var optionalUid) && optionalUid is { Valid: true } uid)
             {
                 optionalStations.Add(uid);
-                AddStationCoordsToSet(offset);
+                AddStationCoordsToSet(mapUid, offset);
             }
         }
     }
@@ -188,12 +194,12 @@ public sealed partial class PointOfInterestSystem : EntitySystem
             if (proto.SpawnGamePreset.Length > 0 && !proto.SpawnGamePreset.Contains(currentPreset))
                 continue;
 
-            var offset = GetRandomPOICoord(proto.MinimumDistance, proto.MaximumDistance);
+            var offset = GetRandomPOICoord(mapUid, proto.MinimumDistance, proto.MaximumDistance);
 
             if (TrySpawnPoiGrid(mapUid, proto, offset, out var requiredUid) && requiredUid is { Valid: true } uid)
             {
                 requiredStations.Add(uid);
-                AddStationCoordsToSet(offset);
+                AddStationCoordsToSet(mapUid, offset);
             }
         }
     }
@@ -226,12 +232,12 @@ public sealed partial class PointOfInterestSystem : EntitySystem
                 var chance = _random.NextFloat(0, 1);
                 if (chance <= proto.SpawnChance)
                 {
-                    var offset = GetRandomPOICoord(proto.MinimumDistance, proto.MaximumDistance);
+                    var offset = GetRandomPOICoord(mapUid, proto.MinimumDistance, proto.MaximumDistance);
 
                     if (TrySpawnPoiGrid(mapUid, proto, offset, out var optionalUid) && optionalUid is { Valid: true } uid)
                     {
                         uniqueStations.Add(uid);
-                        AddStationCoordsToSet(offset);
+                        AddStationCoordsToSet(mapUid, offset);
                         break;
                     }
                 }
@@ -271,7 +277,7 @@ public sealed partial class PointOfInterestSystem : EntitySystem
         return true;
     }
 
-    private Vector2 GetRandomPOICoord(float unscaledMinRange, float unscaledMaxRange)
+    private Vector2 GetRandomPOICoord(MapId mapId, float unscaledMinRange, float unscaledMaxRange)
     {
         int numRetries = int.Max(_cfg.GetCVar(NFCCVars.POIPlacementRetries), 0);
         float minDistance = float.Max(_cfg.GetCVar(NFCCVars.MinPOIDistance), 0); // Constant at the end to avoid NaN weirdness
@@ -280,7 +286,7 @@ public sealed partial class PointOfInterestSystem : EntitySystem
         for (int i = 0; i < numRetries; i++)
         {
             bool positionIsValid = true;
-            foreach (var station in _stationCoords)
+            foreach (var station in _stationCoords.GetValueOrDefault(mapId, []))
             {
                 if (Vector2.Distance(station, coords) < minDistance)
                 {

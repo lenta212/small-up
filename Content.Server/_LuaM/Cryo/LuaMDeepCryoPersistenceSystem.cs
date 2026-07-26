@@ -1100,7 +1100,7 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
                             result.Authority,
                             ticket.Key,
                             ticket.LeaseId,
-                            ticket.Authority!.AuthorityLifecycleRevision,
+                            checked(ticket.Authority!.AuthorityLifecycleRevision + 1),
                             snapshotId: null))
                     {
                         current = result.Authority!;
@@ -1131,7 +1131,7 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
                         current,
                         ticket.Key,
                         ticket.LeaseId,
-                        ticket.Authority!.AuthorityLifecycleRevision,
+                        checked(ticket.Authority!.AuthorityLifecycleRevision + 1),
                         snapshotId: null))
                 {
                     ticket.PublishedAuthority = current;
@@ -1861,8 +1861,15 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
         if (session.AttachedEntity == pending.Body)
             return true;
 
-        return _suspendedPresenceBodies.TryGetValue(pending.Body, out var suspension) &&
-               suspension.ControlGhost == session.AttachedEntity;
+        if (!_suspendedPresenceBodies.TryGetValue(pending.Body, out var suspension))
+            return false;
+        if (suspension.ControlGhost == session.AttachedEntity)
+            return true;
+
+        // GameTicker can replace either observer while finishing the join. The
+        // exact ticket and suspended body still fence publication, so any current
+        // observer attached to this same session is a safe control continuation.
+        return session.AttachedEntity is { } attached && HasComp<GhostComponent>(attached);
     }
 
     private void BlockFreshSpawnToObserver(PlayerBeforeSpawnEvent ev)
@@ -1873,6 +1880,173 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
         // sequence runs, rather than leaving the session without an entity.
         if (ev.Player.AttachedEntity == null)
             _gameTicker.JoinAsObserver(ev.Player);
+    }
+
+    /// <summary>
+    /// Releases the exact local playable lifecycle before ghostrespawn creates a new body.
+    /// Ambiguous, foreign, duplicate, and in-flight states remain fenced.
+    /// </summary>
+    public async Task<bool> PrepareGhostRespawnAsync(ICommonSession player)
+    {
+        if (!TryGetCurrentCharacterKey(player.UserId, out var key))
+        {
+            Log.Warning($"Blocked ghostrespawn for {player.UserId}: current character identity is unavailable.");
+            return false;
+        }
+
+        if (_pendingStoreKeys.ContainsKey(key) ||
+            IsRestorePublicationActive(key) ||
+            _pendingPresenceRenewals.ContainsKey(key) ||
+            _pendingPresenceReleases.Values.Any(pending => pending.Key == key))
+        {
+            Log.Warning($"Blocked ghostrespawn for {key}: a durable presence operation is still pending.");
+            return false;
+        }
+
+        LuaMCharacterPresenceAuthorityRecord? authority;
+        try
+        {
+            authority = await _db.GetLuaMCharacterPresenceAuthorityAsync(
+                key.UserId, key.ProfileId, key.Slot);
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Ghostrespawn presence lookup failed for {key}: {e}");
+            return false;
+        }
+
+        if (authority == null)
+        {
+            // A previous attempt may have committed the release and then lost
+            // its reply. Absence is sufficient only when no local identity body
+            // for this character remains.
+            var absentQuery = EntityQueryEnumerator<LuaMDeepCryoIdentityComponent>();
+            while (absentQuery.MoveNext(out _, out var identity))
+            {
+                if (identity.UserId == key.UserId &&
+                    identity.ProfileId == key.ProfileId &&
+                    identity.Slot == key.Slot)
+                {
+                    Log.Warning($"Blocked ghostrespawn for {key}: an identity body remains without durable authority.");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        if (authority.Phase != DbLuaMCharacterPresencePhase.Playable ||
+            authority.ServerInstanceId != _serverInstanceId ||
+            authority.RoundId != _gameTicker.RoundId ||
+            !TryGetCurrentCharacterKey(player.UserId, out var current) || current != key ||
+            _pendingStoreKeys.ContainsKey(key) ||
+            IsRestorePublicationActive(key) ||
+            _pendingPresenceRenewals.ContainsKey(key))
+        {
+            Log.Warning($"Blocked ghostrespawn for {key}: playable authority is not owned by this round or the character context changed.");
+            return false;
+        }
+
+        EntityUid? exactBody = null;
+        var query = EntityQueryEnumerator<LuaMDeepCryoIdentityComponent>();
+        while (query.MoveNext(out var body, out var identity))
+        {
+            if (identity.UserId != key.UserId ||
+                identity.ProfileId != key.ProfileId ||
+                identity.Slot != key.Slot ||
+                identity.PresenceLeaseId != authority.LeaseId ||
+                identity.PresencePhase != DbLuaMCharacterPresencePhase.Playable ||
+                identity.PresenceLeaseRevision != authority.Revision ||
+                identity.LifecycleRevision != authority.AuthorityLifecycleRevision ||
+                identity.PresenceSnapshotId != authority.SnapshotId ||
+                TerminatingOrDeleted(body))
+            {
+                continue;
+            }
+
+            if (exactBody != null)
+            {
+                Log.Error($"Blocked ghostrespawn for {key}: multiple bodies match the playable authority.");
+                return false;
+            }
+
+            exactBody = body;
+        }
+
+        if (exactBody is not { } target)
+        {
+            Log.Warning($"Blocked ghostrespawn for {key}: no runtime body exactly matches the playable authority.");
+            return false;
+        }
+
+        if (!SuspendPresenceBody(target, key))
+        {
+            Log.Warning($"Blocked ghostrespawn for {key}: the exact playable body could not be suspended.");
+            return false;
+        }
+
+        var request = new LuaMCharacterPresenceReleaseRequest(
+            Guid.NewGuid(),
+            key.UserId,
+            key.ProfileId,
+            key.Slot,
+            authority.LeaseId,
+            authority.Phase,
+            authority.SnapshotId,
+            authority.Revision,
+            authority.AuthorityLifecycleRevision,
+            "ghostrespawn-new-body",
+            DateTime.UtcNow);
+
+        LuaMCharacterPresenceAuthorityRecord? observed = authority;
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                var result = await _db.ReleaseLuaMCharacterPresenceAsync(request);
+                observed = result.Authority;
+                if (result.Success)
+                    return FinalizeGhostRespawnRelease(target, key, authority.LeaseId);
+                if (IsDefinitiveForeignPresence(observed, request))
+                {
+                    FinalizeGhostRespawnRelease(target, key, authority.LeaseId);
+                    return false;
+                }
+            }
+            catch (Exception e)
+            {
+                Log.Error($"Ghostrespawn presence release attempt {attempt + 1} failed for {key}: {e}");
+            }
+        }
+
+        try
+        {
+            observed = await _db.GetLuaMCharacterPresenceAuthorityAsync(
+                key.UserId, key.ProfileId, key.Slot);
+            if (observed == null)
+                return FinalizeGhostRespawnRelease(target, key, authority.LeaseId);
+            if (IsDefinitiveForeignPresence(observed, request))
+            {
+                FinalizeGhostRespawnRelease(target, key, authority.LeaseId);
+                return false;
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Error($"Ghostrespawn presence release re-read failed for {key}: {e}");
+        }
+
+        return false;
+    }
+
+    private bool FinalizeGhostRespawnRelease(EntityUid body, CharacterKey key, Guid leaseId)
+    {
+        if (!DisposeStalePresenceBody(body, key, leaseId))
+            return false;
+
+        if (_liveBodies.TryGetValue(key, out var liveBody) && liveBody == body)
+            _liveBodies.Remove(key);
+        return true;
     }
 
     private async void PrepareFreshSpawnAsync(PendingFreshSpawnRequest pending)

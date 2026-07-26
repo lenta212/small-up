@@ -16,6 +16,7 @@
   maximumDistance: 8850
   spawnGroup: Christmas
   spawnChance: 0
+  asteroidBelt: true
   gridPath: /Maps/_NF/POI/northpole.yml
   hideWarp: true
   addComponents:

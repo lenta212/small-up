@@ -21,11 +21,15 @@ public sealed class LuaMCivilianTrackingImplantTest
         "Mercenary",
     };
 
-    private static readonly string[] VanguardJobs =
+    private static readonly string[] PirateJobs =
     {
         "Pirate",
         "PirateFirstMate",
         "PirateCaptain",
+    };
+
+    private static readonly string[] VanguardJobs =
+    {
         "PDVInfiltrator",
         "PDVDenasvar",
     };
@@ -109,11 +113,19 @@ public sealed class LuaMCivilianTrackingImplantTest
                 Assert.That(trigger.MobState, Does.Contain(MobState.Dead));
             });
 
-            foreach (var jobId in VanguardJobs)
+            foreach (var jobId in PirateJobs)
             {
                 var job = prototypes.Index<JobPrototype>(jobId);
                 Assert.That(GetImplants(job).Count(id => id == "FreelanceTrackingImplant"), Is.EqualTo(1),
-                    $"{jobId} must keep exactly one Vanguard tracker.");
+                    $"{jobId} must keep exactly one Freelance tracker.");
+            }
+
+            foreach (var jobId in VanguardJobs)
+            {
+                var job = prototypes.Index<JobPrototype>(jobId);
+                Assert.That(GetImplants(job).Count(id => id == "ResistanceTrackingImplant"), Is.EqualTo(1),
+                    $"{jobId} must receive exactly one Resistance tracker.");
+                Assert.That(GetImplants(job), Does.Not.Contain("FreelanceTrackingImplant"));
             }
 
             var listing = prototypes.Index<ListingPrototype>("UplinkPirateImplanterFreelance");
@@ -122,6 +134,7 @@ public sealed class LuaMCivilianTrackingImplantTest
             var vanguardImplanter = prototypes.Index<EntityPrototype>("RadioImplanterFreelance");
             Assert.That(vanguardImplanter.TryGetComponent<ImplanterComponent>(out var implanter, components), Is.True);
             Assert.That(implanter.Implant?.Id, Is.EqualTo("RadioImplantFreelance"));
+
         });
 
         await pair.CleanReturnAsync();

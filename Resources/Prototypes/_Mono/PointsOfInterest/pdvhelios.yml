@@ -9,8 +9,9 @@
   id: HeliosFortress
   parent: [BasePOI, BaseRepairablePOI]
   name: 'Крепость «Гелиос»' # LuaM: 'PDV Helios Fortress' > 'Крепость «Гелиос»'
-  minimumDistance: 8500 # LuaM 7500 > 8500
-  maximumDistance: 9500
+  minimumDistance: 10000
+  maximumDistance: 15000
+  asteroidBelt: true
   spawnGamePreset: [ NFAdventure, NFPirate, MonoStandard, MonoRogueTSF, MonoRogueUSSP, MonoADS, MonoChimera, MonoMixed, MonoAllAtOnce ]
   spawnGroup: Required
   gridPath: /Maps/_LuaM/POI/HeliosLuaM.yml #LuaM: /Maps/_Mono/POI/pdvhelios.yml -> /Maps/_LuaM/POI/heliosLuaM.yml

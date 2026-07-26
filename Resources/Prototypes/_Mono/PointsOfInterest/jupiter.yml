@@ -16,6 +16,7 @@
   maximumDistance: 19000
   spawnGamePreset: [ NFAdventure, NFPirate, MonoStandard, MonoRogueTSF, MonoRogueUSSP, MonoADS, MonoChimera, MonoMixed, MonoAllAtOnce ]
   spawnGroup: Required
+  asteroidBelt: true
   gridPath: /Maps/_LuaM/POI/JupiterLuaM.yml # LuaM: /Maps/_Mono/POI/jupiter.yml > /Maps/_LuaM/POI/JupiterLuaM.yml
   addComponents:
   - type: IFF

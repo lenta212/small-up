@@ -15,6 +15,7 @@
   minimumDistance: 7000
   maximumDistance: 10800
   spawnGroup: ScienceLab
+  asteroidBelt: true
   gridPath: /Maps/_Mono/POI/anomalouslab.yml
   addComponents:
   - type: SolarPoweredGrid

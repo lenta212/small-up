@@ -294,3 +294,5 @@ uplink-pdv-t3-saintie-voucher-desc = A small card that contains the data for the
 
 uplink-pdv-t4-saturn-voucher-name = PDV Saturn LPC [T4]
 uplink-pdv-t4-saturn-voucher-desc = A small card that authorizes the procurement of the Saturn.
+uplink-pdv-resistance-key-name = Resistance encryption key
+uplink-pdv-resistance-key-desc = A dedicated key for the Vanguard Resistance channel. Sold only through a static PDV requisition terminal.

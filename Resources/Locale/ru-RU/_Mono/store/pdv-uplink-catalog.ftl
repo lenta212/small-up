@@ -291,3 +291,5 @@ uplink-pdv-t3-saintie-voucher-desc = Небольшая карта, содерж
 
 uplink-pdv-t4-saturn-voucher-name = Ваучер Авангарда Saturn LPC [T4]
 uplink-pdv-t4-saturn-voucher-desc = Небольшая карта, авторизующая получение Saturn.
+uplink-pdv-resistance-key-name = ключ шифрования «Сопротивление»
+uplink-pdv-resistance-key-desc = Отдельный ключ защищённого канала Авангарда «Сопротивление». Продаётся только через стационарный терминал снабжения PDV.

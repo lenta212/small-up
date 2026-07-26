@@ -1478,3 +1478,17 @@
       - PirateUplink # LuaM FactionStaticUplinkPdv > PirateUplink
 
 # end T4
+- type: listing
+  id: UplinkPdvResistanceEncryptionKey
+  name: uplink-pdv-resistance-key-name
+  description: uplink-pdv-resistance-key-desc
+  productEntity: EncryptionKeyResistance
+  cost:
+    Doubloon: 5
+  categories:
+  - UplinkPirateUtility
+  conditions:
+  - !type:StoreWhitelistCondition
+    whitelist:
+      tags:
+      - FactionStaticUplinkPdv

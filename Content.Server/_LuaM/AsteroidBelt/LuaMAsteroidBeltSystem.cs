@@ -1,5 +1,7 @@
 using System.Numerics;
+using System.Linq;
 using Content.Server.GameTicking.Events;
+using Content.Server._NF.GameRule;
 using Content.Server.Shuttles.Components;
 using Content.Server.Worldgen.Prototypes;
 using Content.Shared.GameTicking;
@@ -19,6 +21,7 @@ public sealed class LuaMAsteroidBeltSystem : EntitySystem
     [Dependency] private readonly ISerializationManager _serialization = default!;
     [Dependency] private readonly MetaDataSystem _metadata = default!;
     [Dependency] private readonly SharedMapSystem _maps = default!;
+    [Dependency] private readonly PointOfInterestSystem _poi = default!;
 
     private EntityUid? _beltMap;
 
@@ -66,7 +69,7 @@ public sealed class LuaMAsteroidBeltSystem : EntitySystem
             return existing;
         }
 
-        var map = _maps.CreateMap(out _, runMapInit: false);
+        var map = _maps.CreateMap(out var mapId, runMapInit: false);
         _metadata.SetEntityName(map, Loc.GetString("luam-asteroid-belt-map-name"));
 
         var config = _prototypes.Index<WorldgenConfigPrototype>(WorldgenConfig);
@@ -83,6 +86,12 @@ public sealed class LuaMAsteroidBeltSystem : EntitySystem
         var beacon = Spawn("FTLPoint", new EntityCoordinates(map, Vector2.Zero));
         _metadata.SetEntityName(beacon, Loc.GetString("luam-asteroid-belt-entry-name"));
         marker.EntryBeacon = beacon;
+
+        var beltPois = _prototypes
+            .EnumeratePrototypes<PointOfInterestPrototype>()
+            .Where(prototype => prototype.AsteroidBelt)
+            .ToList();
+        _poi.GenerateRequireds(mapId, beltPois, out _);
 
         _beltMap = map;
         AssignAllDisks(map);

@@ -20,6 +20,7 @@ chat-radio-supply = Снабжение
 chat-radio-syndicate = Синдикат
 chat-radio-freelance = Фриланс
 chat-radio-vanguard-command = Командование Авангарда
+chat-radio-resistance = Сопротивление
 # not headset but whatever
 chat-radio-handheld = Портативный
 chat-radio-binary = Двоичный
