@@ -644,7 +644,6 @@ public sealed class LuaMDeepCryoRuntimeTest
         var session = players.GetSessionById(clientSession!.UserId);
         var entities = server.ResolveDependency<IEntityManager>();
         var preferences = server.ResolveDependency<IServerPreferencesManager>();
-        var prototypes = server.ResolveDependency<IPrototypeManager>();
         var db = server.ResolveDependency<IServerDbManager>();
         var containers = entities.System<ContainerSystem>();
         var upstream = entities.System<CryostorageSystem>();
@@ -659,9 +658,8 @@ public sealed class LuaMDeepCryoRuntimeTest
         await server.WaitAssertion(() =>
         {
             pod = entities.SpawnEntity("CryogenicSleepUnit", MapCoordinates.Nullspace);
-            var profile = (HumanoidCharacterProfile) preferences.GetPreferences(session.UserId).Characters[slot];
-            var species = prototypes.Index<SpeciesPrototype>(profile.Species);
-            body = entities.SpawnEntity(species.Prototype.Id, MapCoordinates.Nullspace);
+            Assert.That(session.AttachedEntity, Is.Not.Null);
+            body = session.AttachedEntity!.Value;
             var identity = entities.EnsureComponent<LuaMDeepCryoIdentityComponent>(body);
             BindPlayableTestIdentity(identity, session.UserId, profileId!.Value, slot, playableAuthority);
             var contained = entities.EnsureComponent<CryostorageContainedComponent>(body);
@@ -3679,6 +3677,17 @@ public sealed class LuaMDeepCryoRuntimeTest
             storePrecondition!.LifecycleRevision,
             playableAuthority.LeaseId));
         Assert.That(stored.Status, Is.EqualTo(LuaMDeepCryoWriteStatus.Success));
+
+        // The direct database store above substitutes for the normal world finalizer,
+        // so remove the original playable body before exercising the restore path.
+        await server.WaitAssertion(() =>
+        {
+            if (session.AttachedEntity is not { } originalBody || !entities.EntityExists(originalBody))
+                return;
+
+            entities.RemoveComponent<LuaMDeepCryoIdentityComponent>(originalBody);
+            entities.DeleteEntity(originalBody);
+        });
 
         Task<LuaMDeepCryoClaimResult>? claimTask = null;
         await server.WaitPost(() => claimTask = cryo.ClaimRestoreAsync(session.UserId));
