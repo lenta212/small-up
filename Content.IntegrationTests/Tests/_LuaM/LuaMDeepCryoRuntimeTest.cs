@@ -4401,12 +4401,10 @@ public sealed class LuaMDeepCryoRuntimeTest
         var session = players.GetSessionById(clientSession!.UserId);
         var entities = server.ResolveDependency<IEntityManager>();
         var preferences = server.ResolveDependency<IServerPreferencesManager>();
-        var prototypes = server.ResolveDependency<IPrototypeManager>();
         var realDb = server.ResolveDependency<IServerDbManager>();
         var cryo = entities.System<LuaMDeepCryoPersistenceSystem>();
         var minds = entities.System<MindSystem>();
         var ticker = entities.System<GameTicker>();
-        var testMap = await pair.CreateTestMap();
         var selected = preferences.GetPreferences(session.UserId);
         var slot = selected.SelectedCharacterIndex;
         var profile = (HumanoidCharacterProfile) selected.SelectedCharacter;
@@ -4418,7 +4416,6 @@ public sealed class LuaMDeepCryoRuntimeTest
             ServerInstanceId = GetPrivateField<string>(cryo, "_serverInstanceId"),
             RoundId = ticker.RoundId,
         };
-        var species = prototypes.Index<SpeciesPrototype>(profile.Species).Prototype.Id;
         var proxy = DispatchProxy.Create<IServerDbManager, LocalPresenceAuthorityProxy>();
         var proxyState = (LocalPresenceAuthorityProxy) (object) proxy;
         proxyState.Inner = realDb;
@@ -4430,7 +4427,8 @@ public sealed class LuaMDeepCryoRuntimeTest
         {
             await server.WaitAssertion(() =>
             {
-                body = entities.SpawnEntity(species, testMap.GridCoords);
+                Assert.That(session.AttachedEntity, Is.Not.Null);
+                body = session.AttachedEntity!.Value;
                 BindPlayableTestIdentity(
                     entities.EnsureComponent<LuaMDeepCryoIdentityComponent>(body),
                     session.UserId,
@@ -4664,15 +4662,12 @@ public sealed class LuaMDeepCryoRuntimeTest
         var session = players.GetSessionById(clientSession!.UserId);
         var entities = server.ResolveDependency<IEntityManager>();
         var preferences = server.ResolveDependency<IServerPreferencesManager>();
-        var prototypes = server.ResolveDependency<IPrototypeManager>();
         var db = server.ResolveDependency<IServerDbManager>();
         var cryo = entities.System<LuaMDeepCryoPersistenceSystem>();
         var minds = entities.System<MindSystem>();
-        var testMap = await pair.CreateTestMap();
         var selected = preferences.GetPreferences(session.UserId);
         var slot = selected.SelectedCharacterIndex;
         var profile = (HumanoidCharacterProfile) selected.SelectedCharacter;
-        var species = prototypes.Index<SpeciesPrototype>(profile.Species).Prototype.Id;
         var profileId = await db.GetCharacterIdAsync(session.UserId, slot);
         Assert.That(profileId, Is.Not.Null);
         var authority = await EnsurePlayableAuthorityAsync(db, session.UserId, profileId!.Value, slot);
@@ -4680,7 +4675,8 @@ public sealed class LuaMDeepCryoRuntimeTest
         EntityUid body = default;
         await server.WaitAssertion(() =>
         {
-            body = entities.SpawnEntity(species, testMap.GridCoords);
+            Assert.That(session.AttachedEntity, Is.Not.Null);
+            body = session.AttachedEntity!.Value;
             var identity = entities.EnsureComponent<LuaMDeepCryoIdentityComponent>(body);
             BindPlayableTestIdentity(identity, session.UserId, profileId.Value, slot, authority);
             identity.SlotGeneration = preferences.GetCharacterSlotGeneration(session.UserId, slot);
@@ -4811,7 +4807,6 @@ public sealed class LuaMDeepCryoRuntimeTest
         var session = players.GetSessionById(clientSession!.UserId);
         var entities = server.ResolveDependency<IEntityManager>();
         var preferences = server.ResolveDependency<IServerPreferencesManager>();
-        var prototypes = server.ResolveDependency<IPrototypeManager>();
         var db = server.ResolveDependency<IServerDbManager>();
         var cryo = entities.System<LuaMDeepCryoPersistenceSystem>();
         var selected = preferences.GetPreferences(session.UserId);
@@ -4825,13 +4820,11 @@ public sealed class LuaMDeepCryoRuntimeTest
             ServerInstanceId = GetPrivateField<string>(cryo, "_serverInstanceId"),
             RoundId = entities.System<GameTicker>().RoundId,
         };
-        var species = prototypes.Index<SpeciesPrototype>(profile.Species).Prototype.Id;
-        var testMap = await pair.CreateTestMap();
-
         EntityUid body = default;
         await server.WaitAssertion(() =>
         {
-            body = entities.SpawnEntity(species, testMap.GridCoords);
+            Assert.That(session.AttachedEntity, Is.Not.Null);
+            body = session.AttachedEntity!.Value;
             var identity = entities.EnsureComponent<LuaMDeepCryoIdentityComponent>(body);
             BindPlayableTestIdentity(identity, session.UserId, profileId.Value, slot, authority);
             identity.SlotGeneration = preferences.GetCharacterSlotGeneration(session.UserId, slot);
