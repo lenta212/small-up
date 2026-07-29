@@ -22,6 +22,25 @@ public enum GatewayUiKey : byte
 }
 
 [Serializable, NetSerializable]
+public enum GatewayThreatLevel : byte
+{
+    Minimal = 1,
+    Low,
+    Moderate,
+    High,
+    Extreme,
+}
+
+[Serializable, NetSerializable]
+public enum GatewayDestinationRotationState : byte
+{
+    None,
+    Scheduled,
+    EmptyGracePeriod,
+    WaitingForClearance,
+}
+
+[Serializable, NetSerializable]
 public sealed class GatewayBoundUserInterfaceState : BoundUserInterfaceState
 {
     /// <summary>
@@ -79,6 +98,25 @@ public record struct GatewayDestinationData
     /// Is the map the gateway on locked or unlocked.
     /// </summary>
     public bool Locked;
+
+    /// <summary>
+    /// Whether this destination has generated-world reconnaissance data.
+    /// </summary>
+    public bool HasIntel;
+
+    public LocId ProfileName;
+    public LocId ProfileDescription;
+    public LocId BiomeName;
+    public LocId WeatherName;
+    public LocId AtmosphereName;
+    public LocId Resources;
+    public LocId Hostiles;
+    public GatewayThreatLevel Threat;
+    public Color AccentColor;
+    public string Address;
+    public bool Loaded;
+    public GatewayDestinationRotationState RotationState;
+    public TimeSpan RotationAt;
 }
 
 [Serializable, NetSerializable]

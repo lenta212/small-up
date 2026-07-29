@@ -1,10 +1,14 @@
 using System.Linq;
+using Content.Server.Atmos.Components;
 using Content.Server.GameTicking;
 using Content.Server.Gateway.Components;
 using Content.Shared.CCVar;
+using Content.Shared.Gateway;
 using Content.Shared.Maps;
 using Content.Shared.Parallax.Biomes;
+using Content.Shared.Salvage.Expeditions.Modifiers;
 using Content.Shared.Station.Components;
+using Content.Shared.Weather;
 using Robust.Server.GameObjects;
 using Robust.Shared.Configuration;
 using Robust.Shared.EntitySerialization;
@@ -111,11 +115,29 @@ public sealed class LuaMFrontierMapLoadTest
                     entManager.TryGetComponent<GatewayGeneratorDestinationComponent>(destinationUid, out var destination),
                     Is.True);
                 Assert.That(destination!.Generator, Is.EqualTo(station));
+                var profile = protoManager.Index(destination.Profile);
+                var air = protoManager.Index<SalvageAirMod>(profile.Air);
                 Assert.That(
                     entManager.TryGetComponent<BiomeComponent>(destinationUid, out var biome),
                     Is.True,
                     "A generated gateway destination must be a procedural biome.");
-                Assert.That(biome!.Template?.Id, Is.EqualTo("Continental"));
+                Assert.Multiple(() =>
+                {
+                    Assert.That(biome!.Template?.Id, Is.EqualTo(profile.Biome.Id));
+                    Assert.That(destination.Address, Does.Match("^GW-(?:[0-9A-F]{2}-){3}[0-9A-F]{2}$"));
+                    Assert.That(profile.Threat, Is.InRange(GatewayThreatLevel.Minimal, GatewayThreatLevel.Extreme));
+                    Assert.That(
+                        entManager.GetComponent<MapAtmosphereComponent>(destinationUid).Space,
+                        Is.EqualTo(air.Space));
+                });
+
+                if (!air.Space && profile.Weather is { } weatherId)
+                {
+                    Assert.That(
+                        entManager.GetComponent<WeatherComponent>(destinationUid).Weather.ContainsKey(weatherId),
+                        Is.True,
+                        "The generated planet must apply its advertised weather.");
+                }
 
                 var destinationMapId = entManager.GetComponent<TransformComponent>(destinationUid).MapID;
                 var destinationGateways = entManager.AllComponents<GatewayComponent>()
@@ -124,8 +146,12 @@ public sealed class LuaMFrontierMapLoadTest
                         xform.MapID == destinationMapId)
                     .ToList();
                 Assert.That(destinationGateways, Has.Count.EqualTo(1));
-                Assert.That(destinationGateways[0].Component.Enabled, Is.True,
-                    "The generated planet must contain an enabled return gateway.");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(destinationGateways[0].Component.Enabled, Is.True,
+                        "The generated planet must contain an enabled return gateway.");
+                    Assert.That(destination.Gateway, Is.EqualTo(destinationGateways[0].Uid));
+                });
             });
         }
         finally

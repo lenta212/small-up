@@ -1,16 +1,19 @@
 using Content.Server.Gateway.Components;
 using Content.Server.Station.Systems;
-using Content.Shared.UserInterface;
 using Content.Shared.Access.Systems;
+using Content.Shared.CCVar;
 using Content.Shared.Gateway;
 using Content.Shared.Popups;
 using Content.Shared.Teleportation.Components;
 using Content.Shared.Teleportation.Systems;
+using Content.Shared.UserInterface;
 using Content.Shared.Verbs;
 using Robust.Server.GameObjects;
 using Robust.Shared.Audio;
 using Robust.Shared.Audio.Systems;
+using Robust.Shared.Configuration;
 using Robust.Shared.GameObjects;
+using Robust.Shared.Prototypes;
 using Robust.Shared.Timing;
 using Robust.Shared.Utility;
 
@@ -19,8 +22,10 @@ namespace Content.Server.Gateway.Systems;
 public sealed partial class GatewaySystem : EntitySystem
 {
     [Dependency] private AccessReaderSystem _accessReader = default!;
+    [Dependency] private IConfigurationManager _cfgManager = default!;
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private LinkedEntitySystem _linkedEntity = default!;
+    [Dependency] private IPrototypeManager _protoManager = default!;
     [Dependency] private SharedAppearanceSystem _appearance = default!;
     [Dependency] private SharedAudioSystem _audio = default!;
     [Dependency] private MetaDataSystem _metadata = default!;
@@ -105,17 +110,39 @@ public sealed partial class GatewaySystem : EntitySystem
             // Show destination if either no destination comp on the map or it's ours.
             TryComp<GatewayGeneratorDestinationComponent>(destXform.MapUid, out var gatewayDestination);
 
-            destinations.Add(new GatewayDestinationData()
+            var destinationData = new GatewayDestinationData()
             {
                 Entity = GetNetEntity(destUid),
                 // Fallback to grid's ID if applicable.
-                Name = dest.Name.IsEmpty && destXform.GridUid != null ? FormattedMessage.FromUnformatted(MetaData(destXform.GridUid.Value).EntityName) : dest.Name ,
+                Name = dest.Name.IsEmpty && destXform.GridUid != null ? FormattedMessage.FromUnformatted(MetaData(destXform.GridUid.Value).EntityName) : dest.Name,
                 Portal = HasComp<PortalComponent>(destUid),
                 // If NextUnlock < CurTime it's unlocked, however
                 // we'll always send the client if it's locked
                 // It can just infer unlock times locally and not have to worry about it here.
                 Locked = gatewayDestination != null && gatewayDestination.Locked
-            });
+            };
+
+            if (gatewayDestination != null &&
+                !string.IsNullOrEmpty(gatewayDestination.Profile.Id) &&
+                _protoManager.TryIndex(gatewayDestination.Profile, out GatewayWorldProfilePrototype? profile))
+            {
+                destinationData.HasIntel = true;
+                destinationData.ProfileName = profile.Name;
+                destinationData.ProfileDescription = profile.Description;
+                destinationData.BiomeName = profile.BiomeName;
+                destinationData.WeatherName = profile.WeatherName;
+                destinationData.AtmosphereName = profile.AtmosphereName;
+                destinationData.Resources = profile.Resources;
+                destinationData.Hostiles = profile.Hostiles;
+                destinationData.Threat = profile.Threat;
+                destinationData.AccentColor = profile.AccentColor;
+                destinationData.Address = gatewayDestination.Address;
+                destinationData.Loaded = gatewayDestination.Loaded;
+                destinationData.RotationState = gatewayDestination.RotationState;
+                destinationData.RotationAt = GetRotationAt(gatewayDestination);
+            }
+
+            destinations.Add(destinationData);
         }
 
         _linkedEntity.GetLink(uid, out var current);
@@ -130,6 +157,23 @@ public sealed partial class GatewaySystem : EntitySystem
         );
 
         _ui.SetUiState(uid, GatewayUiKey.Key, state);
+    }
+
+    private TimeSpan GetRotationAt(GatewayGeneratorDestinationComponent destination)
+    {
+        if (destination.RotationState == GatewayDestinationRotationState.Scheduled)
+            return destination.RetireAt;
+
+        if (destination.RotationState != GatewayDestinationRotationState.EmptyGracePeriod)
+            return TimeSpan.Zero;
+
+        var graceSeconds = _cfgManager.GetCVar(CCVars.GatewayGeneratorEmptyGrace);
+        if (!float.IsFinite(graceSeconds) || graceSeconds <= 0f)
+            return destination.EmptySince;
+
+        var grace = TimeSpan.FromSeconds(
+            Math.Min(graceSeconds, TimeSpan.MaxValue.TotalSeconds / 2d));
+        return destination.EmptySince + grace;
     }
 
     private void UpdateAppearance(EntityUid uid)
@@ -156,7 +200,10 @@ public sealed partial class GatewaySystem : EntitySystem
         // If it's already open / not enabled / we're not ready DENY.
         if (!TryComp<GatewayComponent>(desto, out var dest) ||
             !dest.Enabled ||
-            _timing.CurTime < _metadata.GetPauseTime(uid) + comp.NextReady)
+            HasComp<PortalComponent>(desto) ||
+            _linkedEntity.GetLink(desto, out _) ||
+            _timing.CurTime < _metadata.GetPauseTime(uid) + comp.NextReady ||
+            _timing.CurTime < _metadata.GetPauseTime(desto) + dest.NextReady)
         {
             return;
         }
@@ -177,7 +224,10 @@ public sealed partial class GatewaySystem : EntitySystem
         if (ev.Cancelled)
             return;
 
-        _linkedEntity.OneWayLink(uid, dest);
+        // Gateways are traversable in both directions. A symmetrical link also lets
+        // safe world retirement close the source and return endpoints atomically.
+        if (!_linkedEntity.TryLink(uid, dest))
+            return;
 
         var sourcePortal = EnsureComp<PortalComponent>(uid);
         var targetPortal = EnsureComp<PortalComponent>(dest);
@@ -202,14 +252,26 @@ public sealed partial class GatewaySystem : EntitySystem
         UpdateAppearance(dest);
     }
 
-    private void ClosePortal(EntityUid uid, GatewayComponent? comp = null, bool update = true)
+    /// <summary>
+    /// Closes a gateway and its linked endpoint. Used by safe generated-world retirement
+    /// as well as normal gateway interaction.
+    /// </summary>
+    public void ClosePortal(EntityUid uid, GatewayComponent? comp = null, bool update = true)
     {
         if (!Resolve(uid, ref comp))
             return;
 
         RemComp<PortalComponent>(uid);
         if (!_linkedEntity.GetLink(uid, out var dest))
+        {
+            if (update)
+            {
+                UpdateUserInterface(uid, comp);
+                UpdateAppearance(uid);
+            }
+
             return;
+        }
 
         if (TryComp<GatewayComponent>(dest, out var destComp))
         {

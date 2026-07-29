@@ -39,6 +39,8 @@ enabled = true
 generator_enabled = false
 generator_max_destinations = 4
 generator_destination_ttl = 21600
+generator_opened_destination_ttl = 7200
+generator_empty_grace = 300
 
 [luam.ai_director]
 enabled = true

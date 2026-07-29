@@ -95,10 +95,25 @@ public sealed partial class CCVars
 
     /// <summary>
     ///     Lifetime of an unopened generated destination, in seconds.
-    ///     Values less than or equal to zero disable TTL cleanup. Opened destinations are never deleted by this cleanup.
+    ///     Values less than or equal to zero disable unopened-destination cleanup.
+    ///     Opened destinations use the separate safe-rotation lifetime below.
     /// </summary>
     public static readonly CVarDef<float> GatewayGeneratorDestinationTtl =
         CVarDef.Create("gateway.generator_destination_ttl", 21600f, CVar.SERVERONLY);
+
+    /// <summary>
+    ///     Lifetime of an opened generated destination before it becomes eligible for safe rotation.
+    ///     Values less than or equal to zero disable rotation of opened destinations.
+    /// </summary>
+    public static readonly CVarDef<float> GatewayGeneratorOpenedDestinationTtl =
+        CVarDef.Create("gateway.generator_opened_destination_ttl", 7200f, CVar.SERVERONLY);
+
+    /// <summary>
+    ///     Continuous time an eligible opened destination must remain empty before deletion.
+    ///     Player-controlled bodies, occupied minds, and additional grids reset this grace period.
+    /// </summary>
+    public static readonly CVarDef<float> GatewayGeneratorEmptyGrace =
+        CVarDef.Create("gateway.generator_empty_grace", 300f, CVar.SERVERONLY);
 
     public static readonly CVarDef<string> TippyEntity =
         CVarDef.Create("tippy.entity", "NFTippy", CVar.SERVER | CVar.REPLICATED); // Frontier: Tippy<NFTippy

@@ -10,6 +10,7 @@ using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
 using Robust.Client.UserInterface.XAML;
 using Robust.Shared.Timing;
+using Robust.Shared.Utility;
 
 namespace Content.Client.Gateway.UI;
 
@@ -21,6 +22,7 @@ public sealed partial class GatewayWindow : FancyWindow,
 
     public event Action<NetEntity>? OpenPortal;
     private List<GatewayDestinationData> _destinations = new();
+    private readonly List<(Label Label, GatewayDestinationData Destination)> _rotationLabels = new();
 
     public NetEntity Owner;
 
@@ -57,7 +59,7 @@ public sealed partial class GatewayWindow : FancyWindow,
 
     public void SetEntity(NetEntity entity)
     {
-
+        Owner = entity;
     }
 
     public void UpdateState(GatewayBoundUserInterfaceState state)
@@ -73,6 +75,8 @@ public sealed partial class GatewayWindow : FancyWindow,
         _isCooldownPending = _nextReady >= _timing.CurTime;
 
         Container.DisposeAllChildren();
+        _rotationLabels.Clear();
+        _lastState = state;
 
         if (_destinations.Count == 0)
         {
@@ -100,23 +104,26 @@ public sealed partial class GatewayWindow : FancyWindow,
             var name = dest.Name;
             var locked = dest.Locked && _nextUnlock > _timing.CurTime;
 
-            var box = new BoxContainer()
+            var card = new BoxContainer()
             {
-                Orientation = BoxContainer.LayoutOrientation.Horizontal,
-                Margin = new Thickness(5f, 5f),
+                Orientation = BoxContainer.LayoutOrientation.Vertical,
+                Margin = new Thickness(8f, 7f),
             };
 
-            // HOW DO I ALIGN THESE GOODER
+            var header = new BoxContainer()
+            {
+                Orientation = BoxContainer.LayoutOrientation.Horizontal,
+            };
+
             var nameLabel = new RichTextLabel()
             {
                 VerticalAlignment = VAlignment.Center,
-                SetWidth = 156f,
+                SetWidth = 220f,
             };
 
             nameLabel.SetMessage(name);
-            box.AddChild(nameLabel);
-            // Buffer
-            box.AddChild(new Control()
+            header.AddChild(nameLabel);
+            header.AddChild(new Control()
             {
                 HorizontalExpand = true,
             });
@@ -172,7 +179,51 @@ public sealed partial class GatewayWindow : FancyWindow,
                 SetSize = new Vector2(128f, 40f),
             };
 
-            box.AddChild(buttonContainer);
+            header.AddChild(buttonContainer);
+            card.AddChild(header);
+
+            if (dest.HasIntel)
+            {
+                var profileLabel = new Label
+                {
+                    Text = Loc.GetString(dest.ProfileName),
+                    ModulateSelfOverride = dest.AccentColor,
+                    Margin = new Thickness(0f, 4f, 0f, 1f),
+                };
+                profileLabel.AddStyleClass(StyleBase.StyleClassLabelHeading);
+                card.AddChild(profileLabel);
+
+                var description = new RichTextLabel
+                {
+                    HorizontalExpand = true,
+                    Margin = new Thickness(0f, 0f, 0f, 5f),
+                };
+                description.SetMessage(FormattedMessage.FromUnformatted(Loc.GetString(dest.ProfileDescription)));
+                card.AddChild(description);
+
+                var intel = new GridContainer
+                {
+                    Columns = 2,
+                    HorizontalExpand = true,
+                };
+                AddIntelRow(intel, "gateway-window-address", dest.Address);
+                AddIntelRow(intel, "gateway-window-biome", Loc.GetString(dest.BiomeName));
+                AddIntelRow(intel, "gateway-window-weather", Loc.GetString(dest.WeatherName));
+                AddIntelRow(intel, "gateway-window-atmosphere", Loc.GetString(dest.AtmosphereName));
+                AddIntelRow(intel, "gateway-window-resources", Loc.GetString(dest.Resources));
+                AddIntelRow(intel, "gateway-window-hostiles", Loc.GetString(dest.Hostiles));
+                AddIntelRow(intel, "gateway-window-threat", GetThreatText(dest.Threat), dest.AccentColor);
+                card.AddChild(intel);
+
+                var rotationLabel = new Label
+                {
+                    Text = GetRotationText(dest, now),
+                    Margin = new Thickness(0f, 7f, 0f, 0f),
+                    ModulateSelfOverride = Color.LightGray,
+                };
+                card.AddChild(rotationLabel);
+                _rotationLabels.Add((rotationLabel, dest));
+            }
 
             Container.AddChild(new PanelContainer()
             {
@@ -180,12 +231,78 @@ public sealed partial class GatewayWindow : FancyWindow,
                 Margin = new Thickness(10f, 5f),
                 Children =
                 {
-                    box
+                    card
                 }
             });
         }
+    }
 
-        _lastState = state;
+    private static void AddIntelRow(
+        GridContainer grid,
+        string labelLoc,
+        string value,
+        Color? valueColor = null)
+    {
+        grid.AddChild(new Label
+        {
+            Text = Loc.GetString(labelLoc),
+            Margin = new Thickness(0f, 1f, 12f, 1f),
+            ModulateSelfOverride = Color.Gray,
+        });
+        grid.AddChild(new Label
+        {
+            Text = value,
+            HorizontalExpand = true,
+            Margin = new Thickness(0f, 1f),
+            ModulateSelfOverride = valueColor ?? Color.White,
+        });
+    }
+
+    private static string GetThreatText(GatewayThreatLevel threat)
+    {
+        var level = threat switch
+        {
+            GatewayThreatLevel.Minimal => "gateway-window-threat-minimal",
+            GatewayThreatLevel.Low => "gateway-window-threat-low",
+            GatewayThreatLevel.Moderate => "gateway-window-threat-moderate",
+            GatewayThreatLevel.High => "gateway-window-threat-high",
+            GatewayThreatLevel.Extreme => "gateway-window-threat-extreme",
+            _ => "gateway-window-threat-unknown",
+        };
+
+        return Loc.GetString(
+            "gateway-window-threat-value",
+            ("rating", new string('◆', Math.Clamp((int)threat, 1, 5))),
+            ("level", Loc.GetString(level)));
+    }
+
+    private static string GetRotationText(GatewayDestinationData destination, TimeSpan now)
+    {
+        if (!destination.Loaded)
+            return Loc.GetString("gateway-window-rotation-unopened");
+
+        return destination.RotationState switch
+        {
+            GatewayDestinationRotationState.Scheduled => Loc.GetString(
+                "gateway-window-rotation-scheduled",
+                ("time", FormatRemaining(destination.RotationAt - now))),
+            GatewayDestinationRotationState.EmptyGracePeriod => Loc.GetString(
+                "gateway-window-rotation-empty",
+                ("time", FormatRemaining(destination.RotationAt - now))),
+            GatewayDestinationRotationState.WaitingForClearance =>
+                Loc.GetString("gateway-window-rotation-waiting"),
+            _ => Loc.GetString("gateway-window-rotation-disabled"),
+        };
+    }
+
+    private static string FormatRemaining(TimeSpan remaining)
+    {
+        if (remaining < TimeSpan.Zero)
+            remaining = TimeSpan.Zero;
+
+        return remaining.TotalHours >= 1d
+            ? $"{(int)remaining.TotalHours:00}:{remaining.Minutes:00}:{remaining.Seconds:00}"
+            : $"{remaining.Minutes:00}:{remaining.Seconds:00}";
     }
 
     protected override void FrameUpdate(FrameEventArgs args)
@@ -194,6 +311,11 @@ public sealed partial class GatewayWindow : FancyWindow,
 
         var now = _timing.CurTime;
         var dirtyState = false;
+
+        foreach (var (label, destination) in _rotationLabels)
+        {
+            label.Text = GetRotationText(destination, now);
+        }
 
         // if its not going to close then show it as empty
         if (_nextUnlock == TimeSpan.Zero)
@@ -217,7 +339,7 @@ public sealed partial class GatewayWindow : FancyWindow,
             }
             else
             {
-                NextUnlockBar.Value = 1f - (float) (remaining.TotalSeconds / _unlockTime.TotalSeconds);
+                NextUnlockBar.Value = 1f - (float)(remaining.TotalSeconds / _unlockTime.TotalSeconds);
                 NextUnlockText.Text = $"{remaining.Minutes:00}:{remaining.Seconds:00}";
             }
         }
@@ -244,7 +366,7 @@ public sealed partial class GatewayWindow : FancyWindow,
             }
             else
             {
-                NextReadyBar.Value = 1f - (float) (remaining.TotalSeconds / _cooldown.TotalSeconds);
+                NextReadyBar.Value = 1f - (float)(remaining.TotalSeconds / _cooldown.TotalSeconds);
                 NextCloseText.Text = $"{remaining.Minutes:00}:{remaining.Seconds:00}";
             }
         }

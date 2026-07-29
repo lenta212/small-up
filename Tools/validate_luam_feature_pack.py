@@ -4252,6 +4252,12 @@ def main(argv: list[str] | None = None) -> int:
     assert_equal(low_pop_config["gateway"]["generator_enabled"], False, "low-pop gateway.generator_enabled")
     assert_equal(low_pop_config["gateway"]["generator_max_destinations"], 4, "low-pop gateway.generator_max_destinations")
     assert_equal(low_pop_config["gateway"]["generator_destination_ttl"], 21600, "low-pop gateway.generator_destination_ttl")
+    assert_equal(
+        low_pop_config["gateway"]["generator_opened_destination_ttl"],
+        7200,
+        "low-pop gateway.generator_opened_destination_ttl",
+    )
+    assert_equal(low_pop_config["gateway"]["generator_empty_grace"], 300, "low-pop gateway.generator_empty_grace")
     assert_equal(low_pop_config["luam"]["sector"]["all_hazards_enabled"], True, "low-pop luam.sector.all_hazards_enabled")
     assert_equal(low_pop_config["luam"]["dynamic_events"]["enabled"], True, "low-pop luam.dynamic_events.enabled")
     assert_equal(low_pop_config["luam"]["dynamic_events"]["max_active_sites"], 2, "low-pop luam.dynamic_events.max_active_sites")
@@ -4294,6 +4300,14 @@ def main(argv: list[str] | None = None) -> int:
     assert_equal(remote_ai_director["request_timeout"], 15, "remote luam.ai_director.request_timeout")
     assert_equal(remote_config["events"]["enabled"], True, "remote events.enabled")
     assert_equal(remote_config["gateway"]["generator_enabled"], True, "remote gateway.generator_enabled")
+    assert_equal(remote_config["gateway"]["generator_max_destinations"], 4, "remote gateway.generator_max_destinations")
+    assert_equal(remote_config["gateway"]["generator_destination_ttl"], 21600, "remote gateway.generator_destination_ttl")
+    assert_equal(
+        remote_config["gateway"]["generator_opened_destination_ttl"],
+        7200,
+        "remote gateway.generator_opened_destination_ttl",
+    )
+    assert_equal(remote_config["gateway"]["generator_empty_grace"], 300, "remote gateway.generator_empty_grace")
     assert_equal(remote_config["luam"]["sector"]["all_hazards_enabled"], True, "remote luam.sector.all_hazards_enabled")
     assert_equal(
         remote_config["luam"]["animal_husbandry"]["max_population_per_map"],

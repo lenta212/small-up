@@ -1,0 +1,130 @@
+- type: gatewayWorldProfile
+  id: GatewayVerdant
+  name: gateway-profile-verdant-name
+  description: gateway-profile-verdant-description
+  biomeName: gateway-profile-biome-grasslands
+  weatherName: gateway-profile-weather-rain
+  atmosphereName: gateway-profile-atmosphere-breathable
+  resources: gateway-profile-resources-verdant
+  hostiles: gateway-profile-hostiles-verdant
+  biome: Grasslands
+  dungeon: NFExperiment
+  weather: MonoRain
+  air: Mix1
+  temperature: 293.15
+  threat: Low
+  accentColor: "#63B86C"
+  lightColor: "#D7C879"
+  lootLayers:
+  - OreIron
+  - OreQuartz
+  - OreGold
+  - OreArtifactFragment
+  mobLayers:
+  - Lizards
+  - Carps
+
+- type: gatewayWorldProfile
+  id: GatewayCryogenic
+  name: gateway-profile-cryogenic-name
+  description: gateway-profile-cryogenic-description
+  biomeName: gateway-profile-biome-snow
+  weatherName: gateway-profile-weather-blizzard
+  atmosphereName: gateway-profile-atmosphere-breathable-cold
+  resources: gateway-profile-resources-cryogenic
+  hostiles: gateway-profile-hostiles-cryogenic
+  biome: Snow
+  dungeon: NFSnowyLabs
+  weather: MonoBlizzard
+  air: Mix1
+  temperature: 263.15
+  threat: Moderate
+  accentColor: "#74B8E8"
+  lightColor: "#B8D8EE"
+  lootLayers:
+  - OreQuartz
+  - OreSilver
+  - OrePlasma
+  - OreUranium
+  mobLayers:
+  - WatchersIcewing
+  - Carps
+
+- type: gatewayWorldProfile
+  id: GatewayVolcanic
+  name: gateway-profile-volcanic-name
+  description: gateway-profile-volcanic-description
+  biomeName: gateway-profile-biome-lava
+  weatherName: gateway-profile-weather-ashfall
+  atmosphereName: gateway-profile-atmosphere-carbon
+  resources: gateway-profile-resources-volcanic
+  hostiles: gateway-profile-hostiles-volcanic
+  biome: Lava
+  dungeon: NFLavaMercenary
+  weather: Ashfall
+  air: Mix5
+  temperature: 323.15
+  threat: High
+  accentColor: "#E36A45"
+  lightColor: "#D68A58"
+  lootLayers:
+  - OreGold
+  - OrePlasma
+  - OreUranium
+  - OreDiamond
+  mobLayerCount: 2
+  mobLayers:
+  - WatchersLavaland
+  - WatchersMagmawing
+
+- type: gatewayWorldProfile
+  id: GatewayCavern
+  name: gateway-profile-cavern-name
+  description: gateway-profile-cavern-description
+  biomeName: gateway-profile-biome-caves
+  weatherName: gateway-profile-weather-none
+  atmosphereName: gateway-profile-atmosphere-vacuum
+  resources: gateway-profile-resources-cavern
+  hostiles: gateway-profile-hostiles-cavern
+  biome: Caves
+  dungeon: NFMineshaft
+  air: Space
+  temperature: 253.15
+  threat: Moderate
+  accentColor: "#B19A7A"
+  lightColor: "#7D7064"
+  lootLayers:
+  - OreIron
+  - OreSilver
+  - OrePlasma
+  - OreDiamond
+  mobLayers:
+  - Xenos
+  - Lizards
+
+- type: gatewayWorldProfile
+  id: GatewayAnomalous
+  name: gateway-profile-anomalous-name
+  description: gateway-profile-anomalous-description
+  biomeName: gateway-profile-biome-shadow
+  weatherName: gateway-profile-weather-fallout
+  atmosphereName: gateway-profile-atmosphere-miasma
+  resources: gateway-profile-resources-anomalous
+  hostiles: gateway-profile-hostiles-anomalous
+  biome: Shadow
+  dungeon: NFHaunted
+  weather: Fallout
+  air: Mix4
+  temperature: 293.15
+  threat: Extreme
+  accentColor: "#A66BE0"
+  lightColor: "#705B80"
+  lootLayers:
+  - OrePlasma
+  - OreUranium
+  - OreBananium
+  - OreArtifactFragment
+  mobLayerCount: 2
+  mobLayers:
+  - Xenos
+  - WatchersMagmawing
