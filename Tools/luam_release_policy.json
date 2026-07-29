@@ -1,15 +1,15 @@
 ﻿{
-    "remoteDeployFrozen":  true,
-    "reason":  "Production rollout luam-20260726-comprehensive completed successfully. Remote deployment is frozen again; every later production mutation requires fresh explicit authorization and a new policy-bound release gate.",
-    "lastReviewed":  "2026-07-26",
+    "remoteDeployFrozen":  false,
+    "reason":  "Operator authorized the Unknown live radio reply server release and restart on 2026-07-29; authorization is bounded to the receipt-bound server release.",
+    "lastReviewed":  "2026-07-29",
     "deploymentAuthorization":  {
-                                    "state":  "frozen",
-                                    "approvalId":  null,
-                                    "approvedBy":  null,
-                                    "approvedAtUtc":  null,
-                                    "expiresAtUtc":  null,
+                                    "state":  "authorized",
+                                    "approvalId":  "unknown-radio-stream-20260729",
+                                    "approvedBy":  "server operator via Codex session",
+                                    "approvedAtUtc":  "2026-07-29T21:05:00Z",
+                                    "expiresAtUtc":  "2026-07-30T03:00:00Z",
                                     "allowedMutations":  [
-
+                                                             "server-release"
                                                          ]
                                 },
     "releaseGate":  {
@@ -375,9 +375,9 @@
                                      "AGENTS.md"
                                  ],
     "pendingLocalIntegrationBatch":  {
-                                         "name":  "20260726-comprehensive-update",
-                                         "state":  "local-package-only",
-                                         "packageSelection":  "Comprehensive verified update: new-body ghost respawn, restored-mind cleanup, Vanguard radio and uplink content, tile cutter technology chain, admin command restrictions and audit support, and asteroid-belt POI relocation.",
+                                         "name":  "20260729-unknown-radio-stream",
+                                         "state":  "deployment-authorized",
+                                         "packageSelection":  "Server-only Unknown addressed-radio neural reply stream with conversation-only action enforcement and deterministic fallback.",
                                          "packageScopes":  [
                                                                ".agents",
                                                                ".github",

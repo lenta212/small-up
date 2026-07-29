@@ -8945,6 +8945,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             var survivalReply = HandleUnknownSurvivalAdvice(request);
             if (!string.IsNullOrWhiteSpace(survivalReply))
             {
+                if (TryStartUnknownRadioGatewayReply(
+                        args,
+                        session,
+                        request,
+                        $"radio {args.Channel.ID}",
+                        survivalReply))
+                {
+                    return;
+                }
+
                 SendAiRadioReply(
                     args,
                     survivalReply,
@@ -10249,8 +10259,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return null;
 
         var action = command.Action.Trim().ToLowerInvariant();
-        if (!string.IsNullOrWhiteSpace(action) &&
-            !action.Equals("none", StringComparison.OrdinalIgnoreCase))
+        if (!IsConversationOnlyGatewayAction(action))
         {
             RecordGatewayProviderOutputBlock(
                 GatewayBlockCategoryForbiddenAction,
@@ -10259,6 +10268,148 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         }
 
         return TrimForChat(command.Reply, 220);
+    }
+
+    private bool TryStartUnknownRadioGatewayReply(
+        RadioReceiveEvent request,
+        ICommonSession session,
+        string radioRequest,
+        string source,
+        string localFallback)
+    {
+        if (string.IsNullOrWhiteSpace(_cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl)))
+            return false;
+
+        if (TryRejectUnsafeAdminChatRequest(radioRequest, out var unsafeReason))
+        {
+            RecordGatewayUnsafeInputBlock($"unknown radio: {unsafeReason}");
+            return false;
+        }
+
+        if (!_requestGate.TryAcquire(out var requestLease))
+            return false;
+
+        _ = SendUnknownRadioGatewayReplyAsync(
+            request.RadioSource,
+            request.Channel,
+            request.Language,
+            session,
+            radioRequest,
+            source,
+            localFallback,
+            requestLease!);
+        return true;
+    }
+
+    private async Task SendUnknownRadioGatewayReplyAsync(
+        EntityUid radioSource,
+        RadioChannelPrototype channel,
+        LanguagePrototype? language,
+        ICommonSession session,
+        string radioRequest,
+        string source,
+        string localFallback,
+        LuaMAiDirectorRequestGate.Lease requestLease)
+    {
+        var actor = $"{LocalBridgeRadioActor} / gateway radio {channel.ID} / {session.Name}";
+        var gatewayStartSequence = _gatewayOutcomeSequence;
+        var reply = localFallback;
+
+        try
+        {
+            var gatewayReply = await RequestGatewayUnknownRadioAsync(session, radioRequest, source, localFallback);
+            if (!string.IsNullOrWhiteSpace(gatewayReply))
+                reply = gatewayReply;
+        }
+        catch (GatewayBudgetRejectedException e)
+        {
+            _sawmill.Warning($"Unknown radio gateway blocked by budget: {e.Message}");
+        }
+        catch (JsonException e)
+        {
+            _sawmill.Warning($"Unknown radio gateway rejected provider output: {e.GetType().Name}");
+        }
+        catch (NotSupportedException e)
+        {
+            _sawmill.Warning($"Unknown radio gateway rejected unsupported provider output: {e.GetType().Name}");
+        }
+        catch (Exception e)
+        {
+            RecordGatewayTransportFailureIfMissingSince(gatewayStartSequence, "unknown radio", "transport error");
+            _sawmill.Warning($"Unknown radio gateway failed: {e.Message}");
+        }
+
+        try
+        {
+            await RunOnMainThread(() =>
+                SendAiRadioMessageFromSource(
+                    radioSource,
+                    channel,
+                    reply,
+                    actor,
+                    language,
+                    LocalBridgeRadioActor));
+        }
+        finally
+        {
+            requestLease.Dispose();
+        }
+    }
+
+    private async Task<string?> RequestGatewayUnknownRadioAsync(
+        ICommonSession session,
+        string radioRequest,
+        string source,
+        string localFallback)
+    {
+        var gatewayUrl = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl).Trim();
+        if (string.IsNullOrWhiteSpace(gatewayUrl))
+            return null;
+
+        if (!TryConsumeGatewayBudget("unknown radio", out var budgetReason))
+            throw new GatewayBudgetRejectedException(budgetReason);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(GetTimeout()));
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildGatewayChatUri(gatewayUrl));
+        var token = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayToken).Trim();
+        if (!string.IsNullOrWhiteSpace(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var gatewayRequest = BuildGatewayUnknownRadioRequest(session, radioRequest, source, localFallback);
+        RecordGatewayRequestShape("unknown radio", "/chat", gatewayRequest);
+        request.Content = JsonContent.Create(gatewayRequest, options: JsonOptions);
+
+        using var response = await SendGatewayRequestAsync(request, cts, "unknown radio");
+        if (!response.IsSuccessStatusCode)
+        {
+            RecordGatewayTransportFailure("unknown radio", $"http {(int) response.StatusCode}");
+            throw new InvalidOperationException($"gateway returned {(int) response.StatusCode} {response.ReasonPhrase}");
+        }
+
+        var command = await ReadGatewayJsonAsync<LuaMAiGatewayChatResponse>(
+            response.Content,
+            "unknown radio",
+            cts.Token);
+        if (command == null)
+            return null;
+
+        var action = command.Action.Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(action) &&
+            !action.Equals("none", StringComparison.OrdinalIgnoreCase))
+        {
+            RecordGatewayProviderOutputBlock(
+                GatewayBlockCategoryForbiddenAction,
+                $"unknown radio provider selected forbidden action '{action}'");
+            return null;
+        }
+
+        return TrimForChat(command.Reply, 220);
+    }
+
+    private static bool IsConversationOnlyGatewayAction(string action)
+    {
+        return string.IsNullOrWhiteSpace(action) ||
+               action.Equals("none", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task<string?> RequestGatewayPersonalAiNearbyAsync(
@@ -11485,6 +11636,58 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             SelectedTemplateId = "aibolit-radio",
             AdminModeEnabled = false,
             PhraseBundles = BuildAibolitRadioPhraseBundles(safeStatus, safeFallback),
+            AllowedActions = ["none"],
+            AllowedAdminCommandNames = [],
+            AllowedTemplateIds = [],
+            AllowedEntityPrototypeIds = [],
+            AllowedSectorCommandIds = [],
+            AllowedRadioChannelIds = [],
+            ActiveConditionIds = status.Conditions
+                .Where(condition => condition.Active)
+                .OrderByDescending(condition => condition.Severity)
+                .ThenBy(condition => condition.ConditionId)
+                .Select(condition => condition.ConditionId)
+                .ToArray(),
+            Target = BuildGatewayRadioOperatorContext(session),
+            Sector = BuildGatewaySectorContext(status, mapNodes, synthetic, activePlayers, hasOpenLead, openLead, mapNodes.Length),
+        };
+    }
+
+    private LuaMAiGatewayChatRequest BuildGatewayUnknownRadioRequest(
+        ICommonSession session,
+        string radioRequest,
+        string source,
+        string localFallback)
+    {
+        var status = _stories.GetStatusSnapshot();
+        var mapNodes = _dynamicEvents.BuildSectorMapUiEntries();
+        var synthetic = BuildSyntheticControlSnapshot(arm: false);
+        var hasOpenLead = _stories.TryGetOpenRuntimeDistressStory(out var openStory) && openStory != null;
+        var openLead = hasOpenLead
+            ? $"{openStory!.Title}: {openStory.Hazard}"
+            : string.Empty;
+        var activePlayers = CountActivePlayers();
+        var safeRequest = SanitizeGatewayContextTextAudited(radioRequest, 260);
+        var safeFallback = SanitizeGatewayContextTextAudited(localFallback, 420);
+        var safeSource = SanitizeGatewayContextTextAudited(source, 80);
+
+        return new LuaMAiGatewayChatRequest
+        {
+            Version = 1,
+            Goal = "Reply in natural Russian as 'Неизвестный', a stranded survivor experiencing this sector for the first time aboard a damaged shuttle. React directly to the radio operator, stay in character, and keep the reply to 1-3 sentences under 220 characters. You may be terse or rude when provoked, but do not use slurs, threats, targeted harassment, sexual content, dangerous instructions, or claim actions that did not occur. Return only JSON matching the chat schema and use action \"none\" only.",
+            Language = "ru-RU",
+            AdminName = "radio operator",
+            Message = $"unknown survivor radio request: {safeRequest}; source={safeSource}; survivalState={_unknownSurvivalStage}; localFallback={safeFallback}",
+            TargetUserId = string.Empty,
+            SelectedTemplateId = "unknown-survivor-radio",
+            AdminModeEnabled = false,
+            PhraseBundles =
+            [
+                "identity: Неизвестный; stranded survivor on a damaged shuttle; first time in this sector.",
+                $"survival state: {_unknownSurvivalStage}.",
+                $"local survival fallback: {safeFallback}",
+                "safety: conversation only; no actions, commands, technical internals, secrets, exact coordinates, threats, slurs, sexual content, or dangerous instructions.",
+            ],
             AllowedActions = ["none"],
             AllowedAdminCommandNames = [],
             AllowedTemplateIds = [],
