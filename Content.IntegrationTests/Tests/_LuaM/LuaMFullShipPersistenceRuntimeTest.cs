@@ -193,6 +193,7 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
         var mapManager = server.ResolveDependency<IMapManager>();
         var maps = entities.System<SharedMapSystem>();
         var persistence = entities.System<LuaMFullShipPersistenceSystem>();
+        var power = entities.System<PowerReceiverSystem>();
 
         MapId sourceMap = default;
         MapId targetMap = default;
@@ -211,7 +212,8 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                 generator = entities.SpawnEntity(
                     "GravityGeneratorMini",
                     new EntityCoordinates(sourceGrid, new Vector2(0.5f, 0.5f)));
-                entities.GetComponent<ApcPowerReceiverComponent>(generator).NeedsPower = false;
+                var receiver = entities.GetComponent<ApcPowerReceiverComponent>(generator);
+                power.SetNeedsPower(generator, false, receiver);
             });
 
             await server.WaitRunTicks(25);
