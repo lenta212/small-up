@@ -8,5 +8,10 @@ gunnery-shield-label = Shields
 gunnery-iff-search = Search IFF
 gunnery-gun-select = {$name}
 gunnery-gun-select-ammo = {$name}: {$ammo}
+gunnery-select-ballistic = Ballistic
+gunnery-select-energy = Energy
+gunnery-select-missiles = Missiles
+gunnery-radar-overlays = Radar overlays
+gunnery-weapon-list = Weapon channels
 
 gunnery-server-examine-detail = The server is using [color={$valueColor}]{$usedProcessingPower}/{$processingPower}[/color] of its processing power.

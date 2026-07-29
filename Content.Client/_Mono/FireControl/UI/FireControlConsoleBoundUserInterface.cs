@@ -22,6 +22,7 @@ public sealed class FireControlConsoleBoundUserInterface : BoundUserInterface
     {
         base.Open();
         _window = this.CreateWindow<FireControlWindow>();
+        _window.SetConsole(Owner);
 
         _window.OnServerRefresh += OnRefreshServer;
 
@@ -100,7 +101,6 @@ public sealed class FireControlConsoleBoundUserInterface : BoundUserInterface
         _window?.UpdateStatus(castState);
         if (_window?.Radar is FireControlNavControl navControl)
         {
-            navControl.SetConsole(Owner);
             navControl.UpdateControllables(Owner, castState.FireControllables);
 
             // Update selected weapons when state updates

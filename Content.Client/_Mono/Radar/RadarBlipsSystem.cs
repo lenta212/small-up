@@ -22,6 +22,7 @@ public sealed partial class RadarBlipsSystem : EntitySystem
     private readonly List<BlipData> _emptyBlips = new();
     private readonly List<MissileVectorData> _emptyMissiles = new();
     private readonly List<HitscanNetData> _emptyHitscans = new();
+    private readonly List<ShipHitReportNetData> _emptyHitReports = new();
 
     public override void Initialize()
     {
@@ -46,6 +47,8 @@ public sealed partial class RadarBlipsSystem : EntitySystem
         snapshot.Blips = ev.Blips;
         snapshot.Missiles = ev.Missiles;
         snapshot.Hitscans = ev.HitscanLines;
+        snapshot.OwnshipTelemetry = ev.OwnshipTelemetry;
+        snapshot.HitReports = ev.HitReports;
         snapshot.BlipsByUid.Clear();
         foreach (var blip in ev.Blips)
             snapshot.BlipsByUid[blip.Uid] = blip;
@@ -109,6 +112,7 @@ public sealed partial class RadarBlipsSystem : EntitySystem
             var config = snapshot.ConfigPalette[blip.ConfigIndex];
             var rotation = blip.Rotation;
             EntityUid? gridUid = null;
+            var snapshotAge = GetSnapshotAge(snapshot);
 
             // The server deliberately parents blip coordinates to their exact grid.
             // Spatial lookup is ambiguous when grids overlap, so preserve that parent.
@@ -120,7 +124,18 @@ public sealed partial class RadarBlipsSystem : EntitySystem
                 rotation += Transform(coord.EntityId).LocalRotation;
             }
 
-            snapshot.CachedBlips.Add(new(blip.Uid, predictedPos, rotation, gridUid, config));
+            snapshot.CachedBlips.Add(new(
+                blip.Uid,
+                predictedPos,
+                blip.Vel,
+                rotation,
+                gridUid,
+                config,
+                blip.IsWeaponProjectile,
+                blip.Threat,
+                blip.TimeToImpact is { } impact
+                    ? MathF.Max(0f, impact - snapshotAge)
+                    : null));
         }
 
         return snapshot.CachedBlips;
@@ -220,6 +235,67 @@ public sealed partial class RadarBlipsSystem : EntitySystem
         return snapshot.Hitscans;
     }
 
+    public bool TryGetOwnshipTelemetry(EntityUid? console, out OwnshipTelemetryNetData telemetry)
+    {
+        if (!TryGetSnapshot(console, out var snapshot) ||
+            IsStale(snapshot) ||
+            snapshot.OwnshipTelemetry is not { } sampled)
+        {
+            telemetry = default;
+            return false;
+        }
+
+        telemetry = sampled with
+        {
+            Position = sampled.Position + sampled.Velocity * GetSnapshotAge(snapshot),
+        };
+        return true;
+    }
+
+    public List<ShipHitReportNetData> GetHitReports(EntityUid? console)
+    {
+        if (!TryGetSnapshot(console, out var snapshot) || IsStale(snapshot))
+        {
+            _emptyHitReports.Clear();
+            return _emptyHitReports;
+        }
+
+        return snapshot.HitReports;
+    }
+
+    public RadarThreatSummary GetThreatSummary(EntityUid? console)
+    {
+        if (!TryGetSnapshot(console, out var snapshot) || IsStale(snapshot))
+            return default;
+
+        var incoming = 0;
+        var locks = 0;
+        float? nearestImpact = null;
+        var snapshotAge = GetSnapshotAge(snapshot);
+        foreach (var blip in snapshot.Blips)
+        {
+            switch (blip.Threat)
+            {
+                case RadarThreatKind.Incoming:
+                    incoming++;
+                    break;
+                case RadarThreatKind.MissileLock:
+                    locks++;
+                    break;
+            }
+
+            if (blip.TimeToImpact is not { } sampledImpact)
+                continue;
+
+            var impact = MathF.Max(0f, sampledImpact - snapshotAge);
+            nearestImpact = nearestImpact is { } current
+                ? MathF.Min(current, impact)
+                : impact;
+        }
+
+        return new RadarThreatSummary(incoming, locks, nearestImpact);
+    }
+
     private RadarSnapshot GetOrCreateSnapshot(NetEntity radar)
     {
         if (_snapshots.TryGetValue(radar, out var snapshot))
@@ -298,6 +374,8 @@ public sealed partial class RadarBlipsSystem : EntitySystem
         public List<BlipNetData> Blips = new();
         public List<MissileVectorNetData> Missiles = new();
         public List<HitscanNetData> Hitscans = new();
+        public OwnshipTelemetryNetData? OwnshipTelemetry;
+        public List<ShipHitReportNetData> HitReports = new();
         public List<BlipConfig> ConfigPalette = new();
         public readonly Dictionary<NetEntity, BlipNetData> BlipsByUid = new();
         public readonly List<BlipData> CachedBlips = new();
@@ -309,9 +387,13 @@ public record struct BlipData
 (
     NetEntity NetUid,
     EntityCoordinates Position,
+    Vector2 Velocity,
     Angle Rotation,
     EntityUid? GridUid,
-    BlipConfig Config
+    BlipConfig Config,
+    bool IsWeaponProjectile,
+    RadarThreatKind Threat,
+    float? TimeToImpact
 );
 
 public record struct MissileVectorData
@@ -322,3 +404,8 @@ public record struct MissileVectorData
     EntityUid? GridUid,
     Color Color
 );
+
+public readonly record struct RadarThreatSummary(
+    int IncomingCount,
+    int MissileLockCount,
+    float? NearestImpactTime);

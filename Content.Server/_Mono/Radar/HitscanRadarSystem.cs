@@ -1,6 +1,7 @@
 using System.Numerics;
 using Content.Shared.Weapons.Hitscan.Components;
 using Content.Shared.Weapons.Hitscan.Events;
+using Content.Shared.Weapons.Hitscan.Systems;
 using Robust.Shared.Map;
 using Robust.Shared.Timing;
 
@@ -15,6 +16,7 @@ public sealed partial class HitscanRadarSystem : EntitySystem
 
     [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private IGameTiming _timing = default!;
+    [Dependency] private ShipCombatTelemetrySystem _combatTelemetry = default!;
 
     private readonly List<RecentHitscan> _recentHitscans = new(MaxRecentHitscans);
 
@@ -22,11 +24,18 @@ public sealed partial class HitscanRadarSystem : EntitySystem
     {
         base.Initialize();
         // Listen for fire events on anything that has a HitscanRadarSignatureComponent
-        SubscribeLocalEvent<HitscanRadarSignatureComponent, HitscanRaycastFiredEvent>(OnHitscanRaycastFired);
+        SubscribeLocalEvent<HitscanRadarSignatureComponent, HitscanRaycastFiredEvent>(
+            OnHitscanRaycastFired,
+            before: [typeof(HitscanBasicDamageSystem)]);
     }
 
     private void OnHitscanRaycastFired(Entity<HitscanRadarSignatureComponent> ent, ref HitscanRaycastFiredEvent ev)
     {
+        // The engine permits only one directed subscription for this component/event
+        // pair. Feed the impact recorder from the existing radar handler so damage
+        // events still see their pending context.
+        _combatTelemetry.RecordHitscanFired(ent, ref ev);
+
         if (!ent.Comp.Enabled ||
             !float.IsFinite(ev.DistanceTried) ||
             ev.DistanceTried <= 0f ||

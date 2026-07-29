@@ -1,6 +1,7 @@
 using System.IO;
 using System.Numerics;
 using Content.Client.Shuttles.UI;
+using Content.Client._Mono.FireControl.UI;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
 using Robust.Shared.IoC;
@@ -12,6 +13,7 @@ namespace Content.IntegrationTests.Tests._LuaM;
 public sealed class LuaMShuttleConsoleLayoutTest
 {
     private static readonly Vector2 MinimumViewport = new(640f, 480f);
+    private static readonly Vector2 FireControlMinimumViewport = new(760f, 520f);
     private static readonly Vector2 ExpandedViewport = new(1060f, 720f);
 
     [Test]
@@ -63,6 +65,67 @@ public sealed class LuaMShuttleConsoleLayoutTest
                         dock.FindControl<BoxContainer>("RightDisplayDock"),
                         "DOCK");
                 }
+            });
+        }
+        finally
+        {
+            await pair.CleanReturnAsync();
+        }
+    }
+
+    [Test]
+    public async Task FireControlUsesSharedConsoleFrameAndTelemetryAtMinimumSize()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+        });
+
+        try
+        {
+            var activator = pair.Client.ResolveDependency<IDynamicTypeFactory>();
+
+            await pair.Client.WaitAssertion(() =>
+            {
+                using var fireWindow = activator.CreateInstance<FireControlWindow>(oneOff: true, inject: false);
+                using var shuttleWindow = CreateWindow(activator, out var nav, out _, out _);
+
+                var radar = fireWindow.FindControl<FireControlNavControl>("NavRadar");
+                var controls = fireWindow.FindControl<BoxContainer>("ControlsBox");
+                var sidebarScroll = controls.Parent as ScrollContainer;
+                var consoleRoot = fireWindow.FindControl<LayoutContainer>("ConsoleRoot");
+                var consoleSurface = fireWindow.FindControl<PanelContainer>("ConsoleSurface");
+                var crtOverlay = fireWindow.FindControl<ShuttleConsoleCrtOverlay>("CrtOverlay");
+                var fireTelemetry = fireWindow.FindControl<ShuttleCombatTelemetryPanel>("CombatTelemetry");
+                var navTelemetry = nav.FindControl<ShuttleCombatTelemetryPanel>("CombatTelemetry");
+
+                fireWindow.SetSize = FireControlMinimumViewport;
+                fireWindow.Measure(FireControlMinimumViewport);
+                fireWindow.Arrange(UIBox2.FromDimensions(Vector2.Zero, FireControlMinimumViewport));
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(fireWindow.Resizable, Is.True);
+                    Assert.That(fireWindow.MinSize, Is.EqualTo(FireControlMinimumViewport));
+                    Assert.That(fireWindow.Size, Is.EqualTo(FireControlMinimumViewport));
+                    Assert.That(radar.Width, Is.GreaterThan(0f));
+                    Assert.That(radar.Height, Is.GreaterThan(0f));
+                    Assert.That(radar.RectClipContent, Is.True);
+                    Assert.That(sidebarScroll, Is.Not.Null);
+                    Assert.That(sidebarScroll!.VScrollEnabled, Is.True);
+                    Assert.That(sidebarScroll.HScrollEnabled, Is.False);
+                    Assert.That(sidebarScroll.ReserveScrollbarSpace, Is.True);
+                    Assert.That(consoleSurface.Width, Is.GreaterThan(FireControlMinimumViewport.X * 0.95f));
+                    Assert.That(crtOverlay.Width, Is.EqualTo(consoleRoot.Width).Within(1f));
+                    Assert.That(crtOverlay.Height, Is.EqualTo(consoleRoot.Height).Within(1f));
+
+                    Assert.That(fireTelemetry, Is.TypeOf<ShuttleCombatTelemetryPanel>());
+                    Assert.That(navTelemetry, Is.TypeOf<ShuttleCombatTelemetryPanel>());
+                    Assert.That(fireWindow.FindControl<ShuttleConsoleButton>("RefreshButton"), Is.Not.Null);
+                    Assert.That(fireWindow.FindControl<ShuttleConsoleButton>("SelectAllButton"), Is.Not.Null);
+                    Assert.That(fireWindow.FindControl<ShuttleConsoleButton>("IFFToggle").ToggleMode, Is.True);
+                    Assert.That(fireWindow.FindControl<ShuttleConsoleButton>("DockToggle").ToggleMode, Is.True);
+                });
             });
         }
         finally

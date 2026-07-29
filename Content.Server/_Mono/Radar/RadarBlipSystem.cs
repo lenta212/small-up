@@ -3,7 +3,9 @@ using System.Numerics;
 using Content.Shared._Crescent.DroneControl;
 using Content.Shared._Mono.Detection;
 using Content.Shared._Mono.FireControl;
+using Content.Shared._Mono.SpaceArtillery;
 using Content.Server._Mono.Projectiles.TargetSeeking;
+using Content.Server.Physics.Controllers;
 using Content.Shared._Mono.Radar;
 using Content.Shared.Projectiles;
 using Content.Shared.Shuttles.BUIStates;
@@ -18,6 +20,7 @@ using Robust.Shared.Physics.Components;
 using Robust.Shared.Physics.Systems;
 using Robust.Shared.Player;
 using Robust.Shared.Timing;
+using ShuttleComponent = Content.Server.Shuttles.Components.ShuttleComponent;
 
 namespace Content.Server._Mono.Radar;
 
@@ -31,9 +34,13 @@ public sealed partial class RadarBlipSystem : EntitySystem
     [Dependency] private EntityLookupSystem _lookup = default!;
     [Dependency] private HitscanRadarSystem _hitscanRadar = default!;
     [Dependency] private DetectionSystem _detection = default!;
+    [Dependency] private MoverController _mover = default!;
+    [Dependency] private ShipCombatTelemetrySystem _combatTelemetry = default!;
 
     private static readonly TimeSpan BlipRequestCooldown = TimeSpan.FromMilliseconds(500);
     private const int MaxHitscansPerReport = 256;
+    private const float IncomingThreatLeadTime = 12f;
+    private const float IncomingThreatBoundsPadding = 1.5f;
     private static readonly Enum[] RadarUiKeys =
     [
         RadarConsoleUiKey.Key,
@@ -50,11 +57,13 @@ public sealed partial class RadarBlipSystem : EntitySystem
     private readonly List<Vector2> _tempSourcePositionsCache = new();
     private readonly List<BlipConfig> _tempPaletteCache = new();
     private readonly List<HitscanRadarSystem.RecentHitscan> _tempRecentHitscansCache = new();
+    private readonly List<ShipHitReportNetData> _tempHitReportsCache = new();
     private readonly HashSet<EntityUid> _tempDetectionSourcesCache = new();
     private readonly Dictionary<EntityUid, DetectionLevel> _tempDetectionCache = new();
     private readonly HashSet<Entity<RadarBlipComponent>> _tempBlipCandidates = new();
     private readonly Dictionary<BlipConfig, ushort> _paletteIndex = new();
     private readonly Dictionary<(NetUserId UserId, EntityUid Radar), TimeSpan> _nextBlipRequestByUserRadar = new();
+    private OwnshipTelemetryNetData? _tempOwnshipTelemetry;
 
     public override void Initialize()
     {
@@ -104,6 +113,8 @@ public sealed partial class RadarBlipSystem : EntitySystem
 
             AssembleBlipsReport(radarUid.Value, _tempSourcesCache, radar);
             AssembleHitscanReport(radarUid.Value, _tempSourcesCache, radar);
+            if (Transform(radarUid.Value).GridUid is { } radarGrid)
+                _combatTelemetry.CollectReports(radarGrid, _tempHitReportsCache);
 
             var giveEv = new GiveBlipsEvent(
                 ev.Radar,
@@ -112,7 +123,9 @@ public sealed partial class RadarBlipSystem : EntitySystem
                 _tempPaletteCache,
                 _tempBlipsCache,
                 _tempMissileCache,
-                _tempHitscansCache);
+                _tempHitscansCache,
+                _tempOwnshipTelemetry,
+                _tempHitReportsCache);
             RaiseNetworkEvent(giveEv, args.SenderSession);
         }
         finally
@@ -161,10 +174,12 @@ public sealed partial class RadarBlipSystem : EntitySystem
         _tempSourcePositionsCache.Clear();
         _tempPaletteCache.Clear();
         _tempRecentHitscansCache.Clear();
+        _tempHitReportsCache.Clear();
         _tempDetectionSourcesCache.Clear();
         _tempDetectionCache.Clear();
         _tempBlipCandidates.Clear();
         _paletteIndex.Clear();
+        _tempOwnshipTelemetry = null;
     }
 
     private void AssembleBlipsReport(EntityUid uid, List<EntityUid> sources, RadarConsoleComponent? component = null)
@@ -175,6 +190,9 @@ public sealed partial class RadarBlipSystem : EntitySystem
         var radarXform = Transform(uid);
         var radarGrid = radarXform.GridUid;
         var radarMapId = radarXform.MapID;
+        var hasOwnship = TryBuildOwnshipContext(radarGrid, out var ownship);
+        if (hasOwnship)
+            _tempOwnshipTelemetry = ownship.Telemetry;
 
         var sourceBoundsInitialized = false;
         var minimumSource = Vector2.Zero;
@@ -233,10 +251,11 @@ public sealed partial class RadarBlipSystem : EntitySystem
                 continue;
             }
 
+            var blipWorldPosition = _xform.GetWorldPosition(blipXform);
             if (!blip.Enabled
                 || blipXform.MapID != radarMapId
                 || !NearAnySourcePosition(
-                    _xform.GetWorldPosition(blipXform),
+                    blipWorldPosition,
                     _tempSourcePositionsCache,
                     MathF.Min(blip.MaxDistance, component.MaxRange))
             )
@@ -262,6 +281,33 @@ public sealed partial class RadarBlipSystem : EntitySystem
             var netBlipUid = GetNetEntity(blipUid);
 
             var blipVelocity = _physics.GetMapLinearVelocity(blipUid, blipPhysics, blipXform);
+            var mapBlipVelocity = blipVelocity;
+            var isWeaponProjectile = HasComp<ShipWeaponProjectileComponent>(blipUid);
+            var threat = RadarThreatKind.None;
+            float? timeToImpact = null;
+            TryComp<TargetSeekingComponent>(blipUid, out var seeker);
+            if (hasOwnship &&
+                isWeaponProjectile &&
+                TryComp<ProjectileComponent>(blipUid, out var projectile) &&
+                !OriginatesFromGrid(projectile, ownship.Grid))
+            {
+                if (seeker is { ExposesTracking: true, CurrentTarget: { } target } &&
+                    IsTargetOnGrid(target, ownship.Grid))
+                {
+                    threat = RadarThreatKind.MissileLock;
+                }
+
+                if (TryGetIncomingTime(
+                        ownship,
+                        blipWorldPosition,
+                        mapBlipVelocity,
+                        out var incomingTime))
+                {
+                    timeToImpact = incomingTime;
+                    if (threat == RadarThreatKind.None)
+                        threat = RadarThreatKind.Incoming;
+                }
+            }
 
             // due to PVS being a thing, things will break if we try to parent to not the map or a grid
             var coord = blipXform.Coordinates;
@@ -294,12 +340,15 @@ public sealed partial class RadarBlipSystem : EntitySystem
                             blipVelocity,
                             rotation,
                             configIdx,
-                            gridConfigIdx));
+                            gridConfigIdx,
+                            isWeaponProjectile,
+                            threat,
+                            timeToImpact));
 
             // Only expose seeker vectors for blips that passed this radar's map,
             // range and visibility filters above. Querying all seekers globally
             // leaks missiles from other maps and leaves clients without a tied blip.
-            if (TryComp<TargetSeekingComponent>(blipUid, out var seeker))
+            if (seeker != null)
             {
                 var missileArc = MathHelper.DegreesToRadians(seeker.ScanArc);
                 _tempMissileCache.Add(new(netBlipUid,
@@ -472,4 +521,96 @@ public sealed partial class RadarBlipSystem : EntitySystem
         var nearest = start + delta * t;
         return Vector2.DistanceSquared(source, nearest) <= clampedRange * clampedRange;
     }
+
+    private bool TryBuildOwnshipContext(EntityUid? gridUid, out OwnshipContext context)
+    {
+        context = default;
+        if (gridUid is not { } grid ||
+            !TryComp<MapGridComponent>(grid, out var mapGrid) ||
+            !TryComp<ShuttleComponent>(grid, out var shuttle) ||
+            !TryComp<PhysicsComponent>(grid, out var body) ||
+            !TryComp<TransformComponent>(grid, out var xform))
+        {
+            return false;
+        }
+
+        var gridOrigin = _xform.GetWorldPosition(xform);
+        var center = _xform.ToMapCoordinates(new EntityCoordinates(grid, body.LocalCenter));
+        var velocity = _physics.GetMapLinearVelocity(grid, body, xform);
+        if (!IsFinite(gridOrigin) || !IsFinite(center.Position) || !IsFinite(velocity))
+            return false;
+
+        var brakeAcceleration = 0f;
+        if (velocity.LengthSquared() > 1e-6f)
+        {
+            brakeAcceleration = _mover
+                .GetWorldDirectionAccel(-Vector2.Normalize(velocity), shuttle, body, xform)
+                .Length() * ShuttleComponent.BrakeCoefficient;
+        }
+
+        if (!float.IsFinite(brakeAcceleration) || brakeAcceleration < 0f)
+            brakeAcceleration = 0f;
+
+        var telemetry = new OwnshipTelemetryNetData(center.Position, velocity, brakeAcceleration);
+        context = new OwnshipContext(
+            grid,
+            gridOrigin,
+            _xform.GetWorldRotation(xform),
+            velocity,
+            mapGrid.LocalAABB.Enlarged(IncomingThreatBoundsPadding),
+            telemetry);
+        return true;
+    }
+
+    private static bool TryGetIncomingTime(
+        OwnshipContext ownship,
+        Vector2 projectilePosition,
+        Vector2 projectileVelocity,
+        out float time)
+    {
+        var localPosition = (-ownship.Rotation).RotateVec(projectilePosition - ownship.GridOrigin);
+        var localVelocity = (-ownship.Rotation).RotateVec(projectileVelocity - ownship.Velocity);
+        return RadarCombatTelemetryMath.TryGetIncomingIntersectionTime(
+            localPosition,
+            localVelocity,
+            ownship.LocalBounds,
+            IncomingThreatLeadTime,
+            out time);
+    }
+
+    private bool OriginatesFromGrid(ProjectileComponent projectile, EntityUid grid)
+    {
+        return EntityIsOnGrid(projectile.Shooter, grid) ||
+               EntityIsOnGrid(projectile.Weapon, grid);
+    }
+
+    private bool EntityIsOnGrid(EntityUid? uid, EntityUid grid)
+    {
+        if (uid is not { } entity || !Exists(entity))
+            return false;
+
+        if (entity == grid)
+            return true;
+
+        return TryComp<TransformComponent>(entity, out var xform) && xform.GridUid == grid;
+    }
+
+    private bool IsTargetOnGrid(EntityUid target, EntityUid grid)
+    {
+        if (target == grid)
+            return true;
+
+        return TryComp<TransformComponent>(target, out var xform) && xform.GridUid == grid;
+    }
+
+    private static bool IsFinite(Vector2 value)
+        => float.IsFinite(value.X) && float.IsFinite(value.Y);
+
+    private readonly record struct OwnshipContext(
+        EntityUid Grid,
+        Vector2 GridOrigin,
+        Angle Rotation,
+        Vector2 Velocity,
+        Box2 LocalBounds,
+        OwnshipTelemetryNetData Telemetry);
 }

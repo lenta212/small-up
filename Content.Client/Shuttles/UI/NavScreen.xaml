@@ -112,6 +112,8 @@
                     </controls:BoxContainer>
                 </controls:PanelContainer>
 
+                <ui:ShuttleCombatTelemetryPanel Name="CombatTelemetry"/>
+
                 <ui:ShuttleConsoleSectionHeader Name="NavSettingsLabel"
                                                 Text="{controls:Loc 'shuttle-console-nav-settings'}"/>
                 <controls:BoxContainer Orientation="Vertical"

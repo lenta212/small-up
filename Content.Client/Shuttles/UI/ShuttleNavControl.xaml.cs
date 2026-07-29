@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Numerics;
+using System.Globalization;
 using Content.Client._Mono.Radar;
 using Content.Client.Station; // Frontier
 using Content.Shared._Crescent.ShipShields;
@@ -644,6 +645,11 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
 
         handle.DrawPrimitives(DrawPrimitiveTopology.TriangleFan, radarPosVerts, Color.Lime);
 
+        var radarBounds = new Box2(0f, 0f, PixelSize.X, PixelSize.Y);
+        var hasOwnshipTelemetry = _blips.TryGetOwnshipTelemetry(_consoleEntity, out var ownshipTelemetry);
+        if (hasOwnshipTelemetry)
+            DrawOwnshipFlightTelemetry(handle, ownshipTelemetry, worldToView, radarBounds);
+
         var viewBounds = new Box2Rotated(new Box2(-WorldRange, -WorldRange, WorldRange, WorldRange).Translated(mapPos.Position), worldRot, mapPos.Position);
         var viewAABB = viewBounds.CalcBoundingBox();
 
@@ -894,7 +900,6 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
 
         Angle angle = updateRatio * Math.Tau;
         var origin = ScalePosition(-new Vector2(Offset.X, -Offset.Y));
-        var radarBounds = new Box2(0f, 0f, PixelSize.X, PixelSize.Y);
         var sweepEnd = origin + angle.ToVec() * ScaledMinimapRadius * 1.42f;
         if (TryClipSegmentToBox(radarBounds, origin, sweepEnd, out var sweepStart, out var clippedSweepEnd))
             handle.DrawLine(sweepStart, clippedSweepEnd, Color.Red.WithAlpha(0.1f));
@@ -906,9 +911,11 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
         var monoViewBounds = new Box2(-3f, -3f, PixelSize.X + 3f, PixelSize.Y + 3f);
 
         // Draw blips using the same grid-relative transformation approach as docks
+        var threatIndicatorsDrawn = 0;
         foreach (var blip in rawBlips)
         {
-            var position = Vector2.Transform(_transform.ToMapCoordinates(blip.Position).Position, worldToView);
+            var mapBlipPosition = _transform.ToMapCoordinates(blip.Position).Position;
+            var position = Vector2.Transform(mapBlipPosition, worldToView);
             var color = blip.Config.Color.WithAlpha(0.8f);
             var box = new Box2Rotated(blip.Config.Bounds, 0);
             if (blip.Config.RespectZoom)
@@ -921,6 +928,23 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
                 // check detection if we're on a grid and that grid isn't our grid
                 if (!_visibleGridsSet.Contains(grid) && grid != ourGridId)
                     continue;
+            }
+
+            if (blip.IsWeaponProjectile && blip.GridUid == null)
+                DrawWeaponTrace(handle, mapBlipPosition, blip.Velocity, worldToView, radarBounds, color);
+
+            if (hasOwnshipTelemetry &&
+                blip.Threat != RadarThreatKind.None &&
+                threatIndicatorsDrawn < 8)
+            {
+                DrawThreatIndicator(
+                    handle,
+                    mapBlipPosition,
+                    ownshipTelemetry.Position,
+                    worldToView,
+                    blip.Threat,
+                    blip.TimeToImpact);
+                threatIndicatorsDrawn++;
             }
 
             // Check if this blip is within view bounds before drawing
@@ -996,7 +1020,280 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
                 }
             }
         }
+
+        DrawImpactTraces(handle, worldToView, radarBounds);
         #endregion
+    }
+
+    private void DrawOwnshipFlightTelemetry(
+        DrawingHandleScreen handle,
+        OwnshipTelemetryNetData telemetry,
+        Matrix3x2 worldToView,
+        Box2 radarBounds)
+    {
+        var speed = telemetry.Velocity.Length();
+        if (!float.IsFinite(speed) || speed <= 0.05f)
+            return;
+
+        const float velocityLookahead = 2f;
+        var velocityDirection = Vector2.Normalize(telemetry.Velocity);
+        var start = Vector2.Transform(telemetry.Position, worldToView);
+        var velocityEnd = Vector2.Transform(
+            telemetry.Position + telemetry.Velocity * velocityLookahead,
+            worldToView);
+        if (TryClipSegmentToBox(
+                radarBounds,
+                start,
+                velocityEnd,
+                out var clippedVelocityStart,
+                out var clippedVelocityEnd))
+        {
+            DrawRadarArrow(
+                handle,
+                clippedVelocityStart,
+                clippedVelocityEnd,
+                Color.Cyan.WithAlpha(0.72f),
+                7f);
+        }
+
+        if (!RadarCombatTelemetryMath.TryCalculateBrakingDistance(
+                speed,
+                telemetry.BrakeAcceleration,
+                out var brakingDistance) ||
+            brakingDistance <= 0.05f)
+        {
+            return;
+        }
+
+        brakingDistance = MathF.Min(brakingDistance, 100000f);
+        var stop = Vector2.Transform(
+            telemetry.Position + velocityDirection * brakingDistance,
+            worldToView);
+        if (!TryClipSegmentToBox(
+                radarBounds,
+                start,
+                stop,
+                out var clippedBrakeStart,
+                out var clippedBrakeEnd))
+        {
+            return;
+        }
+
+        var brakingColor = Color.FromHex("#E6B86A").WithAlpha(0.66f);
+        DrawDashedLine(handle, clippedBrakeStart, clippedBrakeEnd, brakingColor, 6f, 4f);
+        handle.DrawLine(
+            clippedBrakeEnd + new Vector2(-4f, -4f),
+            clippedBrakeEnd + new Vector2(4f, 4f),
+            brakingColor);
+        handle.DrawLine(
+            clippedBrakeEnd + new Vector2(-4f, 4f),
+            clippedBrakeEnd + new Vector2(4f, -4f),
+            brakingColor);
+
+        var label = Loc.GetString(
+            "shuttle-combat-braking-marker",
+            ("distance", brakingDistance.ToString("0", CultureInfo.InvariantCulture)));
+        DrawRadarLabel(handle, clippedBrakeEnd + new Vector2(7f, 7f), label, brakingColor);
+    }
+
+    private static void DrawWeaponTrace(
+        DrawingHandleScreen handle,
+        Vector2 mapPosition,
+        Vector2 velocity,
+        Matrix3x2 worldToView,
+        Box2 radarBounds,
+        Color color)
+    {
+        var speed = velocity.Length();
+        if (!float.IsFinite(speed) || speed <= 0.05f)
+            return;
+
+        var trailLength = Math.Clamp(speed * 0.2f, 3f, 20f);
+        var tailPosition = mapPosition - Vector2.Normalize(velocity) * trailLength;
+        var start = Vector2.Transform(tailPosition, worldToView);
+        var end = Vector2.Transform(mapPosition, worldToView);
+        if (TryClipSegmentToBox(radarBounds, start, end, out var clippedStart, out var clippedEnd))
+            handle.DrawLine(clippedStart, clippedEnd, color.WithAlpha(0.52f));
+    }
+
+    private void DrawThreatIndicator(
+        DrawingHandleScreen handle,
+        Vector2 threatPosition,
+        Vector2 ownshipPosition,
+        Matrix3x2 worldToView,
+        RadarThreatKind threat,
+        float? timeToImpact)
+    {
+        var worldDirection = threatPosition - ownshipPosition;
+        if (worldDirection.LengthSquared() <= 1e-6f)
+            return;
+
+        var viewDirection = Vector2.TransformNormal(worldDirection, worldToView);
+        var viewportSize = new Vector2(PixelSize.X, PixelSize.Y);
+        if (!TryGetThreatIndicatorPoint(
+                viewDirection,
+                viewportSize,
+                out var edgePoint,
+                out var inwardNormal))
+        {
+            return;
+        }
+
+        var color = threat == RadarThreatKind.MissileLock
+            ? Color.FromHex("#FF5864")
+            : Color.FromHex("#E6B86A");
+        var tangent = new Vector2(-inwardNormal.Y, inwardNormal.X);
+        var tip = edgePoint + inwardNormal * 11f;
+        var marker = new[]
+        {
+            tip,
+            edgePoint + tangent * 5f,
+            edgePoint - tangent * 5f,
+        };
+        handle.DrawPrimitives(DrawPrimitiveTopology.TriangleList, marker, color.WithAlpha(0.86f));
+
+        var label = threat == RadarThreatKind.MissileLock
+            ? Loc.GetString("shuttle-combat-threat-marker-lock")
+            : Loc.GetString(
+                "shuttle-combat-threat-marker-incoming",
+                ("seconds", (timeToImpact ?? 0f).ToString("0.0", CultureInfo.InvariantCulture)));
+        DrawRadarLabel(handle, tip + inwardNormal * 7f, label, color);
+
+        var onScreen = Vector2.Transform(threatPosition, worldToView);
+        var insetBounds = new Box2(4f, 4f, PixelSize.X - 4f, PixelSize.Y - 4f);
+        if (insetBounds.Contains(onScreen))
+            handle.DrawCircle(onScreen, threat == RadarThreatKind.MissileLock ? 7f : 5f, color.WithAlpha(0.72f), false);
+    }
+
+    private void DrawImpactTraces(
+        DrawingHandleScreen handle,
+        Matrix3x2 worldToView,
+        Box2 radarBounds)
+    {
+        const float traceLifetime = 8f;
+        const float traceLength = 16f;
+        var now = IoCManager.Resolve<IGameTiming>().CurTime;
+        foreach (var report in _blips.GetHitReports(_consoleEntity))
+        {
+            var age = MathF.Max(0f, (float)(now - report.EventTime).TotalSeconds);
+            if (age >= traceLifetime)
+                continue;
+
+            var alpha = 1f - age / traceLifetime;
+            var color = report.Result switch
+            {
+                ShipHitResult.Shielded => Color.Cyan,
+                ShipHitResult.Blocked => Color.LightGray,
+                ShipHitResult.Destroyed => Color.Red,
+                _ => Color.Orange,
+            };
+            color = color.WithAlpha(0.75f * alpha);
+
+            var impact = Vector2.Transform(report.ImpactPosition, worldToView);
+            var traceStartMap = report.IncomingDirection.LengthSquared() > 1e-6f
+                ? report.ImpactPosition - Vector2.Normalize(report.IncomingDirection) * traceLength
+                : report.ImpactPosition;
+            var traceStart = Vector2.Transform(traceStartMap, worldToView);
+            if (TryClipSegmentToBox(
+                    radarBounds,
+                    traceStart,
+                    impact,
+                    out var clippedStart,
+                    out var clippedImpact))
+            {
+                handle.DrawLine(clippedStart, clippedImpact, color);
+            }
+
+            if (!radarBounds.Contains(impact))
+                continue;
+
+            var markSize = 4f;
+            handle.DrawLine(
+                impact + new Vector2(-markSize, -markSize),
+                impact + new Vector2(markSize, markSize),
+                color);
+            handle.DrawLine(
+                impact + new Vector2(-markSize, markSize),
+                impact + new Vector2(markSize, -markSize),
+                color);
+        }
+    }
+
+    private void DrawRadarLabel(DrawingHandleScreen handle, Vector2 requested, string text, Color color)
+    {
+        const float scale = 0.72f;
+        const float margin = 4f;
+        var dimensions = handle.GetDimensions(Font, text, scale);
+        var maximum = new Vector2(
+            MathF.Max(margin, PixelSize.X - dimensions.X - margin),
+            MathF.Max(margin, PixelSize.Y - dimensions.Y - margin));
+        var position = Vector2.Clamp(requested, new Vector2(margin), maximum);
+        handle.DrawString(Font, position + Vector2.One, text, scale, Color.Black.WithAlpha(color.A));
+        handle.DrawString(Font, position, text, scale, color);
+    }
+
+    private static void DrawRadarArrow(
+        DrawingHandleScreen handle,
+        Vector2 start,
+        Vector2 end,
+        Color color,
+        float headLength)
+    {
+        var direction = end - start;
+        if (direction.LengthSquared() <= 1e-6f)
+            return;
+
+        direction = Vector2.Normalize(direction);
+        var perpendicular = new Vector2(-direction.Y, direction.X);
+        handle.DrawLine(start, end, color);
+        handle.DrawLine(
+            end,
+            end - direction * headLength + perpendicular * (headLength * 0.45f),
+            color);
+        handle.DrawLine(
+            end,
+            end - direction * headLength - perpendicular * (headLength * 0.45f),
+            color);
+    }
+
+    private static void DrawDashedLine(
+        DrawingHandleScreen handle,
+        Vector2 start,
+        Vector2 end,
+        Color color,
+        float dashLength,
+        float gapLength)
+    {
+        var delta = end - start;
+        var length = delta.Length();
+        if (length <= 1e-6f)
+            return;
+
+        var direction = delta / length;
+        for (var distance = 0f; distance < length; distance += dashLength + gapLength)
+        {
+            var dashEnd = MathF.Min(distance + dashLength, length);
+            handle.DrawLine(
+                start + direction * distance,
+                start + direction * dashEnd,
+                color);
+        }
+    }
+
+    internal static bool TryGetThreatIndicatorPoint(
+        Vector2 direction,
+        Vector2 viewportSize,
+        out Vector2 edgePoint,
+        out Vector2 inwardNormal)
+    {
+        var inset = Math.Clamp(MathF.Min(viewportSize.X, viewportSize.Y) * 0.05f, 12f, 20f);
+        return TryGetViewportEdgePoint(
+            viewportSize * 0.5f,
+            direction,
+            viewportSize,
+            inset,
+            out edgePoint,
+            out inwardNormal);
     }
 
     internal static bool SegmentIntersectsBox(Box2 box, Vector2 start, Vector2 end)

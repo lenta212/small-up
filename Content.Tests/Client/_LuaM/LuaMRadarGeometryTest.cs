@@ -87,4 +87,37 @@ public sealed class LuaMRadarGeometryTest
             Assert.That(fallback.Radius, Is.EqualTo(400f));
         });
     }
+
+    [Test]
+    public void ThreatIndicatorsStayInsideWideAndCompactViewports()
+    {
+        var wide = ShuttleNavControl.TryGetThreatIndicatorPoint(
+            Vector2.UnitX,
+            new Vector2(640f, 360f),
+            out var widePoint,
+            out var wideNormal);
+        var compact = ShuttleNavControl.TryGetThreatIndicatorPoint(
+            -Vector2.UnitY,
+            new Vector2(256f, 256f),
+            out var compactPoint,
+            out var compactNormal);
+        var invalid = ShuttleNavControl.TryGetThreatIndicatorPoint(
+            Vector2.Zero,
+            new Vector2(256f, 256f),
+            out _,
+            out _);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(wide, Is.True);
+            Assert.That(widePoint.X, Is.EqualTo(622f).Within(0.001f));
+            Assert.That(widePoint.Y, Is.EqualTo(180f).Within(0.001f));
+            Assert.That(wideNormal, Is.EqualTo(-Vector2.UnitX));
+            Assert.That(compact, Is.True);
+            Assert.That(compactPoint.X, Is.EqualTo(128f).Within(0.001f));
+            Assert.That(compactPoint.Y, Is.EqualTo(12.8f).Within(0.001f));
+            Assert.That(compactNormal, Is.EqualTo(Vector2.UnitY));
+            Assert.That(invalid, Is.False);
+        });
+    }
 }
