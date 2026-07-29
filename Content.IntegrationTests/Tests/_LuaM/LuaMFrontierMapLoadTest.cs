@@ -1,6 +1,10 @@
+using System.Linq;
 using Content.Server.GameTicking;
+using Content.Server.Gateway.Components;
 using Content.Shared.CCVar;
 using Content.Shared.Maps;
+using Content.Shared.Parallax.Biomes;
+using Content.Shared.Station.Components;
 using Robust.Server.GameObjects;
 using Robust.Shared.Configuration;
 using Robust.Shared.EntitySerialization;
@@ -27,7 +31,7 @@ public sealed class LuaMFrontierMapLoadTest
     };
 
     [Test]
-    public async Task ProductionFrontierMapLoadsWithRegisteredPrototypes()
+    public async Task ProductionFrontierMapLoadsWithWorkingProceduralGateway()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings
         {
@@ -36,7 +40,6 @@ public sealed class LuaMFrontierMapLoadTest
         var server = pair.Server;
         var entManager = server.ResolveDependency<IEntityManager>();
         var mapManager = server.ResolveDependency<IMapManager>();
-        var mapLoader = entManager.System<MapLoaderSystem>();
         var mapSystem = entManager.System<SharedMapSystem>();
         var protoManager = server.ResolveDependency<IPrototypeManager>();
         var ticker = entManager.System<GameTicker>();
@@ -44,31 +47,102 @@ public sealed class LuaMFrontierMapLoadTest
 
         Assert.That(cfg.GetCVar(CCVars.GridFill), Is.False);
 
-        await server.WaitPost(() =>
+        var oldGeneratorEnabled = false;
+        var oldGeneratorMaxDestinations = 0;
+        var mapId = MapId.Nullspace;
+
+        try
         {
-            var options = DeserializationOptions.Default with { InitializeMaps = true };
-            MapId mapId;
-            try
+            await server.WaitPost(() =>
             {
-                ticker.LoadGameMap(protoManager.Index<GameMapPrototype>(ProductionMap), out mapId, options);
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"Failed to load production map {ProductionMap}", ex);
-            }
+                oldGeneratorEnabled = cfg.GetCVar(CCVars.GatewayGeneratorEnabled);
+                oldGeneratorMaxDestinations = cfg.GetCVar(CCVars.GatewayGeneratorMaxDestinations);
+                cfg.SetCVar(CCVars.GatewayGeneratorMaxDestinations, 1);
+                cfg.SetCVar(CCVars.GatewayGeneratorEnabled, true);
 
-            try
-            {
-                Assert.That(mapManager.GetAllGrids(mapId), Is.Not.Empty,
-                    "The production map must contain at least one grid.");
-            }
-            finally
-            {
-                mapSystem.DeleteMap(mapId);
-            }
-        });
+                var options = DeserializationOptions.Default with { InitializeMaps = true };
+                try
+                {
+                    ticker.LoadGameMap(protoManager.Index<GameMapPrototype>(ProductionMap), out mapId, options);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"Failed to load production map {ProductionMap}", ex);
+                }
+            });
 
-        await pair.CleanReturnAsync();
+            await pair.RunTicksSync(5);
+            await server.WaitAssertion(() =>
+            {
+                var stationGrids = mapManager.GetAllGrids(mapId)
+                    .Where(grid => entManager.HasComponent<StationMemberComponent>(grid.Owner))
+                    .ToList();
+                Assert.That(stationGrids, Has.Count.EqualTo(1),
+                    "The production map must contain exactly one station grid.");
+
+                var stationGrid = stationGrids.Single().Owner;
+                var station = entManager.GetComponent<StationMemberComponent>(stationGrid).Station;
+                Assert.That(
+                    entManager.TryGetComponent<GatewayGeneratorComponent>(station, out var generator),
+                    Is.True,
+                    "The Frontier station prototype must own the procedural gateway generator.");
+                Assert.That(generator!.Generated, Has.Count.EqualTo(1),
+                    "The enabled generator must create a destination up to the configured test cap.");
+
+                var sourceGateways = entManager.AllComponents<GatewayComponent>()
+                    .Where(entry =>
+                        entManager.TryGetComponent<TransformComponent>(entry.Uid, out var xform) &&
+                        xform.MapID == mapId)
+                    .ToList();
+                Assert.That(sourceGateways, Has.Count.EqualTo(1),
+                    "Colossus must contain one physical gateway.");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(sourceGateways[0].Component.Enabled, Is.True,
+                        "The mapped gateway must be interactable.");
+                    Assert.That(
+                        entManager.GetComponent<TransformComponent>(sourceGateways[0].Uid).GridUid,
+                        Is.EqualTo(stationGrid),
+                        "The mapped gateway must be anchored to the Frontier station grid.");
+                });
+
+                var destinationUid = generator.Generated.Single();
+                Assert.That(
+                    entManager.TryGetComponent<GatewayGeneratorDestinationComponent>(destinationUid, out var destination),
+                    Is.True);
+                Assert.That(destination!.Generator, Is.EqualTo(station));
+                Assert.That(
+                    entManager.TryGetComponent<BiomeComponent>(destinationUid, out var biome),
+                    Is.True,
+                    "A generated gateway destination must be a procedural biome.");
+                Assert.That(biome!.Template?.Id, Is.EqualTo("Continental"));
+
+                var destinationMapId = entManager.GetComponent<TransformComponent>(destinationUid).MapID;
+                var destinationGateways = entManager.AllComponents<GatewayComponent>()
+                    .Where(entry =>
+                        entManager.TryGetComponent<TransformComponent>(entry.Uid, out var xform) &&
+                        xform.MapID == destinationMapId)
+                    .ToList();
+                Assert.That(destinationGateways, Has.Count.EqualTo(1));
+                Assert.That(destinationGateways[0].Component.Enabled, Is.True,
+                    "The generated planet must contain an enabled return gateway.");
+            });
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                cfg.SetCVar(CCVars.GatewayGeneratorEnabled, false);
+                if (mapId != MapId.Nullspace && mapSystem.MapExists(mapId))
+                    mapSystem.DeleteMap(mapId);
+
+                cfg.SetCVar(CCVars.GatewayGeneratorMaxDestinations, oldGeneratorMaxDestinations);
+                cfg.SetCVar(CCVars.GatewayGeneratorEnabled, oldGeneratorEnabled);
+            });
+
+            await pair.RunTicksSync(5);
+            await pair.CleanReturnAsync();
+        }
     }
 
     [TestCaseSource(nameof(ProductionPoiMaps))]

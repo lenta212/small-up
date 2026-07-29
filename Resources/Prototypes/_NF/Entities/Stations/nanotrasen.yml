@@ -12,6 +12,7 @@
   - BaseStationSectorServices # Hosts all sector-wide services
   - BaseStationDeadDropHintExempt # No hints
   - BaseStationRenameWarpPoints
+  - BaseStationGateway # Procedural gateway destinations
   categories: [ HideSpawnMenu ]
   components:
   - type: Transform

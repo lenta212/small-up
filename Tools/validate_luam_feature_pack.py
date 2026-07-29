@@ -4293,7 +4293,7 @@ def main(argv: list[str] | None = None) -> int:
     assert_equal(remote_ai_director["world_pulse_interval"], 300, "remote luam.ai_director.world_pulse_interval")
     assert_equal(remote_ai_director["request_timeout"], 15, "remote luam.ai_director.request_timeout")
     assert_equal(remote_config["events"]["enabled"], True, "remote events.enabled")
-    assert_equal(remote_config["gateway"]["generator_enabled"], False, "remote gateway.generator_enabled")
+    assert_equal(remote_config["gateway"]["generator_enabled"], True, "remote gateway.generator_enabled")
     assert_equal(remote_config["luam"]["sector"]["all_hazards_enabled"], True, "remote luam.sector.all_hazards_enabled")
     assert_equal(
         remote_config["luam"]["animal_husbandry"]["max_population_per_map"],
