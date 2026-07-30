@@ -139,6 +139,8 @@
   - type: Tag
     tags:
     - AllowGhostShownByEvent
+    - AllowPortalTraversal
+    - PreventPortalCollision
 
 - type: entity
   id: ActionGhostBoo

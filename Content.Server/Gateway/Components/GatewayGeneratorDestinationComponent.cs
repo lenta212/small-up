@@ -27,6 +27,30 @@ public sealed partial class GatewayGeneratorDestinationComponent : Component
     public bool Loaded;
 
     /// <summary>
+    /// Current state of the asynchronous dungeon generation transaction.
+    /// </summary>
+    [DataField]
+    public GatewayDestinationGenerationState GenerationState;
+
+    /// <summary>
+    /// Whether all generated dungeon tiles were validated against the restricted world boundary.
+    /// </summary>
+    [DataField]
+    public bool DungeonBoundsValidated;
+
+    /// <summary>
+    /// Earliest time at which a failed destination may be discarded and replaced.
+    /// </summary>
+    [DataField(customTypeSerializer: typeof(TimeOffsetSerializer))]
+    public TimeSpan RetryAt;
+
+    /// <summary>
+    /// The creating generator was removed. Occupied orphaned worlds remain until safely empty.
+    /// </summary>
+    [DataField]
+    public bool Orphaned;
+
+    /// <summary>
     /// Profile used to generate this destination.
     /// </summary>
     [DataField]

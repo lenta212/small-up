@@ -75,7 +75,7 @@ public sealed class LuaMFrontierMapLoadTest
                 }
             });
 
-            await pair.RunTicksSync(5);
+            await pair.RunTicksSync(600);
             await server.WaitAssertion(() =>
             {
                 var stationGrids = mapManager.GetAllGrids(mapId)
@@ -126,6 +126,12 @@ public sealed class LuaMFrontierMapLoadTest
                     Assert.That(biome!.Template?.Id, Is.EqualTo(profile.Biome.Id));
                     Assert.That(destination.Address, Does.Match("^GW-(?:[0-9A-F]{2}-){3}[0-9A-F]{2}$"));
                     Assert.That(profile.Threat, Is.InRange(GatewayThreatLevel.Minimal, GatewayThreatLevel.Extreme));
+                    Assert.That(
+                        destination.GenerationState,
+                        Is.EqualTo(GatewayDestinationGenerationState.Ready),
+                        "The generated gateway world must complete its asynchronous dungeon transaction.");
+                    Assert.That(destination.DungeonBoundsValidated, Is.True,
+                        "A ready gateway world must have all dungeon tiles inside its restricted range.");
                     Assert.That(
                         entManager.GetComponent<MapAtmosphereComponent>(destinationUid).Space,
                         Is.EqualTo(air.Space));

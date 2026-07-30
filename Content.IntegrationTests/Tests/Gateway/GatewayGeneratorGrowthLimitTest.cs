@@ -45,6 +45,9 @@ public sealed class GatewayGeneratorGrowthLimitTest
         EntityUid sourceGatewayUid = default;
         EntityUid returnGatewayUid = default;
         EntityUid gatewayActorUid = default;
+        EntityUid replacementMapUid = default;
+        EntityUid shutdownProtectedBodyUid = default;
+        EntityUid shutdownMindUid = default;
         var sourceMapId = MapId.Nullspace;
 
         try
@@ -158,9 +161,19 @@ public sealed class GatewayGeneratorGrowthLimitTest
                 Assert.That(generatorSystem.TryGenerateDestination(generatorUid, generator), Is.True,
                     "Safe retirement must release the hard-cap slot for a replacement profile.");
                 Assert.That(generator.Generated, Has.Count.EqualTo(1));
+                replacementMapUid = generator.Generated.Single();
+                var generating = entManager.GetComponent<GatewayGeneratorDestinationComponent>(
+                    replacementMapUid);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(
+                        generating.GenerationState,
+                        Is.EqualTo(GatewayDestinationGenerationState.Generating));
+                    Assert.That(generating.DungeonBoundsValidated, Is.False);
+                });
             });
 
-            await pair.RunTicksSync(5);
+            await pair.RunTicksSync(600);
 
             await server.WaitAssertion(() =>
             {
@@ -170,12 +183,64 @@ public sealed class GatewayGeneratorGrowthLimitTest
                     "An expired opened destination should rotate after all safeguards clear.");
 
                 var replacement = entManager.GetComponent<GatewayGeneratorDestinationComponent>(
-                    entManager.GetComponent<GatewayGeneratorComponent>(generatorUid).Generated.Single());
+                    replacementMapUid);
                 Assert.Multiple(() =>
                 {
                     Assert.That(replacement.Profile.Id, Is.Not.Empty);
                     Assert.That(replacement.Address, Does.StartWith("GW-"));
+                    Assert.That(
+                        replacement.GenerationState,
+                        Is.EqualTo(GatewayDestinationGenerationState.Ready));
+                    Assert.That(replacement.DungeonBoundsValidated, Is.True);
                 });
+            });
+
+            await server.WaitPost(() =>
+            {
+                shutdownProtectedBodyUid = entManager.SpawnEntity(
+                    null,
+                    new EntityCoordinates(replacementMapUid, Vector2.Zero));
+                shutdownMindUid = mindSystem.CreateMind(null).Owner;
+                mindSystem.TransferTo(shutdownMindUid, shutdownProtectedBodyUid);
+
+                entManager.DeleteEntity(generatorUid);
+                var orphaned = entManager.GetComponent<GatewayGeneratorDestinationComponent>(
+                    replacementMapUid);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(orphaned.Orphaned, Is.True);
+                    Assert.That(orphaned.Generator, Is.EqualTo(EntityUid.Invalid));
+                    Assert.That(
+                        orphaned.RotationState,
+                        Is.EqualTo(GatewayDestinationRotationState.WaitingForClearance));
+                    Assert.That(generatorSystem.CleanupFailedAndOrphanedDestinations(), Is.EqualTo(0));
+                    Assert.That(entManager.EntityExists(replacementMapUid), Is.True,
+                        "Removing a generator must not delete a destination with a controlled body.");
+                });
+            });
+
+            await pair.RunTicksSync(5);
+            await server.WaitAssertion(() =>
+            {
+                Assert.That(entManager.EntityExists(replacementMapUid), Is.True);
+            });
+
+            await server.WaitPost(() =>
+            {
+                mindSystem.WipeMind(shutdownMindUid);
+                entManager.DeleteEntity(shutdownProtectedBodyUid);
+
+                var orphaned = entManager.GetComponent<GatewayGeneratorDestinationComponent>(
+                    replacementMapUid);
+                orphaned.EmptySince = timing.CurTime - TimeSpan.FromSeconds(2);
+                Assert.That(generatorSystem.CleanupFailedAndOrphanedDestinations(), Is.EqualTo(1));
+            });
+
+            await pair.RunTicksSync(5);
+            await server.WaitAssertion(() =>
+            {
+                Assert.That(entManager.EntityExists(replacementMapUid), Is.False,
+                    "An orphaned destination should retire only after it is empty and the grace period elapsed.");
             });
         }
         finally

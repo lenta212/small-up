@@ -1,4 +1,7 @@
 using System.Linq;
+using System.Numerics;
+using System.Threading.Tasks;
+using Content.Server.Administration.Logs;
 using Content.Server.Atmos.Components;
 using Content.Server.Atmos.EntitySystems;
 using Content.Server.Gateway.Components;
@@ -8,6 +11,7 @@ using Content.Server.Weather;
 using Content.Shared.Atmos;
 using Content.Shared.CCVar;
 using Content.Shared.Dataset;
+using Content.Shared.Database;
 using Content.Shared.Gateway;
 using Content.Shared.Ghost;
 using Content.Shared.Maps;
@@ -36,10 +40,10 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
 {
     [Dependency] private IConfigurationManager _cfgManager = default!;
     [Dependency] private IGameTiming _timing = default!;
-    [Dependency] private IMapManager _mapManager = default!;
     [Dependency] private IPrototypeManager _protoManager = default!;
     [Dependency] private IRobustRandom _random = default!;
     [Dependency] private ITileDefinitionManager _tileDefManager = default!;
+    [Dependency] private IAdminLogManager _adminLogger = default!;
     [Dependency] private AtmosphereSystem _atmosphere = default!;
     [Dependency] private BiomeSystem _biome = default!;
     [Dependency] private DungeonSystem _dungeon = default!;
@@ -55,7 +59,11 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
     private const string PlanetNames = "NamesBorer";
 
     private const int InitialDestinationCount = 3;
+    private static readonly TimeSpan FailedDestinationRetention = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan SafetyCleanupInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(1);
+    private readonly Dictionary<EntityUid, Task<List<Dungeon>>> _generationTasks = new();
+    private TimeSpan _nextSafetyCleanup;
     private TimeSpan _nextCleanup;
 
     // TODO: Add profile-aware ambient music to generated planets.
@@ -72,6 +80,14 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
     public override void Update(float frameTime)
     {
         base.Update(frameTime);
+
+        ProcessGenerationTasks();
+
+        if (_timing.CurTime >= _nextSafetyCleanup)
+        {
+            _nextSafetyCleanup = _timing.CurTime + SafetyCleanupInterval;
+            CleanupFailedAndOrphanedDestinations();
+        }
 
         if (_timing.CurTime < _nextCleanup)
             return;
@@ -92,10 +108,21 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
     {
         foreach (var genUid in component.Generated.ToArray())
         {
-            QueueDestinationMapDeletion(genUid);
+            if (!TryComp(genUid, out GatewayGeneratorDestinationComponent? destination))
+            {
+                QueueDestinationMapDeletion(genUid);
+                continue;
+            }
+
+            destination.Generator = EntityUid.Invalid;
+            destination.Orphaned = true;
+            destination.Locked = true;
+            destination.EmptySince = TimeSpan.Zero;
+            destination.RotationState = GatewayDestinationRotationState.WaitingForClearance;
         }
 
         component.Generated.Clear();
+        _gateway.UpdateAllGateways();
     }
 
     private void OnGeneratorMapInit(EntityUid uid, GatewayGeneratorComponent generator, MapInitEvent args)
@@ -144,6 +171,12 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
                 continue;
             }
 
+            if (destination.GenerationState is GatewayDestinationGenerationState.Generating or
+                GatewayDestinationGenerationState.Failed)
+            {
+                continue;
+            }
+
             if (destination.Loaded)
             {
                 if (!TryRetireLoadedDestination(destinationUid, destination, out var stateChanged))
@@ -153,6 +186,7 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
                 }
 
                 generator.Generated.RemoveAt(i);
+                LogAutomaticRotation(destinationUid, destination, "opened destination completed safe rotation");
                 QueueDestinationMapDeletion(destinationUid);
                 removed++;
                 continue;
@@ -165,6 +199,7 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
                 continue;
 
             generator.Generated.RemoveAt(i);
+            LogAutomaticRotation(destinationUid, destination, "unopened destination expired");
             QueueDestinationMapDeletion(destinationUid);
             removed++;
         }
@@ -173,13 +208,17 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         for (var i = 0; generator.Generated.Count > maxDestinations && i < generator.Generated.Count;)
         {
             var destinationUid = generator.Generated[i];
-            if (TryComp(destinationUid, out GatewayGeneratorDestinationComponent? destination) && destination.Loaded)
+            if (TryComp(destinationUid, out GatewayGeneratorDestinationComponent? destination) &&
+                (destination.Loaded ||
+                 destination.GenerationState == GatewayDestinationGenerationState.Generating))
             {
                 i++;
                 continue;
             }
 
             generator.Generated.RemoveAt(i);
+            if (TryComp(destinationUid, out destination))
+                LogAutomaticRotation(destinationUid, destination, "destination exceeded the configured hard cap");
             QueueDestinationMapDeletion(destinationUid);
             removed++;
         }
@@ -258,7 +297,11 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         }
 
         if (destination.Gateway.IsValid() && Exists(destination.Gateway))
-            _gateway.ClosePortal(destination.Gateway);
+        {
+            _gateway.ClosePortal(
+                destination.Gateway,
+                reason: GatewayPortalCloseReason.AutomaticRotation);
+        }
 
         return true;
     }
@@ -313,6 +356,248 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
             : TimeSpan.Zero;
     }
 
+    private void ProcessGenerationTasks()
+    {
+        var uiChanged = false;
+
+        foreach (var (destinationUid, task) in _generationTasks.ToArray())
+        {
+            if (!task.IsCompleted)
+                continue;
+
+            _generationTasks.Remove(destinationUid);
+
+            try
+            {
+                var dungeons = task.GetAwaiter().GetResult();
+                if (!TryComp(destinationUid, out GatewayGeneratorDestinationComponent? destination))
+                    continue;
+
+                if (!TryComp(destinationUid, out RestrictedRangeComponent? restricted))
+                    throw new InvalidOperationException("Generated gateway destination has no restricted range.");
+
+                if (!ValidateDungeonBounds(dungeons, restricted, out var invalidTile))
+                {
+                    var detail = invalidTile is { } tile
+                        ? $"tile {tile} is outside radius {restricted.Range} around {restricted.Origin}"
+                        : "the dungeon produced no traversable tiles";
+                    throw new InvalidOperationException($"Gateway dungeon bounds validation failed: {detail}.");
+                }
+
+                if (!_protoManager.TryIndex(
+                        destination.Profile,
+                        out GatewayWorldProfilePrototype? profile))
+                {
+                    throw new InvalidOperationException(
+                        $"Gateway world profile '{destination.Profile.Id}' no longer exists.");
+                }
+
+                AddWorldMarkerLayers(destinationUid, destination, profile);
+                destination.DungeonBoundsValidated = true;
+                destination.GenerationState = GatewayDestinationGenerationState.Ready;
+                destination.RetryAt = TimeSpan.Zero;
+                uiChanged = true;
+            }
+            catch (Exception exception)
+            {
+                if (TryComp(destinationUid, out GatewayGeneratorDestinationComponent? destination))
+                {
+                    MarkGenerationFailed(destinationUid, destination, exception);
+                    uiChanged = true;
+                }
+                else
+                {
+                    Log.Error(
+                        $"Gateway destination {ToPrettyString(destinationUid)} disappeared while generation completed: {exception}");
+                }
+            }
+        }
+
+        if (uiChanged)
+            _gateway.UpdateAllGateways();
+    }
+
+    private static bool ValidateDungeonBounds(
+        IReadOnlyCollection<Dungeon> dungeons,
+        RestrictedRangeComponent restricted,
+        out Vector2i? invalidTile)
+    {
+        invalidTile = null;
+        var hasTiles = false;
+        // RestrictedRange works from tile/entity centers, so validate against the same radius.
+        // Applying an extra whole-tile margin here incorrectly rejects valid edge tiles.
+        var safeRange = Math.Max(0f, restricted.Range);
+        var safeRangeSquared = safeRange * safeRange;
+
+        foreach (var dungeon in dungeons)
+        {
+            foreach (var tile in dungeon.AllTiles)
+            {
+                hasTiles = true;
+                var delta = (Vector2) tile - restricted.Origin;
+                if (delta.LengthSquared() <= safeRangeSquared)
+                    continue;
+
+                invalidTile = tile;
+                return false;
+            }
+        }
+
+        return hasTiles;
+    }
+
+    private void MarkGenerationFailed(
+        EntityUid destinationUid,
+        GatewayGeneratorDestinationComponent destination,
+        Exception exception)
+    {
+        destination.GenerationState = GatewayDestinationGenerationState.Failed;
+        destination.DungeonBoundsValidated = false;
+        destination.Locked = true;
+        destination.RetryAt = _timing.CurTime + FailedDestinationRetention;
+
+        var message =
+            $"Gateway destination {ToPrettyString(destinationUid)} ({destination.Address}, seed {destination.Seed}, " +
+            $"profile {destination.Profile.Id}) failed generation and will be replaced: {exception}";
+        Log.Warning(message);
+        _adminLogger.Add(LogType.Action, LogImpact.High, $"{message}");
+    }
+
+    /// <summary>
+    /// Discards failed transactions after a short observable failure state and safely retires worlds
+    /// whose creating generator no longer exists.
+    /// </summary>
+    internal int CleanupFailedAndOrphanedDestinations()
+    {
+        var removed = 0;
+        var uiChanged = false;
+        var refillGenerators = new HashSet<EntityUid>();
+        var emptyGrace = GetConfiguredDuration(_cfgManager.GetCVar(CCVars.GatewayGeneratorEmptyGrace));
+        var query = EntityQueryEnumerator<GatewayGeneratorDestinationComponent>();
+
+        while (query.MoveNext(out var destinationUid, out var destination))
+        {
+            if (destination.GenerationState == GatewayDestinationGenerationState.Failed)
+            {
+                if (destination.RetryAt > _timing.CurTime)
+                    continue;
+
+                if (IsDestinationProtected(destinationUid))
+                {
+                    destination.EmptySince = TimeSpan.Zero;
+                    uiChanged |= SetRotationState(
+                        destination,
+                        GatewayDestinationRotationState.WaitingForClearance);
+                    continue;
+                }
+
+                if ((destination.RotationState is GatewayDestinationRotationState.WaitingForClearance or
+                        GatewayDestinationRotationState.EmptyGracePeriod) &&
+                    emptyGrace != TimeSpan.Zero)
+                {
+                    if (destination.EmptySince == TimeSpan.Zero)
+                    {
+                        destination.EmptySince = _timing.CurTime;
+                        uiChanged = true;
+                    }
+
+                    if (destination.EmptySince + emptyGrace > _timing.CurTime)
+                    {
+                        uiChanged |= SetRotationState(
+                            destination,
+                            GatewayDestinationRotationState.EmptyGracePeriod);
+                        continue;
+                    }
+                }
+
+                if (TryComp(destination.Generator, out GatewayGeneratorComponent? generator))
+                {
+                    generator.Generated.Remove(destinationUid);
+                    refillGenerators.Add(destination.Generator);
+                }
+
+                LogAutomaticRotation(destinationUid, destination, "failed generation transaction was rolled back");
+                QueueDestinationMapDeletion(destinationUid);
+                removed++;
+                uiChanged = true;
+                continue;
+            }
+
+            if (!destination.Orphaned)
+                continue;
+
+            if (destination.GenerationState == GatewayDestinationGenerationState.Generating)
+                continue;
+
+            if (IsDestinationProtected(destinationUid))
+            {
+                if (destination.EmptySince != TimeSpan.Zero)
+                {
+                    destination.EmptySince = TimeSpan.Zero;
+                    uiChanged = true;
+                }
+
+                uiChanged |= SetRotationState(
+                    destination,
+                    GatewayDestinationRotationState.WaitingForClearance);
+                continue;
+            }
+
+            if (emptyGrace != TimeSpan.Zero && destination.EmptySince == TimeSpan.Zero)
+            {
+                destination.EmptySince = _timing.CurTime;
+                uiChanged = true;
+            }
+
+            if (emptyGrace != TimeSpan.Zero &&
+                destination.EmptySince + emptyGrace > _timing.CurTime)
+            {
+                uiChanged |= SetRotationState(
+                    destination,
+                    GatewayDestinationRotationState.EmptyGracePeriod);
+                continue;
+            }
+
+            if (destination.Gateway.IsValid() && Exists(destination.Gateway))
+            {
+                _gateway.ClosePortal(
+                    destination.Gateway,
+                    reason: GatewayPortalCloseReason.AutomaticRotation);
+            }
+
+            LogAutomaticRotation(destinationUid, destination, "orphaned destination became safely empty");
+            QueueDestinationMapDeletion(destinationUid);
+            removed++;
+            uiChanged = true;
+        }
+
+        foreach (var generatorUid in refillGenerators)
+        {
+            if (_cfgManager.GetCVar(CCVars.GatewayGeneratorEnabled) &&
+                TryComp(generatorUid, out GatewayGeneratorComponent? generator))
+            {
+                EnsureDestinationPool(generatorUid, generator);
+            }
+        }
+
+        if (uiChanged)
+            _gateway.UpdateAllGateways();
+
+        return removed;
+    }
+
+    private void LogAutomaticRotation(
+        EntityUid destinationUid,
+        GatewayGeneratorDestinationComponent destination,
+        string reason)
+    {
+        _adminLogger.Add(
+            LogType.Action,
+            LogImpact.Medium,
+            $"Gateway destination {ToPrettyString(destinationUid)} ({destination.Address}, seed {destination.Seed}, " +
+            $"profile {destination.Profile.Id}) rotated automatically: {reason}.");
+    }
+
     private void EnsureDestinationPool(EntityUid uid, GatewayGeneratorComponent generator)
     {
         var maxDestinations = Math.Max(0, _cfgManager.GetCVar(CCVars.GatewayGeneratorMaxDestinations));
@@ -333,6 +618,7 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         {
             if (TryComp(destinationUid, out GatewayGeneratorDestinationComponent? destination) &&
                 !destination.Loaded &&
+                destination.GenerationState != GatewayDestinationGenerationState.Failed &&
                 !Terminating(destinationUid))
             {
                 count++;
@@ -363,64 +649,170 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
             return false;
         }
 
-        var tileDef = _tileDefManager["FloorSteel"];
         const int MaxOffset = 256;
-        var tiles = new List<(Vector2i Index, Tile Tile)>();
-        var mapId = _mapManager.CreateMap();
-        var mapUid = _mapManager.GetMapEntityId(mapId);
+        var mapId = MapId.Nullspace;
+        var mapUid = EntityUid.Invalid;
 
-        var gatewayName = _salvage.GetFTLName(_protoManager.Index<LocalizedDatasetPrototype>(PlanetNames), seed);
-        _metadata.SetEntityName(mapUid, gatewayName);
-
-        var origin = new Vector2i(random.Next(-MaxOffset, MaxOffset), random.Next(-MaxOffset, MaxOffset));
-        var restricted = new RestrictedRangeComponent
+        try
         {
-            Origin = origin
-        };
-        AddComp(mapUid, restricted);
+            // Resolve every required prototype before committing the new map to the generator pool.
+            var tileDef = _tileDefManager["FloorSteel"];
+            var planetNames = _protoManager.Index<LocalizedDatasetPrototype>(PlanetNames);
+            _protoManager.Index(profile.Biome);
+            _protoManager.Index(profile.Air);
+            if (profile.Weather is { } weather)
+                _protoManager.Index(weather);
+            var dungeon = _protoManager.Index(profile.Dungeon);
 
-        _biome.EnsurePlanet(
-            mapUid,
-            _protoManager.Index(profile.Biome),
-            seed,
-            mapLight: profile.LightColor);
-        ApplyWorldEnvironment(mapUid, mapId, profile);
+            mapUid = _maps.CreateMap(out mapId, runMapInit: false);
+            var gatewayName = _salvage.GetFTLName(planetNames, seed);
+            _metadata.SetEntityName(mapUid, gatewayName);
 
-        var grid = Comp<MapGridComponent>(mapUid);
-
-        for (var x = -2; x <= 2; x++)
-        {
-            for (var y = -2; y <= 2; y++)
+            var origin = new Vector2i(random.Next(-MaxOffset, MaxOffset), random.Next(-MaxOffset, MaxOffset));
+            var restricted = new RestrictedRangeComponent
             {
-                tiles.Add((new Vector2i(x, y) + origin, new Tile(tileDef.TileId, variant: _tile.PickVariant((ContentTileDefinition)tileDef, random))));
+                Origin = origin
+            };
+            AddComp(mapUid, restricted);
+
+            _biome.EnsurePlanet(
+                mapUid,
+                _protoManager.Index(profile.Biome),
+                seed,
+                mapLight: profile.LightColor);
+            ApplyWorldEnvironment(mapUid, mapId, profile);
+
+            var grid = Comp<MapGridComponent>(mapUid);
+            var tiles = new List<(Vector2i Index, Tile Tile)>();
+            for (var x = -2; x <= 2; x++)
+            {
+                for (var y = -2; y <= 2; y++)
+                {
+                    tiles.Add((
+                        new Vector2i(x, y) + origin,
+                        new Tile(
+                            tileDef.TileId,
+                            variant: _tile.PickVariant((ContentTileDefinition) tileDef, random))));
+                }
             }
+
+            // Clear area nearby as a landing pad.
+            _maps.SetTiles(mapUid, grid, tiles);
+
+            var genDest = AddComp<GatewayGeneratorDestinationComponent>(mapUid);
+            genDest.Origin = origin;
+            genDest.Seed = seed;
+            genDest.Generator = uid;
+            genDest.GeneratedAt = _timing.CurTime;
+            genDest.Profile = profile.ID;
+            genDest.Address = FormatAddress(seed);
+            genDest.GenerationState = GatewayDestinationGenerationState.Generating;
+
+            var gatewayUid = SpawnAtPosition(generator.Proto, new EntityCoordinates(mapUid, origin));
+            genDest.Gateway = gatewayUid;
+            var gatewayComp = Comp<GatewayComponent>(gatewayUid);
+            _gateway.SetDestinationName(
+                gatewayUid,
+                FormattedMessage.FromMarkupOrThrow(
+                    $"[color={profile.AccentColor.ToHex()}]{gatewayName}[/color]"),
+                gatewayComp);
+            _gateway.SetEnabled(gatewayUid, true, gatewayComp);
+
+            generator.Generated.Add(mapUid);
+            _maps.InitializeMap(mapUid);
+            StartDungeonGeneration(mapUid, grid, genDest, profile, dungeon);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            if (mapUid.IsValid())
+                generator.Generated.Remove(mapUid);
+
+            var message =
+                $"Gateway generator {ToPrettyString(uid)} failed to create a destination transaction " +
+                $"(seed {seed}, profile {profile.ID}): {exception}";
+            Log.Error(message);
+            _adminLogger.Add(LogType.Action, LogImpact.High, $"{message}");
+
+            if (mapId != MapId.Nullspace && _maps.MapExists(mapId))
+                _maps.DeleteMap(mapId);
+            else if (mapUid.IsValid() && Exists(mapUid))
+                QueueDel(mapUid);
+
+            _gateway.UpdateAllGateways();
+            return false;
+        }
+    }
+
+    private void StartDungeonGeneration(
+        EntityUid mapUid,
+        MapGridComponent grid,
+        GatewayGeneratorDestinationComponent destination,
+        GatewayWorldProfilePrototype profile,
+        DungeonConfigPrototype dungeon)
+    {
+        var random = new Random(destination.Seed);
+        var dungeonDistanceMin = Math.Max(1, profile.DungeonDistanceMin);
+        var dungeonDistanceMax = Math.Max(dungeonDistanceMin, profile.DungeonDistanceMax);
+        var dungeonDistance = random.Next(dungeonDistanceMin, dungeonDistanceMax + 1);
+        var dungeonRotation = _dungeon.GetDungeonRotation(destination.Seed);
+        var dungeonPosition =
+            (destination.Origin + dungeonRotation.RotateVec(new Vector2i(0, dungeonDistance))).Floored();
+
+        var task = _dungeon.GenerateDungeonAsync(
+            dungeon,
+            dungeon.ID,
+            mapUid,
+            grid,
+            dungeonPosition,
+            destination.Seed);
+        _generationTasks.Add(mapUid, task);
+    }
+
+    private void AddWorldMarkerLayers(
+        EntityUid destinationUid,
+        GatewayGeneratorDestinationComponent destination,
+        GatewayWorldProfilePrototype profile)
+    {
+        if (!TryComp(destinationUid, out BiomeComponent? biome))
+            return;
+
+        TryComp(destination.Generator, out GatewayGeneratorComponent? generator);
+        var random = new Random(destination.Seed);
+
+        var lootLayers = profile.LootLayers.Count > 0
+            ? profile.LootLayers.ToList()
+            : generator?.LootLayers.ToList() ?? new List<ProtoId<BiomeMarkerLayerPrototype>>();
+        var lootLayerCount = Math.Min(
+            profile.LootLayers.Count > 0
+                ? profile.LootLayerCount
+                : generator?.LootLayerCount ?? 0,
+            lootLayers.Count);
+
+        for (var i = 0; i < lootLayerCount; i++)
+        {
+            var layerIdx = random.Next(lootLayers.Count);
+            var layer = lootLayers[layerIdx];
+            lootLayers.RemoveSwap(layerIdx);
+            _biome.AddMarkerLayer(destinationUid, biome, layer.Id);
         }
 
-        // Clear area nearby as a sort of landing pad.
-        _maps.SetTiles(mapUid, grid, tiles);
+        var mobLayers = profile.MobLayers.Count > 0
+            ? profile.MobLayers.ToList()
+            : generator?.MobLayers.ToList() ?? new List<ProtoId<BiomeMarkerLayerPrototype>>();
+        var mobLayerCount = Math.Min(
+            profile.MobLayers.Count > 0
+                ? profile.MobLayerCount
+                : generator?.MobLayerCount ?? 0,
+            mobLayers.Count);
 
-        _metadata.SetEntityName(mapUid, gatewayName);
-        var originCoords = new EntityCoordinates(mapUid, origin);
-
-        var genDest = AddComp<GatewayGeneratorDestinationComponent>(mapUid);
-        genDest.Origin = origin;
-        genDest.Seed = seed;
-        genDest.Generator = uid;
-        genDest.GeneratedAt = _timing.CurTime;
-        genDest.Profile = profile.ID;
-        genDest.Address = FormatAddress(seed);
-
-        // Create the gateway.
-        var gatewayUid = SpawnAtPosition(generator.Proto, originCoords);
-        genDest.Gateway = gatewayUid;
-        var gatewayComp = Comp<GatewayComponent>(gatewayUid);
-        _gateway.SetDestinationName(
-            gatewayUid,
-            FormattedMessage.FromMarkupOrThrow($"[color={profile.AccentColor.ToHex()}]{gatewayName}[/color]"),
-            gatewayComp);
-        _gateway.SetEnabled(gatewayUid, true, gatewayComp);
-        generator.Generated.Add(mapUid);
-        return true;
+        for (var i = 0; i < mobLayerCount; i++)
+        {
+            var layerIdx = random.Next(mobLayers.Count);
+            var layer = mobLayers[layerIdx];
+            mobLayers.RemoveSwap(layerIdx);
+            _biome.AddMarkerLayer(destinationUid, biome, layer.Id);
+        }
     }
 
     private bool TryPickWorldProfile(
@@ -505,11 +897,24 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
 
     private void OnGeneratorAttemptOpen(Entity<GatewayGeneratorDestinationComponent> ent, ref AttemptGatewayOpenEvent args)
     {
-        if (ent.Comp.Loaded || args.Cancelled)
+        if (args.Cancelled)
+            return;
+
+        if (ent.Comp.Orphaned ||
+            ent.Comp.GenerationState != GatewayDestinationGenerationState.Ready)
+        {
+            args.Cancelled = true;
+            return;
+        }
+
+        if (ent.Comp.Loaded)
             return;
 
         if (!TryComp(ent.Comp.Generator, out GatewayGeneratorComponent? generatorComp))
+        {
+            args.Cancelled = true;
             return;
+        }
 
         if (generatorComp.NextUnlock + _metadata.GetPauseTime(ent.Owner) <= _timing.CurTime)
             return;
@@ -522,7 +927,8 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         if (ent.Comp.Loaded)
             return;
 
-        if (!TryComp(args.MapUid, out MapGridComponent? grid))
+        if (ent.Comp.Orphaned ||
+            ent.Comp.GenerationState != GatewayDestinationGenerationState.Ready)
             return;
 
         ent.Comp.Locked = false;
@@ -540,65 +946,6 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
             generatorComp.NextUnlock = _timing.CurTime + generatorComp.UnlockCooldown;
             _gateway.UpdateAllGateways();
             EnsureDestinationPool(ent.Comp.Generator, generatorComp);
-        }
-
-        // Do dungeon
-        var seed = ent.Comp.Seed;
-        var origin = ent.Comp.Origin;
-        var random = new Random(seed);
-        GatewayWorldProfilePrototype? profile = null;
-        if (!string.IsNullOrEmpty(ent.Comp.Profile.Id))
-            _protoManager.TryIndex(ent.Comp.Profile, out profile);
-
-        var dungeonDistanceMin = Math.Max(1, profile?.DungeonDistanceMin ?? 3);
-        var dungeonDistanceMax = Math.Max(dungeonDistanceMin, profile?.DungeonDistanceMax ?? 5);
-        var dungeonDistance = random.Next(dungeonDistanceMin, dungeonDistanceMax + 1);
-        var dungeonRotation = _dungeon.GetDungeonRotation(seed);
-        var dungeonPosition = (origin + dungeonRotation.RotateVec(new Vector2i(0, dungeonDistance))).Floored();
-
-        var dungeon = profile == null
-            ? _protoManager.Index<DungeonConfigPrototype>("Experiment")
-            : _protoManager.Index(profile.Dungeon);
-        _dungeon.GenerateDungeon(dungeon, dungeon.ID, args.MapUid, grid, dungeonPosition, seed);
-
-        // TODO: Add dungeon-specific mobs and loot.
-
-        // Do markers on the map.
-        if (TryComp(ent.Owner, out BiomeComponent? biomeComp) && generatorComp != null)
-        {
-            // - Loot
-            var lootLayers = profile is { LootLayers.Count: > 0 }
-                ? profile.LootLayers.ToList()
-                : generatorComp.LootLayers.ToList();
-            var lootLayerCount = Math.Min(
-                profile?.LootLayerCount ?? generatorComp.LootLayerCount,
-                lootLayers.Count);
-
-            for (var i = 0; i < lootLayerCount; i++)
-            {
-                var layerIdx = random.Next(lootLayers.Count);
-                var layer = lootLayers[layerIdx];
-                lootLayers.RemoveSwap(layerIdx);
-
-                _biome.AddMarkerLayer(ent.Owner, biomeComp, layer.Id);
-            }
-
-            // - Mobs
-            var mobLayers = profile is { MobLayers.Count: > 0 }
-                ? profile.MobLayers.ToList()
-                : generatorComp.MobLayers.ToList();
-            var mobLayerCount = Math.Min(
-                profile?.MobLayerCount ?? generatorComp.MobLayerCount,
-                mobLayers.Count);
-
-            for (var i = 0; i < mobLayerCount; i++)
-            {
-                var layerIdx = random.Next(mobLayers.Count);
-                var layer = mobLayers[layerIdx];
-                mobLayers.RemoveSwap(layerIdx);
-
-                _biome.AddMarkerLayer(ent.Owner, biomeComp, layer.Id);
-            }
         }
     }
 }

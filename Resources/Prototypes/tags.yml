@@ -25,6 +25,9 @@
   id: AllowGhostShownByEvent
 
 - type: Tag
+  id: AllowPortalTraversal
+
+- type: Tag
   id: Ambrosia
 
 - type: Tag
@@ -1013,6 +1016,9 @@
 
 - type: Tag
   id: PreventAccessLogging
+
+- type: Tag
+  id: PreventPortalCollision
 
 - type: Tag
   id: PrisonUniform

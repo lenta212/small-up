@@ -8,6 +8,7 @@ using Content.Shared.Teleportation.Components;
 using Content.Shared.Teleportation.Systems;
 using Robust.Server.Audio;
 using Robust.Server.GameObjects;
+using Robust.Server.Physics;
 
 namespace Content.Server.Teleportation;
 
@@ -27,6 +28,34 @@ public sealed partial class HandTeleporterSystem : EntitySystem
     {
         SubscribeLocalEvent<HandTeleporterComponent, UseInHandEvent>(OnUseInHand);
         SubscribeLocalEvent<HandTeleporterComponent, TeleporterDoAfterEvent>(OnDoAfter);
+        SubscribeLocalEvent<GridSplitEvent>(OnGridSplit);
+    }
+
+    private void OnGridSplit(ref GridSplitEvent args)
+    {
+        var query = EntityQueryEnumerator<HandTeleporterComponent>();
+        while (query.MoveNext(out var uid, out var component))
+        {
+            CheckPortals(uid, component);
+        }
+    }
+
+    private void CheckPortals(EntityUid uid, HandTeleporterComponent component)
+    {
+        if (component.AllowPortalsOnDifferentGrids ||
+            Deleted(component.FirstPortal) ||
+            Deleted(component.SecondPortal))
+        {
+            return;
+        }
+
+        if (Transform(component.FirstPortal!.Value).GridUid ==
+            Transform(component.SecondPortal!.Value).GridUid)
+        {
+            return;
+        }
+
+        FizzlePortals(uid, component, null, true);
     }
 
     private void OnDoAfter(EntityUid uid, HandTeleporterComponent component, DoAfterEvent args)
@@ -123,7 +152,11 @@ public sealed partial class HandTeleporterSystem : EntitySystem
         }
     }
 
-    private void FizzlePortals(EntityUid uid, HandTeleporterComponent component, EntityUid user, bool instability)
+    private void FizzlePortals(
+        EntityUid uid,
+        HandTeleporterComponent component,
+        EntityUid? user,
+        bool instability)
     {
         // Logging
         var portalStrings = "";
@@ -132,7 +165,22 @@ public sealed partial class HandTeleporterSystem : EntitySystem
             portalStrings += " and ";
         portalStrings += ToPrettyString(component.SecondPortal);
         if (portalStrings != "")
-            _adminLogger.Add(LogType.EntityDelete, LogImpact.Low, $"{ToPrettyString(user):player} closed {portalStrings} with {ToPrettyString(uid)}");
+        {
+            if (user is { } actor)
+            {
+                _adminLogger.Add(
+                    LogType.EntityDelete,
+                    LogImpact.Low,
+                    $"{ToPrettyString(actor):player} closed {portalStrings} with {ToPrettyString(uid)}");
+            }
+            else
+            {
+                _adminLogger.Add(
+                    LogType.EntityDelete,
+                    LogImpact.Low,
+                    $"A grid split closed {portalStrings} with {ToPrettyString(uid)}");
+            }
+        }
 
         // Clear both portals
         if (!Deleted(component.FirstPortal))
@@ -142,9 +190,16 @@ public sealed partial class HandTeleporterSystem : EntitySystem
 
         component.FirstPortal = null;
         component.SecondPortal = null;
+        Dirty(uid, component);
         _audio.PlayPvs(component.ClearPortalsSound, uid);
 
-        if (instability)
-            _popup.PopupEntity(Loc.GetString("handheld-teleporter-instability-fizzle"), uid, user, PopupType.MediumCaution);
+        if (instability && user is { } popupUser)
+        {
+            _popup.PopupEntity(
+                Loc.GetString("handheld-teleporter-instability-fizzle"),
+                uid,
+                popupUser,
+                PopupType.MediumCaution);
+        }
     }
 }

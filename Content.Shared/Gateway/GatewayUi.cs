@@ -41,6 +41,14 @@ public enum GatewayDestinationRotationState : byte
 }
 
 [Serializable, NetSerializable]
+public enum GatewayDestinationGenerationState : byte
+{
+    Ready,
+    Generating,
+    Failed,
+}
+
+[Serializable, NetSerializable]
 public sealed class GatewayBoundUserInterfaceState : BoundUserInterfaceState
 {
     /// <summary>
@@ -115,6 +123,8 @@ public record struct GatewayDestinationData
     public Color AccentColor;
     public string Address;
     public bool Loaded;
+    public bool Orphaned;
+    public GatewayDestinationGenerationState GenerationState;
     public GatewayDestinationRotationState RotationState;
     public TimeSpan RotationAt;
 }

@@ -1,7 +1,9 @@
+using Content.Server.Administration.Logs;
 using Content.Server.Gateway.Components;
 using Content.Server.Station.Systems;
 using Content.Shared.Access.Systems;
 using Content.Shared.CCVar;
+using Content.Shared.Database;
 using Content.Shared.Gateway;
 using Content.Shared.Popups;
 using Content.Shared.Teleportation.Components;
@@ -24,6 +26,7 @@ public sealed partial class GatewaySystem : EntitySystem
     [Dependency] private AccessReaderSystem _accessReader = default!;
     [Dependency] private IConfigurationManager _cfgManager = default!;
     [Dependency] private IGameTiming _timing = default!;
+    [Dependency] private IAdminLogManager _adminLogger = default!;
     [Dependency] private LinkedEntitySystem _linkedEntity = default!;
     [Dependency] private IPrototypeManager _protoManager = default!;
     [Dependency] private SharedAppearanceSystem _appearance = default!;
@@ -138,6 +141,8 @@ public sealed partial class GatewaySystem : EntitySystem
                 destinationData.AccentColor = profile.AccentColor;
                 destinationData.Address = gatewayDestination.Address;
                 destinationData.Loaded = gatewayDestination.Loaded;
+                destinationData.Orphaned = gatewayDestination.Orphaned;
+                destinationData.GenerationState = gatewayDestination.GenerationState;
                 destinationData.RotationState = gatewayDestination.RotationState;
                 destinationData.RotationAt = GetRotationAt(gatewayDestination);
             }
@@ -200,6 +205,8 @@ public sealed partial class GatewaySystem : EntitySystem
         // If it's already open / not enabled / we're not ready DENY.
         if (!TryComp<GatewayComponent>(desto, out var dest) ||
             !dest.Enabled ||
+            !TryComp(desto, out TransformComponent? destXform) ||
+            destXform.MapUid == null ||
             HasComp<PortalComponent>(desto) ||
             _linkedEntity.GetLink(desto, out _) ||
             _timing.CurTime < _metadata.GetPauseTime(uid) + comp.NextReady ||
@@ -208,26 +215,35 @@ public sealed partial class GatewaySystem : EntitySystem
             return;
         }
 
-        // TODO: admin log???
-        ClosePortal(uid, comp, false);
-        OpenPortal(uid, comp, desto, dest);
+        var attempt = new AttemptGatewayOpenEvent(destXform.MapUid.Value, desto);
+        RaiseLocalEvent(destXform.MapUid.Value, ref attempt);
+        if (attempt.Cancelled)
+            return;
+
+        ClosePortal(
+            uid,
+            comp,
+            false,
+            user,
+            GatewayPortalCloseReason.SwitchDestination);
+        OpenPortal(uid, comp, desto, dest, user, destXform);
     }
 
-    private void OpenPortal(EntityUid uid, GatewayComponent comp, EntityUid dest, GatewayComponent destComp, TransformComponent? destXform = null)
+    private bool OpenPortal(
+        EntityUid uid,
+        GatewayComponent comp,
+        EntityUid dest,
+        GatewayComponent destComp,
+        EntityUid user,
+        TransformComponent? destXform = null)
     {
         if (!Resolve(dest, ref destXform) || destXform.MapUid == null)
-            return;
-
-        var ev = new AttemptGatewayOpenEvent(destXform.MapUid.Value, dest);
-        RaiseLocalEvent(destXform.MapUid.Value, ref ev);
-
-        if (ev.Cancelled)
-            return;
+            return false;
 
         // Gateways are traversable in both directions. A symmetrical link also lets
         // safe world retirement close the source and return endpoints atomically.
         if (!_linkedEntity.TryLink(uid, dest))
-            return;
+            return false;
 
         var sourcePortal = EnsureComp<PortalComponent>(uid);
         var targetPortal = EnsureComp<PortalComponent>(dest);
@@ -250,20 +266,35 @@ public sealed partial class GatewaySystem : EntitySystem
         UpdateUserInterface(uid, comp);
         UpdateAppearance(uid);
         UpdateAppearance(dest);
+
+        _adminLogger.Add(
+            LogType.Action,
+            LogImpact.Medium,
+            $"{ToPrettyString(user):player} opened gateway portal from {ToPrettyString(uid)} to {ToPrettyString(dest)}.");
+        return true;
     }
 
     /// <summary>
     /// Closes a gateway and its linked endpoint. Used by safe generated-world retirement
     /// as well as normal gateway interaction.
     /// </summary>
-    public void ClosePortal(EntityUid uid, GatewayComponent? comp = null, bool update = true)
+    public void ClosePortal(
+        EntityUid uid,
+        GatewayComponent? comp = null,
+        bool update = true,
+        EntityUid? actor = null,
+        GatewayPortalCloseReason reason = GatewayPortalCloseReason.System)
     {
         if (!Resolve(uid, ref comp))
             return;
 
+        var hadPortal = HasComp<PortalComponent>(uid);
         RemComp<PortalComponent>(uid);
         if (!_linkedEntity.GetLink(uid, out var dest))
         {
+            if (hadPortal)
+                LogPortalClosed(uid, null, actor, reason);
+
             if (update)
             {
                 UpdateUserInterface(uid, comp);
@@ -284,6 +315,7 @@ public sealed partial class GatewaySystem : EntitySystem
 
         _linkedEntity.TryUnlink(uid, dest.Value);
         RemComp<PortalComponent>(dest.Value);
+        LogPortalClosed(uid, dest, actor, reason);
 
         if (update)
         {
@@ -323,7 +355,36 @@ public sealed partial class GatewaySystem : EntitySystem
         if (CheckAccess(user, source.Value))
             return;
 
-        ClosePortal(source.Value);
+        ClosePortal(
+            source.Value,
+            actor: user,
+            reason: GatewayPortalCloseReason.Manual);
+    }
+
+    private void LogPortalClosed(
+        EntityUid source,
+        EntityUid? destination,
+        EntityUid? actor,
+        GatewayPortalCloseReason reason)
+    {
+        var target = destination is { } dest && dest.IsValid()
+            ? $" and {ToPrettyString(dest)}"
+            : string.Empty;
+
+        if (actor is { } user && user.IsValid())
+        {
+            _adminLogger.Add(
+                LogType.Action,
+                LogImpact.Medium,
+                $"{ToPrettyString(user):player} closed gateway portal {ToPrettyString(source)}{target} ({reason}).");
+        }
+        else
+        {
+            _adminLogger.Add(
+                LogType.Action,
+                LogImpact.Medium,
+                $"The gateway system closed gateway portal {ToPrettyString(source)}{target} ({reason}).");
+        }
     }
 
     /// <summary>
@@ -369,3 +430,11 @@ public record struct AttemptGatewayOpenEvent(EntityUid MapUid, EntityUid Gateway
 /// </summary>
 [ByRefEvent]
 public readonly record struct GatewayOpenEvent(EntityUid MapUid, EntityUid GatewayDestinationUid);
+
+public enum GatewayPortalCloseReason : byte
+{
+    System,
+    Manual,
+    SwitchDestination,
+    AutomaticRotation,
+}

@@ -103,6 +103,8 @@ public sealed partial class GatewayWindow : FancyWindow,
             var ent = dest.Entity;
             var name = dest.Name;
             var locked = dest.Locked && _nextUnlock > _timing.CurTime;
+            var generationReady = dest.GenerationState == GatewayDestinationGenerationState.Ready;
+            var destinationAvailable = generationReady && !dest.Orphaned;
 
             var card = new BoxContainer()
             {
@@ -152,7 +154,7 @@ public sealed partial class GatewayWindow : FancyWindow,
                 Text = Loc.GetString("gateway-window-open-portal"),
                 Pressed = Pressable(),
                 ToggleMode = true,
-                Disabled = now < _nextReady || Pressable(),
+                Disabled = now < _nextReady || Pressable() || !destinationAvailable,
                 HorizontalAlignment = HAlignment.Right,
                 Margin = new Thickness(10f, 0f, 0f, 0f),
                 Visible = !locked,
@@ -206,6 +208,11 @@ public sealed partial class GatewayWindow : FancyWindow,
                     Columns = 2,
                     HorizontalExpand = true,
                 };
+                AddIntelRow(
+                    intel,
+                    "gateway-window-generation",
+                    GetGenerationText(dest.GenerationState),
+                    generationReady ? Color.LightGreen : Color.LightGoldenrodYellow);
                 AddIntelRow(intel, "gateway-window-address", dest.Address);
                 AddIntelRow(intel, "gateway-window-biome", Loc.GetString(dest.BiomeName));
                 AddIntelRow(intel, "gateway-window-weather", Loc.GetString(dest.WeatherName));
@@ -274,6 +281,17 @@ public sealed partial class GatewayWindow : FancyWindow,
             "gateway-window-threat-value",
             ("rating", new string('◆', Math.Clamp((int)threat, 1, 5))),
             ("level", Loc.GetString(level)));
+    }
+
+    private static string GetGenerationText(GatewayDestinationGenerationState state)
+    {
+        return Loc.GetString(state switch
+        {
+            GatewayDestinationGenerationState.Generating => "gateway-window-generation-generating",
+            GatewayDestinationGenerationState.Ready => "gateway-window-generation-ready",
+            GatewayDestinationGenerationState.Failed => "gateway-window-generation-failed",
+            _ => "gateway-window-generation-failed",
+        });
     }
 
     private static string GetRotationText(GatewayDestinationData destination, TimeSpan now)

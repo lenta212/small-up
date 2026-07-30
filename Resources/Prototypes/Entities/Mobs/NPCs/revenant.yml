@@ -9,6 +9,9 @@
   - type: Input
     context: "ghost"
   - type: Spectral
+  - type: Tag
+    tags:
+    - AllowPortalTraversal
   - type: MovementSpeedModifier
     baseWalkSpeed: 6
     baseSprintSpeed: 6
