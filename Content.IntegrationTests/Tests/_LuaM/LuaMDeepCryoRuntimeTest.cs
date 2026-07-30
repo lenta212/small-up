@@ -1,3 +1,4 @@
+using Content.Server.Database;
 using Content.Server.Ghost;
 using Content.Server.Mind;
 using Content.Server._LuaM.Cryo;
@@ -54,6 +55,64 @@ public sealed class LuaMDeepCryoRuntimeTest
     public void DurableBodyPersistenceIsDisabled()
     {
         Assert.That(LuaMDeepCryoPersistenceSystem.PersistenceEnabled, Is.False);
+    }
+
+    [Test]
+    public async Task DisabledDurablePersistenceCannotDetachPlayableViewport()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false,
+        });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var players = server.ResolveDependency<IPlayerManager>();
+        var minds = entities.System<MindSystem>();
+        var testMap = await pair.CreateTestMap();
+        var session = GetSession(pair, players);
+
+        EntityUid body = EntityUid.Invalid;
+        EntityUid mindId = EntityUid.Invalid;
+        await server.WaitAssertion(() =>
+        {
+            body = entities.SpawnEntity("LuaMDeepCryoTestBody", testMap.GridCoords);
+            (mindId, _) = AttachSessionToBody(
+                entities,
+                players,
+                minds,
+                session,
+                body,
+                nameof(DisabledDurablePersistenceCannotDetachPlayableViewport));
+
+            var identity = entities.EnsureComponent<LuaMDeepCryoIdentityComponent>(body);
+            identity.UserId = session.UserId;
+            identity.ProfileId = 1;
+            identity.Slot = 0;
+            identity.SlotGeneration = 1;
+            identity.LifecycleRevision = 1;
+            identity.PresenceLeaseId = Guid.NewGuid();
+            identity.PresencePhase = DbLuaMCharacterPresencePhase.Playable;
+            identity.PresenceLeaseRevision = 1;
+            identity.PresenceLeaseExpiresAtUtc = DateTime.UtcNow.AddMinutes(-1);
+        });
+
+        await pair.RunTicksSync(10);
+
+        await server.WaitAssertion(() =>
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(session.AttachedEntity, Is.EqualTo(body),
+                    "Disabled persistence must not recreate the player's viewport by detaching the body.");
+                Assert.That(entities.GetComponent<MindComponent>(mindId).CurrentEntity, Is.EqualTo(body));
+                Assert.That(entities.GetComponent<TransformComponent>(body).MapID, Is.EqualTo(testMap.MapId));
+                Assert.That(entities.HasComponent<LuaMDeepCryoPresenceSuspendedComponent>(body), Is.False);
+            });
+        });
+
+        await pair.CleanReturnAsync();
     }
 
     [Test]

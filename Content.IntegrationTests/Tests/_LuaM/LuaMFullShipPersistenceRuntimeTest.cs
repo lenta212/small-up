@@ -1309,7 +1309,7 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
     }
 
     [Test]
-    public async Task LegacyV1SnapshotIsRejectedBeforeDeserialization()
+    public async Task LegacyV1SnapshotRestoresHullAfterSanitizingPlayerState()
     {
         var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
         var server = pair.Server;
@@ -1387,14 +1387,14 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                 entities.DeleteEntity(sourceGrid);
 
                 maps.CreateMap(out targetMap);
-                var entityCountBeforeRestore = entities.GetEntities().Count();
                 Assert.That(
                     persistence.TryRestoreSnapshot(
                         snapshot,
                         targetMap,
                         out var restoredGrid,
                         out var restoreReason),
-                    Is.False);
+                    Is.True,
+                    restoreReason);
 
                 Assert.Multiple(() =>
                 {
@@ -1402,11 +1402,20 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                         Is.EqualTo(LuaMFullShipPersistenceSystem.LegacySnapshotFormatVersion));
                     Assert.That(
                         LuaMFullShipPersistenceSystem.IsSupportedSnapshotFormatVersion(snapshot.FormatVersion),
-                        Is.False);
-                    Assert.That(restoredGrid, Is.EqualTo(EntityUid.Invalid));
-                    Assert.That(restoreReason, Is.EqualTo("unsupported-snapshot-format-1"));
-                    Assert.That(entities.GetEntities().Count(), Is.EqualTo(entityCountBeforeRestore),
-                        "Unsupported legacy data must be rejected before the map loader creates any entities.");
+                        Is.True);
+                    Assert.That(restoredGrid, Is.Not.EqualTo(EntityUid.Invalid));
+                    Assert.That(
+                        FindNamedDescendants(entities, restoredGrid, LegacyBodyName),
+                        Is.Empty,
+                        "Legacy player bodies must be removed before the restored hull is committed.");
+                    Assert.That(
+                        FindNamedDescendants(entities, restoredGrid, LegacyInventoryItemName),
+                        Is.Empty,
+                        "Inventory carried by a legacy player body must not be restored as ship cargo.");
+                    Assert.That(
+                        FindNamedDescendants(entities, restoredGrid, LegacySlotOwnerName),
+                        Has.Count.EqualTo(1),
+                        "Sanitizing player state must preserve the rest of the legacy hull.");
                 });
             });
         }

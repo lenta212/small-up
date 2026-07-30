@@ -700,8 +700,10 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 return false;
             }
 
-            // Defence in depth for a malformed or manually repaired current
-            // snapshot. Legacy v1 is rejected before deserialization.
+            // Defence in depth for a malformed, manually repaired, or legacy
+            // snapshot. Historical v1 hulls are accepted only after the same
+            // bounded hash/manifest validation, then copied player state is
+            // removed before the restored graph is handed to the caller.
             SanitizeRestoredPlayerBodies(createdEntities, restoredGrid);
 
             // Player minds are runtime ownership, not portable ship content.
@@ -1455,7 +1457,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     }
 
     public static bool IsSupportedSnapshotFormatVersion(int formatVersion)
-        => formatVersion == SnapshotFormatVersion;
+        => formatVersion is LegacySnapshotFormatVersion or SnapshotFormatVersion;
 
     private List<EntityUid> CollectExistingTransformGraph(EntityUid root)
     {
