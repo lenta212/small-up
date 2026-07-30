@@ -1,12 +1,12 @@
 ﻿{
     "remoteDeployFrozen":  false,
-    "reason":  "Operator authorized the Unknown live radio reply server release and restart on 2026-07-29; authorization is bounded to the receipt-bound server release.",
-    "lastReviewed":  "2026-07-29",
+    "reason":  "Operator authorized the hardened Unknown radio conversation server update and restart on 2026-07-30; authorization is bounded to the receipt-bound server release.",
+    "lastReviewed":  "2026-07-30",
     "deploymentAuthorization":  {
                                     "state":  "authorized",
-                                    "approvalId":  "unknown-radio-stream-20260729",
+                                    "approvalId":  "unknown-radio-hardening-20260730",
                                     "approvedBy":  "server operator via Codex session",
-                                    "approvedAtUtc":  "2026-07-29T21:05:00Z",
+                                    "approvedAtUtc":  "2026-07-30T00:14:26Z",
                                     "expiresAtUtc":  "2026-07-30T03:00:00Z",
                                     "allowedMutations":  [
                                                              "server-release"
@@ -375,9 +375,9 @@
                                      "AGENTS.md"
                                  ],
     "pendingLocalIntegrationBatch":  {
-                                         "name":  "20260729-unknown-radio-stream",
+                                         "name":  "20260730-unknown-radio-hardening",
                                          "state":  "deployment-authorized",
-                                         "packageSelection":  "Server-only Unknown addressed-radio neural reply stream with conversation-only action enforcement and deterministic fallback.",
+                                         "packageSelection":  "Server-only Unknown addressed-radio conversation memory, natural follow-ups, lifecycle fencing, bounded retries, and silent final provider failure.",
                                          "packageScopes":  [
                                                                ".agents",
                                                                ".github",
