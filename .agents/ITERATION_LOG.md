@@ -1,3 +1,10 @@
+## 2026-07-30T07:20:02Z -- production journal reconciled before comprehensive release gate
+
+- Required preflight: read both repository journals, then compared the installed `/opt/monolith-ds/AI_SERVER_JOURNAL.md` before allowing the release orchestrator to perform its remote dry-run.
+- Reconciliation: installed SHA256 was `eb40a6491d25cb07ffbdf5f50a7983ad6f3fd8c00ea62bddbf281027ae90ca21`, `root:root` mode `0644`. The repository copy had exactly one additional local-candidate heading, contained all 78 installed headings, and normalized byte content ended with the complete installed file; therefore the host had no newer fact to import.
+- Scope/outcome: the finalized strict-superset journal is installed byte-identically as the new canonical host copy and verified `root:root` mode `0644`. No game service, client, package, config, database, snapshot, ship, player, round, firewall, or gateway state changed.
+- Next action: from clean commit `858785cbe5`, run `powershell -NoProfile -ExecutionPolicy Bypass -File Tools\ship_luam_release.ps1 -ConfigSourcePath "" -Force -Json`; do not publish or deploy unless all seven stages pass.
+
 ## 2026-07-30T07:17:24Z -- comprehensive candidate closes viewport and stored-fleet release risks
 
 - Objective/result: completed the bounded integration review for the operator-authorized comprehensive client/server update. Branch `codex/comprehensive-release-20260730` now contains the procedural gateway, shared radar/targeting, Unknown, Aibolit/rescue, round-local character, persistent fleet, stored-ship call, late-join, ghost-scouting, and selected safety lines without importing the broad upstream Z-level/viewport replacement.

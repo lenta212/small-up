@@ -1,3 +1,11 @@
+## 2026-07-30T07:20:02Z -- canonical journal reconciled before comprehensive release gate
+
+- Required preflight: repository and installed journals were read before the release orchestrator may perform its production dry-run. The installed `/opt/monolith-ds/AI_SERVER_JOURNAL.md` SHA256 was `eb40a6491d25cb07ffbdf5f50a7983ad6f3fd8c00ea62bddbf281027ae90ca21`, owner/mode `root:root`/`0644`.
+- Reconciliation: the repository copy contained exactly one additional local-candidate heading, contained all 78 installed headings, and its normalized content ended with the complete installed file. No newer host fact required import; the local strict superset is canonical.
+- Mirror/scope: this finalized strict-superset copy is installed byte-identically at `/opt/monolith-ds/AI_SERVER_JOURNAL.md` and verified `root:root` mode `0644`. The journal mirror is the only mutation; no service, client, package, config, database, snapshot, ship, player, round, firewall, or gateway state changed.
+- Recovery: none is required for gameplay state. The preceding host copy remains available in the local read-only preflight download if journal comparison is needed.
+- Next action: run the clean receipt-bound orchestrator with an empty `ConfigSourcePath` so production configuration is preserved; publish/deploy only after all seven stages pass.
+
 ## 2026-07-30T07:17:24Z -- comprehensive release candidate validated locally before production preflight
 
 - Scope/result: completed the local integration boundary for the operator-authorized comprehensive client/server rollout. The candidate combines the current procedural-gateway, combat-radar/targeting, Unknown, rescue/Aibolit, round-local body, persistent-fleet, stored-call, late-join, and restricted-ghost work while deliberately excluding the bulk upstream Z-level/viewport replacement.
