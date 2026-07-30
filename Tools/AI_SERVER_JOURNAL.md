@@ -1,3 +1,12 @@
+## 2026-07-30T08:18:35Z -- production tests/smokes passed; stale validator and gateway config boundary resolved
+
+- Gate evidence: clean commit `d58e17559b` ran source gate tag `luam-20260730-075133`. Both production test filters passed, including the full post-fix integration suite; `gateway-test` and `local-stack-smoke` passed; worktree/policy receipts stayed stable. Source packaging stopped solely because the feature validator required the removed Aibolit phrase `Еду по текущему медсигналу`, so no source package, remote dry-run, client publication, or server deploy occurred.
+- Validator fix: the static radio contract now checks the current tested `Медканал чистый` and `Секторная память LuaM` status/lore markers. The standalone feature validator passed afterward.
+- Bounded production config read: emitted only `gateway.generator_enabled`, max destinations, unopened/opened TTL, and empty grace. Live values are `false`, `4`, `21600`, unset, and unset respectively; no secret or unrelated value was read into output. One base64 pipe failed from local output encoding before Python ran, and one unprivileged Python read failed with permission denied; the corrected base64-to-`sudo python3` read succeeded. All were read-only.
+- Target configuration: the ignored local release template now has generator enabled with bounds `4/21600/7200/300`, SHA256 `5f6c54c53ee7216bfa40b7dbda27fd72fbc6177073bfe707c213ae68f326bd60`. Do not replace the complete production config. After a production-eligible receipt, create a root-only backup and patch exactly these five gateway keys before the same authorized restart.
+- Production impact/recovery: no mutation occurred in this iteration. No client, package, service, config, database, snapshot, ship, player, round, firewall, or gateway state changed, so no rollback is required.
+- Next action: commit/mirror this canonical journal, rebuild a production-eligible source and binary receipt, then perform the bounded gateway-key migration and guarded release only if every remaining stage passes.
+
 ## 2026-07-30T07:50:31Z -- first comprehensive gate failed locally and both test blockers were repaired
 
 - Gate outcome: an initial empty-argument parse attempt failed in 0.5 seconds before script execution. The corrected clean-tree run used tag `luam-20260730-072112`, passed the content LuaM filter, then stopped fail-closed in `local-fast` after integration reported 932 passed, two failed, and one environment-gated skip out of 935. It never reached source packaging, remote dry-run, publication, or deployment.
