@@ -128,6 +128,7 @@ public sealed class LuaMShipPersistenceLifecycleContractTest
             Assert.That(call, Does.Contain("RestoreClaimAsync("));
             Assert.That(call, Does.Contain("stored.ShipId,"));
             Assert.That(call, Does.Contain("TryReservePersistentShipCall(stored.ShipId, targetId, out var reservationId)"));
+            Assert.That(call, Does.Contain("TryFTLDockAtDockOrPlaceNearbyIfDockless("));
             Assert.That(call, Does.Contain("deed.PersistentShipId = stored.ShipId.ToString(\"D\");"));
             Assert.That(call.IndexOf("if (!result.Success || result.Grid == null)", StringComparison.Ordinal),
                 Is.LessThan(call.IndexOf("EnsureComp<ShuttleDeedComponent>(targetId)", StringComparison.Ordinal)));

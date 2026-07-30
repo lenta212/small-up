@@ -95,7 +95,7 @@ public abstract partial class SharedStationSystem : EntitySystem
         if (TryComp<StationTrackerComponent>(entity, out var stationTracker))
         {
             // We have a specific station we are tracking and are tethered to.
-            return stationTracker.Station;
+            return GetExistingStation(stationTracker.Station);
         }
 
         if (HasComp<StationDataComponent>(entity))
@@ -107,7 +107,7 @@ public abstract partial class SharedStationSystem : EntitySystem
         if (HasComp<MapGridComponent>(entity))
         {
             // We are the station, just check ourselves.
-            return CompOrNull<StationMemberComponent>(entity)?.Station;
+            return GetExistingStation(CompOrNull<StationMemberComponent>(entity)?.Station);
         }
 
         if (xform.GridUid == EntityUid.Invalid)
@@ -116,7 +116,15 @@ public abstract partial class SharedStationSystem : EntitySystem
             return null;
         }
 
-        return CompOrNull<StationMemberComponent>(xform.GridUid)?.Station;
+        return GetExistingStation(CompOrNull<StationMemberComponent>(xform.GridUid)?.Station);
+    }
+
+    private EntityUid? GetExistingStation(EntityUid? station)
+    {
+        if (station == null || !station.Value.Valid || !Exists(station.Value))
+            return null;
+
+        return station.Value;
     }
 
     public List<EntityUid> GetStations()

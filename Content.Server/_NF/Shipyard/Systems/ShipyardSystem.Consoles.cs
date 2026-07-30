@@ -2385,8 +2385,20 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                             return false;
                         }
 
-                        if (_shuttle.TryFTLDockAtDock(restored, shuttle, stationGrid, selectedGate))
+                        if (_shuttle.TryFTLDockAtDockOrPlaceNearbyIfDockless(
+                                restored,
+                                shuttle,
+                                stationGrid,
+                                selectedGate))
+                        {
+                            if (!Comp<DockingComponent>(selectedGate).Docked)
+                            {
+                                _sawmill.Warning(
+                                    $"Persistent ship {stored.ShipId} has no usable airlock and was placed near selected gate {selectedGate}.");
+                            }
+
                             return true;
+                        }
 
                         _sawmill.Error(
                             $"Persistent ship call placement failed for {stored.ShipId}: selected gate {selectedGate} is free but no valid docking geometry was found for restored grid {restored}.");
