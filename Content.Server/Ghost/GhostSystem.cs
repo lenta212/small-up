@@ -30,6 +30,7 @@ using Content.Shared.Movement.Systems;
 using Content.Shared.Popups;
 using Content.Shared.Storage.Components;
 using Content.Shared.Tag;
+using Content.Shared._NF.Shipyard.Components;
 using Robust.Server.GameObjects;
 using Robust.Server.Player;
 using Robust.Shared.Configuration;
@@ -309,8 +310,9 @@ namespace Content.Server.Ghost
             bool isAdmin = _admin.IsAdmin(entity);
 
             // Only include admin ghosts if the requester is an admin
-            var warps = GetPlayerWarps(entity)
-                .Concat(GetLocationWarps(isAdmin));
+            var warps = GetLocationWarps(isAdmin);
+            if (isAdmin)
+                warps = GetPlayerWarps(entity).Concat(warps);
 
             if (isAdmin)
             {
@@ -340,6 +342,16 @@ namespace Content.Server.Ghost
                 return;
             }
 
+            if (!_admin.IsAdmin(attached) && IsRestrictedRegularGhostWarpTarget(target))
+            {
+                Log.Warning($"User {args.SenderSession.Name} tried to warp a regular ghost to a player or player shuttle: {msg.Target}");
+                _adminLog.Add(
+                    LogType.Action,
+                    LogImpact.Low,
+                    $"{EntityManager.ToPrettyString(attached):player} tried to ghost-warp to restricted target {EntityManager.ToPrettyString(target)}");
+                return;
+            }
+
             // Frontier: check admin status when warping to admin-only warp points
             if (!_admin.IsAdmin(attached) &&
                 TryComp<WarpPointComponent>(target, out var warpPoint) &&
@@ -362,6 +374,9 @@ namespace Content.Server.Ghost
                 Log.Warning($"User {args.SenderSession.Name} tried to ghostnado without being a ghost.");
                 return;
             }
+
+            if (!_admin.IsAdmin(uid))
+                return;
 
             if (_followerSystem.GetMostGhostFollowed() is not {} target)
                 return;
@@ -394,9 +409,27 @@ namespace Content.Server.Ghost
             {
                 if (warp.AdminOnly && !isAdmin) // Frontier: skip admin-only warp points if not an admin
                     continue; // Frontier
+                if (!isAdmin && IsOnPlayerOwnedShuttle(uid))
+                    continue;
 
                 yield return new GhostWarp(GetNetEntity(uid), warp.Location ?? Name(uid), true);
             }
+        }
+
+        private bool IsRestrictedRegularGhostWarpTarget(EntityUid target)
+        {
+            return HasComp<ActorComponent>(target) ||
+                   HasComp<MobStateComponent>(target) ||
+                   IsOnPlayerOwnedShuttle(target);
+        }
+
+        private bool IsOnPlayerOwnedShuttle(EntityUid target)
+        {
+            if (HasComp<ShipOwnershipComponent>(target))
+                return true;
+
+            var xform = Transform(target);
+            return xform.GridUid is { } grid && HasComp<ShipOwnershipComponent>(grid);
         }
 
         private IEnumerable<GhostWarp> GetPlayerWarps(EntityUid except)
