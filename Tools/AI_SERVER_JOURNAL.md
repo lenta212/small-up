@@ -1,3 +1,11 @@
+## 2026-07-30T05:36:59Z -- stored-ship compatibility repair authorized and fleet snapshots inventoried
+
+- Authorization/scope: after the read-only Hammer diagnosis, the operator explicitly said to fix it and to verify that every other ship can be called. This authorizes only a receipt-bound `server-release` hotfix and the necessary restart for batch `20260730-stored-ship-call-compat`, expiring at `2026-07-30T09:00:00Z`; client-static and AI-gateway mutations remain out of scope.
+- Fleet inventory: query-only SQLite inspection found 14 callable `Stored` snapshots and nine retired rows. The callable set contains 19,699,553 payload bytes across 14 records, with entity counts from 77 to 5,206 and source rounds 158 through 181. None has a presence lease. Owner identifiers and private payload content are not recorded in this journal.
+- Test evidence preparation: exported only the 14 stored snapshot payloads and non-owner test metadata through a query-only database connection into a temporary bundle, verified every database payload size/SHA256 during export, downloaded the 1,577,194-byte bundle with SHA256 `9eb475d7db38e72939d6962070ab87b139153944d85bcf037a75b53b530fe579`, and deleted the remote temporary archive. The bundle remains outside the repository and will not be committed or deployed.
+- Production scope/health: no database row, snapshot, lease, ship, player, round, service, config, package, firewall, client, or gateway state was changed. The game service remained active. The previously installed diagnostic journal was current before this operation.
+- Next action: add synthetic regressions for a reintroduced prototype and an invalid external `StationTracker`, apply the narrow compatibility fixes, then locally restore and roll back all 14 exported snapshots before running the full release gate.
+
 ## 2026-07-30T05:27:08Z -- persistent Hammer call failure diagnosed read-only
 
 - Report/result: investigated the operator's inability to call a stored ship in round 185. The request passed ownership/card and free-gate validation, reached the durable restore path, and failed at `2026-07-30T05:22:48Z` with `InvalidRequest: snapshot-restore-exception:KeyNotFoundException`; this is not a balance, deed, occupied-gate, or server-health rejection.

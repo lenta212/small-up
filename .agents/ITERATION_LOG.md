@@ -1,3 +1,10 @@
+## 2026-07-30T05:36:59Z -- fleet-wide stored-ship repair authorized and fixtures exported
+
+- Objective/scope: the operator authorized fixing the stored-ship call failure and explicitly expanded verification to every other callable ship. Policy batch `20260730-stored-ship-call-compat` permits only a receipt-bound server release through `2026-07-30T09:00:00Z`; no client-static or gateway mutation is included.
+- Read-only inventory: production contains 14 `Stored` and nine retired ship snapshots. The callable set totals 19,699,553 payload bytes, spans 77-5,206 entities per ship and source rounds 158-181, and has zero presence leases.
+- Fixture export: a query-only Python/SQLite pass verified each stored payload's recorded size and SHA256, wrote only payloads plus non-owner test metadata to a temporary ZIP, and removed the remote temporary file after download. Local external fixture SHA256 is `9eb475d7db38e72939d6962070ab87b139153944d85bcf037a75b53b530fe579`; it is outside the repository and must not be committed.
+- Production scope: no gameplay or durable state was mutated. The authorization/inventory journal mirror SHA256 `eb40a6491d25cb07ffbdf5f50a7983ad6f3fd8c00ea62bddbf281027ae90ca21` matches the host copy at `root:root`/`0644`, and the game service remained active. Next, build synthetic regressions, repair both compatibility defects, and restore/roll back all 14 copied snapshots locally before any production package is accepted.
+
 ## 2026-07-30T05:27:08Z -- stored Hammer restore failure isolated without mutation
 
 - Live finding: the operator's shipyard call passed authorization/card/free-gate checks and reached durable restore, then failed with `snapshot-restore-exception:KeyNotFoundException`. The partial grid and temporary map were rolled back; the server stayed active.
