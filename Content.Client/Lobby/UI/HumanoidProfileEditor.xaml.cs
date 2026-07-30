@@ -1296,6 +1296,15 @@ namespace Content.Client.Lobby.UI
             foreach (var department in departments)
             {
                 var departmentName = Loc.GetString(department.Name);
+                var jobs = department.Roles.Select(jobId => _prototypeManager.Index(jobId))
+                    .Where(job => job.SetPreference)
+                    .ToArray();
+
+                // Do not leave an empty department header and spacer in the lobby.
+                if (jobs.Length == 0)
+                    continue;
+
+                Array.Sort(jobs, JobUIComparer.Instance);
 
                 if (!_jobCategories.TryGetValue(department.ID, out var category))
                 {
@@ -1337,12 +1346,6 @@ namespace Content.Client.Lobby.UI
                     JobList.AddChild(category);
                 }
 
-                var jobs = department.Roles.Select(jobId => _prototypeManager.Index(jobId))
-                    .Where(job => job.SetPreference)
-                    .ToArray();
-
-                Array.Sort(jobs, JobUIComparer.Instance);
-
                 foreach (var job in jobs)
                 {
                     var jobContainer = new BoxContainer()
@@ -1363,7 +1366,7 @@ namespace Content.Client.Lobby.UI
                     };
                     var jobIcon = _prototypeManager.Index(job.Icon);
                     icon.Texture = jobIcon.Icon.Frame0();
-                    selector.Setup(items, job.LocalizedName, 200, job.LocalizedDescription, icon, job.Guides);
+                    selector.Setup(items, job.LocalizedName, 200, job.LocalizedDescription, icon, job.Guides, job.DisplayColor);
 
                     if (!_requirements.IsAllowed(job, (HumanoidCharacterProfile?)_preferencesManager.Preferences?.SelectedCharacter, out var reason))
                     {

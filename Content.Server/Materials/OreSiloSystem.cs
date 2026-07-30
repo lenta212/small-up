@@ -156,6 +156,10 @@ public sealed partial class OreSiloSystem : SharedOreSiloSystem
         var actorQuery = EntityQueryEnumerator<ActorComponent>();
         while (actorQuery.MoveNext(out var actorUid, out var actorComp))
         {
+            // Actor teardown can briefly leave the component without a session.
+            if (actorComp.PlayerSession == null)
+                continue;
+
             _silosToAdd.Clear();
             _activeSiloSessions.Add(actorComp.PlayerSession);
 

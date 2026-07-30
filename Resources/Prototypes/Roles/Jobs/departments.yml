@@ -34,6 +34,7 @@
   - Mercenary # Frontier
   - Pilot # Frontier
   - Borg # Frontier
+  - LuaMUnknownSurvivor
 
 - type: department
   id: CentralCommand

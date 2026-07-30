@@ -180,15 +180,23 @@ public sealed partial class HTNSystem : EntitySystem
                 return;
             }
 
+            // Restored/map-loaded HTN components can retain MapInit life stage
+            // without retaining their runtime-only blackboard owner entry.
+            if (!comp.Blackboard.ContainsKey(NPCBlackboard.Owner))
+                comp.Blackboard.SetValue(NPCBlackboard.Owner, uid);
+
             if (comp.PlanningJob != null)
             {
                 if (comp.PlanningJob.Exception != null)
                 {
-                    Log.Fatal($"Received exception on planning job for {uid}!");
+                    Log.Error($"Disabling HTN for {ToPrettyString(uid)} after a planning exception: {comp.PlanningJob.Exception}");
                     _npc.SleepNPC(uid);
-                    var exc = comp.PlanningJob.Exception;
                     RemComp<HTNComponent>(uid);
-                    throw exc;
+                    // Fault containment is still work performed for this tick.
+                    // Count it against npc.max_updates so a burst of broken
+                    // planners cannot bypass the scheduler budget.
+                    updates++;
+                    continue;
                 }
 
                 // If a new planning job has finished then handle it.
@@ -263,7 +271,18 @@ public sealed partial class HTNSystem : EntitySystem
                 comp.PlanningToken = null;
             }
 
-            Update(comp, frameTime);
+            try
+            {
+                Update(comp, frameTime);
+            }
+            catch (Exception e)
+            {
+                // A malformed runtime blackboard must not abort every entity-system update.
+                Log.Error($"Disabling HTN for {ToPrettyString(uid)} after an execution exception: {e}");
+                _npc.SleepNPC(uid);
+                RemComp<HTNComponent>(uid);
+            }
+
             count++;
             updates++;
         }

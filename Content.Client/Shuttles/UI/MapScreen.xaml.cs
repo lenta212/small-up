@@ -62,6 +62,7 @@ public sealed partial class MapScreen : BoxContainer
 
     public event Action<MapCoordinates, Angle>? RequestFTL;
     public event Action<NetEntity, Angle>? RequestBeaconFTL;
+    public event Action<Vector2, NetEntity>? RequestRadarTarget;
 
     // Mono
     public event Action<MapCoordinates, Angle>? RequestAutopilot;
@@ -576,6 +577,12 @@ public sealed partial class MapScreen : BoxContainer
         MapRadar.SetMap(coordinates.MapId, coordinates.Position, recentering: true);
     }
 
+    private void OnMapObjectTargetPress(GridMapObject mapObject)
+    {
+        var coordinates = _shuttles.GetMapCoordinates(mapObject);
+        RequestRadarTarget?.Invoke(coordinates.Position, _entManager.GetNetEntity(mapObject.Entity));
+    }
+
     public void SetMap(MapId mapId, Vector2 position)
     {
         MapRadar.SetMap(mapId, position);
@@ -625,6 +632,8 @@ public sealed partial class MapScreen : BoxContainer
 
         var gridContainer = new BoxContainer()
         {
+            Orientation = LayoutOrientation.Horizontal,
+            SeparationOverride = 4,
             Children =
             {
                 gridButton
@@ -638,6 +647,23 @@ public sealed partial class MapScreen : BoxContainer
         {
             OnMapObjectPress(mapObj);
         };
+
+        if (mapObj is GridMapObject gridMapObject &&
+            gridMapObject.Entity != _shuttleEntity &&
+            (_shuttleEntity is not { } shuttle ||
+             !_entManager.TryGetComponent<TransformComponent>(shuttle, out var shuttleXform) ||
+             shuttleXform.MapID == mapId))
+        {
+            var targetButton = new ShuttleConsoleButton
+            {
+                Text = Loc.GetString("shuttle-console-map-track"),
+                ToolTip = Loc.GetString("shuttle-console-map-track-tooltip"),
+                MinWidth = 42,
+                HorizontalExpand = false,
+            };
+            targetButton.OnPressed += _ => OnMapObjectTargetPress(gridMapObject);
+            gridContainer.AddChild(targetButton);
+        }
 
         if (gridContents.ChildCount > 1)
         {

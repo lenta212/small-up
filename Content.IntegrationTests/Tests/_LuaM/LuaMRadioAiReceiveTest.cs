@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using Content.Server._NF.Radio;
+using Content.Server._LuaM.Rescue;
 using Content.Server._LuaM.Sector;
 using Content.Server.Chat.V2;
 using Content.Server.Mind;
@@ -18,6 +19,9 @@ using Content.Shared._EinsteinEngines.Language.Systems;
 using Content.Shared.CCVar;
 using Content.Shared.Chat;
 using Content.Shared.Chat.V2.Repository;
+using Content.Shared.Mobs;
+using Content.Shared.Mobs.Components;
+using Content.Shared.NPC.Components;
 using Content.Shared.Radio;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
@@ -246,7 +250,7 @@ public sealed class LuaMRadioAiReceiveTest
             var proto = server.ResolveDependency<IPrototypeManager>();
             director = entMan.System<LuaMSectorAiDirectorSystem>();
             var handler = new StaticGatewayHandler(
-                "{\"reply\":\"Еду по текущему медсигналу. Держите коридор чистым и не трогайте пациента.\",\"action\":\"none\"}");
+                "{\"reply\":\"\u041c\u0435\u0434\u0433\u0440\u0443\u043f\u043f\u0430 \u043d\u0430 \u0441\u0432\u044f\u0437\u0438. \u0421\u0442\u0430\u0442\u0443\u0441 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d.\",\"action\":\"none\"}");
             director.SetGatewayHttpClientForTests(new HttpClient(handler));
             var testMap = await pair.CreateTestMap();
             EntityUid speaker = default;
@@ -257,6 +261,10 @@ public sealed class LuaMRadioAiReceiveTest
                 var mind = mindSystem.CreateMind(serverSession.UserId, "LuaMAibolitRadioGatewayTest");
                 mindSystem.TransferTo(mind, speaker);
                 playerMan.SetAttachedEntity(serverSession, speaker);
+
+                GetPrivateDictionary<NetUserId, TimeSpan>(director, "_nextPlayerWorldActionByUser").Clear();
+                GetPrivateDictionary<string, TimeSpan>(director, "_recentRadioAiRequests").Clear();
+                GetPrivateDictionary<string, TimeSpan>(director, "_recentAiRadioPayloads").Clear();
             });
 
             await pair.RunTicksSync(5);
@@ -264,7 +272,7 @@ public sealed class LuaMRadioAiReceiveTest
             var radioChannel = proto.Index<RadioChannelPrototype>(SharedChatSystem.CommonChannel);
             var language = SharedLanguageSystem.Universal;
             var component = new ActiveRadioComponent();
-            var messageText = "\u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u043d\u0443\u0436\u043d\u0430 \u043f\u043e\u043c\u043e\u0449\u044c \u043f\u0430\u0446\u0438\u0435\u043d\u0442\u0443";
+            var messageText = "\u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u0441\u0442\u0430\u0442\u0443\u0441";
             var message = new ChatMessage(ChatChannel.Radio, messageText, messageText, NetEntity.Invalid, null);
             var eventArgs = new RadioReceiveEvent(speaker, radioChannel, message, message, language, speaker, []);
 
@@ -296,12 +304,328 @@ public sealed class LuaMRadioAiReceiveTest
                 Assert.That(handler.LastBody, Does.Contain("\"allowedActions\":[\"none\"]"));
                 Assert.That(tokens, Is.Empty);
                 Assert.That(actors, Is.Empty);
-                Assert.That(payloads.Keys.Any(key => key.Contains("Еду по текущему медсигналу", StringComparison.Ordinal)), Is.True);
+                Assert.That(
+                    payloads.Keys.Any(key => key.Contains(
+                        "\u041c\u0435\u0434\u0433\u0440\u0443\u043f\u043f\u0430 \u043d\u0430 \u0441\u0432\u044f\u0437\u0438",
+                        StringComparison.Ordinal)),
+                    Is.True);
+                Assert.That(
+                    GetPrivateDictionary<NetUserId, TimeSpan>(director, "_nextPlayerWorldActionByUser"),
+                    Is.Empty,
+                    "A read-only status request must not claim the world-action cooldown.");
             });
         }
         finally
         {
             director?.ResetGatewayHttpClientForTests();
+            await pair.CleanReturnAsync();
+        }
+    }
+
+    [Test]
+    public async Task AibolitRadioHelpDispatchesActiveAgentToLivingSpeaker()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false
+        });
+
+        LuaMSectorAiDirectorSystem? director = null;
+
+        try
+        {
+            var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorGatewayUrl, "http://luam.invalid/propose_event");
+            var clientSession = pair.Client.Session;
+            Assert.That(clientSession, Is.Not.Null);
+
+            var playerMan = server.ResolveDependency<IPlayerManager>();
+            var serverSession = playerMan.GetSessionById(clientSession!.UserId);
+            var entMan = server.ResolveDependency<IEntityManager>();
+            var mindSystem = entMan.System<MindSystem>();
+            var proto = server.ResolveDependency<IPrototypeManager>();
+            director = entMan.System<LuaMSectorAiDirectorSystem>();
+            var handler = new StaticGatewayHandler("{\"reply\":\"unexpected\",\"action\":\"none\"}");
+            director.SetGatewayHttpClientForTests(new HttpClient(handler));
+            var testMap = await pair.CreateTestMap();
+            EntityUid speaker = default;
+            LuaMRescueAgentComponent rescue = default!;
+
+            await server.WaitPost(() =>
+            {
+                speaker = entMan.SpawnEntity("MobHuman", testMap.GridCoords);
+                var mind = mindSystem.CreateMind(serverSession.UserId, "LuaMAibolitRadioDispatchTest");
+                mindSystem.TransferTo(mind, speaker);
+                playerMan.SetAttachedEntity(serverSession, speaker);
+
+                var agent = entMan.SpawnEntity("LuaMRescueAgent", testMap.GridCoords);
+                rescue = entMan.GetComponent<LuaMRescueAgentComponent>(agent);
+                rescue.AutoAcquireTargets = false;
+                rescue.EvacuateTargetsToShuttle = false;
+
+                GetPrivateDictionary<NetUserId, TimeSpan>(director, "_nextPlayerWorldActionByUser").Clear();
+                GetPrivateDictionary<string, TimeSpan>(director, "_recentRadioAiRequests").Clear();
+                GetPrivateDictionary<string, TimeSpan>(director, "_recentAiRadioPayloads").Clear();
+            });
+
+            await pair.RunTicksSync(5);
+
+            var radioChannel = proto.Index<RadioChannelPrototype>(SharedChatSystem.CommonChannel);
+            var language = SharedLanguageSystem.Universal;
+            var component = new ActiveRadioComponent();
+            var dispatchText =
+                "\u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u044d\u0432\u0430\u043a\u0443\u0438\u0440\u0443\u0439 \u043c\u0435\u043d\u044f";
+            var dispatchMessage = new ChatMessage(
+                ChatChannel.Radio,
+                dispatchText,
+                dispatchText,
+                NetEntity.Invalid,
+                null);
+            var dispatchEvent = new RadioReceiveEvent(
+                speaker,
+                radioChannel,
+                dispatchMessage,
+                dispatchMessage,
+                language,
+                speaker,
+                []);
+            var retryText =
+                "\u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u043b\u0435\u0447\u0438 \u043c\u0435\u043d\u044f";
+            var retryMessage = new ChatMessage(
+                ChatChannel.Radio,
+                retryText,
+                retryText,
+                NetEntity.Invalid,
+                null);
+            var retryEvent = new RadioReceiveEvent(
+                speaker,
+                radioChannel,
+                retryMessage,
+                retryMessage,
+                language,
+                speaker,
+                []);
+            var method = typeof(LuaMSectorAiDirectorSystem).GetMethod(
+                "OnRadioReceive",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(method, Is.Not.Null, "Missing private OnRadioReceive method");
+
+            await server.WaitAssertion(() =>
+            {
+                var cooldowns =
+                    GetPrivateDictionary<NetUserId, TimeSpan>(director, "_nextPlayerWorldActionByUser");
+                var payloads = GetPrivateDictionary<string, TimeSpan>(director, "_recentAiRadioPayloads");
+
+                Assert.That(rescue.AssignedTarget, Is.Null);
+                Assert.That(rescue.TaskPatientTarget, Is.Null);
+                Assert.That(rescue.ManualOverrideTarget, Is.Null);
+
+                // Keep this test isolated from the automatic critical-state signal:
+                // the radio request itself must be the operation that assigns the patient.
+                var speakerMobState = entMan.GetComponent<MobStateComponent>(speaker);
+                var currentState = typeof(MobStateComponent).GetProperty("CurrentState");
+                Assert.That(currentState, Is.Not.Null);
+                currentState!.SetValue(speakerMobState, MobState.Critical);
+                Assert.That(currentState.GetValue(speakerMobState), Is.EqualTo(MobState.Critical));
+
+                method!.Invoke(director, new object[] { speaker, component, dispatchEvent });
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(rescue.AssignedTarget, Is.EqualTo(speaker));
+                    Assert.That(rescue.TaskPatientTarget, Is.EqualTo(speaker));
+                    Assert.That(rescue.ManualOverrideTarget, Is.EqualTo(speaker));
+                    Assert.That(cooldowns.ContainsKey(serverSession.UserId), Is.True);
+                    Assert.That(handler.Calls, Is.Zero, "An authoritative dispatch must bypass the gateway.");
+                    Assert.That(
+                        payloads.Keys.Any(key => key.Contains(
+                            "\u0412\u044b\u0437\u043e\u0432 \u043f\u0440\u0438\u043d\u044f\u0442",
+                            StringComparison.Ordinal)),
+                        Is.True);
+                });
+
+                var nextAllowed = cooldowns[serverSession.UserId];
+                var statusReply = director.HandleAibolitRadioRequest(
+                    serverSession,
+                    "\u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u0441\u0442\u0430\u0442\u0443\u0441",
+                    "integration status");
+                var helpReply = director.HandleAibolitRadioRequest(
+                    serverSession,
+                    "\u0410\u0439\u0431\u043e\u043b\u0438\u0442, \u0441\u043f\u0440\u0430\u0432\u043a\u0430",
+                    "integration help");
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(statusReply, Does.Contain(
+                        "\u041c\u0435\u0434\u043a\u0430\u043d\u0430\u043b \u0447\u0438\u0441\u0442\u044b\u0439"));
+                    Assert.That(helpReply, Does.Contain(
+                        "\u0434\u0430\u044e\u0442 \u0441\u043f\u0440\u0430\u0432\u043a\u0443 \u0431\u0435\u0437 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0439"));
+                    Assert.That(cooldowns[serverSession.UserId], Is.EqualTo(nextAllowed));
+                    Assert.That(rescue.AssignedTarget, Is.EqualTo(speaker));
+                    Assert.That(rescue.TaskPatientTarget, Is.EqualTo(speaker));
+                    Assert.That(rescue.ManualOverrideTarget, Is.EqualTo(speaker));
+                });
+
+                method.Invoke(director, new object[] { speaker, component, retryEvent });
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(cooldowns[serverSession.UserId], Is.EqualTo(nextAllowed));
+                    Assert.That(rescue.AssignedTarget, Is.EqualTo(speaker));
+                    Assert.That(rescue.TaskPatientTarget, Is.EqualTo(speaker));
+                    Assert.That(rescue.ManualOverrideTarget, Is.EqualTo(speaker));
+                    Assert.That(handler.Calls, Is.Zero);
+                    Assert.That(
+                        payloads.Keys.Any(key => key.Contains(
+                            "\u043e\u0445\u043b\u0430\u0436\u0434\u0430\u0435\u0442\u0441\u044f",
+                            StringComparison.OrdinalIgnoreCase)),
+                        Is.True);
+                });
+            });
+        }
+        finally
+        {
+            director?.ResetGatewayHttpClientForTests();
+            await pair.CleanReturnAsync();
+        }
+    }
+
+    [Test]
+    public async Task AibolitRadioHealthyCallerCannotPreemptBusyPatient()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+            DummyTicker = false
+        });
+
+        try
+        {
+            var server = pair.Server;
+            server.CfgMan.SetCVar(CCVars.LuaMAiDirectorEnabled, true);
+            var clientSession = pair.Client.Session;
+            Assert.That(clientSession, Is.Not.Null);
+
+            var playerMan = server.ResolveDependency<IPlayerManager>();
+            var serverSession = playerMan.GetSessionById(clientSession!.UserId);
+            var entMan = server.ResolveDependency<IEntityManager>();
+            var mindSystem = entMan.System<MindSystem>();
+            var director = entMan.System<LuaMSectorAiDirectorSystem>();
+            var testMap = await pair.CreateTestMap();
+            EntityUid speaker = default;
+            EntityUid currentPatient = default;
+            LuaMRescueAgentComponent rescue = default!;
+
+            await server.WaitPost(() =>
+            {
+                speaker = entMan.SpawnEntity("MobHuman", testMap.GridCoords);
+                entMan.RemoveComponent<NpcFactionMemberComponent>(speaker);
+                var mind = mindSystem.CreateMind(serverSession.UserId, "LuaMAibolitRadioBusyDispatchTest");
+                mindSystem.TransferTo(mind, speaker);
+                playerMan.SetAttachedEntity(serverSession, speaker);
+
+                var agent = entMan.SpawnEntity("LuaMRescueAgent", testMap.GridCoords);
+                rescue = entMan.GetComponent<LuaMRescueAgentComponent>(agent);
+                rescue.AutoAcquireTargets = false;
+                rescue.EvacuateTargetsToShuttle = false;
+                rescue.AutoAnalyzeBeforeTreatment = false;
+                rescue.AutoTreatWithCarriedItems = false;
+
+                currentPatient = entMan.SpawnEntity("MobHuman", testMap.GridCoords);
+                entMan.RemoveComponent<NpcFactionMemberComponent>(currentPatient);
+                var patientMobState = entMan.GetComponent<MobStateComponent>(currentPatient);
+                var currentState = typeof(MobStateComponent).GetProperty("CurrentState");
+                Assert.That(currentState, Is.Not.Null);
+                currentState!.SetValue(patientMobState, MobState.Critical);
+
+                rescue.AssignedTarget = currentPatient;
+                rescue.TaskPatientTarget = currentPatient;
+                rescue.TaskStage = LuaMRescueTaskStage.FollowingPatient;
+                rescue.ManualOverrideTarget = currentPatient;
+                rescue.ActivityContext.Target = currentPatient;
+                rescue.ActivityContext.Activity = LuaMRescueActivity.ApproachPatient;
+                rescue.ActivityContext.TerminalStatus = LuaMRescueTerminalStatus.Active;
+                rescue.ActivityContext.Generation = 17;
+
+                GetPrivateDictionary<NetUserId, TimeSpan>(director, "_nextPlayerWorldActionByUser").Clear();
+                GetPrivateDictionary<string, TimeSpan>(director, "_recentRadioAiRequests").Clear();
+                GetPrivateDictionary<string, TimeSpan>(director, "_recentAiRadioPayloads").Clear();
+            });
+
+            await server.WaitAssertion(() =>
+            {
+                var cooldowns =
+                    GetPrivateDictionary<NetUserId, TimeSpan>(director, "_nextPlayerWorldActionByUser");
+                var assignedTarget = rescue.AssignedTarget;
+                var taskPatientTarget = rescue.TaskPatientTarget;
+                var manualOverrideTarget = rescue.ManualOverrideTarget;
+                var activityTarget = rescue.ActivityContext.Target;
+                var generation = rescue.ActivityContext.Generation;
+                var reply = director.HandleAibolitRadioRequest(
+                    serverSession,
+                    "Айболит, эвакуируй меня",
+                    "integration busy healthy caller");
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(reply, Does.Contain("Вызов не принят"));
+                    Assert.That(cooldowns.ContainsKey(serverSession.UserId), Is.True);
+                    Assert.That(rescue.AssignedTarget, Is.EqualTo(assignedTarget));
+                    Assert.That(rescue.TaskPatientTarget, Is.EqualTo(taskPatientTarget));
+                    Assert.That(rescue.ManualOverrideTarget, Is.EqualTo(manualOverrideTarget));
+                    Assert.That(rescue.ActivityContext.Target, Is.EqualTo(activityTarget));
+                    Assert.That(rescue.ActivityContext.Generation, Is.EqualTo(generation));
+                    Assert.That(rescue.TaskPatientTarget, Is.EqualTo(currentPatient));
+                    Assert.That(rescue.ManualOverrideTarget, Is.EqualTo(currentPatient));
+                });
+
+                var nextAllowed = cooldowns[serverSession.UserId];
+                var retry = director.HandleAibolitRadioRequest(
+                    serverSession,
+                    "Айболит, лечи меня",
+                    "integration busy healthy caller retry");
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(retry, Does.Contain("охлаждается").IgnoreCase);
+                    Assert.That(cooldowns[serverSession.UserId], Is.EqualTo(nextAllowed));
+                    Assert.That(rescue.AssignedTarget, Is.EqualTo(assignedTarget));
+                    Assert.That(rescue.TaskPatientTarget, Is.EqualTo(taskPatientTarget));
+                    Assert.That(rescue.ManualOverrideTarget, Is.EqualTo(manualOverrideTarget));
+                    Assert.That(rescue.ActivityContext.Target, Is.EqualTo(activityTarget));
+                    Assert.That(rescue.ActivityContext.Generation, Is.EqualTo(generation));
+                    Assert.That(rescue.TaskPatientTarget, Is.EqualTo(currentPatient));
+                    Assert.That(rescue.ManualOverrideTarget, Is.EqualTo(currentPatient));
+                });
+
+                cooldowns.Clear();
+                var speakerMobState = entMan.GetComponent<MobStateComponent>(speaker);
+                var currentState = typeof(MobStateComponent).GetProperty("CurrentState");
+                Assert.That(currentState, Is.Not.Null);
+                currentState!.SetValue(speakerMobState, MobState.Critical);
+                var busyReply = director.HandleAibolitRadioRequest(
+                    serverSession,
+                    "Айболит, эвакуируй меня",
+                    "integration busy injured caller");
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(busyReply, Does.Contain("Вызов не принят"));
+                    Assert.That(cooldowns.ContainsKey(serverSession.UserId), Is.True);
+                    Assert.That(rescue.AssignedTarget, Is.EqualTo(assignedTarget));
+                    Assert.That(rescue.TaskPatientTarget, Is.EqualTo(taskPatientTarget));
+                    Assert.That(rescue.ManualOverrideTarget, Is.EqualTo(manualOverrideTarget));
+                    Assert.That(rescue.ActivityContext.Target, Is.EqualTo(activityTarget));
+                    Assert.That(rescue.ActivityContext.Generation, Is.EqualTo(generation));
+                });
+            });
+        }
+        finally
+        {
             await pair.CleanReturnAsync();
         }
     }

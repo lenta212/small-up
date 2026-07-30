@@ -296,6 +296,18 @@ public abstract partial class ServerDbBase
                 request,
                 LuaMShipPersistenceWriteStatus.RevisionConflict);
         }
+        catch (Exception exception) when (!commitAttempted && exception is DbUpdateException or DbException)
+        {
+            // SaveChanges runs inside an explicit transaction. If it fails before
+            // CommitAsync starts, disposal rolls the transaction back and the
+            // local operation is known to have failed. Another concurrent caller
+            // may still have committed this exact idempotent request, so re-read
+            // before reporting a clean failure.
+            _opsLog.Warning($"LuaM ship snapshot store was rejected before commit: {exception.Message}");
+            return await ResolveShipStoreFailureAsync(
+                request,
+                LuaMShipPersistenceWriteStatus.InvalidState);
+        }
         catch (Exception exception) when (exception is DbUpdateException or DbException)
         {
             _opsLog.Warning($"LuaM ship snapshot store outcome requires re-read: {exception.Message}");

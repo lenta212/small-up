@@ -73,6 +73,7 @@ shipyard-console-no-stored-ship = The selected stored ship is no longer availabl
 shipyard-console-call-pending = This ship or ID card is already being processed. Please wait.
 shipyard-console-call-failed = Ship call rejected: {$reason}
 shipyard-console-call-success = Ship called to gate “{$gate}”.
+shipyard-console-call-success-nearby = Ship delivered safely near the station.
 shipyard-console-gate-invalid = The selected gate is occupied or unavailable.
 shipyard-console-park-docked = The ship must be docked to this station's gates.
 shipyard-console-park-failed = Ship storage rejected: {$reason}

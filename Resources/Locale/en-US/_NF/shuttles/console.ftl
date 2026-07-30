@@ -7,6 +7,18 @@ shuttle-console-maximum-speed-unlimited = ○ Speed limit disabled.
 shuttle-console-maximum-speed-invalid = ⚠ Enter a finite non-negative speed in m/s.
 shuttle-console-maximum-speed-valid = ✓ Speed limit: {$speed} m/s.
 
+shuttle-console-target = Radar target
+shuttle-console-set-target = Set target
+shuttle-console-set-target-description = Sets a shared radar target at the entered sector coordinates.
+shuttle-console-hide-target = Hide
+shuttle-console-hide-target-description = Hides or shows the shared target on this shuttle's radar displays.
+shuttle-console-target-name = Target
+shuttle-console-target-feedback-empty = ○ No radar target selected.
+shuttle-console-target-feedback-invalid = ⚠ Enter finite X and Y coordinates between -1000000 and 1000000.
+shuttle-console-target-feedback-active = ⌖ Target: X {$x}, Y {$y}.
+shuttle-console-map-track = ⌖
+shuttle-console-map-track-tooltip = Set this shuttle as the shared radar target.
+
 shuttle-console-iff-search = Search IFF
 shuttle-console-shield-label = Shields
 shuttle-console-inertia-dampener-off = Cruise

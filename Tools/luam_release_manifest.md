@@ -304,6 +304,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File Tools\build_luam_release_pac
 The package is written under `DeploymentPackages\LuaM` and includes a schema-v2 `PACKAGE_MANIFEST.json`. It binds the complete payload record digest to the readiness worktree digest, Git HEAD, and exact policy SHA256; it contains no absolute source-root path.
 It also includes the generated admin-rank SQL/markdown artifacts under `DeploymentPackages\LuaM`.
 The package also includes LuaM-owned resources: config presets, locales, prototypes, guidebook XML, textures, server intro text, and key linked code/resources outside `_LuaM` that are required by the validator.
+`pendingLocalIntegrationBatch.packageFiles` is the durable, clean-tree source selection for the current batch. Every declared path is policy-required and packaged even after the implementing commit removes it from `git diff`; `packageScopes` remains the audit boundary for additional dirty-tree changes.
 
 ## Build live server release
 

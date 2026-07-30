@@ -118,6 +118,84 @@ public sealed class LuaMRescueNavigationRuntimeTest
     }
 
     [Test]
+    public async Task AgentProgressReprobesInBackgroundWithoutClearingFollowTarget()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapSystem = server.System<SharedMapSystem>();
+        var navigation = entities.System<LuaMRescueNavigationSystem>();
+        var rescueSystem = entities.System<LuaMRescueAgentSystem>();
+        var transform = entities.System<SharedTransformSystem>();
+        var map = await pair.CreateTestMap();
+
+        await server.WaitPost(() =>
+        {
+            var gravity = entities.EnsureComponent<GravityComponent>(map.Grid);
+            entities.System<GravitySystem>().EnableGravity(map.Grid, gravity);
+        });
+
+        EntityUid agent = default;
+        EntityUid target = default;
+        await server.WaitAssertion(() =>
+        {
+            BuildHorizontalFloor(mapSystem, map, 0, 23);
+            agent = entities.SpawnEntity("LuaMRescueAgent", GridCoordinates(map.Grid, 0.5f, 0.5f));
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.EvacuateTargetsToShuttle = false;
+            rescue.AutoAnalyzeBeforeTreatment = false;
+            rescue.AutoTreatWithCarriedItems = false;
+            target = entities.SpawnEntity("MobHuman", GridCoordinates(map.Grid, 23.5f, 0.5f));
+        });
+
+        var completed = await AwaitCompletedProbe(pair, navigation, agent, target, RescueActionRange);
+        Assert.That(completed.State, Is.EqualTo(LuaMRescuePathProbeState.Reachable));
+
+        await server.WaitAssertion(() =>
+        {
+            Assert.That(rescueSystem.TryOrderAgent(agent, target, out var status), Is.True, status);
+            var htn = entities.GetComponent<HTNComponent>(agent);
+            Assert.That(
+                htn.Blackboard.TryGetValue<EntityCoordinates>(
+                    NPCBlackboard.FollowTarget,
+                    out var follow,
+                    entities),
+                Is.True);
+            Assert.That(follow.EntityId, Is.EqualTo(target));
+
+            // Ordinary route progress exceeds the old 0.5 m invalidation
+            // threshold. Force the next coordinator refresh to exercise the
+            // background re-probe immediately and deterministically.
+            transform.SetLocalPosition(agent, new Vector2(1.5f, 0.5f));
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.TargetRefreshAccumulator = rescue.TargetRefreshInterval;
+        });
+
+        await pair.RunTicksSync(1);
+
+        await server.WaitAssertion(() =>
+        {
+            var htn = entities.GetComponent<HTNComponent>(agent);
+            Assert.That(
+                htn.Blackboard.TryGetValue<EntityCoordinates>(
+                    NPCBlackboard.FollowTarget,
+                    out var follow,
+                    entities),
+                Is.True,
+                "A background route refresh caused by rescuer progress must not stop FollowCompound.");
+            Assert.That(follow.EntityId, Is.EqualTo(target));
+
+            var visible = navigation.ProbeRoute(agent, target, RescueActionRange);
+            Assert.That(
+                visible.State,
+                Is.EqualTo(LuaMRescuePathProbeState.Reachable),
+                "The last authoritative route must remain usable while its background replacement is pending.");
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
     public async Task DifferentMapAndDifferentGridAreRejectedBeforePathfinding()
     {
         await using var pair = await PoolManager.GetServerClient();

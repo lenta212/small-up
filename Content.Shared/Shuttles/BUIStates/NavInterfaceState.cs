@@ -1,3 +1,4 @@
+using System.Numerics;
 using Robust.Shared.Map;
 using Robust.Shared.Serialization;
 using Content.Shared._NF.Shuttles.Events; // Frontier - InertiaDampeningMode access
@@ -43,6 +44,14 @@ public sealed class NavInterfaceState
     /// Frontier: settable coordinate visibility
     /// </summary>
     public bool HideCoords = false;
+
+    /// <summary>
+    /// Shared shuttle radar target. The position is also the last known position
+    /// when <see cref="TargetEntity"/> is no longer available to the client.
+    /// </summary>
+    public Vector2? Target;
+    public NetEntity? TargetEntity;
+    public bool HideTarget = true;
     // End Frontier fields
 
     // Forge-Change-Start

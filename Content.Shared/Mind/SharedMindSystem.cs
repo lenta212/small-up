@@ -335,6 +335,12 @@ public abstract partial class SharedMindSystem : EntitySystem
     {
     }
 
+    public void ClearMindContainer(EntityUid uid, MindContainerComponent component)
+    {
+        component.Mind = null;
+        Dirty(uid, component);
+    }
+
     public virtual void ControlMob(EntityUid user, EntityUid target) {}
 
     public virtual void ControlMob(NetUserId user, EntityUid target) {}

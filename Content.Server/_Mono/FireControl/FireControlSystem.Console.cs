@@ -3,6 +3,7 @@
 
 using Content.Server._Mono.Ships.Systems;
 using Content.Server.Administration.Logs;
+using Content.Server.Shuttles.Events;
 using Content.Server.Shuttles.Systems;
 using Content.Shared._Mono.FireControl;
 using Content.Shared.Database;
@@ -47,6 +48,7 @@ public sealed partial class FireControlSystem : EntitySystem
         SubscribeLocalEvent<FireControlConsoleComponent, FireControlConsoleFireMessage>(OnFire);
         SubscribeLocalEvent<FireControlConsoleComponent, BoundUIOpenedEvent>(OnUIOpened);
         SubscribeLocalEvent<FireControlConsoleComponent, ActivatableUIOpenAttemptEvent>(OnConsoleUIOpenAttempt);
+        SubscribeLocalEvent<RadarTargetChangedEvent>(OnRadarTargetChanged);
     }
 
     // scuffed one-time check of all station control consoles to ensure they're already refreshed
@@ -78,6 +80,11 @@ public sealed partial class FireControlSystem : EntitySystem
     {
         RemoveConsoleGuidance(uid);
         UnregisterConsole(uid, component);
+    }
+
+    private void OnRadarTargetChanged(RadarTargetChangedEvent args)
+    {
+        RefreshConsolesOnGrid(args.GridUid);
     }
 
     private void DoRefreshServer(EntityUid uid, FireControlConsoleComponent component)

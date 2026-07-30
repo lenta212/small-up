@@ -174,6 +174,13 @@ foreach ($requiredFile in $requiredFiles) {
     Assert-Contract (Test-Path -LiteralPath $fullPath -PathType Leaf) "Policy-required release file does not exist: $requiredFile"
 }
 
+$declaredBatchFiles = @($policy.pendingLocalIntegrationBatch.packageFiles)
+Assert-Contract ($declaredBatchFiles.Count -gt 0) "pendingLocalIntegrationBatch.packageFiles must not be empty."
+foreach ($batchFile in $declaredBatchFiles) {
+    $normalizedBatchFile = ConvertTo-LuaMReleaseRepoPath -Path ([string]$batchFile)
+    Assert-Contract ($normalizedBatchFile -in $requiredFiles) "Clean-tree package selection does not require current batch file: $normalizedBatchFile"
+}
+
 $declaredPackageScopes = @($policy.pendingLocalIntegrationBatch.packageScopes)
 Assert-Contract ($declaredPackageScopes.Count -gt 0) "pendingLocalIntegrationBatch.packageScopes must not be empty."
 $packageScopes = @(Get-LuaMReleaseGatePackageScopes -Policy $policy)
@@ -214,6 +221,7 @@ Assert-Contract ($readinessText.Contains('$requiredEvidenceRequested')) "Readine
 $builderText = Get-Content -LiteralPath (Join-Path $root "Tools/build_luam_release_package.ps1") -Raw -Encoding UTF8
 Assert-Contract ($builderText.Contains('Get-LuaMReleaseApprovedOutsidePackageFiles')) "Package builder does not consume the policy-owned outside-package allowlist."
 Assert-Contract ($builderText.Contains('Get-LuaMReleaseExcludedLocalArtifacts')) "Package builder does not consume policy-owned local-artifact exclusions."
+Assert-Contract ($builderText.Contains('$releaseFiles + $policyRequiredFiles')) "Package builder does not select policy-declared batch files independently of git diff."
 Assert-Contract ($builderText.Contains('Get-LuaMWorktreeReceipt')) "Package builder does not bind readiness to a stable worktree receipt."
 Assert-Contract ($builderText.Contains('payloadDigestSha256')) "Package builder does not bind its complete payload record set."
 Assert-Contract (-not $builderText.Contains('sourceRoot = $root')) "Package manifest leaks an absolute sourceRoot."
@@ -400,6 +408,7 @@ $result = [pscustomobject]@{
     schemaVersion = [int] $gate.schemaVersion
     remoteDeployFrozen = [bool] $policy.remoteDeployFrozen
     requiredFileCount = $requiredFiles.Count
+    batchFileCount = $declaredBatchFiles.Count
     packageScopeCount = $packageScopes.Count
     productionTests = $testNames
     smokeChecks = $smokeNames

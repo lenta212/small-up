@@ -175,16 +175,15 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         }
 
         var releaseReservation = true;
-        EntityUid? stagedShuttleUid = null;
+        var finalizationState = new ShuttlePurchaseFinalizationState();
         var creationAttempted = false;
-        var targetDeedPublished = false;
         var finalizationAttempted = false;
         var finalizationRecoveryRequired = false;
         string? finalizationFailure = null;
 
         try
         {
-            bool FinalizeAfterCommit()
+            async Task<bool> FinalizeAfterCommit()
             {
                 finalizationAttempted = true;
                 if (!TryValidateShuttlePurchase(
@@ -203,20 +202,22 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                 try
                 {
                     creationAttempted = true;
-                    var finalized = TryCreatePurchasedShuttle(
+                    var finalized = await TryCreatePurchasedShuttleAsync(
                         shipyardConsoleUid,
                         player,
                         args,
                         finalContext,
                         purchaseReservationId,
-                        ref stagedShuttleUid,
-                        ref targetDeedPublished,
-                        out finalizationFailure);
-                    if (!finalized && stagedShuttleUid != null)
+                        finalizationState);
+                    finalizationFailure = finalizationState.Failure;
+                    if (!finalized && finalizationState.StagedShuttleUid != null)
                     {
-                        if (TryCleanupFailedShuttlePurchase(targetId, stagedShuttleUid, creationAttempted))
+                        if (await TryCleanupFailedShuttlePurchaseAsync(
+                                targetId,
+                                finalizationState.StagedShuttleUid,
+                                creationAttempted))
                         {
-                            stagedShuttleUid = null;
+                            finalizationState.StagedShuttleUid = null;
                             return false;
                         }
 
@@ -232,7 +233,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                 {
                     _sawmill.Error(
                         $"CRITICAL: shuttle purchase requires reconciliation for user {userId}, target {targetId}, " +
-                        $"shuttle {stagedShuttleUid}: {exception}");
+                        $"shuttle {finalizationState.StagedShuttleUid}: {exception}");
                     finalizationFailure = exception.Message;
                     finalizationRecoveryRequired = true;
                     return true;
@@ -240,10 +241,13 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                 catch (Exception exception)
                 {
                     _sawmill.Error(
-                        $"Shuttle purchase finalizer failed for user {userId}, target {targetId}, shuttle {stagedShuttleUid}: {exception}");
+                        $"Shuttle purchase finalizer failed for user {userId}, target {targetId}, shuttle {finalizationState.StagedShuttleUid}: {exception}");
 
-                    if (!targetDeedPublished &&
-                        TryCleanupFailedShuttlePurchase(targetId, stagedShuttleUid, creationAttempted))
+                    if (!finalizationState.TargetDeedPublished &&
+                        await TryCleanupFailedShuttlePurchaseAsync(
+                            targetId,
+                            finalizationState.StagedShuttleUid,
+                            creationAttempted))
                     {
                         finalizationFailure = Loc.GetString("shipyard-console-purchase-creation-failed");
                         return false;
@@ -260,7 +264,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             bool committed;
             if (initialContext.Quote.VoucherUsed)
             {
-                committed = FinalizeAfterCommit();
+                committed = await FinalizeAfterCommit();
             }
             else
             {
@@ -281,7 +285,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                 return;
             }
 
-            if (finalizationRecoveryRequired || stagedShuttleUid == null)
+            if (finalizationRecoveryRequired || finalizationState.StagedShuttleUid == null)
             {
                 releaseReservation = false;
                 BlockShuttlePurchase(userId, targetId, purchaseReservationId);
@@ -302,7 +306,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             catch (Exception exception)
             {
                 _sawmill.Error(
-                    $"Committed shuttle purchase for {stagedShuttleUid} but could not refresh its console UI: {exception}");
+                    $"Committed shuttle purchase for {finalizationState.StagedShuttleUid} but could not refresh its console UI: {exception}");
             }
         }
         catch (BankMutationRollbackException exception)
@@ -481,17 +485,15 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         return true;
     }
 
-    private bool TryCreatePurchasedShuttle(
+    private async Task<bool> TryCreatePurchasedShuttleAsync(
         EntityUid shipyardConsoleUid,
         EntityUid player,
         ShipyardConsolePurchaseMessage args,
         ShipyardPurchaseContext context,
         Guid purchaseReservationId,
-        ref EntityUid? stagedShuttleUid,
-        ref bool targetDeedPublished,
-        out string? failure)
+        ShuttlePurchaseFinalizationState state)
     {
-        failure = null;
+        state.Failure = null;
         var component = context.Component;
         var targetId = context.TargetId;
         var idCard = context.IdCard;
@@ -502,19 +504,22 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
         if (!TryPurchaseShuttle(station, vessel.ShuttlePath, out var shuttleUidOut, context.SelectedGate))
         {
-            failure = Loc.GetString("shipyard-console-purchase-creation-failed");
+            state.Failure = Loc.GetString("shipyard-console-purchase-creation-failed");
             return false;
         }
 
         var shuttleUid = shuttleUidOut.Value;
-        stagedShuttleUid = shuttleUid;
+        state.StagedShuttleUid = shuttleUid;
         if (!_entityManager.TryGetComponent<ShuttleComponent>(shuttleUid, out var shuttle))
         {
-            if (!TryCleanupFailedShuttlePurchase(targetId, stagedShuttleUid, creationAttempted: true))
+            if (!await TryCleanupFailedShuttlePurchaseAsync(
+                    targetId,
+                    state.StagedShuttleUid,
+                    creationAttempted: true))
                 throw new InvalidOperationException($"Could not clean invalid staged shuttle {shuttleUid}.");
 
-            stagedShuttleUid = null;
-            failure = Loc.GetString("shipyard-console-purchase-creation-failed");
+            state.StagedShuttleUid = null;
+            state.Failure = Loc.GetString("shipyard-console-purchase-creation-failed");
             return false;
         }
 
@@ -523,11 +528,14 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
         if (ev.Cancelled)
         {
-            if (!TryCleanupFailedShuttlePurchase(targetId, stagedShuttleUid, creationAttempted: true))
+            if (!await TryCleanupFailedShuttlePurchaseAsync(
+                    targetId,
+                    state.StagedShuttleUid,
+                    creationAttempted: true))
                 throw new InvalidOperationException($"Could not clean cancelled staged shuttle {shuttleUid}.");
 
-            stagedShuttleUid = null;
-            failure = Loc.GetString(ev.CancelReason);
+            state.StagedShuttleUid = null;
+            state.Failure = Loc.GetString(ev.CancelReason);
             return false;
         }
 
@@ -615,7 +623,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             currentComponent.TargetIdSlot.ContainerSlot?.ContainedEntity != targetId ||
             HasComp<ShuttleDeedComponent>(targetId))
         {
-            failure = Loc.GetString("shipyard-console-purchase-changed");
+            state.Failure = Loc.GetString("shipyard-console-purchase-changed");
             return false;
         }
 
@@ -633,7 +641,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         deedID.DeedHolder = targetId;
         deedID.PersistentShipId = null;
         Dirty(targetId, deedID);
-        targetDeedPublished = true;
+        state.TargetDeedPublished = true;
 
         if (voucher != null)
         {
@@ -723,27 +731,26 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         {
             if (!TryComp<ShipOwnershipComponent>(shuttleUid, out var ownership))
             {
-                failure = "Persistent ship registration requires authoritative ownership.";
+                state.Failure = "Persistent ship registration requires authoritative ownership.";
                 return false;
             }
 
-            var registrationTask = RegisterPurchasedShipAsync(
+            var registration = await RegisterPurchasedShipAsync(
                 shuttleUid,
                 ownership.OwnerUserId,
                 vessel.ID,
                 deedShuttle,
                 vessel.Price);
-            _taskManager.BlockWaitOnTask(registrationTask);
-            var registration = registrationTask.GetAwaiter().GetResult();
             if (!registration.Success)
             {
                 _sawmill.Error(
                     $"Persistent ship registration failed for shuttle {shuttleUid}, owner {ownership.OwnerUserId}: " +
                     $"{registration.Status}: {registration.Reason}");
-                failure = $"Persistent ship registration failed: {registration.Reason ?? registration.Status.ToString()}";
+                state.Failure =
+                    $"Persistent ship registration failed: {registration.Reason ?? registration.Status.ToString()}";
 
                 if (registration.Status == LuaMShipPersistenceWriteStatus.UnknownOutcome)
-                    throw new ShuttlePurchaseRecoveryRequiredException(failure);
+                    throw new ShuttlePurchaseRecoveryRequiredException(state.Failure);
 
                 return false;
             }
@@ -757,7 +764,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                 _sawmill.Error(
                     $"Persistent ship security binding failed for shuttle {shuttleUid}, " +
                     $"ship {persistentIdentity.ShipId}: {securityBindingFailure}");
-                failure = $"Persistent ship security binding failed: {securityBindingFailure}";
+                state.Failure = $"Persistent ship security binding failed: {securityBindingFailure}";
                 return false;
             }
 
@@ -827,7 +834,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         return _shipPersistence.RegisterAsync(shuttleUid, ownerUserId, metadata, DateTime.UtcNow);
     }
 
-    private bool TryCleanupFailedShuttlePurchase(
+    private async Task<bool> TryCleanupFailedShuttlePurchaseAsync(
         EntityUid targetId,
         EntityUid? stagedShuttleUid,
         bool creationAttempted)
@@ -845,12 +852,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                 _shipPersistence.ActiveLeases.Any(active =>
                     active.ShipId == identity.ShipId && active.Grid == shuttleUid))
             {
-                var retirementTask = _shipPersistence.RetireAsync(
+                var retirement = await _shipPersistence.RetireAsync(
                     identity.ShipId,
                     "failed shipyard purchase cleanup",
                     DateTime.UtcNow);
-                _taskManager.BlockWaitOnTask(retirementTask);
-                var retirement = retirementTask.GetAwaiter().GetResult();
                 if (!retirement.Success)
                 {
                     _sawmill.Error(
@@ -912,6 +917,18 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         EntityUid StationUid,
         EntityUid SelectedGate,
         ShipyardPurchaseQuote Quote);
+
+    private sealed class ShuttlePurchaseFinalizationState
+    {
+        public EntityUid? StagedShuttleUid;
+        public bool TargetDeedPublished;
+        public string? Failure;
+    }
+
+    private readonly record struct PersistentDeedAuthorization(
+        bool Authorized,
+        NetUserId ActorUserId,
+        Guid? PersistentShipId);
 
     private sealed class ShuttlePurchaseRecoveryRequiredException(string message) : Exception(message);
 
@@ -989,17 +1006,16 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return;
         }
 
-        if (!TryAuthorizePersistentDeedForActor(
-                player,
-                targetId,
-                deed,
-                out var deedOwnerUserId,
-                out var persistentShipId))
+        var authorization = await AuthorizePersistentDeedForActorAsync(player, targetId, deed);
+        if (!authorization.Authorized)
         {
             ConsolePopup(player, Loc.GetString("shipyard-console-owner-denied"));
-            PlayDenySound(player, uid, component);
+            if (component != null)
+                PlayDenySound(player, uid, component);
             return;
         }
+        var deedOwnerUserId = authorization.ActorUserId;
+        var persistentShipId = authorization.PersistentShipId;
 
         if (deed.ShuttleUid is not { Valid: true } shuttleUid || Deleted(shuttleUid))
         {
@@ -1093,9 +1109,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             string? soldName = null;
             ShipyardSaleResult finalValidation = default;
 
-            bool FinalizeAfterCommit()
+            async Task<bool> FinalizeAfterCommit()
             {
                 finalizeAttempted = true;
+                var currentOwnerRecords = await GetOwnerShipRecordsAsync(deedOwnerUserId);
                 if (!IsDeedMutationReservationHeld(targetId, deedReservationId) ||
                     !TryValidateReservedShuttleSale(
                         uid,
@@ -1108,6 +1125,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                         uiKey,
                         voucherUsed,
                         quote,
+                        currentOwnerRecords,
                         out soldOwner,
                         out soldName,
                         out var finalAppraisal,
@@ -1120,12 +1138,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                 {
                     if (persistentShipId is { } shipId)
                     {
-                        var retirementTask = _shipPersistence.RetireAsync(
+                        var retirement = await _shipPersistence.RetireAsync(
                             shipId,
                             "shipyard sale",
                             DateTime.UtcNow);
-                        _taskManager.BlockWaitOnTask(retirementTask);
-                        var retirement = retirementTask.GetAwaiter().GetResult();
                         if (!retirement.Success)
                         {
                             _sawmill.Error(
@@ -1156,7 +1172,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             bool committed;
             if (voucherUsed || quote.NetPayout <= 0)
             {
-                committed = FinalizeAfterCommit();
+                committed = await FinalizeAfterCommit();
             }
             else
             {
@@ -1282,6 +1298,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         ShipyardConsoleUiKey uiKey,
         bool voucherUsed,
         ShipyardSaleQuote expectedQuote,
+        IReadOnlyList<LuaMShipRegistryRecord> ownerRecords,
         out string? soldOwner,
         out string? soldName,
         out int finalAppraisal,
@@ -1313,7 +1330,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
              identity.ShipId != shipId ||
              !TryComp<ShipOwnershipComponent>(shuttleUid, out var ownership) ||
              ownership.OwnerUserId != deedOwnerUserId ||
-             !GetOwnerShipRecords(currentSession.UserId).Any(record => record.ShipId == shipId)))
+             !ownerRecords.Any(record => record.ShipId == shipId)))
         {
             failure.Error = ShipyardSaleError.InvalidShip;
             return false;
@@ -1681,10 +1698,43 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         EntityUid player,
         ShipyardConsoleUiKey uiKey)
     {
+        _ = ObserveRefreshStateForActorAsync(uid, player, uiKey);
+    }
+
+    private async Task ObserveRefreshStateForActorAsync(
+        EntityUid uid,
+        EntityUid player,
+        ShipyardConsoleUiKey uiKey)
+    {
+        try
+        {
+            await RefreshStateForActorAsync(uid, player, uiKey);
+        }
+        catch (Exception exception)
+        {
+            _sawmill.Error($"Could not refresh persistent shipyard state for {player} at {uid}: {exception}");
+        }
+    }
+
+    private async Task RefreshStateForActorAsync(
+        EntityUid uid,
+        EntityUid player,
+        ShipyardConsoleUiKey uiKey)
+    {
         if (!_player.TryGetSessionByEntity(player, out var session))
             return;
 
-        var records = GetOwnerShipRecords(session.UserId);
+        var ownerUserId = session.UserId;
+        var records = await GetOwnerShipRecordsAsync(ownerUserId);
+        if (Deleted(uid) ||
+            Deleted(player) ||
+            !_player.TryGetSessionByEntity(player, out session) ||
+            session.UserId != ownerUserId ||
+            !TryComp<ShipyardConsoleComponent>(uid, out var component))
+        {
+            return;
+        }
+
         var storedShips = records
             .Where(IsCallableStoredShip)
             .OrderBy(record => GetShipDisplayName(record), StringComparer.OrdinalIgnoreCase)
@@ -1772,13 +1822,11 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         _ui.ServerSendUiMessage(uid, uiKey, new ShipyardConsoleStateMessage(newState), player);
     }
 
-    private IReadOnlyList<LuaMShipRegistryRecord> GetOwnerShipRecords(NetUserId ownerUserId)
+    private async Task<IReadOnlyList<LuaMShipRegistryRecord>> GetOwnerShipRecordsAsync(NetUserId ownerUserId)
     {
         try
         {
-            var task = _serverDb.GetLuaMShipSnapshotsByOwnerAsync(ownerUserId);
-            _taskManager.BlockWaitOnTask(task);
-            return task.GetAwaiter().GetResult();
+            return await _serverDb.GetLuaMShipSnapshotsByOwnerAsync(ownerUserId);
         }
         catch (Exception exception)
         {
@@ -1851,22 +1899,26 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                ownership.OwnerUserId == actorUserId;
     }
 
-    private bool TryAuthorizePersistentDeedForActor(
+    private async Task<PersistentDeedAuthorization> AuthorizePersistentDeedForActorAsync(
         EntityUid player,
         EntityUid deedUid,
-        ShuttleDeedComponent deed,
-        out NetUserId actorUserId,
-        out Guid? persistentShipId)
+        ShuttleDeedComponent deed)
     {
-        actorUserId = default;
-        persistentShipId = null;
         if (!_player.TryGetSessionByEntity(player, out var session))
-            return false;
+            return default;
 
-        actorUserId = session.UserId;
-        var records = GetOwnerShipRecords(session.UserId);
-        if (!IsDeedOwnedByActor(session.UserId, deed, records, out persistentShipId))
-            return false;
+        var actorUserId = session.UserId;
+        var records = await GetOwnerShipRecordsAsync(actorUserId);
+        if (Deleted(player) ||
+            Deleted(deedUid) ||
+            !_player.TryGetSessionByEntity(player, out session) ||
+            session.UserId != actorUserId ||
+            !TryComp<ShuttleDeedComponent>(deedUid, out var currentDeed) ||
+            currentDeed != deed ||
+            !IsDeedOwnedByActor(actorUserId, deed, records, out var persistentShipId))
+        {
+            return default;
+        }
 
         if (persistentShipId is { } shipId)
         {
@@ -1877,7 +1929,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                 shipId);
         }
 
-        return true;
+        return new(true, actorUserId, persistentShipId);
     }
 
     private bool TryRebindDeedToActivePersistentShuttle(
@@ -2031,7 +2083,25 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
     public void OnRenameMessage(EntityUid uid, ShipyardConsoleComponent component, ShipyardConsoleRenameMessage args)
     {
-        if (args.Actor is not { Valid: true } player)
+        _ = ObserveRenameMessageAsync(uid, args);
+    }
+
+    private async Task ObserveRenameMessageAsync(EntityUid uid, ShipyardConsoleRenameMessage args)
+    {
+        try
+        {
+            await HandleRenameMessageAsync(uid, args);
+        }
+        catch (Exception exception)
+        {
+            _sawmill.Error($"Unhandled persistent ship rename failure at entity {uid}: {exception}");
+        }
+    }
+
+    private async Task HandleRenameMessageAsync(EntityUid uid, ShipyardConsoleRenameMessage args)
+    {
+        if (args.Actor is not { Valid: true } player ||
+            !TryComp<ShipyardConsoleComponent>(uid, out var component))
             return;
 
         if (component.TargetIdSlot.ContainerSlot?.ContainedEntity is not { Valid: true } targetId)
@@ -2048,10 +2118,15 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return;
         }
 
-        if (!TryAuthorizePersistentDeedForActor(player, targetId, deed, out _, out _))
+        var authorization = await AuthorizePersistentDeedForActorAsync(player, targetId, deed);
+        if (!authorization.Authorized ||
+            Deleted(uid) ||
+            !TryComp<ShipyardConsoleComponent>(uid, out component) ||
+            component.TargetIdSlot.ContainerSlot?.ContainedEntity != targetId)
         {
             ConsolePopup(player, Loc.GetString("shipyard-console-owner-denied"));
-            PlayDenySound(player, uid, component);
+            if (component != null)
+                PlayDenySound(player, uid, component);
             return;
         }
 
@@ -2094,7 +2169,27 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
     public void OnUnassignDeedMessage(EntityUid uid, ShipyardConsoleComponent component, ShipyardConsoleUnassignDeedMessage args)
     {
-        if (args.Actor is not { Valid: true } player)
+        _ = ObserveUnassignDeedMessageAsync(uid, args);
+    }
+
+    private async Task ObserveUnassignDeedMessageAsync(EntityUid uid, ShipyardConsoleUnassignDeedMessage args)
+    {
+        try
+        {
+            await HandleUnassignDeedMessageAsync(uid, args);
+        }
+        catch (Exception exception)
+        {
+            _sawmill.Error($"Unhandled persistent deed unassign failure at entity {uid}: {exception}");
+        }
+    }
+
+    private async Task HandleUnassignDeedMessageAsync(
+        EntityUid uid,
+        ShipyardConsoleUnassignDeedMessage args)
+    {
+        if (args.Actor is not { Valid: true } player ||
+            !TryComp<ShipyardConsoleComponent>(uid, out var component))
             return;
 
         if (component.TargetIdSlot.ContainerSlot?.ContainedEntity is not { Valid: true } targetId)
@@ -2112,10 +2207,15 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return;
         }
 
-        if (!TryAuthorizePersistentDeedForActor(player, targetId, deed, out _, out _))
+        var authorization = await AuthorizePersistentDeedForActorAsync(player, targetId, deed);
+        if (!authorization.Authorized ||
+            Deleted(uid) ||
+            !TryComp<ShipyardConsoleComponent>(uid, out component) ||
+            component.TargetIdSlot.ContainerSlot?.ContainedEntity != targetId)
         {
             ConsolePopup(player, Loc.GetString("shipyard-console-owner-denied"));
-            PlayDenySound(player, uid, component);
+            if (component != null)
+                PlayDenySound(player, uid, component);
             return;
         }
 
@@ -2168,7 +2268,25 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
     private void OnParkShipMessage(EntityUid uid, ShipyardConsoleComponent component, ShipyardConsoleParkMessage args)
     {
-        if (args.Actor is not { Valid: true } player)
+        _ = ObserveParkShipMessageAsync(uid, args);
+    }
+
+    private async Task ObserveParkShipMessageAsync(EntityUid uid, ShipyardConsoleParkMessage args)
+    {
+        try
+        {
+            await HandleParkShipMessageAsync(uid, args);
+        }
+        catch (Exception exception)
+        {
+            _sawmill.Error($"Unhandled persistent ship parking failure at entity {uid}: {exception}");
+        }
+    }
+
+    private async Task HandleParkShipMessageAsync(EntityUid uid, ShipyardConsoleParkMessage args)
+    {
+        if (args.Actor is not { Valid: true } player ||
+            !TryComp<ShipyardConsoleComponent>(uid, out var component))
             return;
 
         if (component.TargetIdSlot.ContainerSlot?.ContainedEntity is not { Valid: true } targetId ||
@@ -2180,16 +2298,21 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             return;
         }
 
-        if (!TryAuthorizePersistentDeedForActor(player, targetId, deed, out var actorUserId, out _) ||
+        var authorization = await AuthorizePersistentDeedForActorAsync(player, targetId, deed);
+        if (!authorization.Authorized ||
+            Deleted(uid) ||
+            !TryComp<ShipyardConsoleComponent>(uid, out component) ||
+            component.TargetIdSlot.ContainerSlot?.ContainedEntity != targetId ||
             deed.ShuttleUid is not { Valid: true } shuttle ||
             Deleted(shuttle) ||
             !TryComp<LuaMShipIdentityComponent>(shuttle, out var identity) ||
             identity.ShipId == Guid.Empty ||
             !TryComp<ShipOwnershipComponent>(shuttle, out var ownership) ||
-            ownership.OwnerUserId != actorUserId)
+            ownership.OwnerUserId != authorization.ActorUserId)
         {
             ConsolePopup(player, Loc.GetString("shipyard-console-owner-denied"));
-            PlayDenySound(player, uid, component);
+            if (component != null)
+                PlayDenySound(player, uid, component);
             return;
         }
 
@@ -2215,12 +2338,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         {
             EvacuateCrewForParking(shuttle, Transform(uid).Coordinates);
 
-            var task = _shipPersistence.StoreAndDeactivateAsync(
+            var result = await _shipPersistence.StoreAndDeactivateAsync(
                 identity.ShipId,
                 _gameTicker.RoundId,
                 DateTime.UtcNow);
-            _taskManager.BlockWaitOnTask(task);
-            var result = task.GetAwaiter().GetResult();
             if (!result.Success)
             {
                 ConsolePopup(player, Loc.GetString(
@@ -2288,10 +2409,29 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
     private void OnCallShipMessage(EntityUid uid, ShipyardConsoleComponent component, ShipyardConsoleCallMessage args)
     {
+        _ = ObserveCallShipMessageAsync(uid, args);
+    }
+
+    private async Task ObserveCallShipMessageAsync(EntityUid uid, ShipyardConsoleCallMessage args)
+    {
+        try
+        {
+            await HandleCallShipMessageAsync(uid, args);
+        }
+        catch (Exception exception)
+        {
+            _sawmill.Error($"Unhandled persistent ship call failure at entity {uid}: {exception}");
+        }
+    }
+
+    private async Task HandleCallShipMessageAsync(EntityUid uid, ShipyardConsoleCallMessage args)
+    {
         if (args.Actor is not { Valid: true } player)
             return;
 
+        ShipyardConsoleComponent? component = null;
         if (!_player.TryGetSessionByEntity(player, out var session) ||
+            !TryComp(uid, out component) ||
             component.TargetIdSlot.ContainerSlot?.ContainedEntity is not { Valid: true } targetId ||
             !HasComp<IdCardComponent>(targetId) ||
             _station.GetOwningStation(uid) is not { Valid: true } station ||
@@ -2299,11 +2439,25 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             _station.GetLargestGrid((station, stationData)) is not { } stationGrid)
         {
             ConsolePopup(player, Loc.GetString("shipyard-console-no-stored-ship"));
-            PlayDenySound(player, uid, component);
+            if (component != null)
+                PlayDenySound(player, uid, component);
             return;
         }
 
-        var records = GetOwnerShipRecords(session.UserId);
+        var ownerUserId = session.UserId;
+        var records = await GetOwnerShipRecordsAsync(ownerUserId);
+        if (Deleted(uid) ||
+            Deleted(player) ||
+            Deleted(targetId) ||
+            !_player.TryGetSessionByEntity(player, out session) ||
+            session.UserId != ownerUserId ||
+            !TryComp<ShipyardConsoleComponent>(uid, out component) ||
+            component.TargetIdSlot.ContainerSlot?.ContainedEntity != targetId ||
+            _station.GetOwningStation(uid) != station)
+        {
+            return;
+        }
+
         var stored = records.SingleOrDefault(record =>
             record.ShipId == args.ShipId && IsCallableStoredShip(record));
         TryComp<ShuttleDeedComponent>(targetId, out var existingDeed);
@@ -2349,6 +2503,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         }
 
         RefreshOpenStates(uid, component, (ShipyardConsoleUiKey)args.UiKey);
+        var usedProximityFallback = false;
         try
         {
             _map.CreateMap(out var restoreMap);
@@ -2356,7 +2511,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             LuaMShipOrchestrationResult result;
             try
             {
-                var task = _shipPersistence.RestoreClaimAsync(
+                result = await _shipPersistence.RestoreClaimAsync(
                     stored.ShipId,
                     session.UserId,
                     _gameTicker.RoundId,
@@ -2388,12 +2543,24 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                         if (_shuttle.TryFTLDockAtDock(restored, shuttle, stationGrid, selectedGate))
                             return true;
 
+                        // Some hulls cannot geometrically mate with a particular
+                        // gate even when it is free. Deliver them to a collision-
+                        // checked proximity slot instead of trapping the owner in
+                        // a permanent call/rollback loop.
+                        if (_shuttle.TryFTLProximity(restored, stationGrid))
+                        {
+                            usedProximityFallback = true;
+                            _sawmill.Warning(
+                                $"Persistent ship {stored.ShipId} could not dock at gate {selectedGate}; " +
+                                $"restored grid {restored} was placed safely near station grid {stationGrid}.");
+                            return true;
+                        }
+
                         _sawmill.Error(
-                            $"Persistent ship call placement failed for {stored.ShipId}: selected gate {selectedGate} is free but no valid docking geometry was found for restored grid {restored}.");
+                            $"Persistent ship call placement failed for {stored.ShipId}: selected gate {selectedGate} " +
+                            $"could not dock restored grid {restored}, and no safe proximity placement was available.");
                         return false;
                     });
-                _taskManager.BlockWaitOnTask(task);
-                result = task.GetAwaiter().GetResult();
             }
             finally
             {
@@ -2421,12 +2588,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                     reservationId,
                     expectedCardState))
             {
-                var rollbackTask = _shipPersistence.StoreAndDeactivateAsync(
+                var rollback = await _shipPersistence.StoreAndDeactivateAsync(
                     stored.ShipId,
                     _gameTicker.RoundId,
                     DateTime.UtcNow);
-                _taskManager.BlockWaitOnTask(rollbackTask);
-                var rollback = rollbackTask.GetAwaiter().GetResult();
                 if (rollback.Success)
                 {
                     QueueDel(result.Grid.Value);
@@ -2455,8 +2620,17 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             deed.PersistentShipId = stored.ShipId.ToString("D");
             Dirty(targetId, deed);
 
-            var gateName = dock.Name == null ? Name(selectedGate) : Loc.GetString(dock.Name);
-            ConsolePopup(player, Loc.GetString("shipyard-console-call-success", ("gate", gateName)));
+            var successLocId = GetPersistentShipCallSuccessLocId(usedProximityFallback);
+            if (usedProximityFallback)
+            {
+                ConsolePopup(player, Loc.GetString(successLocId));
+            }
+            else
+            {
+                var gateName = dock.Name == null ? Name(selectedGate) : Loc.GetString(dock.Name);
+                ConsolePopup(player, Loc.GetString(successLocId, ("gate", gateName)));
+            }
+
             PlayConfirmSound(player, uid, component);
         }
         finally
@@ -2465,6 +2639,13 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             if (Exists(uid) && TryComp<ShipyardConsoleComponent>(uid, out var refreshedComponent))
                 RefreshOpenStates(uid, refreshedComponent, (ShipyardConsoleUiKey)args.UiKey);
         }
+    }
+
+    internal static string GetPersistentShipCallSuccessLocId(bool usedProximityFallback)
+    {
+        return usedProximityFallback
+            ? "shipyard-console-call-success-nearby"
+            : "shipyard-console-call-success";
     }
 
     private bool IsPersistentShipCallTargetCurrent(

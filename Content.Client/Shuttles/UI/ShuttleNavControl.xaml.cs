@@ -739,6 +739,8 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
                 var uiXOffset = uiPosition.X - uiXCentre;
                 var uiYOffset = uiPosition.Y - uiYCentre;
                 var uiDistance = (int)Math.Sqrt(Math.Pow(uiXOffset, 2) + Math.Pow(uiYOffset, 2));
+                if (uiDistance == 0)
+                    uiDistance = 1;
                 var uiX = uiXCentre * uiXOffset / uiDistance;
                 var uiY = uiYCentre * uiYOffset / uiDistance;
 
@@ -862,9 +864,6 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
                 // End Frontier: IFF drawing functions
             }
 
-            // Frontier Don't skip drawing blips if they're out of range.
-            NfDrawBlips(handle, _tempBlipDataList);
-
             // Detailed view
             var gridAABB = curGridToWorld.TransformBox(grid.Comp.LocalAABB);
 
@@ -879,6 +878,11 @@ public partial class ShuttleNavControl : BaseShuttleControl // Mono
                 DrawDocks(handle, gUid, curGridToView);
             }
         }
+
+        NfDrawRadarTarget(handle, worldToView, mapPos);
+
+        // Frontier: draw the accumulated ship and target blips once per frame.
+        NfDrawBlips(handle, _tempBlipDataList);
 
         // If we've set the controlling console, and it's on a different grid
         // to the shuttle itself, then draw an additional marker to help the

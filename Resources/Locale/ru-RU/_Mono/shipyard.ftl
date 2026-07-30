@@ -28,6 +28,7 @@ shipyard-console-no-stored-ship = Выбранный сохранённый ко
 shipyard-console-call-pending = Этот корабль или ID-карта уже обрабатывается. Подождите.
 shipyard-console-call-failed = Вызов корабля отклонён: { $reason }
 shipyard-console-call-success = Корабль вызван к воротам «{ $gate }».
+shipyard-console-call-success-nearby = Корабль безопасно доставлен рядом со станцией.
 shipyard-console-gate-invalid = Выбранные ворота заняты или недоступны.
 shipyard-console-park-docked = Корабль должен быть пристыкован к воротам этой станции.
 shipyard-console-park-failed = Сохранение корабля отклонено: { $reason }

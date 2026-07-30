@@ -80,6 +80,14 @@
 
 - type: npcFaction
   id: SiliconsExpeditionNF
+  friendly:
+  - LuaMUnknownSurvivor
+  defaultHostile: true
+
+- type: npcFaction
+  id: LuaMUnknownSurvivor
+  friendly:
+  - SiliconsExpeditionNF
   defaultHostile: true
 
 - type: npcFaction

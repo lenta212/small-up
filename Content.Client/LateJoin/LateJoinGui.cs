@@ -87,6 +87,12 @@ namespace Content.Client.LateJoin
 
             foreach (var (id, name) in _gameTicker.StationNames)
             {
+                if (!_gameTicker.StationJobInformationList.TryGetValue(id, out var stationJobs) ||
+                    !stationJobs.JobsAvailable.Any(entry => entry.Value is null or > 0))
+                {
+                    continue;
+                }
+
                 var jobList = new BoxContainer
                 {
                     Orientation = LayoutOrientation.Vertical,
@@ -177,7 +183,8 @@ namespace Content.Client.LateJoin
 
                     foreach (var jobId in department.Roles)
                     {
-                        if (!stationAvailable.JobsAvailable.ContainsKey(jobId))
+                        if (!stationAvailable.JobsAvailable.TryGetValue(jobId, out var slots) ||
+                            slots == 0)
                             continue;
 
                         jobsAvailable.Add(_prototypeManager.Index<JobPrototype>(jobId));
@@ -235,6 +242,7 @@ namespace Content.Client.LateJoin
                         };
 
                         var jobButton = new JobButton(jobLabel, prototype.ID, prototype.LocalizedName, value);
+                        jobButton.TooltipSupplier = _ => CreateJobTooltip(prototype.LocalizedDescription);
 
                         var jobSelector = new BoxContainer
                         {
@@ -264,9 +272,7 @@ namespace Content.Client.LateJoin
 
                             if (!reason.IsEmpty)
                             {
-                                var tooltip = new Tooltip();
-                                tooltip.SetMessage(reason);
-                                jobButton.TooltipSupplier = _ => tooltip;
+                                jobButton.TooltipSupplier = _ => CreateJobTooltip(prototype.LocalizedDescription, reason);
                             }
 
                             jobSelector.AddChild(new TextureRect
@@ -296,6 +302,10 @@ namespace Content.Client.LateJoin
 
         private void JobsAvailableUpdated(IReadOnlyDictionary<NetEntity, StationJobInformation> updatedJobs)
         {
+            // Station and department visibility depends on the current selectable slots.
+            RebuildUI();
+            return;
+
             // Frontier: Made this more readable with simplified comparisons and LINQ expressions.
             // Feel free to replace this with upstream code whenever, just mind that
             // updatedJobs is now a dictionary of NetEntity to StationJobInformation.
@@ -316,6 +326,24 @@ namespace Content.Client.LateJoin
                     }
                 }
             }
+        }
+
+        private static Tooltip CreateJobTooltip(string? description, FormattedMessage? requirements = null)
+        {
+            var message = new FormattedMessage();
+            if (!string.IsNullOrWhiteSpace(description))
+                message.AddMarkup(description);
+
+            if (requirements is { IsEmpty: false })
+            {
+                message.PushNewline();
+                message.PushNewline();
+                message.AddMessage(requirements);
+            }
+
+            var tooltip = new Tooltip();
+            tooltip.SetMessage(message);
+            return tooltip;
         }
 
         protected override void Dispose(bool disposing)

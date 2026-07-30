@@ -9,6 +9,7 @@ using Content.Server.Database;
 using Content.Server.GameTicking;
 using Content.Server._LuaM.ShipGen;
 using Content.Shared.GameTicking;
+using Content.Shared.Mobs.Components;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
 using Robust.Shared.Network;
@@ -101,6 +102,35 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
     }
 
     public IReadOnlyCollection<LuaMActiveShipLease> ActiveLeases => _active.Values;
+
+    public IReadOnlyList<LuaMActiveShipDiagnostic> GetActiveShipDiagnostics(Guid? shipId = null)
+    {
+        IEnumerable<LuaMActiveShipLease> leases = _active.Values;
+        if (shipId != null)
+            leases = leases.Where(lease => lease.ShipId == shipId.Value);
+
+        return leases
+            .OrderBy(lease => lease.Metadata.ShipName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(lease => lease.ShipId)
+            .Select(lease =>
+            {
+                var gridExists = Exists(lease.Grid) && !TerminatingOrDeleted(lease.Grid);
+                return new LuaMActiveShipDiagnostic(
+                    lease.ShipId,
+                    lease.OwnerUserId,
+                    lease.Metadata.ShipName,
+                    lease.Metadata.VesselPrototypeId,
+                    lease.Grid,
+                    gridExists,
+                    gridExists ? CountMobStateEntities(lease.Grid) : 0,
+                    lease.RegistryRevision,
+                    lease.PayloadRevision,
+                    lease.DurablePayloadRevision,
+                    lease.LeaseId,
+                    lease.LeaseRevision);
+            })
+            .ToList();
+    }
 
     /// <summary>
     /// Once set, no new persistent-ship lifecycle mutation may begin in this
@@ -248,9 +278,22 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
             return Failure(LuaMShipPersistenceWriteStatus.InvalidState, "ship already active on this server");
         if (!_runtime.TryCaptureSnapshot(grid, 1, out var snapshot, out var reason))
             return Failure(LuaMShipPersistenceWriteStatus.InvalidRequest, reason);
+        if (!TryCreateStoreRequest(
+                snapshot,
+                ownerUserId,
+                metadata,
+                null,
+                null,
+                nowUtc,
+                out var storeRequest,
+                out reason))
+        {
+            return Failure(LuaMShipPersistenceWriteStatus.InvalidRequest, reason);
+        }
 
         var write = await _database.StoreLuaMShipSnapshotAsync(
-            ToStoreRequest(snapshot, ownerUserId, metadata, null, null, nowUtc), cancel);
+            storeRequest,
+            cancel);
         if (!write.Success)
             return Failure(write.Status, $"snapshot registration failed: {write.Status}");
         QueueSavedShipAnalysis(snapshot);
@@ -438,14 +481,14 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         var claimed = claim.Snapshot;
         if (!TryDecode(claimed, out var snapshot, out var decodeReason))
         {
-            await AbortOrQuarantineAsync(claimed, claim.Revision.Value, leaseId, ownerUserId,
+            await QuarantineClaimedSnapshotAsync(claimed, claim.Revision.Value, leaseId, ownerUserId,
                 decodeReason, nowUtc, cancel);
             return Failure(LuaMShipPersistenceWriteStatus.InvalidRequest, decodeReason);
         }
 
         if (!_runtime.TryBeginRestoreSnapshot(snapshot, targetMap, out var restore, out var restoreReason))
         {
-            await AbortOrQuarantineAsync(claimed, claim.Revision.Value, leaseId, ownerUserId,
+            await QuarantineClaimedSnapshotAsync(claimed, claim.Revision.Value, leaseId, ownerUserId,
                 restoreReason, nowUtc, cancel);
             return Failure(LuaMShipPersistenceWriteStatus.InvalidRequest, restoreReason);
         }
@@ -667,16 +710,110 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
             return Failure(LuaMShipPersistenceWriteStatus.InvalidRequest, "snapshot revision exhausted");
         if (!_runtime.TryCaptureSnapshot(active.Grid, active.PayloadRevision + 1, out var snapshot, out var reason))
             return Failure(LuaMShipPersistenceWriteStatus.InvalidRequest, reason);
+        if (!TryCreateStoreRequest(
+                snapshot,
+                active.OwnerUserId,
+                active.Metadata with { SourceRoundId = roundId },
+                active.RegistryRevision,
+                active.LeaseId,
+                nowUtc,
+                out var storeRequest,
+                out reason))
+        {
+            return Failure(LuaMShipPersistenceWriteStatus.InvalidRequest, reason);
+        }
 
         var stored = await _database.StoreLuaMShipSnapshotAsync(
-            ToStoreRequest(snapshot, active.OwnerUserId, active.Metadata with { SourceRoundId = roundId },
-                active.RegistryRevision, active.LeaseId, nowUtc), cancel);
+            storeRequest,
+            cancel);
         if (!stored.Success)
             return Failure(stored.Status, $"snapshot store failed: {stored.Status}");
         QueueSavedShipAnalysis(snapshot);
 
         _active.Remove(shipId);
         return new(true, stored.Status, stored.Revision, null, active.Grid, null);
+    }
+
+    /// <summary>
+    /// Last-resort administrator operation for one exact active ship. It will
+    /// never snapshot or delete a grid while any MobState entity is aboard.
+    /// </summary>
+    public async Task<LuaMShipOrchestrationResult> EmergencyStoreAndDeleteActiveShipAsync(
+        Guid shipId,
+        string requestedBy,
+        DateTime nowUtc,
+        CancellationToken cancel = default)
+        => await RunLifecycleMutationAsync(
+            () => EmergencyStoreAndDeleteActiveShipCoreAsync(shipId, requestedBy, nowUtc, cancel));
+
+    private async Task<LuaMShipOrchestrationResult> EmergencyStoreAndDeleteActiveShipCoreAsync(
+        Guid shipId,
+        string requestedBy,
+        DateTime nowUtc,
+        CancellationToken cancel)
+    {
+        if (!_active.TryGetValue(shipId, out var active))
+            return Failure(LuaMShipPersistenceWriteStatus.NotFound, "active ship lease not found");
+        if (!Exists(active.Grid) || TerminatingOrDeleted(active.Grid))
+        {
+            return Failure(
+                LuaMShipPersistenceWriteStatus.InvalidState,
+                "active ship grid does not exist");
+        }
+
+        var mobCount = CountMobStateEntities(active.Grid);
+        if (mobCount > 0)
+        {
+            _sawmill.Warning(
+                $"Emergency save of persistent ship {shipId} requested by {requestedBy} was refused: " +
+                $"{mobCount} MobState entities are aboard.");
+            return Failure(
+                LuaMShipPersistenceWriteStatus.InvalidState,
+                $"refusing emergency save while {mobCount} MobState entities are aboard");
+        }
+
+        _sawmill.Warning(
+            $"Emergency save of persistent ship {shipId} was confirmed by {requestedBy}.");
+        var stored = await StoreAndDeactivateCoreAsync(
+            shipId,
+            _gameTicker.RoundId,
+            nowUtc,
+            cancel);
+        if (!stored.Success)
+            return stored;
+
+        if (Exists(active.Grid) && !TerminatingOrDeleted(active.Grid))
+            QueueDel(active.Grid);
+
+        _sawmill.Info(
+            $"Emergency save of persistent ship {shipId} completed; grid deletion was queued.");
+        return stored;
+    }
+
+    private int CountMobStateEntities(EntityUid root)
+    {
+        var count = 0;
+        var visited = new HashSet<EntityUid>();
+        var pending = new Stack<EntityUid>();
+        pending.Push(root);
+
+        while (pending.TryPop(out var current))
+        {
+            if (!visited.Add(current) || !Exists(current))
+                continue;
+
+            if (HasComp<MobStateComponent>(current))
+                count++;
+
+            if (!TryComp<TransformComponent>(current, out var transform))
+                continue;
+
+            var children = transform.ChildEnumerator;
+            while (children.MoveNext(out var child))
+                pending.Push(child);
+        }
+
+        return count;
     }
 
     public async Task<LuaMShipOrchestrationResult> RetireAsync(
@@ -974,6 +1111,34 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         return quarantined.Success || quarantined.SnapshotStatus == DbLuaMShipSnapshotStatus.Quarantined;
     }
 
+    private async Task<bool> QuarantineClaimedSnapshotAsync(
+        LuaMShipSnapshotRecord stored,
+        long claimedRevision,
+        Guid leaseId,
+        NetUserId ownerUserId,
+        string reason,
+        DateTime nowUtc,
+        CancellationToken cancel)
+    {
+        var quarantined = await _database.QuarantineLuaMShipSnapshotAsync(new(
+            stored.ShipId,
+            ownerUserId,
+            claimedRevision,
+            leaseId,
+            LimitReason(reason),
+            nowUtc), cancel);
+        if (!quarantined.Success &&
+            quarantined.SnapshotStatus != DbLuaMShipSnapshotStatus.Quarantined)
+        {
+            _sawmill.Error(
+                $"Could not quarantine invalid persistent ship snapshot {stored.ShipId}: " +
+                $"{quarantined.Status}; {reason}");
+            return false;
+        }
+
+        return true;
+    }
+
     private async Task<bool> RollBackFailedRestoreAsync(
         LuaMShipSnapshotRecord claimed,
         long claimedRevision,
@@ -1203,16 +1368,48 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
            stored.LeaseId == null &&
            stored.LeaseRevision == null;
 
-    private static LuaMShipSnapshotStoreRequest ToStoreRequest(
+    private static bool TryCreateStoreRequest(
         LuaMFullShipSnapshot snapshot,
         NetUserId ownerUserId,
         LuaMShipSnapshotMetadata metadata,
         long? expectedRevision,
         Guid? leaseId,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        out LuaMShipSnapshotStoreRequest request,
+        out string reason)
     {
-        var payload = JsonSerializer.SerializeToUtf8Bytes(snapshot);
-        return new(
+        request = default!;
+        reason = string.Empty;
+        if (snapshot.Payload == null ||
+            snapshot.PayloadSizeBytes <= 0 ||
+            snapshot.PayloadSizeBytes != snapshot.Payload.Length ||
+            snapshot.PayloadSizeBytes > LuaMShipPersistenceLimits.MaxSnapshotPayloadBytes ||
+            snapshot.EntityCount <= 0 ||
+            snapshot.EntityCount > LuaMShipPersistenceLimits.MaxEntityCount)
+        {
+            reason = "snapshot exceeds durable envelope limits";
+            return false;
+        }
+
+        byte[] payload;
+        try
+        {
+            payload = JsonSerializer.SerializeToUtf8Bytes(snapshot);
+        }
+        catch (Exception exception) when (
+            exception is JsonException or NotSupportedException)
+        {
+            reason = $"snapshot envelope serialization failed: {exception.GetType().Name}";
+            return false;
+        }
+
+        if (payload.Length == 0 || payload.Length > LuaMShipPersistenceLimits.MaxPayloadBytes)
+        {
+            reason = "snapshot durable envelope size limit exceeded";
+            return false;
+        }
+
+        request = new(
             snapshot.ShipId,
             ownerUserId,
             expectedRevision,
@@ -1233,6 +1430,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
             snapshot.SourceBuildVersion,
             snapshot.PrototypeManifestHash,
             nowUtc);
+        return true;
     }
 
     private void QueueSavedShipAnalysis(LuaMFullShipSnapshot snapshot)
@@ -1250,13 +1448,30 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
     {
         snapshot = default!;
         reason = string.Empty;
-        if (stored.PayloadSizeBytes != stored.Payload.Length ||
-            !string.Equals(
+        if (stored.Payload == null ||
+            stored.PayloadSizeBytes <= 0 ||
+            stored.PayloadSizeBytes > LuaMShipPersistenceLimits.MaxPayloadBytes ||
+            stored.PayloadSizeBytes != stored.Payload.Length ||
+            stored.EntityCount <= 0 ||
+            stored.EntityCount > LuaMShipPersistenceLimits.MaxEntityCount)
+        {
+            reason = "database snapshot envelope exceeds metadata limits";
+            return false;
+        }
+
+        if (!LuaMFullShipPersistenceSystem.IsSupportedSnapshotFormatVersion(stored.SchemaVersion) ||
+            !LuaMFullShipPersistenceSystem.IsSupportedSnapshotFormatVersion(stored.FormatVersion))
+        {
+            reason = $"unsupported database snapshot format {stored.SchemaVersion}/{stored.FormatVersion}";
+            return false;
+        }
+
+        if (!string.Equals(
                 Convert.ToHexString(SHA256.HashData(stored.Payload)),
                 stored.PayloadHash,
                 StringComparison.OrdinalIgnoreCase))
         {
-            reason = "database snapshot payload size or hash mismatch";
+            reason = "database snapshot payload hash mismatch";
             return false;
         }
 
@@ -1267,7 +1482,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
                 snapshot.ShipId != stored.ShipId ||
                 snapshot.Revision <= 0 ||
                 (stored.PayloadRevision is { } payloadRevision && snapshot.Revision != payloadRevision) ||
-                stored.SchemaVersion != LuaMFullShipPersistenceSystem.SnapshotFormatVersion ||
+                stored.SchemaVersion != snapshot.FormatVersion ||
                 stored.FormatVersion != snapshot.FormatVersion)
             {
                 reason = "database snapshot envelope identity or revision mismatch";
@@ -1314,6 +1529,20 @@ public sealed record LuaMActiveShipLease(
     LuaMShipSnapshotMetadata Metadata,
     EntityUid Grid,
     long? DurablePayloadRevision = null);
+
+public sealed record LuaMActiveShipDiagnostic(
+    Guid ShipId,
+    NetUserId OwnerUserId,
+    string ShipName,
+    string VesselPrototypeId,
+    EntityUid Grid,
+    bool GridExists,
+    int MobStateEntityCount,
+    long RegistryRevision,
+    long PayloadRevision,
+    long? DurablePayloadRevision,
+    Guid LeaseId,
+    long LeaseRevision);
 
 public sealed record LuaMShipOrchestrationResult(
     bool Success,

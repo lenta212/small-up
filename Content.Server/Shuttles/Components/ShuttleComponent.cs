@@ -8,6 +8,21 @@ namespace Content.Server.Shuttles.Components
         [ViewVariables]
         public bool Enabled = true;
 
+        /// <summary>
+        /// Shared, round-local radar target used by every console on this shuttle.
+        /// </summary>
+        [ViewVariables(VVAccess.ReadWrite)]
+        public Vector2? RadarTarget;
+
+        /// <summary>
+        /// Optional moving shuttle tracked by <see cref="RadarTarget"/>.
+        /// </summary>
+        [ViewVariables(VVAccess.ReadWrite)]
+        public EntityUid? RadarTargetEntity;
+
+        [ViewVariables(VVAccess.ReadWrite)]
+        public bool RadarTargetHidden = true;
+
         [ViewVariables]
         public Vector2[] CenterOfThrust = new Vector2[4];
 

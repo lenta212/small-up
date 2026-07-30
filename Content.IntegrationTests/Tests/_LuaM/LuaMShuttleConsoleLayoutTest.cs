@@ -2,6 +2,7 @@ using System.IO;
 using System.Numerics;
 using Content.Client.Shuttles.UI;
 using Content.Client._Mono.FireControl.UI;
+using Content.Client.Fax.UI;
 using Robust.Client.UserInterface;
 using Robust.Client.UserInterface.Controls;
 using Robust.Shared.IoC;
@@ -89,6 +90,7 @@ public sealed class LuaMShuttleConsoleLayoutTest
             {
                 using var fireWindow = activator.CreateInstance<FireControlWindow>(oneOff: true, inject: false);
                 using var shuttleWindow = CreateWindow(activator, out var nav, out _, out _);
+                using var faxWindow = activator.CreateInstance<FaxWindow>(oneOff: true, inject: false);
 
                 var radar = fireWindow.FindControl<FireControlNavControl>("NavRadar");
                 var controls = fireWindow.FindControl<BoxContainer>("ControlsBox");
@@ -106,6 +108,7 @@ public sealed class LuaMShuttleConsoleLayoutTest
                 Assert.Multiple(() =>
                 {
                     Assert.That(fireWindow.Resizable, Is.True);
+                    Assert.That(faxWindow.Resizable, Is.True);
                     Assert.That(fireWindow.MinSize, Is.EqualTo(FireControlMinimumViewport));
                     Assert.That(fireWindow.Size, Is.EqualTo(FireControlMinimumViewport));
                     Assert.That(radar.Width, Is.GreaterThan(0f));
@@ -169,6 +172,11 @@ public sealed class LuaMShuttleConsoleLayoutTest
                     Assert.That(nav.FindControl<Label>("GridLinearVelocity").Text, Does.Contain("m/s"));
                     Assert.That(nav.FindControl<Label>("GridAngularVelocity").Text, Does.Contain("°/s"));
                     Assert.That(nav.FindControl<Label>("MaximumShuttleSpeedFeedback").Text, Is.Not.Empty);
+                    Assert.That(nav.FindControl<LineEdit>("TargetX"), Is.Not.Null);
+                    Assert.That(nav.FindControl<LineEdit>("TargetY"), Is.Not.Null);
+                    Assert.That(nav.FindControl<ShuttleConsoleButton>("TargetSet"), Is.Not.Null);
+                    Assert.That(nav.FindControl<ShuttleConsoleButton>("TargetHide").ToggleMode, Is.True);
+                    Assert.That(nav.FindControl<Label>("TargetFeedback").Text, Is.Not.Empty);
 
                     Assert.That(map.FindControl<Label>("TargetingStatus").Text, Is.Not.Empty);
                     Assert.That(map.FindControl<Label>("CoordinateFeedback").Text, Is.Not.Empty);
@@ -220,11 +228,15 @@ public sealed class LuaMShuttleConsoleLayoutTest
             Assert.That(enConsole, Does.Contain("shuttle-console-undock-all-confirmation"));
             Assert.That(enFrontier, Does.Contain("Cruise —"));
             Assert.That(enFrontier, Does.Not.Contain("Cruise ?"));
+            Assert.That(enFrontier, Does.Contain("shuttle-console-target-feedback-active"));
+            Assert.That(enFrontier, Does.Contain("shuttle-console-map-track-tooltip"));
 
             Assert.That(ruConsole, Does.Contain("Синхронизация БСС"));
             Assert.That(ruConsole, Does.Contain("shuttle-console-dock-port-state-connected"));
             Assert.That(ruFrontier, Does.Contain("Ограничение скорости"));
             Assert.That(ruFrontier, Does.Contain("«Дрейф» —"));
+            Assert.That(ruFrontier, Does.Contain("shuttle-console-target-feedback-active"));
+            Assert.That(ruFrontier, Does.Contain("shuttle-console-map-track-tooltip"));
         });
     }
 

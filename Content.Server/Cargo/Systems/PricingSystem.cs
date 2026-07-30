@@ -4,6 +4,8 @@ using Content.Server.Cargo.Components;
 using Content.Shared.Chemistry.EntitySystems;
 using Content.Shared.Administration;
 using Content.Shared.Body.Components;
+using Content.Shared.Body.Organ;
+using Content.Shared.Body.Part;
 using Content.Shared.Cargo.Components;
 using Content.Shared.Chemistry.Components.SolutionManager;
 using Content.Shared.Chemistry.Reagent;
@@ -276,6 +278,9 @@ public sealed partial class PricingSystem : EntitySystem
             {
                 foreach (var ent in container.ContainedEntities)
                 {
+                    if (ShouldSkipContainedPrice(uid, ent))
+                        continue;
+
                     price += GetPrice(ent);
                 }
             }
@@ -322,6 +327,9 @@ public sealed partial class PricingSystem : EntitySystem
             {
                 foreach (var ent in container.ContainedEntities)
                 {
+                    if (ShouldSkipContainedPrice(uid, ent))
+                        continue;
+
                     price += GetPriceWithVendingDiscount(ent, currentGrid);
                 }
             }
@@ -365,6 +373,9 @@ public sealed partial class PricingSystem : EntitySystem
             {
                 foreach (var ent in container.ContainedEntities)
                 {
+                    if (ShouldSkipContainedPrice(uid, ent))
+                        continue;
+
                     price += GetPriceConditional(ent, true, predicate);
                 }
             }
@@ -372,6 +383,12 @@ public sealed partial class PricingSystem : EntitySystem
         return price;
     }
     // End Frontier - GetPrice variant that uses predicate
+
+    private bool ShouldSkipContainedPrice(EntityUid containerOwner, EntityUid contained)
+    {
+        return HasComp<BodyPartComponent>(containerOwner) &&
+               HasComp<OrganComponent>(contained);
+    }
 
     private double GetMaterialsPrice(EntityUid uid)
     {

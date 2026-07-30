@@ -228,6 +228,7 @@ BANK_SYSTEM_REQUIRED_MARKERS = (
     "private bool IsCurrentProfileMutationContext(",
     "private bool IsCurrentProfileFinalizerContext(",
     "public Task<bool> TryBankWithdrawAsync(",
+    "Func<Task<bool>> finalizeAfterCommit)",
     "public async Task<bool> TryBankWithdrawProfileAsync(",
     "public Task<bool> TryBankDepositAsync(",
     "public async Task<CharacterBankTransferResult> TryBankTransferPersistedAsync(",
@@ -304,7 +305,7 @@ def validate_bank_system_contract(bank_system: str) -> None:
     assert_order(
         withdraw_section,
         "await PersistBankBalanceAsync(",
-        "finalized = finalizeAfterCommit();",
+        "finalized = await finalizeAfterCommit();",
         "BankSystem withdrawal DB-first finalizer order",
     )
 
@@ -330,7 +331,7 @@ def validate_bank_system_contract(bank_system: str) -> None:
     assert_order(
         deposit_section,
         "await PersistBankBalanceAsync(",
-        "finalized = finalizeAfterCommit();",
+        "finalized = await finalizeAfterCommit();",
         "BankSystem deposit DB-first finalizer order",
     )
 
@@ -378,7 +379,7 @@ def run_bank_system_contract_self_test() -> None:
         "BankSystem validator self-test",
     )
     persist_marker = "await PersistBankBalanceAsync("
-    finalizer_marker = "finalized = finalizeAfterCommit();"
+    finalizer_marker = "finalized = await finalizeAfterCommit();"
     persist_index = withdraw_section.find(persist_marker)
     finalizer_index = withdraw_section.find(finalizer_marker)
     if persist_index < 0 or finalizer_index < 0 or persist_index >= finalizer_index:

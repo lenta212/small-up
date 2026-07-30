@@ -14,6 +14,7 @@ using Content.Shared.Buckle.Components;
 using Content.Shared.Damage;
 using Content.Shared.Damage.Systems;
 using Content.Shared.DoAfter;
+using Content.Shared.Medical;
 using Content.Shared.MedicalScanner;
 using Content.Shared.Mobs;
 using Content.Shared.Mobs.Components;
@@ -2748,6 +2749,267 @@ public sealed class LuaMRescueAgentRuntimeTest
                 Assert.That(replacementRescue.TaskPatientTarget, Is.EqualTo(patient));
                 Assert.That(transferred.Target, Is.EqualTo(patient));
                 Assert.That(transferred.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Active));
+            });
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task ExpiredTerminalTreatmentDelayRearmsAutomaticPatientSelection()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapSystem = server.System<SharedMapSystem>();
+        var navigation = entities.System<LuaMRescueNavigationSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid patient = default;
+        await server.WaitAssertion(() =>
+        {
+            BuildHorizontalFloor(mapSystem, map, 0, 8);
+            agent = entities.SpawnEntity(
+                "LuaMRescueAgent",
+                GridCoordinates(map.Grid, 0.5f, 0.5f));
+            patient = entities.SpawnEntity(
+                "MobHuman",
+                GridCoordinates(map.Grid, 7.5f, 0.5f));
+            entities.RemoveComponent<BarotraumaComponent>(patient);
+            entities.RemoveComponent<NpcFactionMemberComponent>(patient);
+
+            var damage = new DamageSpecifier();
+            damage.DamageDict.Add("Blunt", 20);
+            Assert.That(
+                entities.System<DamageableSystem>()
+                    .TryChangeDamage(patient, damage, ignoreResistances: true),
+                Is.Not.Null);
+
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.AutoAcquireTargets = false;
+            rescue.TargetRefreshInterval = 0.01f;
+            rescue.EvacuateTargetsToShuttle = false;
+            rescue.AutoAnalyzeBeforeTreatment = false;
+            rescue.AutoTreatWithCarriedItems = false;
+            rescue.TreatmentAttempts[patient] = rescue.ActivityRoleProfile.MaxAttempts;
+            rescue.TerminalTreatmentFailures[patient] = "bounded missing-supply handoff";
+            rescue.TerminalTreatmentFailureDamage[patient] = 20f;
+            rescue.SkippedTargets[patient] = server.Timing.CurTime - TimeSpan.FromSeconds(1);
+        });
+
+        await AwaitReachableRoute(pair, navigation, agent, patient);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.AutoAcquireTargets = true;
+            rescue.TargetRefreshAccumulator = rescue.TargetRefreshInterval;
+        });
+
+        var reacquired = false;
+        for (var i = 0; i < AsyncTickLimit && !reacquired; i++)
+        {
+            await pair.RunTicksSync(1);
+            await server.WaitAssertion(() =>
+            {
+                reacquired =
+                    entities.GetComponent<LuaMRescueAgentComponent>(agent).AssignedTarget == patient;
+            });
+
+            if (!reacquired)
+                await Task.Delay(5);
+        }
+
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            Assert.Multiple(() =>
+            {
+                Assert.That(reacquired, Is.True);
+                Assert.That(rescue.SkippedTargets, Does.Not.ContainKey(patient));
+                Assert.That(rescue.TreatmentAttempts, Does.Not.ContainKey(patient));
+                Assert.That(rescue.TerminalTreatmentFailures, Does.Not.ContainKey(patient));
+                Assert.That(rescue.TerminalTreatmentFailureDamage, Does.Not.ContainKey(patient));
+                Assert.That(rescue.AssignedTarget, Is.EqualTo(patient));
+            });
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task AutomaticDeadPatientAcquisitionDoesNotRequireAssignedShuttle()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapSystem = server.System<SharedMapSystem>();
+        var mobState = entities.System<MobStateSystem>();
+        var minds = entities.System<MindSystem>();
+        var navigation = entities.System<LuaMRescueNavigationSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid patient = default;
+        await server.WaitAssertion(() =>
+        {
+            BuildHorizontalFloor(mapSystem, map, 0, 3);
+            agent = entities.SpawnEntity(
+                "LuaMRescueAgent",
+                GridCoordinates(map.Grid, 0.5f, 0.5f));
+            patient = entities.SpawnEntity(
+                "MobHuman",
+                GridCoordinates(map.Grid, 1.5f, 0.5f));
+            entities.RemoveComponent<BarotraumaComponent>(patient);
+            entities.RemoveComponent<NpcFactionMemberComponent>(patient);
+
+            var damage = new DamageSpecifier();
+            damage.DamageDict.Add("Asphyxiation", 50);
+            Assert.That(
+                entities.System<DamageableSystem>()
+                    .TryChangeDamage(patient, damage, ignoreResistances: true),
+                Is.Not.Null);
+            var patientMind = minds.CreateMind(null, "LuaM automatic local defib patient");
+            minds.TransferTo(patientMind, patient, createGhost: false, mind: patientMind.Comp);
+            mobState.ChangeMobState(patient, MobState.Dead);
+
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.AutoAcquireTargets = false;
+            rescue.TargetRefreshInterval = 0.01f;
+            rescue.AutoAnalyzeBeforeTreatment = false;
+            rescue.AssignedShuttle = null;
+            rescue.EvacuateTargetsToShuttle = true;
+            rescue.AutoDefibDeadPatients = true;
+        });
+
+        await AwaitReachableRoute(pair, navigation, agent, patient);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.AutoAcquireTargets = true;
+            rescue.TargetRefreshAccumulator = rescue.TargetRefreshInterval;
+        });
+
+        var observedDefibrillation = false;
+        for (var i = 0; i < AsyncTickLimit && !observedDefibrillation; i++)
+        {
+            await pair.RunTicksSync(1);
+            await server.WaitAssertion(() =>
+            {
+                var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+                observedDefibrillation =
+                    rescue.PendingMedicalDoAfterTarget == patient &&
+                    rescue.PendingMedicalDoAfterKind == "defibrillator";
+            });
+
+            if (!observedDefibrillation)
+                await Task.Delay(5);
+        }
+
+        if (observedDefibrillation)
+            await pair.RunTicksSync(1);
+
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            var diagnostics =
+                $"activity={rescue.ActivityContext.Activity}; terminal={rescue.ActivityContext.TerminalStatus}; " +
+                $"task={rescue.TaskStage}/{rescue.TaskPatientTarget}; assigned={rescue.AssignedTarget}; " +
+                $"doAfter={rescue.PendingMedicalDoAfterKind}/{rescue.PendingMedicalDoAfterTarget}; " +
+                $"defib={rescue.LastAutoDefibStatus}";
+            Assert.Multiple(() =>
+            {
+                Assert.That(observedDefibrillation, Is.True, diagnostics);
+                Assert.That(rescue.AssignedShuttle, Is.Null);
+                Assert.That(rescue.AssignedTarget, Is.EqualTo(patient));
+                Assert.That(rescue.TaskPatientTarget, Is.EqualTo(patient));
+                Assert.That(rescue.ActivityContext.Target, Is.EqualTo(patient));
+                Assert.That(
+                    rescue.ActivityContext.Activity,
+                    Is.EqualTo(LuaMRescueActivity.DefibrillatePatient));
+                Assert.That(rescue.PendingMedicalDoAfterItem, Is.Not.Null);
+                Assert.That(
+                    entities.HasComponent<DefibrillatorComponent>(
+                        rescue.PendingMedicalDoAfterItem!.Value),
+                    Is.True,
+                    diagnostics);
+            });
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task TerminalDefibrillationWithoutShuttleClearsAssignedIntent()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var rescueSystem = entities.System<LuaMRescueAgentSystem>();
+        var mobState = entities.System<MobStateSystem>();
+        var minds = entities.System<MindSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid patient = default;
+        await server.WaitAssertion(() =>
+        {
+            agent = entities.SpawnEntity(
+                "LuaMRescueAgent",
+                new MapCoordinates(Vector2.Zero, map.MapId));
+            patient = entities.SpawnEntity(
+                "MobHuman",
+                new MapCoordinates(new Vector2(0.5f, 0f), map.MapId));
+            entities.RemoveComponent<BarotraumaComponent>(patient);
+            entities.RemoveComponent<NpcFactionMemberComponent>(patient);
+
+            var damage = new DamageSpecifier();
+            damage.DamageDict.Add("Asphyxiation", 50);
+            Assert.That(
+                entities.System<DamageableSystem>()
+                    .TryChangeDamage(patient, damage, ignoreResistances: true),
+                Is.Not.Null);
+            var patientMind = minds.CreateMind(null, "LuaM terminal local defib patient");
+            minds.TransferTo(patientMind, patient, createGhost: false, mind: patientMind.Comp);
+            mobState.ChangeMobState(patient, MobState.Dead);
+
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.AutoAcquireTargets = true;
+            rescue.AssignedShuttle = null;
+            rescue.EvacuateTargetsToShuttle = true;
+            rescue.AutoDefibDeadPatients = true;
+            rescue.TargetRefreshInterval = 0.01f;
+
+            Assert.That(
+                rescueSystem.TryOrderAgent(agent, patient, out var status),
+                Is.True,
+                status);
+            Assert.That(rescue.ManualOverrideTarget, Is.EqualTo(patient));
+            Assert.That(rescue.TaskPatientTarget, Is.EqualTo(patient));
+
+            rescue.TerminalDefibrillationFailures[patient] =
+                "NoDefibrillatorCharge: bounded local defibrillation exhausted";
+            rescue.ActivityContext.FailureReason = LuaMRescueFailureReason.NoDefibrillatorCharge;
+            rescue.ActivityContext.TerminalStatus = LuaMRescueTerminalStatus.Failed;
+            rescue.TargetRefreshAccumulator = rescue.TargetRefreshInterval;
+        });
+
+        await pair.RunTicksSync(3);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            var htn = entities.GetComponent<HTNComponent>(agent);
+            Assert.Multiple(() =>
+            {
+                Assert.That(rescue.AssignedShuttle, Is.Null);
+                Assert.That(rescue.AssignedTarget, Is.Null);
+                Assert.That(rescue.EvacuatingTarget, Is.Null);
+                Assert.That(rescue.TaskPatientTarget, Is.Null);
+                Assert.That(rescue.ManualOverrideTarget, Is.Null);
+                Assert.That(htn.Blackboard.ContainsKey(NPCBlackboard.FollowTarget), Is.False);
+                Assert.That(
+                    rescue.LastAutoDefibStatus,
+                    Does.Contain("bounded local defibrillation exhausted"));
             });
         });
 

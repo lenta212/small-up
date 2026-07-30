@@ -1,5 +1,6 @@
 using Content.Shared.Atmos;
 using System.Runtime.CompilerServices;
+using System.Linq;
 
 namespace Content.Server.Explosion.EntitySystems;
 
@@ -40,7 +41,10 @@ public abstract class ExplosionTileFlood
     protected void AddNewDiagonalTiles(int iteration, IEnumerable<Vector2i> tiles, bool ignoreLocalBlocker = false)
     {
         AtmosDirection entryDirection = AtmosDirection.Invalid;
-        foreach (var tile in tiles)
+        // Processing a diagonal can free another blocked tile into the same
+        // flood set. Iterate a snapshot so chained explosions cannot mutate
+        // the HashSet enumerator and terminate the server.
+        foreach (var tile in tiles.ToArray())
         {
             var freeDirections = ignoreLocalBlocker ? AtmosDirection.All : GetUnblockedDirectionOrAll(tile);
 

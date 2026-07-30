@@ -357,7 +357,7 @@ public sealed class LuaMAiDirectorParsingTest
         var structural = structuralField!.GetValue(null) as HashSet<string>;
         Assert.That(resources, Is.Not.Null);
         Assert.That(structural, Is.Not.Null);
-        Assert.That(resources, Has.Length.EqualTo(14));
+        Assert.That(resources, Has.Length.EqualTo(16));
 
         var oxygenCanisters = 0;
         var hydroponicsTrays = 0;
@@ -375,6 +375,8 @@ public sealed class LuaMAiDirectorParsingTest
         Assert.That(resources, Does.Contain("OreProcessor"));
         Assert.That(resources, Does.Contain("MiningDrill"));
         Assert.That(resources, Does.Contain("WaterTankFull"));
+        Assert.That(resources, Does.Contain("CrateHydroponicsSeeds"));
+        Assert.That(resources, Does.Contain("ChemicalBarrelDiethylamine"));
         Assert.That(structural, Does.Contain("GeneratorBasic15kW"));
         Assert.That(structural, Does.Not.Contain("ComputerShuttle"));
         Assert.That(structural, Does.Not.Contain("ComputerCrewMonitoring"));
