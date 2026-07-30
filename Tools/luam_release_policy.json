@@ -1,15 +1,15 @@
 ﻿{
-    "remoteDeployFrozen":  false,
-    "reason":  "Operator authorized the hardened Unknown radio conversation server update and restart on 2026-07-30; authorization is bounded to the receipt-bound server release.",
+    "remoteDeployFrozen":  true,
+    "reason":  "Production rollout luam-20260730-unknown-radio-hardening completed. Remote deployment is frozen again; future server, client-static, or AI-gateway mutation requires fresh explicit authorization.",
     "lastReviewed":  "2026-07-30",
     "deploymentAuthorization":  {
-                                    "state":  "authorized",
-                                    "approvalId":  "unknown-radio-hardening-20260730",
-                                    "approvedBy":  "server operator via Codex session",
-                                    "approvedAtUtc":  "2026-07-30T00:14:26Z",
-                                    "expiresAtUtc":  "2026-07-30T03:00:00Z",
+                                    "state":  "frozen",
+                                    "approvalId":  null,
+                                    "approvedBy":  null,
+                                    "approvedAtUtc":  null,
+                                    "expiresAtUtc":  null,
                                     "allowedMutations":  [
-                                                             "server-release"
+
                                                          ]
                                 },
     "releaseGate":  {
@@ -376,7 +376,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260730-unknown-radio-hardening",
-                                         "state":  "deployment-authorized",
+                                         "state":  "local-package-only",
                                          "packageSelection":  "Server-only Unknown addressed-radio conversation memory, natural follow-ups, lifecycle fencing, bounded retries, and silent final provider failure.",
                                          "packageScopes":  [
                                                                ".agents",
