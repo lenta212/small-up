@@ -150,6 +150,48 @@ public sealed class LuaMOreSiloShipPersistenceRuntimeTest
         }
     }
 
+    [Test]
+    public async Task UpdateIgnoresActorWithoutAttachedSession()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapManager = server.ResolveDependency<IMapManager>();
+        var maps = entities.System<SharedMapSystem>();
+        var siloSystem = entities.System<OreSiloSystem>();
+
+        MapId mapId = default;
+
+        try
+        {
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out mapId);
+                var grid = mapManager.CreateGridEntity(mapId).Owner;
+                maps.SetTile(grid, entities.GetComponent<MapGridComponent>(grid), Vector2i.Zero, new Tile(1));
+
+                var actor = entities.SpawnEntity(
+                    ActorPrototype,
+                    new EntityCoordinates(grid, new Vector2(0.25f, 0.5f)));
+                var actorComp = entities.EnsureComponent<ActorComponent>(actor);
+                Assert.That(actorComp.PlayerSession, Is.Null,
+                    "The fixture must represent an ActorComponent before a session is attached.");
+
+                Assert.DoesNotThrow(() => siloSystem.Update(1.1f),
+                    "Unattached actors must not enter the session-keyed ore-silo PVS cache.");
+            });
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (maps.MapExists(mapId))
+                    maps.DeleteMap(mapId);
+            });
+            pair.Kill();
+        }
+    }
+
     [TestCase(PvsCacheInvalidation.RangeExit)]
     [TestCase(PvsCacheInvalidation.GridChange)]
     [TestCase(PvsCacheInvalidation.Unlink)]

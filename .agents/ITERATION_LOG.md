@@ -1,3 +1,11 @@
+## 2026-07-30T01:54:20Z -- unattached actor crash repaired before final Unknown release gate
+
+- Gate finding: the clean receipt-producing run passed Content 87/87 and 942 of 943 LuaM integration tests. The sole failure was `LuaMRescueTerminalPolicyRuntimeTest.DormantRouteLineageTransfersToReplacementWithoutBudgetReset(True,False)`, where a legitimate transient `ActorComponent` without an attached `PlayerSession` reached `OreSiloSystem.Update`; the system then used the null session as a dictionary key and threw `ArgumentNullException`.
+- Runtime repair: the ore-silo PVS preload pass now skips only actors whose session has not yet been attached. Attached sessions retain the existing range/grid/link cache behavior, while inactive cached sessions are still pruned normally.
+- Regression: `UpdateIgnoresActorWithoutAttachedSession` constructs the exact incomplete actor state and drives the real ore-silo update. The new regression plus both parameterizations of the previously failing rescue test passed 4/4 after a rebuilt integration assembly; the complete `LuaMOreSiloShipPersistenceRuntimeTest` class then passed 8/8 in 4m30s.
+- Scope: no production package, service, configuration, round, ship, database, gateway, or client-static state was changed. The failed 942/943 run is diagnostic evidence only and cannot authorize deployment.
+- Next action: commit this narrow runtime repair and repeat the complete clean source/package/binary/audit/dry-run gate from the new commit before any receipt-bound server swap.
+
 ## 2026-07-30T01:25:19Z -- final gate exposed and repaired a tick-rate-sensitive gravity fixture
 
 - Gate failures: the first compatibility-gate launch never entered the pipeline because the temporary wrapper path with a space was not quoted; the corrected launch then stopped before tests when prior Release packaging left 23 project asset records needing restore. `dotnet restore` for both production test projects repaired the local dependency state, and a control Content LuaM run passed 87/87. Neither failure touched production.
