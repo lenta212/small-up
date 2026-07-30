@@ -1,9 +1,9 @@
 ﻿using System.Linq;
-using Content.Shared.Ghost;
 using Content.Shared.Movement.Pulling.Components;
 using Content.Shared.Movement.Pulling.Systems;
 using Content.Shared.Popups;
 using Content.Shared.Projectiles;
+using Content.Shared.Tag;
 using Content.Shared.Teleportation.Components;
 using Content.Shared.Weapons.Misc;
 using Content.Shared.Verbs;
@@ -15,6 +15,7 @@ using Robust.Shared.Physics.Dynamics;
 using Robust.Shared.Physics.Events;
 using Robust.Shared.Physics.Systems;
 using Robust.Shared.Player;
+using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
 using Robust.Shared.Utility;
 
@@ -34,9 +35,12 @@ public abstract partial class SharedPortalSystem : EntitySystem
     [Dependency] private SharedPopupSystem _popup = default!;
     [Dependency] private SharedGrapplingGunSystem _grappling = default!;
     [Dependency] private SharedJointSystem _joints = default!;
+    [Dependency] private TagSystem _tags = default!;
 
     private const string PortalFixture = "portalFixture";
     private const string ProjectileFixture = "projectile";
+    private static readonly ProtoId<TagPrototype> AllowPortalTraversalTag = "AllowPortalTraversal";
+    private static readonly ProtoId<TagPrototype> PreventPortalCollisionTag = "PreventPortalCollision";
 
     private const int MaxRandomTeleportAttempts = 20;
 
@@ -50,8 +54,8 @@ public abstract partial class SharedPortalSystem : EntitySystem
 
     private void OnGetVerbs(EntityUid uid, PortalComponent component, GetVerbsEvent<AlternativeVerb> args)
     {
-        // Traversal altverb for ghosts to use that bypasses normal functionality
-        if (!args.CanAccess || !HasComp<GhostComponent>(args.User))
+        // Traversal altverb for eligible spectral entities that bypasses normal functionality.
+        if (!args.CanAccess || !_tags.HasTag(args.User, AllowPortalTraversalTag))
             return;
 
         // Don't use the verb with unlinked or with multi-output portals
@@ -91,6 +95,9 @@ public abstract partial class SharedPortalSystem : EntitySystem
             return;
 
         var subject = args.OtherEntity;
+
+        if (_tags.HasTag(subject, PreventPortalCollisionTag))
+            return;
 
         // best not.
         if (Transform(subject).Anchored)

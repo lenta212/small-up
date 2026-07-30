@@ -193,7 +193,9 @@ public sealed partial class ShipMoveToOperator : HTNOperator, IHtnConditionalShu
             return;
         Angle? targetAngle = blackboard.TryGetValue<Angle>(AngleKey, out var keyAngle, _entManager) ? keyAngle : null;
 
-        var uid = blackboard.GetValue<EntityUid>(NPCBlackboard.Owner);
+        if (!blackboard.TryGetValue<EntityUid>(NPCBlackboard.Owner, out var uid, _entManager) ||
+            _entManager.Deleted(uid))
+            return;
 
         var comp = _steering.Steer(uid, targetCoordinates);
 
@@ -221,7 +223,9 @@ public sealed partial class ShipMoveToOperator : HTNOperator, IHtnConditionalShu
 
     public override HTNOperatorStatus Update(NPCBlackboard blackboard, float frameTime)
     {
-        var owner = blackboard.GetValue<EntityUid>(NPCBlackboard.Owner);
+        if (!blackboard.TryGetValue<EntityUid>(NPCBlackboard.Owner, out var owner, _entManager) ||
+            _entManager.Deleted(owner))
+            return HTNOperatorStatus.Failed;
 
         if (!_entManager.TryGetComponent<ShipSteererComponent>(owner, out var steerer)
             || !blackboard.TryGetValue<EntityCoordinates>(TargetKey, out var target, _entManager)
@@ -274,7 +278,10 @@ public sealed partial class ShipMoveToOperator : HTNOperator, IHtnConditionalShu
             blackboard.Remove<Angle>(AngleKey);
         }
 
-        var uid = blackboard.GetValue<EntityUid>(NPCBlackboard.Owner);
+        if (!blackboard.TryGetValue<EntityUid>(NPCBlackboard.Owner, out var uid, _entManager) ||
+            _entManager.Deleted(uid))
+            return;
+
         _steering.Stop(uid);
         if (!_raisedEvent)
         {

@@ -48,6 +48,10 @@ public sealed class LuaMShipPersistenceDatabaseTest
             connection,
             "luam_ship_snapshot",
             "payload_revision");
+        var legacySingleOwnerIndex = await CountSqliteSchemaObjectsAsync(
+            connection,
+            "index",
+            "UX_luam_ship_snapshot_active_owner");
         Assert.Multiple(() =>
         {
             Assert.That(snapshotTable, Is.EqualTo(1));
@@ -55,6 +59,8 @@ public sealed class LuaMShipPersistenceDatabaseTest
             Assert.That(leaseIndex, Is.EqualTo(1));
             Assert.That(retirementIndex, Is.EqualTo(1));
             Assert.That(payloadRevisionColumn, Is.EqualTo(1));
+            Assert.That(legacySingleOwnerIndex, Is.Zero,
+                "Fleet persistence must allow more than one non-retired ship per owner.");
         });
 
         await migrator.MigrateAsync("20260719112950_LuaMFullShipPersistence");
@@ -63,10 +69,16 @@ public sealed class LuaMShipPersistenceDatabaseTest
             connection,
             "luam_ship_snapshot",
             "payload_revision");
+        legacySingleOwnerIndex = await CountSqliteSchemaObjectsAsync(
+            connection,
+            "index",
+            "UX_luam_ship_snapshot_active_owner");
         Assert.Multiple(() =>
         {
             Assert.That(snapshotTable, Is.EqualTo(1));
             Assert.That(payloadRevisionColumn, Is.Zero);
+            Assert.That(legacySingleOwnerIndex, Is.Zero,
+                "Downgrading to the real previous schema must not create a fleet-breaking index.");
         });
 
         await migrator.MigrateAsync("20260716101408_LuaMDeepCryoPersistence");
@@ -84,10 +96,118 @@ public sealed class LuaMShipPersistenceDatabaseTest
             connection,
             "luam_ship_snapshot",
             "payload_revision");
+        legacySingleOwnerIndex = await CountSqliteSchemaObjectsAsync(
+            connection,
+            "index",
+            "UX_luam_ship_snapshot_active_owner");
         Assert.Multiple(() =>
         {
             Assert.That(snapshotTable, Is.EqualTo(1));
             Assert.That(payloadRevisionColumn, Is.EqualTo(1));
+            Assert.That(legacySingleOwnerIndex, Is.Zero);
+        });
+    }
+
+    [Test]
+    public async Task OwnerCanRegisterMultipleStoredShips()
+    {
+        await using var connection = await OpenSqliteAsync();
+        var options = new DbContextOptionsBuilder<SqliteServerDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var db = NewServerDb(() => options, inMemory: true);
+        var owner = new NetUserId(Guid.NewGuid());
+        var now = DateTime.UtcNow;
+        await db.InitPrefsAsync(owner, NewProfile("Fleet Owner"));
+
+        var first = await db.StoreLuaMShipSnapshotAsync(
+            NewStoreRequest(Guid.NewGuid(), owner, now, "first hull"));
+        var second = await db.StoreLuaMShipSnapshotAsync(
+            NewStoreRequest(Guid.NewGuid(), owner, now.AddSeconds(1), "second hull"));
+        var fleet = await db.GetLuaMShipSnapshotsByOwnerAsync(owner);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Success, Is.True);
+            Assert.That(second.Success, Is.True);
+            Assert.That(fleet, Has.Count.EqualTo(2));
+            Assert.That(fleet.All(ship => ship.Status == DbLuaMShipSnapshotStatus.Stored), Is.True);
+        });
+    }
+
+    [Test]
+    public async Task FleetMigrationDowngradePreservesCanonicalRowsAndAllowsUpgradeAgain()
+    {
+        await using var connection = await OpenSqliteAsync();
+        var options = new DbContextOptionsBuilder<SqliteServerDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        await using var context = new SqliteServerDbContext(options);
+        var migrator = context.GetService<IMigrator>();
+        await migrator.MigrateAsync();
+
+        var db = NewServerDb(() => options, inMemory: true);
+        var owner = new NetUserId(Guid.NewGuid());
+        var now = DateTime.UtcNow;
+        await db.InitPrefsAsync(owner, NewProfile("Fleet Migration Owner"));
+        Assert.That(
+            (await db.StoreLuaMShipSnapshotAsync(
+                NewStoreRequest(Guid.NewGuid(), owner, now, "fleet hull one"))).Success,
+            Is.True);
+        Assert.That(
+            (await db.StoreLuaMShipSnapshotAsync(
+                NewStoreRequest(Guid.NewGuid(), owner, now.AddSeconds(1), "fleet hull two"))).Success,
+            Is.True);
+
+        await migrator.MigrateAsync("20260720164259_LuaMShipPayloadRevision");
+        var downgradedIndex = await CountSqliteSchemaObjectsAsync(
+            connection,
+            "index",
+            "UX_luam_ship_snapshot_active_owner");
+        var downgradedRows = await CountSqliteRowsAsync(connection, "luam_ship_snapshot");
+        Assert.Multiple(() =>
+        {
+            Assert.That(downgradedIndex, Is.Zero,
+                "The migration Down path must match the prior canonical schema.");
+            Assert.That(downgradedRows, Is.EqualTo(2),
+                "Downgrade must preserve an already-valid fleet.");
+        });
+
+        await migrator.MigrateAsync();
+        var upgradedIndex = await CountSqliteSchemaObjectsAsync(
+            connection,
+            "index",
+            "UX_luam_ship_snapshot_active_owner");
+        var upgradedRows = await CountSqliteRowsAsync(connection, "luam_ship_snapshot");
+        Assert.Multiple(() =>
+        {
+            Assert.That(upgradedIndex, Is.Zero);
+            Assert.That(upgradedRows, Is.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public void PostgresFleetMigrationDownDoesNotInventTheDivergentUniqueIndex()
+    {
+        var options = new DbContextOptionsBuilder<PostgresServerDbContext>()
+            .UseNpgsql("Host=localhost;Database=luam_migration_script;Username=unused;Password=unused")
+            .Options;
+        using var context = new PostgresServerDbContext(options);
+        var migrator = context.GetService<IMigrator>();
+
+        var downScript = migrator.GenerateScript(
+            "20260727090000_LuaMShipFleetOwnerIndex",
+            "20260720164309_LuaMShipPayloadRevision");
+        var upScript = migrator.GenerateScript(
+            "20260720164309_LuaMShipPayloadRevision",
+            "20260727090000_LuaMShipFleetOwnerIndex");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(downScript, Does.Not.Contain("UX_luam_ship_snapshot_active_owner"),
+                "Downgrading canonical PostgreSQL must not create a one-ship-per-owner index.");
+            Assert.That(upScript, Does.Contain("DROP INDEX IF EXISTS"));
+            Assert.That(upScript, Does.Contain("UX_luam_ship_snapshot_active_owner"));
         });
     }
 
@@ -510,6 +630,96 @@ public sealed class LuaMShipPersistenceDatabaseTest
     }
 
     [Test]
+    public async Task ConcurrentIdenticalInitialStoresResolveAsOneSuccessAndOneReplay()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"luam-ship-store-{Guid.NewGuid():N}.db");
+        try
+        {
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = databasePath,
+                Mode = SqliteOpenMode.ReadWriteCreate,
+                Pooling = false,
+            }.ToString();
+            var options = new DbContextOptionsBuilder<SqliteServerDbContext>()
+                .UseSqlite(connectionString)
+                .Options;
+            var db = NewServerDb(() => options, inMemory: false);
+            var owner = new NetUserId(Guid.NewGuid());
+            var startedAt = DateTime.UtcNow;
+            await db.InitPrefsAsync(owner, NewProfile("Concurrent Initial Store Owner"));
+            var request = NewStoreRequest(Guid.NewGuid(), owner, startedAt, "identical initial payload");
+
+            var results = await Task.WhenAll(
+                db.StoreLuaMShipSnapshotAsync(request),
+                db.StoreLuaMShipSnapshotAsync(request));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(
+                    results.Count(value => value.Status == LuaMShipPersistenceWriteStatus.Success),
+                    Is.EqualTo(1));
+                Assert.That(
+                    results.Count(value => value.Status == LuaMShipPersistenceWriteStatus.AlreadyProcessed),
+                    Is.EqualTo(1),
+                    "The loser of the initial insert race must re-read and recognize the exact committed request.");
+            });
+
+            await using var context = new SqliteServerDbContext(options);
+            Assert.That(await context.LuaMShipSnapshots.CountAsync(), Is.EqualTo(1));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(databasePath))
+                File.Delete(databasePath);
+        }
+    }
+
+    [Test]
+    public async Task PostgresConcurrentIdenticalInitialStoresResolveAsOneSuccessAndOneReplay()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("LUAM_TEST_POSTGRES_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            Assert.Ignore(
+                "Set LUAM_TEST_POSTGRES_CONNECTION to a disposable PostgreSQL database to run the live provider race.");
+        }
+
+        var options = new DbContextOptionsBuilder<PostgresServerDbContext>()
+            .UseNpgsql(connectionString!)
+            .Options;
+        await using (var context = new PostgresServerDbContext(options))
+            await context.Database.MigrateAsync();
+
+        var db = NewPostgresDb(options, connectionString!);
+        var owner = new NetUserId(Guid.NewGuid());
+        var startedAt = DateTime.UtcNow;
+        await db.InitPrefsAsync(owner, NewProfile("PostgreSQL Concurrent Initial Store Owner"));
+        var request = NewStoreRequest(Guid.NewGuid(), owner, startedAt, "postgres identical initial payload");
+
+        var results = await Task.WhenAll(
+            db.StoreLuaMShipSnapshotAsync(request),
+            db.StoreLuaMShipSnapshotAsync(request));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                results.Count(value => value.Status == LuaMShipPersistenceWriteStatus.Success),
+                Is.EqualTo(1));
+            Assert.That(
+                results.Count(value => value.Status == LuaMShipPersistenceWriteStatus.AlreadyProcessed),
+                Is.EqualTo(1),
+                "The PostgreSQL insert-race loser must re-read the exact committed request.");
+        });
+
+        await using var verify = new PostgresServerDbContext(options);
+        Assert.That(
+            await verify.LuaMShipSnapshots.CountAsync(snapshot => snapshot.ShipId == request.ShipId),
+            Is.EqualTo(1));
+    }
+
+    [Test]
     public async Task ConcurrentClaimsCreateAtMostOneDurableShipLease()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"luam-ship-{Guid.NewGuid():N}.db");
@@ -641,6 +851,13 @@ public sealed class LuaMShipPersistenceDatabaseTest
         return count;
     }
 
+    private static async Task<long> CountSqliteRowsAsync(SqliteConnection connection, string table)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM {table}";
+        return (long) (await command.ExecuteScalarAsync())!;
+    }
+
     private static ServerDbSqlite NewServerDb(
         Func<DbContextOptions<SqliteServerDbContext>> options,
         bool inMemory)
@@ -651,6 +868,23 @@ public sealed class LuaMShipPersistenceDatabaseTest
             logManager,
             loadCvarsFromTypes: [typeof(CCVars)]);
         return new ServerDbSqlite(options, inMemory, configuration, false, new DummySawmill());
+    }
+
+    private static ServerDbPostgres NewPostgresDb(
+        DbContextOptions<PostgresServerDbContext> options,
+        string connectionString)
+    {
+        var logManager = new LogManager();
+        IConfigurationManager configuration = MockInterfaces.MakeConfigurationManager(
+            new Mock<IGameTiming>().Object,
+            logManager,
+            loadCvarsFromTypes: [typeof(CCVars)]);
+        return new ServerDbPostgres(
+            options,
+            connectionString,
+            configuration,
+            new DummySawmill(),
+            new DummySawmill());
     }
 
     private static HumanoidCharacterProfile NewProfile(string name)

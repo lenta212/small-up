@@ -112,6 +112,63 @@
                     </controls:BoxContainer>
                 </controls:PanelContainer>
 
+                <ui:ShuttleCombatTelemetryPanel Name="CombatTelemetry"/>
+
+                <ui:ShuttleConsoleSectionHeader Text="{controls:Loc 'shuttle-console-target'}"/>
+                <controls:PanelContainer HorizontalExpand="True" Margin="8 4 8 8">
+                    <controls:PanelContainer.PanelOverride>
+                        <graphics:StyleBoxFlat BorderThickness="1"
+                                               BorderColor="#31575A"
+                                               BackgroundColor="#081112"/>
+                    </controls:PanelContainer.PanelOverride>
+                    <controls:BoxContainer Orientation="Vertical"
+                                           HorizontalExpand="True"
+                                           Margin="8 7"
+                                           SeparationOverride="5">
+                        <controls:GridContainer Columns="2"
+                                                HorizontalExpand="True"
+                                                HSeparationOverride="5"
+                                                VSeparationOverride="5">
+                            <controls:Label Text="X"
+                                            VerticalAlignment="Center"
+                                            FontColorOverride="#7DA5A6"/>
+                            <controls:LineEdit Name="TargetX"
+                                               Access="Public"
+                                               PlaceHolder="0.0"
+                                               HorizontalExpand="True"/>
+                            <controls:Label Text="Y"
+                                            VerticalAlignment="Center"
+                                            FontColorOverride="#7DA5A6"/>
+                            <controls:LineEdit Name="TargetY"
+                                               Access="Public"
+                                               PlaceHolder="0.0"
+                                               HorizontalExpand="True"/>
+                        </controls:GridContainer>
+                        <controls:BoxContainer Orientation="Horizontal"
+                                               HorizontalExpand="True"
+                                               SeparationOverride="4">
+                            <ui:ShuttleConsoleButton Name="TargetSet"
+                                                     Text="{controls:Loc 'shuttle-console-set-target'}"
+                                                     ToolTip="{controls:Loc 'shuttle-console-set-target-description'}"
+                                                     TextAlign="Center"
+                                                     HorizontalExpand="True"
+                                                     MinHeight="34"/>
+                            <ui:ShuttleConsoleButton Name="TargetHide"
+                                                     Text="{controls:Loc 'shuttle-console-hide-target'}"
+                                                     ToolTip="{controls:Loc 'shuttle-console-hide-target-description'}"
+                                                     TextAlign="Center"
+                                                     ToggleMode="True"
+                                                     HorizontalExpand="True"
+                                                     MinHeight="34"/>
+                        </controls:BoxContainer>
+                        <controls:Label Name="TargetFeedback"
+                                        Text="{controls:Loc 'shuttle-console-target-feedback-empty'}"
+                                        HorizontalExpand="True"
+                                        ClipText="True"
+                                        FontColorOverride="#829597"/>
+                    </controls:BoxContainer>
+                </controls:PanelContainer>
+
                 <ui:ShuttleConsoleSectionHeader Name="NavSettingsLabel"
                                                 Text="{controls:Loc 'shuttle-console-nav-settings'}"/>
                 <controls:BoxContainer Orientation="Vertical"

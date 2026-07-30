@@ -81,12 +81,17 @@ namespace Content.Server._LuaM.Cryo;
 /// </summary>
 public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
 {
+    // Body persistence is intentionally retired. Ship snapshots remain durable,
+    // while cryo and respawn use their ordinary round-local behavior.
+    public const bool PersistenceEnabled = false;
+
     public const int PayloadFormatVersion = 1;
 
     private static readonly TimeSpan RestoreLeaseDuration = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan RestorePublicationSafetyWindow = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan PlayablePresenceLeaseDuration = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan PlayablePresenceRenewLead = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan PlayablePresenceHardFenceLead = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PublicationRetryInterval = TimeSpan.FromSeconds(5);
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly HashSet<string> ForbiddenPersistedEntityPrototypes = new(StringComparer.Ordinal)
@@ -156,6 +161,11 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
     public override void Initialize()
     {
         base.Initialize();
+        if (!PersistenceEnabled)
+        {
+            Log.Info("Durable body persistence is disabled; only shuttle persistence remains enabled.");
+            return;
+        }
 
         SubscribeLocalEvent<PlayerSpawnCompleteEvent>(OnPlayerSpawnComplete);
         SubscribeLocalEvent<PlayerBeforeSpawnEvent>(OnPlayerBeforeSpawn);
@@ -259,6 +269,8 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
     public override void Update(float frameTime)
     {
         base.Update(frameTime);
+        if (!PersistenceEnabled)
+            return;
 
         if (!_leaseRecoveryRunning && _timing.CurTime >= _nextLeaseRecovery)
             RecoverExpiredLeases();
@@ -267,6 +279,7 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
         // retry work. Check it every tick so a body cannot remain playable for
         // up to the one-second maintenance cadence after it becomes due.
         SchedulePresenceRenewals();
+        EnforcePendingPresenceRenewalSafetyFences();
         EnforceSuspendedPresenceFences();
 
         // Durable retries do not need frame precision. A one-second cadence
@@ -346,14 +359,27 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
                 key,
                 request,
                 identity.PresenceSnapshotId,
+                identity.PresenceLeaseExpiresAtUtc,
                 _timing.CurTime);
             _pendingPresenceRenewals.Add(key, pending);
-            // Fence immediately at the renewal lead boundary. The DB await may
-            // stall past expiry; no outstanding task is allowed to leave a
-            // reclaimable old-token body exposed meanwhile.
-            if (!SuspendPresenceBody(body, key))
-                Log.Error($"Could not fully suspend {key} before its playable-presence renewal; retaining the renewal fence and retry state.");
             RetryPendingPresenceRenewal(pending);
+        }
+    }
+
+    private void EnforcePendingPresenceRenewalSafetyFences()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var pending in _pendingPresenceRenewals.Values.ToArray())
+        {
+            if (pending.HardFenced ||
+                NormalizeUtc(pending.OriginalLeaseExpiresAtUtc) > now + PlayablePresenceHardFenceLead)
+            {
+                continue;
+            }
+
+            pending.HardFenced = true;
+            if (!SuspendPresenceBody(pending.Body, pending.Key))
+                Log.Error($"Could not fully suspend {pending.Key} before its playable-presence lease became unsafe.");
         }
     }
 
@@ -375,7 +401,6 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
         catch (Exception e)
         {
             pending.NextAttempt = _timing.CurTime + PublicationRetryInterval;
-            SuspendPresenceBody(pending.Body, pending.Key);
             Log.Error($"Unexpected playable-presence renewal failure for {pending.Key}: {e}");
         }
     }
@@ -547,7 +572,6 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
                 return;
             }
 
-            SuspendPresenceBody(pending.Body, pending.Key);
             pending.NextAttempt = _timing.CurTime + PublicationRetryInterval;
         }
         finally
@@ -1784,8 +1808,9 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
 
     private void OnPlayerSpawnComplete(PlayerSpawnCompleteEvent ev)
     {
-        // SpawnComplete cannot wait for durable publication. Keep the body fenced
-        // until the existing async settlement queue proves playable authority.
+        // FreshReserved is an exclusive, unexpired durable claim. Keep control on
+        // the new body while publishing it instead of creating a second observer
+        // transition; settlement still fences immediately on an unsafe outcome.
         var hasTicket = _spawnLifecycleTickets.Remove(ev.Player.UserId, out var ticket);
         if (!hasTicket || ticket == null ||
             !TryGetCurrentCharacterKey(ev.Player.UserId, out var key) ||
@@ -1812,8 +1837,6 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
 
         ticket.PublishAttempted = true;
         BindPresenceIdentity(ev.Mob, key, ticket.SlotGeneration, ticket.Authority!);
-        if (!SuspendPresenceBody(ev.Mob, key))
-            Log.Error($"Could not fully suspend fresh-spawn publication for {key}; retaining its exact durable settlement fence.");
         RetainConsumedSpawnTicket(ticket, ev.Mob, restoreOnPublish: true);
     }
 
@@ -1875,11 +1898,10 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
     private void BlockFreshSpawnToObserver(PlayerBeforeSpawnEvent ev)
     {
         ev.Handled = true;
-        // The ticker deliberately does not create a mob for a handled spawn.
-        // Keep the player attached to an observer while the durable authority
-        // sequence runs, rather than leaving the session without an entity.
-        if (ev.Player.AttachedEntity == null)
-            _gameTicker.JoinAsObserver(ev.Player);
+        // Stay in the lobby until authority is ready. Entering the game here
+        // either creates a temporary observer viewport or leaves the client
+        // attached to no entity; MakeJoinGame performs the real transition.
+        ev.DeferJoin = true;
     }
 
     /// <summary>
@@ -6535,8 +6557,10 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
         public CharacterKey Key { get; }
         public LuaMCharacterPresenceRenewRequest Request { get; }
         public long? SnapshotId { get; }
+        public DateTime OriginalLeaseExpiresAtUtc { get; }
         public TimeSpan NextAttempt { get; set; }
         public bool Running { get; set; }
+        public bool HardFenced { get; set; }
         public bool ReleaseAfterCompletion { get; set; }
         public bool ReservedForRestoreSettlement { get; set; }
 
@@ -6545,12 +6569,14 @@ public sealed class LuaMDeepCryoPersistenceSystem : EntitySystem
             CharacterKey key,
             LuaMCharacterPresenceRenewRequest request,
             long? snapshotId,
+            DateTime originalLeaseExpiresAtUtc,
             TimeSpan nextAttempt)
         {
             Body = body;
             Key = key;
             Request = request;
             SnapshotId = snapshotId;
+            OriginalLeaseExpiresAtUtc = originalLeaseExpiresAtUtc;
             NextAttempt = nextAttempt;
         }
     }

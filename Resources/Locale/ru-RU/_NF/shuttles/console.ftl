@@ -23,10 +23,16 @@ shuttle-console-service-flag-Services-description = Услуги (наприме
 shuttle-console-service-flag-Trade-description = Товары, продаваемые на борту.
 shuttle-console-service-flag-Social-description = Место для общения и отдыха.
 shuttle-console-target = Цель
+shuttle-console-set-target = Задать
 shuttle-console-set-target-description = Устанавливает целевую точку на консоли управления шаттлом.
+shuttle-console-hide-target = Скрыть
 shuttle-console-hide-target-description = Переключает видимость целевой точки на консоли управления шаттлом.
 shuttle-console-target-name = Цель
 shuttle-console-map-track = ⌖
+shuttle-console-map-track-tooltip = Сделать этот шаттл общей целью на радарах корабля.
+shuttle-console-target-feedback-empty = ○ Метка радара не задана.
+shuttle-console-target-feedback-invalid = ⚠ Введите конечные координаты X и Y от -1000000 до 1000000.
+shuttle-console-target-feedback-active = ⌖ Цель: X {$x}, Y {$y}.
 
 shuttle-console-force-anchored = Вы не можете совершить FTL-переход на аванпосте.
 shuttle-console-signature-infrared = Тепловая сигнатура

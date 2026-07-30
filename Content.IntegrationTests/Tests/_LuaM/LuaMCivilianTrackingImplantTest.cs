@@ -48,6 +48,7 @@ public sealed class LuaMCivilianTrackingImplantTest
             var biologicalJobs = civilian.Roles
                 .Select(prototypes.Index)
                 .Where(job => job.JobEntity == null)
+                .Where(job => job.ID != "LuaMUnknownSurvivor")
                 .Select(job => job.ID)
                 .ToArray();
 

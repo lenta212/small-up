@@ -5,7 +5,7 @@ meta:
   forkId: ""
   forkVersion: ""
   time: 03/27/2026 19:43:44
-  entityCount: 10733
+  entityCount: 10735
 maps:
 - 1
 grids:
@@ -32850,6 +32850,13 @@ entities:
     - type: Transform
       pos: -55.5,42.5
       parent: 2
+- proto: DefaultStationBeaconGateway
+  entities:
+  - uid: 12347
+    components:
+    - type: Transform
+      pos: -43.5,40.5
+      parent: 2
 - proto: DefaultStationBeaconGravGen
   entities:
   - uid: 4357
@@ -52537,6 +52544,15 @@ entities:
     - type: Transform
       pos: -27.805511,76.69168
       parent: 2
+- proto: Gateway
+  entities:
+  - uid: 12346
+    components:
+    - type: Transform
+      pos: -43.5,40.5
+      parent: 2
+    - type: Gateway
+      enabled: true
 - proto: GeneratorBasic15kW
   entities:
   - uid: 6845

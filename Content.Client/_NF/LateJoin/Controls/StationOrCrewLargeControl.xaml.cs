@@ -28,10 +28,13 @@ public sealed partial class StationOrCrewLargeControl : PickerControl
 
     public override void UpdateUi(IReadOnlyDictionary<NetEntity, StationJobInformation> obj)
     {
-        StationButton.Disabled = !StationJobInformationExtensions.IsAnyStationAvailable(obj);
-        NoStationsAvailableLabel.Visible = !StationJobInformationExtensions.IsAnyStationAvailable(obj);
-        CrewButton.Disabled = !StationJobInformationExtensions.IsAnyCrewJobAvailable(obj);
-        NoCrewsAvailableLabel.Visible = !StationJobInformationExtensions.IsAnyCrewJobAvailable(obj);
+        var stationAvailable = StationJobInformationExtensions.IsAnyStationAvailable(obj);
+        var crewAvailable = StationJobInformationExtensions.IsAnyCrewJobAvailable(obj);
+
+        StationButton.Disabled = !stationAvailable;
+        NoStationsAvailableLabel.Visible = !stationAvailable;
+        CrewButton.Disabled = !crewAvailable;
+        NoCrewsAvailableLabel.Visible = !crewAvailable;
     }
 
     protected override void EnteredTree()

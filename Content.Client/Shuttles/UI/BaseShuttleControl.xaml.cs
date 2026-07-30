@@ -352,7 +352,7 @@ public partial class BaseShuttleControl : MapGridControl
         handle.DrawLine(end, end - direction * headLength - left * (headLength * 0.45f), color);
     }
 
-    private static bool TryGetViewportEdgePoint(
+    protected static bool TryGetViewportEdgePoint(
         Vector2 origin,
         Vector2 direction,
         Vector2 viewportSize,

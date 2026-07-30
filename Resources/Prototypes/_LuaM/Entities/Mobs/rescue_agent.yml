@@ -22,6 +22,8 @@
   - type: LuaMRescueBehaviorAdapter
   - type: LuaMBehaviorAgent
     profile: LuaMRescueMedicBehavior
+    writeHtnBlackboard: false
+    externalEvaluationOnly: true
   - type: Medibot
     treatments:
       Alive:
@@ -75,6 +77,8 @@
   - type: LuaMRescueBehaviorAdapter
   - type: LuaMBehaviorAgent
     profile: LuaMRescueCrewBehavior
+    writeHtnBlackboard: false
+    externalEvaluationOnly: true
   - type: HTN
     pauseWhenNoPlayersInRange: false
     rootTask:

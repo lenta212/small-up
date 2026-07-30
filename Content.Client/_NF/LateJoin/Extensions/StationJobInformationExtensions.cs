@@ -7,12 +7,21 @@ public static class StationJobInformationExtensions
 {
     public static bool IsAnyStationAvailable(IReadOnlyDictionary<NetEntity, StationJobInformation> obj)
     {
-        return obj.Values.Any(station => station.IsLateJoinStation);
+        return obj.Values.Any(station => station.IsLateJoinStation && station.HasOpenJob());
     }
 
     public static bool IsAnyCrewJobAvailable(IReadOnlyDictionary<NetEntity, StationJobInformation> obj)
     {
-        return obj.Values.Any(station => !station.IsLateJoinStation);
+        return obj.Values.Any(station => !station.IsLateJoinStation && station.HasOpenJob());
+    }
+
+    /// <summary>
+    /// Returns whether at least one role can currently accept a late-joining player.
+    /// A null slot count means that the role has unlimited positions.
+    /// </summary>
+    public static bool HasOpenJob(this StationJobInformation stationJobInformation)
+    {
+        return stationJobInformation.JobsAvailable.Values.Any(slots => slots is null or > 0);
     }
 
     public static string GetStationNameWithJobCount(this StationJobInformation stationJobInformation)

@@ -80,6 +80,7 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
 
         SubscribeLocalEvent<ShuttleConsoleComponent, ComponentStartup>(OnConsoleStartup);
         SubscribeLocalEvent<ShuttleConsoleComponent, ComponentShutdown>(OnConsoleShutdown);
+        SubscribeLocalEvent<RadarTargetChangedEvent>(OnRadarTargetChanged);
         SubscribeLocalEvent<ShuttleConsoleComponent, PowerChangedEvent>(OnConsolePowerChange);
         SubscribeLocalEvent<ShuttleConsoleComponent, AnchorStateChangedEvent>(OnConsoleAnchorChange);
         SubscribeLocalEvent<ShuttleConsoleComponent, ActivatableUIOpenAttemptEvent>(OnConsoleUIOpenAttempt);
@@ -147,6 +148,11 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
         {
             UpdateState(entity, ref dockState);
         }
+    }
+
+    private void OnRadarTargetChanged(RadarTargetChangedEvent args)
+    {
+        RefreshShuttleConsoles(args.GridUid);
     }
 
     /// <summary>
@@ -557,7 +563,7 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
         if (!Resolve(entity, ref entity.Comp1, ref entity.Comp2, false))
             return new NavInterfaceState(SharedRadarConsoleSystem.DefaultMaxRange, GetNetCoordinates(coordinates), angle, docks, InertiaDampeningMode.Dampen); // Frontier: add inertial dampening
 
-        return new NavInterfaceState(
+        var state = new NavInterfaceState(
             entity.Comp1.MaxRange,
             GetNetCoordinates(coordinates),
             angle,
@@ -567,6 +573,39 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
         {
             ShieldState = GetShieldState(entity.Comp2!.GridUid), // Forge-Change
         };
+
+        PopulateRadarTargetState(state, entity.Comp2.GridUid);
+        return state;
+    }
+
+    private void PopulateRadarTargetState(NavInterfaceState state, EntityUid? gridUid)
+    {
+        if (gridUid is not { } grid ||
+            !TryComp<ShuttleComponent>(grid, out var shuttle) ||
+            shuttle.RadarTarget is not { } target)
+        {
+            return;
+        }
+
+        state.Target = target;
+        state.HideTarget = shuttle.RadarTargetHidden;
+
+        if (shuttle.RadarTargetEntity is not { } targetUid ||
+            !Exists(targetUid) ||
+            !TryComp<ShuttleComponent>(targetUid, out _) ||
+            !TryComp<TransformComponent>(targetUid, out var targetXform) ||
+            targetXform.MapID != Transform(grid).MapID ||
+            TryComp<IFFComponent>(targetUid, out var iff) &&
+            (iff.Flags & (IFFFlags.Hide | IFFFlags.HideLabel | IFFFlags.HideLabelAlways)) != 0)
+        {
+            shuttle.RadarTargetEntity = null;
+            return;
+        }
+
+        var currentPosition = _transform.GetMapCoordinates(targetUid, targetXform).Position;
+        shuttle.RadarTarget = currentPosition;
+        state.Target = currentPosition;
+        state.TargetEntity = GetNetEntity(targetUid);
     }
 
     // Forge-Change-Start

@@ -48,7 +48,6 @@ public sealed partial class LuaMRescueBehaviorAdapterSystem : EntitySystem
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private IPrototypeManager _prototypes = default!;
     [Dependency] private LuaMBehaviorSystem _behavior = default!;
-    [Dependency] private LuaMRescueActivityCoordinatorSystem _activity = default!;
     [Dependency] private LuaMRescueTeamSystem _team = default!;
 
     public override void Initialize()
@@ -158,8 +157,13 @@ public sealed partial class LuaMRescueBehaviorAdapterSystem : EntitySystem
             agent.NextEvaluation = TimeSpan.Zero;
         }
 
-        agent.WriteHtnBlackboard = true;
+        // Rescue domain executors remain the sole owners of ActivityContext and
+        // HTN movement. The common arbiter is advisory for Aibolit/escort state
+        // and is evaluated only after this adapter has published a complete
+        // observation snapshot.
+        agent.WriteHtnBlackboard = false;
         agent.DriveActivityLifecycle = false;
+        agent.ExternalEvaluationOnly = true;
 
         if (!force && adapter.NextEvaluation != TimeSpan.Zero && now < adapter.NextEvaluation)
             return false;
@@ -285,60 +289,10 @@ public sealed partial class LuaMRescueBehaviorAdapterSystem : EntitySystem
             return;
         }
 
-        var destination = Coordinates(target) ?? args.Current.Destination;
         var current = rescue.ActivityContext;
-        if (rescue.PendingMedicalDoAfterTarget is { Valid: true } medicalPatient &&
-            !TerminatingOrDeleted(medicalPatient) &&
-            rescue.PendingMedicalIntentGeneration == current.Generation &&
-            current.Target == medicalPatient &&
-            current.DoAfterStatus == LuaMRescueDoAfterStatus.Running &&
-            current.TerminalStatus == LuaMRescueTerminalStatus.Active)
-        {
-            // Medical DoAfters break on movement and are already an
-            // authoritative executor-owned action. A later behavior decision
-            // may observe a safety condition, but cannot replace this exact
-            // generation before its physical completion event is recorded.
-            adapter.LastStatus =
-                $"{args.Current.Intent}: running medical action keeps {current.Activity} for {medicalPatient}";
-            return;
-        }
-
-        if (rescue.OnboardCareTarget is { Valid: true } onboardPatient &&
-            !TerminatingOrDeleted(onboardPatient) &&
-            current.Target == onboardPatient &&
-            current.Activity is LuaMRescueActivity.OnboardCare or LuaMRescueActivity.Handoff &&
-            current.TerminalStatus == LuaMRescueTerminalStatus.Active)
-        {
-            // Once the rescue executor owns a physically boarded patient, it is
-            // also the sole authority for that patient's care and handoff. A
-            // behavior-level ReturnHome/safety decision may steer the sortie,
-            // but must not replace OnboardCare before the executor confirms the
-            // exact reciprocal home dock and performs the physical release.
-            adapter.LastStatus =
-                $"{args.Current.Intent}: active onboard handoff keeps {current.Activity} for {onboardPatient}";
-            return;
-        }
-
-        if (current.Activity == activity &&
-            current.Target == target &&
-            current.TerminalStatus == LuaMRescueTerminalStatus.Active)
-        {
-            adapter.LastStatus = $"{args.Current.Intent}: activity {activity} already active";
-            return;
-        }
-
-        var role = rescue.ActivityRole == LuaMRescueRole.None
-            ? LuaMRescueRole.Aibolit
-            : rescue.ActivityRole;
-        if (!_activity.BeginOrReplaceIntent(uid, role, activity, target, destination, out var snapshot))
-        {
-            adapter.LastStatus =
-                $"{args.Current.Intent}: activity {activity} rejected ({snapshot.FailureReason})";
-            return;
-        }
-
         adapter.LastStatus =
-            $"{args.Current.Intent}: activity {activity} generation {snapshot.Generation} target={target?.ToString() ?? "none"}";
+            $"{args.Current.Intent}: advisory {activity} target={target?.ToString() ?? "none"}; " +
+            $"rescue executor keeps {current.Activity}@g{current.Generation}";
     }
 
     private void OnEscortDecisionChanged(

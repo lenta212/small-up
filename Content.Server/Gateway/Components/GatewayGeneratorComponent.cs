@@ -1,4 +1,5 @@
-﻿using Content.Shared.Parallax.Biomes.Markers;
+using Content.Shared.Parallax.Biomes.Markers;
+using Content.Shared.Gateway;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Serialization.TypeSerializers.Implementations.Custom;
 
@@ -19,7 +20,7 @@ public sealed partial class GatewayGeneratorComponent : Component
     /// <summary>
     /// Next time another seed unlocks.
     /// </summary>
-    [DataField(customTypeSerializer:typeof(TimeOffsetSerializer))]
+    [DataField(customTypeSerializer: typeof(TimeOffsetSerializer))]
     [AutoPausedField]
     public TimeSpan NextUnlock;
 
@@ -34,6 +35,20 @@ public sealed partial class GatewayGeneratorComponent : Component
     /// </summary>
     [DataField]
     public List<EntityUid> Generated = new();
+
+    /// <summary>
+    /// World profiles available to this generator. Selection avoids profiles already present
+    /// in the active pool while alternatives remain.
+    /// </summary>
+    [DataField]
+    public List<ProtoId<GatewayWorldProfilePrototype>> Profiles = new()
+    {
+        "GatewayVerdant",
+        "GatewayCryogenic",
+        "GatewayVolcanic",
+        "GatewayCavern",
+        "GatewayAnomalous",
+    };
 
     [DataField]
     public int MobLayerCount = 1;

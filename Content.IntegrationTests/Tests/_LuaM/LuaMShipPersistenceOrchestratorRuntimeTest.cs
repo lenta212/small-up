@@ -6,12 +6,16 @@ using System.Numerics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
+using Content.Server._NF.CryoSleep;
 using Content.Server.Database;
 using Content.Server._LuaM.ShipPersistence;
+using Content.Server.Power.EntitySystems;
 using Content.Server.Shuttles.Components;
 using Content.Server.Shuttles.Systems;
 using Content.Server.Station.Systems;
 using Content.Shared.Maps;
+using Content.Shared.Power.Components;
+using Content.Shared.Shuttles.Components;
 using Content.Shared.Station.Components;
 using Moq;
 using Robust.Shared.Containers;
@@ -30,6 +34,426 @@ namespace Content.IntegrationTests.Tests._LuaM;
 public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
 {
     private static readonly ResPath SeedPath = new("/Maps/_LuaM/ShipGen/shipgen_seed.yml");
+
+    [Test]
+    public async Task ActualSqliteLifecycleSurvivesOrchestratorRestartWithoutCopyingPlayerBody()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+        });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var database = server.ResolveDependency<IServerDbManager>();
+        var loader = entities.System<MapLoaderSystem>();
+        var maps = entities.System<SharedMapSystem>();
+        var transforms = entities.System<SharedTransformSystem>();
+        var containers = entities.System<SharedContainerSystem>();
+        var batteries = entities.System<BatterySystem>();
+        var consoleLocks = entities.System<ShuttleConsoleLockSystem>();
+        var metadataSystem = entities.System<MetaDataSystem>();
+        var runtime = entities.System<LuaMFullShipPersistenceSystem>();
+        var orchestrator = entities.System<LuaMShipPersistenceOrchestrator>();
+        var owner = pair.Client.Session!.UserId;
+        var now = DateTime.UtcNow;
+        MapId sourceMap = default;
+        MapId restoreMap = default;
+        EntityUid sourceGrid = EntityUid.Invalid;
+        EntityUid retainedBody = EntityUid.Invalid;
+        EntityUid restoredGrid = EntityUid.Invalid;
+        Guid shipId = Guid.Empty;
+        const string cargoName = "LuaM SQLite E2E durable cargo";
+        const string machineName = "LuaM SQLite E2E charged machine";
+        const string consoleName = "LuaM SQLite E2E secured console";
+        const string bodyName = "LuaM SQLite E2E excluded player body";
+        const string bodyItemName = "LuaM SQLite E2E retained body item";
+
+        async Task<T> RunOnServerAsync<T>(Func<Task<T>> callback)
+        {
+            var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await server.WaitPost(() =>
+            {
+                _ = CompleteAsync();
+                return;
+
+                async Task CompleteAsync()
+                {
+                    try
+                    {
+                        completion.SetResult(await callback());
+                    }
+                    catch (Exception exception)
+                    {
+                        completion.SetException(exception);
+                    }
+                }
+            });
+            return await completion.Task;
+        }
+
+        try
+        {
+            EntityUid cargo = EntityUid.Invalid;
+            EntityUid machine = EntityUid.Invalid;
+            EntityUid console = EntityUid.Invalid;
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out sourceMap);
+                Assert.That(loader.TryLoadGrid(sourceMap, SeedPath, out var loaded), Is.True);
+                Assert.That(loaded, Is.Not.Null);
+                sourceGrid = loaded!.Value.Owner;
+                var coordinates = new EntityCoordinates(sourceGrid, new Vector2(0.5f, 0.5f));
+
+                cargo = entities.SpawnEntity("Crowbar", coordinates);
+                metadataSystem.SetEntityName(cargo, cargoName);
+
+                machine = entities.SpawnEntity("SubstationBasic", coordinates);
+                metadataSystem.SetEntityName(machine, machineName);
+
+                console = entities.SpawnEntity("ComputerShuttle", coordinates);
+                metadataSystem.SetEntityName(console, consoleName);
+
+                retainedBody = entities.SpawnEntity("MobMouse", coordinates);
+                metadataSystem.SetEntityName(retainedBody, bodyName);
+                entities.EnsureComponent<PlayerJobComponent>(retainedBody).JobPrototype = "Passenger";
+                var bodyInventory = containers.EnsureContainer<Container>(
+                    retainedBody,
+                    "luam-sqlite-e2e-body-inventory");
+                var bodyItem = entities.SpawnEntity("Wrench", coordinates);
+                metadataSystem.SetEntityName(bodyItem, bodyItemName);
+                Assert.That(containers.Insert(bodyItem, bodyInventory), Is.True);
+            });
+
+            orchestrator.ConfigureForTesting(database, runtime, "sqlite-e2e-first-process");
+            var registered = await RunOnServerAsync(() => orchestrator.RegisterAsync(
+                sourceGrid,
+                owner,
+                new LuaMShipSnapshotMetadata(
+                    "VesselTestPersistence",
+                    "SQLite E2E Ship",
+                    "SQL-E2E",
+                    125_000,
+                    false,
+                    610),
+                now));
+            Assert.That(registered.Success, Is.True, registered.Reason);
+            shipId = orchestrator.ActiveLeases.Single().ShipId;
+
+            var diagnosticWithPassenger = await RunOnServerAsync(() => Task.FromResult(
+                orchestrator.GetActiveShipDiagnostics(shipId).Single()));
+            Assert.Multiple(() =>
+            {
+                Assert.That(diagnosticWithPassenger.GridExists, Is.True);
+                Assert.That(diagnosticWithPassenger.MobStateEntityCount, Is.EqualTo(1));
+            });
+
+            var refusedEmergencySave = await RunOnServerAsync(() =>
+                orchestrator.EmergencyStoreAndDeleteActiveShipAsync(
+                    shipId,
+                    "sqlite-e2e-test",
+                    now.AddMilliseconds(500)));
+            Assert.Multiple(() =>
+            {
+                Assert.That(refusedEmergencySave.Success, Is.False);
+                Assert.That(
+                    refusedEmergencySave.Status,
+                    Is.EqualTo(LuaMShipPersistenceWriteStatus.InvalidState));
+                Assert.That(refusedEmergencySave.Reason, Does.Contain("1 MobState"));
+                Assert.That(orchestrator.ActiveLeases, Has.Count.EqualTo(1));
+            });
+
+            await server.WaitPost(() =>
+            {
+                batteries.SetCharge(machine, 432_123f, entities.GetComponent<BatteryComponent>(machine));
+                var consoleLock = entities.GetComponent<ShuttleConsoleLockComponent>(console);
+                Assert.That(consoleLock.ShuttleId, Is.EqualTo(shipId.ToString("D")));
+                consoleLocks.SetShuttleId(console, string.Empty, consoleLock);
+                Assert.That(entities.GetComponent<ShipGridLockComponent>(sourceGrid).Locked, Is.False);
+            });
+
+            var stored = await RunOnServerAsync(() => orchestrator.StoreAndDeactivateAsync(
+                shipId,
+                610,
+                now.AddSeconds(1)));
+            Assert.That(stored.Success, Is.True, stored.Reason);
+
+            var durableStored = await database.GetLuaMShipSnapshotAsync(shipId, owner);
+            Assert.Multiple(() =>
+            {
+                Assert.That(durableStored, Is.Not.Null);
+                Assert.That(durableStored!.Status, Is.EqualTo(DbLuaMShipSnapshotStatus.Stored));
+                Assert.That(durableStored.PayloadRevision, Is.EqualTo(2));
+                Assert.That(durableStored.PayloadSizeBytes, Is.GreaterThan(0));
+                Assert.That(orchestrator.ActiveLeases, Is.Empty);
+            });
+
+            await server.WaitPost(() =>
+            {
+                transforms.SetParent(retainedBody, maps.GetMap(sourceMap));
+                entities.DeleteEntity(sourceGrid);
+                sourceGrid = EntityUid.Invalid;
+                Assert.That(entities.EntityExists(retainedBody), Is.True);
+                maps.CreateMap(out restoreMap);
+                orchestrator.ConfigureForTesting(database, runtime, "sqlite-e2e-restarted-process");
+            });
+
+            var restored = await RunOnServerAsync(() => orchestrator.RestoreClaimAsync(
+                shipId,
+                owner,
+                611,
+                restoreMap,
+                now.AddSeconds(2),
+                _ => true));
+            Assert.That(restored.Success, Is.True, restored.Reason);
+            restoredGrid = restored.Grid ?? EntityUid.Invalid;
+
+            await server.WaitPost(() =>
+            {
+                var restoredCargo = FindNamedDescendants(entities, restoredGrid, cargoName).Single();
+                var restoredMachine = FindNamedDescendants(entities, restoredGrid, machineName).Single();
+                var restoredConsole = FindNamedDescendants(entities, restoredGrid, consoleName).Single();
+                var restoredLock = entities.GetComponent<ShuttleConsoleLockComponent>(restoredConsole);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(entities.EntityExists(restoredCargo), Is.True);
+                    Assert.That(
+                        entities.GetComponent<BatteryComponent>(restoredMachine).CurrentCharge,
+                        Is.EqualTo(432_123f).Within(0.01f));
+                    Assert.That(entities.GetComponent<ShipGridLockComponent>(restoredGrid).Locked, Is.False);
+                    Assert.That(restoredLock.ShuttleId, Is.EqualTo(shipId.ToString("D")));
+                    Assert.That(FindNamedDescendants(entities, restoredGrid, bodyName), Is.Empty);
+                    Assert.That(FindNamedDescendants(entities, restoredGrid, bodyItemName), Is.Empty);
+                    Assert.That(
+                        entities.GetEntities()
+                            .Count(uid => entities.EntityExists(uid) &&
+                                          entities.GetComponent<MetaDataComponent>(uid).EntityName == bodyName),
+                        Is.EqualTo(1),
+                        "Only the retained live body may exist after restore.");
+                });
+            });
+
+            var durableActive = await database.GetLuaMShipSnapshotAsync(shipId, owner);
+            Assert.Multiple(() =>
+            {
+                Assert.That(durableActive, Is.Not.Null);
+                Assert.That(durableActive!.Status, Is.EqualTo(DbLuaMShipSnapshotStatus.Active));
+                Assert.That(durableActive.PayloadRevision, Is.EqualTo(2));
+                Assert.That(orchestrator.ActiveLeases, Has.Count.EqualTo(1));
+            });
+
+            var diagnosticWithoutPassenger = await RunOnServerAsync(() => Task.FromResult(
+                orchestrator.GetActiveShipDiagnostics(shipId).Single()));
+            Assert.That(diagnosticWithoutPassenger.MobStateEntityCount, Is.Zero);
+
+            var emergencyStored = await RunOnServerAsync(() =>
+                orchestrator.EmergencyStoreAndDeleteActiveShipAsync(
+                    shipId,
+                    "sqlite-e2e-test",
+                    now.AddSeconds(3)));
+            Assert.That(emergencyStored.Success, Is.True, emergencyStored.Reason);
+            Assert.That(orchestrator.ActiveLeases, Is.Empty);
+
+            await server.WaitRunTicks(1);
+            Assert.That(entities.EntityExists(restoredGrid), Is.False);
+            restoredGrid = EntityUid.Invalid;
+
+            var durableEmergencyStored = await database.GetLuaMShipSnapshotAsync(shipId, owner);
+            Assert.Multiple(() =>
+            {
+                Assert.That(durableEmergencyStored, Is.Not.Null);
+                Assert.That(durableEmergencyStored!.Status, Is.EqualTo(DbLuaMShipSnapshotStatus.Stored));
+                Assert.That(durableEmergencyStored.PayloadRevision, Is.EqualTo(3));
+            });
+
+            var retired = await database.RetireLuaMShipSnapshotAsync(new LuaMShipSnapshotRetireRequest(
+                Guid.NewGuid(),
+                shipId,
+                owner,
+                durableEmergencyStored!.Revision,
+                null,
+                "sqlite e2e cleanup",
+                now.AddSeconds(4)));
+            Assert.That(retired.Success, Is.True, retired.Status.ToString());
+            Assert.That(
+                (await database.GetLuaMShipSnapshotAsync(shipId, owner))!.Status,
+                Is.EqualTo(DbLuaMShipSnapshotStatus.Retired));
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (entities.EntityExists(restoredGrid))
+                    entities.DeleteEntity(restoredGrid);
+                if (entities.EntityExists(sourceGrid))
+                    entities.DeleteEntity(sourceGrid);
+                if (entities.EntityExists(retainedBody))
+                    entities.DeleteEntity(retainedBody);
+                if (maps.MapExists(sourceMap))
+                    maps.DeleteMap(sourceMap);
+                if (maps.MapExists(restoreMap))
+                    maps.DeleteMap(restoreMap);
+            });
+            await pair.CleanReturnAsync();
+        }
+    }
+
+    [Test]
+    public async Task LegacySnapshotFormatIsQuarantinedInsteadOfReturnedToStored()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var maps = entities.System<SharedMapSystem>();
+        var runtime = entities.System<LuaMFullShipPersistenceSystem>();
+        var database = new Mock<IServerDbManager>(MockBehavior.Strict);
+        var owner = new NetUserId(Guid.NewGuid());
+        var shipId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+        var payload = "{}"u8.ToArray();
+        var store = new LuaMShipSnapshotStoreRequest(
+            shipId,
+            owner,
+            null,
+            1,
+            null,
+            "VesselLegacyPersistence",
+            "Legacy Format Ship",
+            null,
+            100_000,
+            false,
+            700,
+            LuaMFullShipPersistenceSystem.LegacySnapshotFormatVersion,
+            LuaMFullShipPersistenceSystem.LegacySnapshotFormatVersion,
+            payload,
+            Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant(),
+            payload.Length,
+            1,
+            "legacy-build",
+            new string('a', 64),
+            now);
+        var stored = ToRecord(
+            store,
+            12,
+            DbLuaMShipSnapshotStatus.Stored,
+            null,
+            null,
+            null,
+            null);
+        MapId targetMap = default;
+        Guid claimedLeaseId = default;
+
+        database
+            .Setup(db => db.GetLuaMShipSnapshotAsync(
+                shipId,
+                owner,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(stored);
+        database
+            .Setup(db => db.ClaimLuaMShipRestoreAsync(
+                It.IsAny<LuaMShipRestoreClaimRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((LuaMShipRestoreClaimRequest request, CancellationToken _) =>
+            {
+                claimedLeaseId = request.LeaseId;
+                var claimed = ToRecord(
+                    store,
+                    13,
+                    DbLuaMShipSnapshotStatus.Restoring,
+                    request.LeaseId,
+                    request.ServerInstanceId,
+                    request.RestoreRoundId,
+                    1);
+                return new LuaMShipPersistenceWriteResult(
+                    LuaMShipPersistenceWriteStatus.Success,
+                    shipId,
+                    13,
+                    DbLuaMShipSnapshotStatus.Restoring,
+                    request.LeaseId,
+                    1,
+                    claimed);
+            });
+        database
+            .Setup(db => db.QuarantineLuaMShipSnapshotAsync(
+                It.IsAny<LuaMShipSnapshotQuarantineRequest>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((LuaMShipSnapshotQuarantineRequest request, CancellationToken _) =>
+            {
+                Assert.Multiple(() =>
+                {
+                    Assert.That(request.ShipId, Is.EqualTo(shipId));
+                    Assert.That(request.OwnerUserId, Is.EqualTo(owner));
+                    Assert.That(request.ExpectedRevision, Is.EqualTo(13));
+                    Assert.That(request.LeaseId, Is.EqualTo(claimedLeaseId));
+                    Assert.That(request.Reason, Is.EqualTo("unsupported database snapshot format 1/1"));
+                });
+                return new LuaMShipPersistenceWriteResult(
+                    LuaMShipPersistenceWriteStatus.Success,
+                    shipId,
+                    14,
+                    DbLuaMShipSnapshotStatus.Quarantined);
+            });
+
+        async Task<T> RunOnServerAsync<T>(Func<Task<T>> callback)
+        {
+            var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await server.WaitPost(() =>
+            {
+                _ = CompleteAsync();
+                return;
+
+                async Task CompleteAsync()
+                {
+                    try
+                    {
+                        completion.SetResult(await callback());
+                    }
+                    catch (Exception exception)
+                    {
+                        completion.SetException(exception);
+                    }
+                }
+            });
+            return await completion.Task;
+        }
+
+        try
+        {
+            await server.WaitPost(() => maps.CreateMap(out targetMap));
+            var orchestrator = entities.System<LuaMShipPersistenceOrchestrator>();
+            orchestrator.ConfigureForTesting(database.Object, runtime, "legacy-quarantine-test");
+
+            var result = await RunOnServerAsync(() => orchestrator.RestoreClaimAsync(
+                shipId,
+                owner,
+                701,
+                targetMap,
+                now.AddSeconds(1)));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.Success, Is.False);
+                Assert.That(result.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.InvalidRequest));
+                Assert.That(result.Reason, Is.EqualTo("unsupported database snapshot format 1/1"));
+                Assert.That(orchestrator.ActiveLeases, Is.Empty);
+            });
+            database.Verify(
+                db => db.AbortLuaMShipRestoreAsync(
+                    It.IsAny<LuaMShipRestoreAbortRequest>(),
+                    It.IsAny<CancellationToken>()),
+                Times.Never);
+            database.VerifyAll();
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (maps.MapExists(targetMap))
+                    maps.DeleteMap(targetMap);
+            });
+            await pair.CleanReturnAsync();
+        }
+    }
 
     [Test]
     public async Task ActiveShipSavesAtRoundEndAndRestoresNextRound()
@@ -326,7 +750,7 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
     }
 
     [Test]
-    public async Task FailedPlacementCanRetryLegacySnapshotAndBackfillPayloadRevision()
+    public async Task FailedPlacementCanRetrySnapshotAndBackfillLegacyPayloadRevision()
     {
         var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
         var server = pair.Server;
@@ -360,9 +784,7 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
         EntityUid targetStation = EntityUid.Invalid;
         EntityUid targetGate = EntityUid.Invalid;
         EntityUid failedPlacementGrid = EntityUid.Invalid;
-        EntityUid failedPlacementStation = EntityUid.Invalid;
         EntityUid failedCompletionGrid = EntityUid.Invalid;
-        EntityUid failedCompletionStation = EntityUid.Invalid;
         EntityUid failedCompletionShipDock = EntityUid.Invalid;
         DockingComponent? failedCompletionShipDockComponent = null;
         EntityUid retainedPassenger = EntityUid.Invalid;
@@ -372,7 +794,6 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
         MapCoordinates retainedItemCoordinates = default;
         Angle retainedItemRotation = default;
         EntityUid restoredGrid = EntityUid.Invalid;
-        EntityUid restoredStation = EntityUid.Invalid;
         EntityUid restoredShipDock = EntityUid.Invalid;
         HashSet<EntityUid>? firstRestoreBaseline = null;
         HashSet<EntityUid>? secondRestoreBaseline = null;
@@ -741,16 +1162,14 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 restored =>
                 {
                     failedPlacementGrid = restored;
-                    failedPlacementStation = entities.GetComponent<StationMemberComponent>(restored).Station;
                     failedPlacementEntities = entities.GetEntities()
                         .Where(uid => !firstRestoreBaseline!.Contains(uid))
                         .ToHashSet();
                     Assert.Multiple(() =>
                     {
-                        Assert.That(entities.EntityExists(failedPlacementStation), Is.True,
-                            "The fixture must deserialize the auto-included nullspace station root.");
+                        Assert.That(entities.HasComponent<StationMemberComponent>(restored), Is.False,
+                            "A portable snapshot must not retain its ignored live station membership.");
                         Assert.That(failedPlacementEntities!.Contains(failedPlacementGrid), Is.True);
-                        Assert.That(failedPlacementEntities.Contains(failedPlacementStation), Is.True);
                     });
                     transforms.SetLocalPosition(restored, new Vector2(20f, 0f));
                     return false;
@@ -769,8 +1188,6 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
             {
                 Assert.That(entities.EntityExists(failedPlacementGrid), Is.False,
                     "A rejected placement must not leak the partially moved restored grid.");
-                Assert.That(entities.EntityExists(failedPlacementStation), Is.False,
-                    "A rejected placement must not leak its auto-included nullspace station.");
                 Assert.That(failedPlacementEntities!.All(uid => !entities.EntityExists(uid)), Is.True,
                     "A rejected placement must leave no deserialized support entity residue.");
                 Assert.That(entities.GetEntities().ToHashSet().SetEquals(firstRestoreBaseline!), Is.True,
@@ -786,7 +1203,8 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 now.AddSeconds(2),
                 restored =>
                 {
-                    restoredStation = entities.GetComponent<StationMemberComponent>(restored).Station;
+                    Assert.That(entities.HasComponent<StationMemberComponent>(restored), Is.False,
+                        "Retry must keep the portable hull detached from the source station root.");
                     return true;
                 }));
             restoredGrid = second.Grid ?? EntityUid.Invalid;
@@ -796,8 +1214,7 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 Assert.That(second.Success, Is.True, second.Reason);
                 Assert.That(second.Revision, Is.EqualTo(434));
                 Assert.That(restoredGrid.Valid, Is.True);
-                Assert.That(entities.EntityExists(restoredStation), Is.True,
-                    "Retrying the same snapshot must restore its station after clean placement rollback.");
+                Assert.That(entities.HasComponent<StationMemberComponent>(restoredGrid), Is.False);
                 Assert.That(abortCount, Is.EqualTo(1));
                 Assert.That(completeCount, Is.EqualTo(1));
                 Assert.That(lifecycleRevision, Is.EqualTo(434));
@@ -823,9 +1240,7 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
             await server.WaitPost(() =>
             {
                 entities.DeleteEntity(restoredGrid);
-                entities.DeleteEntity(restoredStation);
                 restoredGrid = EntityUid.Invalid;
-                restoredStation = EntityUid.Invalid;
                 retainedPassenger = entities.SpawnEntity(
                     "MobHuman",
                     new EntityCoordinates(targetGrid, new Vector2(0.25f, 0.25f)));
@@ -843,7 +1258,8 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 restored =>
                 {
                     failedCompletionGrid = restored;
-                    failedCompletionStation = entities.GetComponent<StationMemberComponent>(restored).Station;
+                    Assert.That(entities.HasComponent<StationMemberComponent>(restored), Is.False,
+                        "A restored portable hull must not deserialize its old station root.");
                     Assert.That(entities.GetComponent<DockingComponent>(targetGate).Docked, Is.False,
                         "The exact target gate must be free before the real placement attempt.");
                     Assert.That(
@@ -892,8 +1308,6 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
             {
                 Assert.That(entities.EntityExists(failedCompletionGrid), Is.False,
                     "A completion exception must delete the restored grid before rolling back the claim.");
-                Assert.That(entities.EntityExists(failedCompletionStation), Is.False,
-                    "A completion exception must delete the auto-included station before rolling back the claim.");
                 Assert.That(failedCompletionEntities!.All(uid => !entities.EntityExists(uid)), Is.True,
                     "A completion exception must leave no deserialized support entity residue.");
                 Assert.That(failedCompletionShipDockComponent, Is.Not.Null);
@@ -915,7 +1329,8 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 now.AddSeconds(5),
                 restored =>
                 {
-                    restoredStation = entities.GetComponent<StationMemberComponent>(restored).Station;
+                    Assert.That(entities.HasComponent<StationMemberComponent>(restored), Is.False,
+                        "Immediate retry must still be a station-independent portable hull.");
                     Assert.That(entities.GetComponent<DockingComponent>(targetGate).Docked, Is.False,
                         "The same station gate must be reusable immediately after rollback.");
                     Assert.That(
@@ -938,8 +1353,7 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 Assert.That(fourth.Success, Is.True, fourth.Reason);
                 Assert.That(fourth.Revision, Is.EqualTo(440));
                 Assert.That(restoredGrid.Valid, Is.True);
-                Assert.That(entities.EntityExists(restoredStation), Is.True,
-                    "Retrying after a completion rollback must restore the station again.");
+                Assert.That(entities.HasComponent<StationMemberComponent>(restoredGrid), Is.False);
                 Assert.That(completeCount, Is.EqualTo(3));
                 Assert.That(orchestrator.ActiveLeases.Single().RegistryRevision, Is.EqualTo(440));
                 Assert.That(orchestrator.ActiveLeases.Single().PayloadRevision, Is.EqualTo(2));
@@ -976,16 +1390,10 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                     entities.DeleteEntity(targetStation);
                 if (entities.EntityExists(failedPlacementGrid))
                     entities.DeleteEntity(failedPlacementGrid);
-                if (entities.EntityExists(failedPlacementStation))
-                    entities.DeleteEntity(failedPlacementStation);
                 if (entities.EntityExists(failedCompletionGrid))
                     entities.DeleteEntity(failedCompletionGrid);
-                if (entities.EntityExists(failedCompletionStation))
-                    entities.DeleteEntity(failedCompletionStation);
                 if (entities.EntityExists(restoredGrid))
                     entities.DeleteEntity(restoredGrid);
-                if (entities.EntityExists(restoredStation))
-                    entities.DeleteEntity(restoredStation);
                 if (maps.MapExists(sourceMap))
                     maps.DeleteMap(sourceMap);
                 if (maps.MapExists(restoreMap))
@@ -1580,4 +1988,29 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
             leaseRoundId,
             leaseRevision,
             leaseId == null ? null : request.StoredAtUtc.AddMinutes(5));
+
+    private static IReadOnlyList<EntityUid> FindNamedDescendants(
+        IEntityManager entities,
+        EntityUid root,
+        string name)
+    {
+        var result = new List<EntityUid>();
+        var pending = new Stack<EntityUid>();
+        var visited = new HashSet<EntityUid>();
+        pending.Push(root);
+        while (pending.TryPop(out var uid))
+        {
+            if (!visited.Add(uid) || !entities.EntityExists(uid))
+                continue;
+
+            if (entities.GetComponent<MetaDataComponent>(uid).EntityName == name)
+                result.Add(uid);
+
+            var children = entities.GetComponent<TransformComponent>(uid).ChildEnumerator;
+            while (children.MoveNext(out var child))
+                pending.Push(child);
+        }
+
+        return result;
+    }
 }

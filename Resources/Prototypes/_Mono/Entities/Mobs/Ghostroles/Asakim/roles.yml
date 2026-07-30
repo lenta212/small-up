@@ -28,7 +28,7 @@
     - NamesLastMilitary
   - type: NpcFactionMember
     factions:
-    - Syndicate
+    - SiliconsExpeditionNF
   - type: SurgerySpeedModifier
     speedModifier: 1.5
   - type: IntrinsicRadioReceiver

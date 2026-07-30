@@ -4,8 +4,11 @@ using System.Numerics;
 using Content.Client._Mono.Radar;
 using Content.IntegrationTests.Tests.Interaction;
 using Content.Server._Mono.Radar;
+using Content.Server._Mono.Projectiles.TargetSeeking;
+using Content.Server.Shuttles.Components;
 using Content.Shared._Mono.Detection;
 using Content.Shared._Mono.Radar;
+using Content.Shared.Projectiles;
 using Content.Shared.Shuttles.BUIStates;
 using Content.Shared.Weapons.Hitscan.Components;
 using Content.Shared.Weapons.Hitscan.Events;
@@ -43,6 +46,18 @@ public sealed class LuaMRadarIsolationTest : InteractionTest
   id: LuaMRadarHiddenBlip
   components:
   - type: RadarBlip
+  - type: Physics
+    bodyType: Dynamic
+  - type: Projectile
+    damage:
+      types:
+        Structural: 1
+  - type: ShipWeaponProjectile
+  - type: TargetSeeking
+    acceleration: 0
+    maxSpeed: 0
+    launchSpeed: 0
+    trackDelay: 1000
 ";
 
     [Test]
@@ -53,13 +68,16 @@ public sealed class LuaMRadarIsolationTest : InteractionTest
         EntityUid hitscanSourceA = default;
         EntityUid hitscanSourceB = default;
         NetEntity hiddenBlip = default;
+        NetEntity visibleThreat = default;
         NetEntity netRadarA = default;
         NetEntity netRadarB = default;
 
         await Server.WaitPost(() =>
         {
-            var coordinatesA = MapData.GridCoords.Offset(new Vector2(-4f, 0f));
-            var coordinatesB = MapData.GridCoords.Offset(new Vector2(4f, 0f));
+            SEntMan.EnsureComponent<ShuttleComponent>(MapData.Grid.Owner);
+
+            var coordinatesA = MapData.GridCoords;
+            var coordinatesB = MapData.GridCoords.Offset(new Vector2(3f, 0f));
 
             serverRadarA = SEntMan.SpawnEntity(RadarPrototype, coordinatesA);
             serverRadarB = SEntMan.SpawnEntity(RadarPrototype, coordinatesB);
@@ -80,7 +98,7 @@ public sealed class LuaMRadarIsolationTest : InteractionTest
             MapSystem.SetTile(hiddenGrid, Vector2i.Zero, MapData.Tile.Tile);
             Transform.SetMapCoordinates(
                 hiddenGrid.Owner,
-                new MapCoordinates(new Vector2(-4f, 0f), MapId));
+                new MapCoordinates(new Vector2(-1f, 0f), MapId));
             var detectedAt = SEntMan.AddComponent<DetectedAtRangeMultiplierComponent>(hiddenGrid.Owner);
             detectedAt.VisualMultiplier = 0f;
             detectedAt.InfraredMultiplier = 0f;
@@ -88,8 +106,26 @@ public sealed class LuaMRadarIsolationTest : InteractionTest
 
             var hidden = SEntMan.SpawnEntity(
                 HiddenBlipPrototype,
-                new EntityCoordinates(hiddenGrid.Owner, new Vector2(0.5f, 0.5f)));
+                new EntityCoordinates(hiddenGrid.Owner, Vector2.Zero));
             hiddenBlip = SEntMan.GetNetEntity(hidden);
+            SEntMan.GetComponent<TargetSeekingComponent>(hidden).CurrentTarget = MapData.Grid.Owner;
+
+            var visible = SEntMan.SpawnEntity(
+                HiddenBlipPrototype,
+                coordinatesA.Offset(new Vector2(0.5f, 0f)));
+            visibleThreat = SEntMan.GetNetEntity(visible);
+            SEntMan.GetComponent<TargetSeekingComponent>(visible).CurrentTarget = MapData.Grid.Owner;
+
+            var impactTarget = SEntMan.SpawnEntity(
+                null,
+                coordinatesA.Offset(new Vector2(0.25f, 0f)));
+            var impactEvent = new ProjectileDamageDealtEvent(
+                impactTarget,
+                SEntMan.GetComponent<TransformComponent>(impactTarget).Coordinates,
+                Vector2.UnitX,
+                25f,
+                false);
+            SEntMan.EventBus.RaiseLocalEvent(visible, ref impactEvent);
         });
 
         await RunTicks(5);
@@ -184,9 +220,31 @@ public sealed class LuaMRadarIsolationTest : InteractionTest
                 Has.Count.GreaterThanOrEqualTo(2),
                 eventProbe.Describe());
             Assert.That(
-                eventProbe.Responses.SelectMany(response => response.Blips),
+                eventProbe.Responses.SelectMany(response => response.Blips).Select(blip => blip.Uid),
                 Does.Not.Contain(hiddenBlip),
                 "An undetected grid contact must never be serialized to the radar client.");
+            Assert.That(
+                eventProbe.Responses
+                    .Where(response => response.Radar == netRadarA)
+                    .SelectMany(response => response.Blips),
+                Does.Contain((visibleThreat, RadarThreatKind.MissileLock)),
+                $"A detected seeker targeting this shuttle must be marked as a missile lock. {eventProbe.Describe()}");
+            Assert.That(
+                eventProbe.Responses
+                    .Where(response => response.Radar == netRadarB)
+                    .SelectMany(response => response.Blips)
+                    .Select(blip => blip.Uid),
+                Does.Not.Contain(visibleThreat),
+                "Threat telemetry must remain scoped to each radar's configured range.");
+            Assert.That(
+                eventProbe.Responses
+                    .Where(response => response.Radar == netRadarA)
+                    .SelectMany(response => response.HitReports)
+                    .Any(report =>
+                        report.Result == ShipHitResult.Damaged &&
+                        Math.Abs(report.Damage - 25f) < 0.001f),
+                Is.True,
+                "Applied ship-weapon damage must produce a bounded hit report.");
             Assert.That(linesA, Has.Count.EqualTo(1));
             Assert.That(linesB, Has.Count.EqualTo(1));
             Assert.Multiple(() =>
@@ -202,7 +260,12 @@ public sealed class LuaMRadarIsolationTest : InteractionTest
 public sealed class LuaMRadarEventProbeSystem : EntitySystem
 {
     public readonly List<(NetEntity Radar, uint RequestId)> Requests = new();
-    public readonly List<(NetEntity Radar, uint RequestId, int HitscanCount, List<NetEntity> Blips)> Responses = new();
+    public readonly List<(
+        NetEntity Radar,
+        uint RequestId,
+        int HitscanCount,
+        List<(NetEntity Uid, RadarThreatKind Threat)> Blips,
+        List<ShipHitReportNetData> HitReports)> Responses = new();
 
     public override void Initialize()
     {
@@ -223,6 +286,11 @@ public sealed class LuaMRadarEventProbeSystem : EntitySystem
 
     private void OnGiveBlips(GiveBlipsEvent ev)
     {
-        Responses.Add((ev.Radar, ev.RequestId, ev.HitscanLines.Count, ev.Blips.Select(blip => blip.Uid).ToList()));
+        Responses.Add((
+            ev.Radar,
+            ev.RequestId,
+            ev.HitscanLines.Count,
+            ev.Blips.Select(blip => (blip.Uid, blip.Threat)).ToList(),
+            ev.HitReports));
     }
 }

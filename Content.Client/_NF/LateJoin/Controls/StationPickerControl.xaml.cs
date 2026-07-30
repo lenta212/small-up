@@ -38,8 +38,18 @@ public sealed partial class StationPickerControl : PickerControl
     {
         _lobbyJobs = new Dictionary<NetEntity, StationJobInformation>(obj);
         StationItemList.RemoveAllChildren();
+        var stations = BuildStationViewStateList(_lobbyJobs);
 
-        foreach (var stationViewState in BuildStationViewStateList(_lobbyJobs))
+        if (_lastSelectedStation != null && stations.All(x => x.StationEntity != _lastSelectedStation.StationEntity))
+            _lastSelectedStation = null;
+
+        if (_lastSelectedStation == null && stations.Count > 0)
+        {
+            _lastSelectedStation = stations[0];
+            _lastSelectedStation.Selected = true;
+        }
+
+        foreach (var stationViewState in stations)
         {
             var item = new StationListItem(stationViewState);
             item.StationButton.OnPressed += _ => OnStationPressed(stationViewState);
@@ -91,10 +101,10 @@ public sealed partial class StationPickerControl : PickerControl
                 texture = _spriteSystem.Frame0(jobIcon.Icon);
             }
 
-            var buttonTooltip = "";
+            var buttonTooltip = prototype.LocalizedDescription ?? "";
             if (!_jobReqs.IsAllowed(prototype, profile, out var denyReason))
             {
-                buttonTooltip = denyReason.ToString();
+                buttonTooltip += $"\n\n{denyReason}";
             }
 
             var isButtonDisabled = jobCount == 0 || !_jobReqs.IsAllowed(prototype, profile, out _);
@@ -103,7 +113,8 @@ public sealed partial class StationPickerControl : PickerControl
                 jobName: jobName,
                 toolTip: buttonTooltip,
                 disabled: isButtonDisabled,
-                jobIcon: texture
+                jobIcon: texture,
+                displayColor: prototype.DisplayColor
             );
             viewStateList.Add(viewState);
         }
@@ -126,6 +137,9 @@ public sealed partial class StationPickerControl : PickerControl
 
         foreach (var (stationEntity, stationJobInformation) in stationList)
         {
+            if (!stationJobInformation.HasOpenJob())
+                continue;
+
             var icon = stationJobInformation.StationDisplayInfo?.StationIcon;
             var iconTexture = icon != null ? _spriteSystem.Frame0(icon) : null;
 
@@ -142,14 +156,6 @@ public sealed partial class StationPickerControl : PickerControl
                 iconTexture
             );
 
-            // Always select the first station in the list if none is selected yet.
-            // This is because otherwise the right side of the screen would then be a blank space.
-            if (_lastSelectedStation == null)
-            {
-                _lastSelectedStation = viewState;
-                viewState.Selected = true;
-            }
-
             viewStateList.Add(viewState);
         }
 
@@ -161,4 +167,5 @@ public sealed partial class StationPickerControl : PickerControl
                 : obj[viewState.StationEntity].StationDisplayInfo!.LobbySortOrder)
             .ToList();
     }
+
 }

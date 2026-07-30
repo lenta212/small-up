@@ -17,7 +17,9 @@ public sealed partial class DungeonJob
     {
         if (!data.Colors.TryGetValue(DungeonDataKey.Decals, out var color))
         {
-            _sawmill.Error(Environment.StackTrace);
+            _sawmill.Warning(
+                "Skipping corridor decal skirting because the dungeon data has no decal color.");
+            return;
         }
 
         var directions = new ValueList<DirectionFlag>(4);

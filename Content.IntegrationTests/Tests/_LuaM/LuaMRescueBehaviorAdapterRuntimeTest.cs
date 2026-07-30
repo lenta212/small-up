@@ -25,6 +25,7 @@ public sealed class LuaMRescueBehaviorAdapterRuntimeTest
         var entities = server.ResolveDependency<IEntityManager>();
         var behavior = entities.System<LuaMBehaviorSystem>();
         var adapterSystem = entities.System<LuaMRescueBehaviorAdapterSystem>();
+        var activity = entities.System<LuaMRescueActivityCoordinatorSystem>();
         var mobState = entities.System<MobStateSystem>();
         var factions = entities.System<NpcFactionSystem>();
         var map = await pair.CreateTestMap();
@@ -52,9 +53,20 @@ public sealed class LuaMRescueBehaviorAdapterRuntimeTest
                 Assert.That(medicBehavior.Profile.ToString(), Is.EqualTo("LuaMRescueMedicBehavior"));
                 Assert.That(treatment.Intent, Is.EqualTo(LuaMBehaviorIntent.Treat));
                 Assert.That(treatment.Target, Is.EqualTo(patient));
-                Assert.That(rescue.ActivityContext.Activity, Is.EqualTo(LuaMRescueActivity.Treating));
-                Assert.That(rescue.ActivityContext.Target, Is.EqualTo(patient));
+                Assert.That(medicBehavior.ExternalEvaluationOnly, Is.True);
+                Assert.That(medicBehavior.WriteHtnBlackboard, Is.False);
+                Assert.That(rescue.ActivityContext.Activity, Is.EqualTo(LuaMRescueActivity.None));
             });
+
+            Assert.That(
+                activity.BeginOrReplaceIntent(
+                    medic,
+                    LuaMRescueRole.Aibolit,
+                    LuaMRescueActivity.Approaching,
+                    patient,
+                    entities.GetComponent<TransformComponent>(patient).Coordinates,
+                    out var approach),
+                Is.True);
 
             var medicThreat = entities.SpawnEntity(
                 null,
@@ -73,11 +85,15 @@ public sealed class LuaMRescueBehaviorAdapterRuntimeTest
             {
                 Assert.That(evacuation.Intent, Is.EqualTo(LuaMBehaviorIntent.Retreat));
                 Assert.That(evacuation.Tier, Is.EqualTo(LuaMBehaviorTier.Safety));
-                Assert.That(rescue.ActivityContext.Activity, Is.EqualTo(LuaMRescueActivity.PreparingEvacuation));
+                Assert.That(rescue.ActivityContext.Activity, Is.EqualTo(LuaMRescueActivity.Approaching));
                 Assert.That(
                     rescue.ActivityContext.Target,
                     Is.EqualTo(patient),
                     "The hostile observation must not replace the rescue-owned patient target.");
+                Assert.That(
+                    rescue.ActivityContext.Generation,
+                    Is.EqualTo(approach.Generation),
+                    "The advisory behavior layer must not replace the rescue executor's activity generation.");
             });
 
             var escortLeader = entities.SpawnEntity("MobHuman", map.MapCoords);

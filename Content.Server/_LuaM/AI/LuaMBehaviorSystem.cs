@@ -61,6 +61,9 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
             if (HasComp<ActorComponent>(uid))
                 continue;
 
+            if (component.ExternalEvaluationOnly)
+                continue;
+
             if (component.NextEvaluation != TimeSpan.Zero && now < component.NextEvaluation)
                 continue;
 

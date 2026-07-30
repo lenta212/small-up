@@ -8,7 +8,19 @@ namespace Content.Server.Database;
 
 public static class LuaMShipPersistenceLimits
 {
+    /// <summary>
+    /// Maximum size of the durable JSON envelope stored in the database.
+    /// </summary>
     public const int MaxPayloadBytes = 128 * 1024 * 1024;
+
+    /// <summary>
+    /// Maximum UTF-8 size of the grid YAML inside the JSON envelope.
+    /// JSON represents the byte array as base64, so this leaves bounded room
+    /// for the remaining snapshot metadata while staying below
+    /// <see cref="MaxPayloadBytes"/>.
+    /// </summary>
+    public const int MaxSnapshotPayloadBytes = 95 * 1024 * 1024;
+
     public const int MaxEntityCount = 131_072;
     public const int MaxVesselPrototypeIdLength = 128;
     public const int MaxShipNameLength = 256;

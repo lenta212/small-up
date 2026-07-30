@@ -1074,13 +1074,30 @@ public sealed partial class BankSystem : SharedBankSystem
         Func<bool> finalizeAfterCommit)
     {
         ArgumentNullException.ThrowIfNull(finalizeAfterCommit);
+        return TryBankWithdrawCoreAsync(
+            mobUid,
+            amount,
+            () => Task.FromResult(finalizeAfterCommit()));
+    }
+
+    /// <summary>
+    /// Durably debits a profile and awaits an asynchronous world finalizer while
+    /// retaining the same mutation lease. A failed finalizer restores the original
+    /// balance durably before returning false.
+    /// </summary>
+    public Task<bool> TryBankWithdrawAsync(
+        EntityUid mobUid,
+        int amount,
+        Func<Task<bool>> finalizeAfterCommit)
+    {
+        ArgumentNullException.ThrowIfNull(finalizeAfterCommit);
         return TryBankWithdrawCoreAsync(mobUid, amount, finalizeAfterCommit);
     }
 
     private async Task<bool> TryBankWithdrawCoreAsync(
         EntityUid mobUid,
         int amount,
-        Func<bool>? finalizeAfterCommit)
+        Func<Task<bool>>? finalizeAfterCommit)
     {
         if (amount <= 0)
         {
@@ -1187,7 +1204,7 @@ public sealed partial class BankSystem : SharedBankSystem
                 {
                     try
                     {
-                        finalized = finalizeAfterCommit();
+                        finalized = await finalizeAfterCommit();
                     }
                     catch (Exception exception)
                     {
@@ -1602,6 +1619,26 @@ public sealed partial class BankSystem : SharedBankSystem
             mobUid,
             amount,
             tax,
+            () => Task.FromResult(finalizeAfterCommit()),
+            enforceDepositCVar: true);
+    }
+
+    /// <summary>
+    /// Durably credits a deposit and awaits an asynchronous world finalizer while
+    /// retaining the same mutation lease. A failed finalizer restores the original
+    /// balance durably before returning false.
+    /// </summary>
+    public Task<bool> TryBankDepositAsync(
+        EntityUid mobUid,
+        int amount,
+        bool tax,
+        Func<Task<bool>> finalizeAfterCommit)
+    {
+        ArgumentNullException.ThrowIfNull(finalizeAfterCommit);
+        return TryBankDepositCoreAsync(
+            mobUid,
+            amount,
+            tax,
             finalizeAfterCommit,
             enforceDepositCVar: true);
     }
@@ -1610,7 +1647,7 @@ public sealed partial class BankSystem : SharedBankSystem
         EntityUid mobUid,
         int amount,
         bool tax,
-        Func<bool>? finalizeAfterCommit,
+        Func<Task<bool>>? finalizeAfterCommit,
         bool enforceDepositCVar)
     {
         if (enforceDepositCVar && !_cfg.GetCVar(MonoCVars.DepositEnabled))
@@ -1893,7 +1930,7 @@ public sealed partial class BankSystem : SharedBankSystem
                 {
                     try
                     {
-                        finalized = finalizeAfterCommit();
+                        finalized = await finalizeAfterCommit();
                     }
                     catch (Exception exception)
                     {

@@ -18,6 +18,12 @@ public sealed class PlayerBeforeSpawnEvent : HandledEntityEventArgs
     public bool LateJoin { get; }
     public EntityUid Station { get; }
 
+    /// <summary>
+    /// Keeps the player in the lobby when spawning is handled asynchronously.
+    /// The handler must start a new spawn attempt once it is ready.
+    /// </summary>
+    public bool DeferJoin { get; set; }
+
     public PlayerBeforeSpawnEvent(ICommonSession player,
         HumanoidCharacterProfile profile,
         string? jobId,

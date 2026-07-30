@@ -1,0 +1,55 @@
+<BoxContainer xmlns="https://spacestation14.io"
+              xmlns:ui="clr-namespace:Content.Client.Shuttles.UI"
+              xmlns:graphics="clr-namespace:Robust.Client.Graphics;assembly=Robust.Client"
+              Orientation="Vertical"
+              HorizontalExpand="True"
+              Visible="False">
+    <ui:ShuttleConsoleSectionHeader Text="{Loc 'shuttle-combat-telemetry-header'}"/>
+    <PanelContainer HorizontalExpand="True"
+                    Margin="8 4 8 8">
+        <PanelContainer.PanelOverride>
+            <graphics:StyleBoxFlat BorderThickness="1"
+                                   BorderColor="#3A4545"
+                                   BackgroundColor="#0B1113"/>
+        </PanelContainer.PanelOverride>
+        <BoxContainer Orientation="Vertical"
+                      HorizontalExpand="True"
+                      Margin="8 6"
+                      SeparationOverride="3">
+            <GridContainer Columns="2"
+                           HorizontalExpand="True"
+                           HorizontalAlignment="Stretch">
+                <Label Text="{Loc 'shuttle-combat-braking-distance'}"
+                       FontColorOverride="#829597"/>
+                <Label Name="BrakingDistance"
+                       Text="{Loc 'shuttle-combat-braking-unavailable'}"
+                       HorizontalExpand="True"
+                       Align="Right"
+                       FontColorOverride="#E6B86A"/>
+            </GridContainer>
+            <Label Name="ThreatStatus"
+                   Text="{Loc 'shuttle-combat-threat-clear'}"
+                   HorizontalExpand="True"
+                   Margin="0 4 0 0"
+                   FontColorOverride="#A9E3C7"/>
+            <Label Text="{Loc 'shuttle-combat-hit-report-header'}"
+                   Margin="0 3 0 0"
+                   FontColorOverride="#829597"/>
+            <Label Name="HitReport1"
+                   Text="{Loc 'shuttle-combat-hit-report-empty'}"
+                   HorizontalExpand="True"
+                   ClipText="True"
+                   FontColorOverride="#D7E5E3"/>
+            <Label Name="HitReport2"
+                   Visible="False"
+                   HorizontalExpand="True"
+                   ClipText="True"
+                   FontColorOverride="#B7C9C7"/>
+            <Label Name="HitReport3"
+                   Visible="False"
+                   HorizontalExpand="True"
+                   ClipText="True"
+                   FontColorOverride="#9BAEAC"/>
+        </BoxContainer>
+    </PanelContainer>
+</BoxContainer>

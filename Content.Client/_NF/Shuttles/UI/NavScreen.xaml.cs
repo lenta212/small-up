@@ -1,7 +1,9 @@
 // New Frontiers - This file is licensed under AGPLv3
 // Copyright (c) 2024 New Frontiers Contributors
 // See AGPLv3.txt for details.
+using System.Numerics;
 using Content.Shared._NF.Shuttles.Events;
+using Content.Shared.Shuttles.BUIStates;
 using Robust.Client.UserInterface.Controls;
 using System;
 using System.Globalization;
@@ -14,6 +16,11 @@ namespace Content.Client.Shuttles.UI
         public event Action<NetEntity?, InertiaDampeningMode>? OnInertiaDampeningModeChanged;
         public event Action<float?>? OnMaxShuttleSpeedChanged;
         public event Action<string, string>? OnNetworkPortButtonPressed;
+        public event Action<Vector2>? OnSetRadarTarget;
+        public event Action<bool>? OnSetRadarTargetVisibility;
+
+        private const float MaxRadarTargetCoordinate = 1_000_000f;
+        private bool _updatingRadarTargetControls;
 
         private void NfInitialize()
         {
@@ -34,6 +41,17 @@ namespace Content.Client.Shuttles.UI
             DampenerOff.Group = _buttonGroup;
             DampenerOn.Group = _buttonGroup;
             AnchorOn.Group = _buttonGroup;
+
+            TargetSet.OnPressed += _ => SetRadarTarget();
+            TargetX.OnTextEntered += _ => SetRadarTarget();
+            TargetY.OnTextEntered += _ => SetRadarTarget();
+            TargetX.OnTextChanged += _ => ResetRadarTargetFeedback();
+            TargetY.OnTextChanged += _ => ResetRadarTargetFeedback();
+            TargetHide.OnToggled += args =>
+            {
+                if (!_updatingRadarTargetControls)
+                    OnSetRadarTargetVisibility?.Invoke(args.Pressed);
+            };
 
             // Network Port Buttons
             DeviceButton1.OnPressed += _ => OnPortButtonPressed("device-button-1", "button-1");
@@ -62,7 +80,7 @@ namespace Content.Client.Shuttles.UI
             OnInertiaDampeningModeChanged?.Invoke(shuttle, mode);
         }
 
-        private void NfUpdateState()
+        private void NfUpdateState(NavInterfaceState state)
         {
             if (NavRadar.DampeningMode == InertiaDampeningMode.Station)
             {
@@ -94,6 +112,80 @@ namespace Content.Client.Shuttles.UI
                     AnchorOn.Disabled = false;
                 }
             }
+
+            UpdateRadarTargetState(state);
+        }
+
+        private void SetRadarTarget()
+        {
+            if (!TryParseRadarTarget(TargetX.Text, out var x) ||
+                !TryParseRadarTarget(TargetY.Text, out var y))
+            {
+                TargetX.ModulateSelfOverride = TryParseRadarTarget(TargetX.Text, out _) ? null : Color.LightCoral;
+                TargetY.ModulateSelfOverride = TryParseRadarTarget(TargetY.Text, out _) ? null : Color.LightCoral;
+                TargetFeedback.Text = Loc.GetString("shuttle-console-target-feedback-invalid");
+                TargetFeedback.FontColorOverride = Color.FromHex("#E6B86A");
+                return;
+            }
+
+            TargetX.ModulateSelfOverride = null;
+            TargetY.ModulateSelfOverride = null;
+            TargetFeedback.Text = Loc.GetString(
+                "shuttle-console-target-feedback-active",
+                ("x", x.ToString("0.0", CultureInfo.InvariantCulture)),
+                ("y", y.ToString("0.0", CultureInfo.InvariantCulture)));
+            TargetFeedback.FontColorOverride = Color.FromHex("#A9E3C7");
+            OnSetRadarTarget?.Invoke(new Vector2(x, y));
+        }
+
+        private void UpdateRadarTargetState(NavInterfaceState state)
+        {
+            _updatingRadarTargetControls = true;
+            TargetHide.Disabled = state.Target == null;
+            TargetHide.Pressed = state.HideTarget;
+            _updatingRadarTargetControls = false;
+
+            if (state.Target is not { } target)
+            {
+                TargetFeedback.Text = Loc.GetString("shuttle-console-target-feedback-empty");
+                TargetFeedback.FontColorOverride = Color.FromHex("#829597");
+                return;
+            }
+
+            if (!TargetX.HasKeyboardFocus())
+                TargetX.Text = target.X.ToString("0.0", CultureInfo.InvariantCulture);
+            if (!TargetY.HasKeyboardFocus())
+                TargetY.Text = target.Y.ToString("0.0", CultureInfo.InvariantCulture);
+
+            TargetX.ModulateSelfOverride = null;
+            TargetY.ModulateSelfOverride = null;
+            TargetFeedback.Text = Loc.GetString(
+                "shuttle-console-target-feedback-active",
+                ("x", target.X.ToString("0.0", CultureInfo.InvariantCulture)),
+                ("y", target.Y.ToString("0.0", CultureInfo.InvariantCulture)));
+            TargetFeedback.FontColorOverride = state.HideTarget
+                ? Color.FromHex("#829597")
+                : Color.FromHex("#A9E3C7");
+        }
+
+        private void ResetRadarTargetFeedback()
+        {
+            if (_updatingRadarTargetControls)
+                return;
+
+            TargetX.ModulateSelfOverride = null;
+            TargetY.ModulateSelfOverride = null;
+        }
+
+        private static bool TryParseRadarTarget(string text, out float coordinate)
+        {
+            return float.TryParse(
+                       text.Trim().Replace(',', '.'),
+                       NumberStyles.Float,
+                       CultureInfo.InvariantCulture,
+                       out coordinate) &&
+                   float.IsFinite(coordinate) &&
+                   MathF.Abs(coordinate) <= MaxRadarTargetCoordinate;
         }
 
 

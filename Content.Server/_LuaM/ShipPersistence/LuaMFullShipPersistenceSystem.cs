@@ -4,6 +4,8 @@ using System.Linq;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
+using Content.Server.Database;
+using Content.Server._NF.CryoSleep;
 using Content.Server.Shuttles.Components;
 using Content.Server.Shuttles.Systems;
 using Content.Server.Mind;
@@ -17,7 +19,10 @@ using Robust.Shared.EntitySerialization.Systems;
 using Robust.Shared.Map;
 using Robust.Shared.Map.Components;
 using Robust.Shared.Maths;
+using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
+using Robust.Shared.Serialization;
+using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
 namespace Content.Server._LuaM.ShipPersistence;
@@ -67,21 +72,90 @@ public sealed class LuaMShipRestoreScope
 }
 
 /// <summary>
+/// Round-local evidence that an entity has been controlled by a player.
+/// Actor and mind components disappear on detach, while this marker remains
+/// until the body itself is deleted.
+/// </summary>
+[RegisterComponent, UnsavedComponent]
+public sealed partial class LuaMPlayerControlledBodyComponent : Component
+{
+}
+
+/// <summary>
 /// Runtime core for complete ship-grid snapshots.
 /// </summary>
 /// <remarks>
-/// This system intentionally does not sanitize, whitelist, or rebuild ship
-/// content. It serializes the complete transform graph and referenced
-/// null-space support entities. References to live entities outside the ship,
-/// such as its online owner, are deliberately not pulled into the snapshot.
-/// Database ownership, leases, and atomic activation are layered above this API.
+/// This system serializes the complete ship-owned transform graph while
+/// excluding player-controlled bodies and runtime ownership entities.
+/// References to live entities outside the ship, such as its online owner, are
+/// deliberately not pulled into the snapshot. Database ownership, leases, and
+/// atomic activation are layered above this API.
 /// </remarks>
 public sealed class LuaMFullShipPersistenceSystem : EntitySystem
 {
-    public const int SnapshotFormatVersion = 1;
+    public const int LegacySnapshotFormatVersion = 1;
+    public const int SnapshotFormatVersion = 2;
     public const int MaxBuildMetadataLength = 128;
 
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
+    private sealed class SnapshotPayloadLimitExceededException : IOException
+    {
+    }
+
+    /// <summary>
+    /// Stops the serializer before it can build an unbounded in-memory YAML
+    /// document. UTF-8 accounting is deliberately conservative when a surrogate
+    /// pair is split across writes: an early rejection is safe, an undercount is
+    /// not.
+    /// </summary>
+    private sealed class Utf8SizeLimitedTextWriter(int maxBytes) : TextWriter
+    {
+        private readonly StringBuilder _builder = new();
+        private int _bytesWritten;
+
+        public override Encoding Encoding => StrictUtf8;
+        public override IFormatProvider FormatProvider => CultureInfo.InvariantCulture;
+
+        public override void Write(char value)
+        {
+            Span<char> buffer = stackalloc char[1];
+            buffer[0] = value;
+            Append(buffer);
+        }
+
+        public override void Write(string? value)
+        {
+            if (value != null)
+                Append(value.AsSpan());
+        }
+
+        public override void Write(char[] buffer, int index, int count)
+        {
+            ArgumentNullException.ThrowIfNull(buffer);
+            Append(buffer.AsSpan(index, count));
+        }
+
+        public override void Write(ReadOnlySpan<char> buffer)
+        {
+            Append(buffer);
+        }
+
+        public override string ToString()
+        {
+            return _builder.ToString();
+        }
+
+        private void Append(ReadOnlySpan<char> value)
+        {
+            var addedBytes = System.Text.Encoding.UTF8.GetByteCount(value);
+            if (addedBytes > maxBytes - _bytesWritten)
+                throw new SnapshotPayloadLimitExceededException();
+
+            _bytesWritten += addedBytes;
+            _builder.Append(value);
+        }
+    }
 
     [Dependency] private IConfigurationManager _configuration = default!;
     [Dependency] private SharedContainerSystem _containers = default!;
@@ -93,6 +167,22 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     [Dependency] private MindSystem _minds = default!;
 
     private readonly HashSet<Guid> _busyShips = [];
+
+    public override void Initialize()
+    {
+        base.Initialize();
+        SubscribeLocalEvent<PlayerAttachedEvent>(OnPlayerAttached);
+    }
+
+    private void OnPlayerAttached(PlayerAttachedEvent args)
+    {
+        if (Exists(args.Entity) &&
+            !HasComp<MapComponent>(args.Entity) &&
+            !HasComp<MapGridComponent>(args.Entity))
+        {
+            EnsureComp<LuaMPlayerControlledBodyComponent>(args.Entity);
+        }
+    }
 
     /// <summary>
     /// Returns the stable identity of a grid, assigning a collision-checked UUID
@@ -187,6 +277,14 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
 
         void ObserveSerialization(Entity<MetaDataComponent> entity, ref bool serializable)
         {
+            // Bodies and everything carried by them belong to the character, not
+            // to the shuttle. They must never become part of a ship snapshot.
+            if (IsPlayerBody(entity.Owner))
+            {
+                serializable = false;
+                return;
+            }
+
             if (!serializable && requiredEntities.Contains(entity.Owner))
                 rejectedRequiredEntities.Add(entity.Owner);
         }
@@ -208,15 +306,27 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 UndockExternalGridConnections(externalDockPairs);
 
                 requiredEntities = CollectTransformGraph(grid);
+                if (requiredEntities.Count == 0 ||
+                    requiredEntities.Count > LuaMShipPersistenceLimits.MaxEntityCount)
+                {
+                    reason = "snapshot-entity-count-limit-exceeded";
+                    return false;
+                }
+
                 changedPrototypes = EnableCompleteGraphSerialization(requiredEntities);
                 _mapLoader.OnIsSerializable += ObserveSerialization;
 
                 identity.SnapshotRevision = revision;
 
-                using var writer = new StringWriter(CultureInfo.InvariantCulture);
+                using var writer = new Utf8SizeLimitedTextWriter(
+                    LuaMShipPersistenceLimits.MaxSnapshotPayloadBytes);
                 var options = SerializationOptions.Default with
                 {
-                    MissingEntityBehaviour = MissingEntityBehaviour.IncludeNullspace,
+                    // A portable ship owns exactly its transform graph. Runtime
+                    // station roots, minds, network helpers, and other null-space
+                    // entities remain owned by the current round and must never be
+                    // pulled into a durable hull snapshot.
+                    MissingEntityBehaviour = MissingEntityBehaviour.Ignore,
                     EntityExceptionBehaviour = EntityExceptionBehaviour.Rethrow,
                     ErrorOnOrphan = true,
                     LogAutoInclude = null,
@@ -234,7 +344,18 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     return false;
                 }
 
-                var yaml = writer.ToString();
+                if (!TryInspectAndSanitizeSerializedShipYaml(
+                        writer.ToString(),
+                        out var yaml,
+                        out var entityCount,
+                        out var prototypeCounts,
+                        out var prototypeManifestHash,
+                        out var sanitizationReason))
+                {
+                    reason = $"snapshot-reference-sanitization-failed:{sanitizationReason}";
+                    return false;
+                }
+
                 byte[] payload;
                 try
                 {
@@ -247,15 +368,9 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 }
 
                 if (payload.Length == 0 ||
-                    !TryReadSerializedManifest(
-                        yaml,
-                        out var entityCount,
-                        out var prototypeCounts,
-                        out var prototypeManifestHash,
-                        out reason))
+                    payload.Length > LuaMShipPersistenceLimits.MaxSnapshotPayloadBytes)
                 {
-                    if (string.IsNullOrEmpty(reason))
-                        reason = "snapshot-payload-invalid";
+                    reason = "snapshot-payload-size-limit-exceeded";
                     return false;
                 }
 
@@ -298,6 +413,11 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     throw new InvalidOperationException(reason);
                 }
             }
+        }
+        catch (SnapshotPayloadLimitExceededException)
+        {
+            reason = "snapshot-payload-size-limit-exceeded";
+            return false;
         }
         catch (Exception exception)
         {
@@ -580,10 +700,13 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 return false;
             }
 
-            // Player minds are runtime ownership, not portable ship content. A
-            // stale snapshot can otherwise resurrect a copied mind and leave a
-            // body pointing at an invalid/null-space entity on every restore.
+            // Defence in depth for a malformed or manually repaired current
+            // snapshot. Legacy v1 is rejected before deserialization.
+            SanitizeRestoredPlayerBodies(createdEntities, restoredGrid);
+
+            // Player minds are runtime ownership, not portable ship content.
             SanitizeRestoredMinds(createdEntities);
+            createdEntities.RemoveWhere(uid => !Exists(uid));
 
             if (!_consoleLocks.TryBindPersistentShipSecurity(
                     restoredGrid,
@@ -619,10 +742,12 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 continue;
 
             if (TryComp<MindContainerComponent>(uid, out var container) &&
-                container.Mind is { } mind &&
-                createdEntities.Contains(mind))
+                container.Mind is { } mind)
             {
-                _minds.TransferTo(mind, null, mind: Comp<MindComponent>(mind), createGhost: false);
+                if (mind.IsValid() && createdEntities.Contains(mind) && TryComp<MindComponent>(mind, out var mindComp))
+                    _minds.TransferTo(mind, null, mind: mindComp, createGhost: false);
+                else
+                    _minds.ClearMindContainer(uid, container);
             }
 
             if (HasComp<MindComponent>(uid))
@@ -630,12 +755,378 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         }
     }
 
+    private void SanitizeRestoredPlayerBodies(IReadOnlySet<EntityUid> createdEntities, EntityUid restoredGrid)
+    {
+        var bodies = createdEntities
+            .Where(uid => uid != restoredGrid && Exists(uid) && IsPlayerBody(uid))
+            .ToArray();
+
+        foreach (var body in bodies)
+        {
+            if (!Exists(body))
+                continue;
+
+            // Detach a copied mind before deleting its body. Otherwise normal
+            // body termination may create a ghost or attach a live session.
+            if (TryComp<MindContainerComponent>(body, out var container) &&
+                container.Mind is { } mind)
+            {
+                if (mind.IsValid() &&
+                    createdEntities.Contains(mind) &&
+                    TryComp<MindComponent>(mind, out var mindComp))
+                {
+                    _minds.TransferTo(mind, null, mind: mindComp, createGhost: false);
+                }
+                else
+                {
+                    _minds.ClearMindContainer(body, container);
+                }
+            }
+
+            var graph = CollectExistingTransformGraph(body);
+            for (var i = graph.Count - 1; i >= 0; i--)
+            {
+                var uid = graph[i];
+                if (Exists(uid))
+                    Del(uid);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Parses the bounded grid document once, validates its manifest, and cleans
+    /// only known entity-reference fields on known components. Arbitrary
+    /// component data with fields named <c>containers</c> or
+    /// <c>buckledEntities</c> is deliberately left untouched.
+    /// </summary>
+    internal static bool TryInspectAndSanitizeSerializedShipYaml(
+        string yaml,
+        out string sanitizedYaml,
+        out int entityCount,
+        out Dictionary<string, int> prototypeCounts,
+        out string prototypeManifestHash,
+        out string reason)
+    {
+        sanitizedYaml = string.Empty;
+        entityCount = 0;
+        prototypeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        prototypeManifestHash = string.Empty;
+        reason = string.Empty;
+
+        try
+        {
+            if (string.IsNullOrEmpty(yaml) ||
+                StrictUtf8.GetByteCount(yaml) > LuaMShipPersistenceLimits.MaxSnapshotPayloadBytes)
+            {
+                reason = "snapshot-payload-size-limit-exceeded";
+                return false;
+            }
+
+            var stream = new YamlStream();
+            stream.Load(new StringReader(yaml));
+            if (stream.Documents.Count != 1 ||
+                stream.Documents[0].RootNode is not YamlMappingNode root ||
+                !TryGetMapping(root, "meta", out var meta) ||
+                !TryGetScalar(meta, "category", out var category) ||
+                !string.Equals(category, "Grid", StringComparison.Ordinal) ||
+                !TryGetScalar(meta, "entityCount", out var countText) ||
+                !int.TryParse(countText, NumberStyles.None, CultureInfo.InvariantCulture, out entityCount) ||
+                entityCount <= 0 ||
+                entityCount > LuaMShipPersistenceLimits.MaxEntityCount ||
+                !TryGetSequence(root, "entities", out var prototypeGroups))
+            {
+                reason = "snapshot-yaml-metadata-invalid";
+                return false;
+            }
+
+            var countedEntities = 0;
+            var changed = false;
+            foreach (var node in prototypeGroups.Children)
+            {
+                if (node is not YamlMappingNode group ||
+                    !TryGetScalar(group, "proto", out var prototype) ||
+                    !TryGetSequence(group, "entities", out var entities))
+                {
+                    reason = "snapshot-yaml-entity-group-invalid";
+                    return false;
+                }
+
+                foreach (var entityNode in entities.Children)
+                {
+                    if (entityNode is not YamlMappingNode entity)
+                    {
+                        reason = "snapshot-yaml-entity-invalid";
+                        return false;
+                    }
+
+                    countedEntities = checked(countedEntities + 1);
+                    if (countedEntities > LuaMShipPersistenceLimits.MaxEntityCount)
+                    {
+                        reason = "snapshot-entity-count-limit-exceeded";
+                        return false;
+                    }
+
+                    changed |= SanitizeEntityComponents(entity);
+                }
+
+                prototypeCounts[prototype] = checked(
+                    prototypeCounts.GetValueOrDefault(prototype) + entities.Children.Count);
+            }
+
+            if (countedEntities != entityCount)
+            {
+                reason = "snapshot-yaml-entity-count-mismatch";
+                return false;
+            }
+
+            prototypeManifestHash = ComputePrototypeManifestHash(prototypeCounts);
+            if (!changed)
+            {
+                sanitizedYaml = yaml;
+                return true;
+            }
+
+            using var writer = new Utf8SizeLimitedTextWriter(
+                LuaMShipPersistenceLimits.MaxSnapshotPayloadBytes);
+            // YamlDotNet otherwise treats custom mapping tags as implicit and
+            // drops tags such as !type:ContainerSlot. The map loader then tries
+            // to instantiate the abstract BaseContainer value from the dictionary.
+            stream.Save(new YamlMappingFix(new Emitter(writer)), assignAnchors: false);
+            sanitizedYaml = writer.ToString();
+            return true;
+        }
+        catch (SnapshotPayloadLimitExceededException)
+        {
+            reason = "snapshot-payload-size-limit-exceeded";
+            return false;
+        }
+        catch (EncoderFallbackException)
+        {
+            reason = "snapshot-is-not-valid-utf8";
+            return false;
+        }
+        catch (Exception exception) when (
+            exception is not OutOfMemoryException &&
+            exception is not StackOverflowException)
+        {
+            reason = $"snapshot-yaml-parse-failed:{exception.GetType().Name}";
+            return false;
+        }
+    }
+
+    private static bool SanitizeEntityComponents(YamlMappingNode entity)
+    {
+        if (!TryGetSequence(entity, "components", out var components))
+            return false;
+
+        var changed = false;
+        for (var index = components.Children.Count - 1; index >= 0; index--)
+        {
+            if (components.Children[index] is not YamlMappingNode component ||
+                !TryGetScalar(component, "type", out var componentType))
+            {
+                continue;
+            }
+
+            switch (componentType)
+            {
+                case "ContainerContainer":
+                    if (TryGetMapping(component, "containers", out var containers))
+                    {
+                        foreach (var container in containers.Children.Values)
+                            changed |= SanitizeContainerReferenceNode(container);
+                    }
+                    break;
+                case "Strap":
+                    if (TryGetNode(component, "buckledEntities", out var buckled))
+                        changed |= RemoveInvalidReferences(buckled);
+                    break;
+                case "Storage":
+                    if (TryGetMapping(component, "storedItems", out var storedItems))
+                        changed |= RemoveInvalidMappingKeys(storedItems);
+                    break;
+                case "Puller":
+                    changed |= ReplaceInvalidReferenceWithNull(component, "pulling");
+                    break;
+                case "Pullable":
+                    if (ReplaceInvalidReferenceWithNull(component, "puller"))
+                    {
+                        changed = true;
+                        changed |= ReplaceScalarWithNull(component, "pullJointId");
+                    }
+                    break;
+                case "Joint":
+                    changed |= ReplaceInvalidReferenceWithNull(component, "relay");
+                    if (TryGetMapping(component, "joints", out var joints))
+                        changed |= RemoveMappingsContainingInvalidReference(joints);
+                    break;
+                case "StationMember":
+                    if (HasInvalidReference(component, "station"))
+                    {
+                        // A restored portable hull is assigned to its destination
+                        // station by the caller. Keeping an invalid station member
+                        // is worse than having no membership.
+                        components.Children.RemoveAt(index);
+                        changed = true;
+                    }
+                    break;
+                case "StationTracker":
+                    changed |= ReplaceInvalidReferenceWithNull(component, "station");
+                    break;
+            }
+        }
+
+        return changed;
+    }
+
+    private static bool SanitizeContainerReferenceNode(YamlNode node)
+    {
+        var changed = false;
+
+        switch (node)
+        {
+            case YamlMappingNode mapping:
+                foreach (var (keyNode, valueNode) in mapping.Children.ToArray())
+                {
+                    if (keyNode is YamlScalarNode key)
+                    {
+                        if (key.Value == "ent" && IsInvalidReference(valueNode))
+                        {
+                            mapping.Children[keyNode] = new YamlScalarNode("null");
+                            changed = true;
+                            continue;
+                        }
+
+                        if (key.Value == "ents")
+                            changed |= RemoveInvalidReferences(valueNode);
+                    }
+
+                    changed |= SanitizeContainerReferenceNode(valueNode);
+                }
+
+                break;
+            case YamlSequenceNode sequence:
+                foreach (var child in sequence.Children)
+                    changed |= SanitizeContainerReferenceNode(child);
+                break;
+        }
+
+        return changed;
+    }
+
+    private static bool RemoveInvalidReferences(YamlNode node)
+    {
+        if (node is not YamlSequenceNode sequence)
+            return false;
+
+        var changed = false;
+        for (var i = sequence.Children.Count - 1; i >= 0; i--)
+        {
+            if (!IsInvalidReference(sequence.Children[i]))
+                continue;
+
+            sequence.Children.RemoveAt(i);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool IsInvalidReference(YamlNode node)
+        => node is YamlScalarNode { Value: "invalid" };
+
+    private static bool HasInvalidReference(YamlMappingNode mapping, string key)
+        => TryGetNode(mapping, key, out var value) && IsInvalidReference(value);
+
+    private static bool ReplaceInvalidReferenceWithNull(YamlMappingNode mapping, string key)
+    {
+        if (!TryGetNode(mapping, key, out var value) || !IsInvalidReference(value))
+            return false;
+
+        return ReplaceScalarWithNull(mapping, key);
+    }
+
+    private static bool ReplaceScalarWithNull(YamlMappingNode mapping, string key)
+    {
+        foreach (var keyNode in mapping.Children.Keys)
+        {
+            if (keyNode is not YamlScalarNode { Value: var candidate } || candidate != key)
+                continue;
+
+            mapping.Children[keyNode] = new YamlScalarNode("null");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool RemoveInvalidMappingKeys(YamlMappingNode mapping)
+    {
+        var changed = false;
+        foreach (var key in mapping.Children.Keys.ToArray())
+        {
+            if (!IsInvalidReference(key))
+                continue;
+
+            mapping.Children.Remove(key);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool RemoveMappingsContainingInvalidReference(YamlMappingNode mapping)
+    {
+        var changed = false;
+        foreach (var (key, value) in mapping.Children.ToArray())
+        {
+            if (!ContainsInvalidReference(value))
+                continue;
+
+            mapping.Children.Remove(key);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static bool ContainsInvalidReference(YamlNode node)
+    {
+        if (IsInvalidReference(node))
+            return true;
+
+        return node switch
+        {
+            YamlSequenceNode sequence => sequence.Children.Any(ContainsInvalidReference),
+            YamlMappingNode mapping => mapping.Children.Any(pair =>
+                ContainsInvalidReference(pair.Key) || ContainsInvalidReference(pair.Value)),
+            _ => false,
+        };
+    }
+
     private bool TryValidateSnapshot(
         LuaMFullShipSnapshot? snapshot,
         out string yaml,
         out string reason)
     {
+        return TryValidateSnapshot(
+            snapshot,
+            out yaml,
+            out _,
+            out _,
+            out reason);
+    }
+
+    private bool TryValidateSnapshot(
+        LuaMFullShipSnapshot? snapshot,
+        out string yaml,
+        out Dictionary<string, int> prototypeCounts,
+        out string prototypeManifestHash,
+        out string reason)
+    {
         yaml = string.Empty;
+        prototypeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        prototypeManifestHash = string.Empty;
         reason = string.Empty;
 
         if (snapshot == null)
@@ -644,7 +1135,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
             return false;
         }
 
-        if (snapshot.FormatVersion != SnapshotFormatVersion)
+        if (!IsSupportedSnapshotFormatVersion(snapshot.FormatVersion))
         {
             reason = $"unsupported-snapshot-format-{snapshot.FormatVersion}";
             return false;
@@ -660,8 +1151,10 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
 
         if (snapshot.Payload == null ||
             snapshot.PayloadSizeBytes <= 0 ||
+            snapshot.PayloadSizeBytes > LuaMShipPersistenceLimits.MaxSnapshotPayloadBytes ||
             snapshot.PayloadSizeBytes != snapshot.Payload.Length ||
             snapshot.EntityCount <= 0 ||
+            snapshot.EntityCount > LuaMShipPersistenceLimits.MaxEntityCount ||
             string.IsNullOrWhiteSpace(snapshot.SourceBuildVersion) ||
             snapshot.SourceBuildVersion.Length > MaxBuildMetadataLength ||
             string.IsNullOrWhiteSpace(snapshot.SourceBuildHash) ||
@@ -688,11 +1181,13 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
             return false;
         }
 
-        if (!TryReadSerializedManifest(
-                yaml,
+        var serializedYaml = yaml;
+        if (!TryInspectAndSanitizeSerializedShipYaml(
+                serializedYaml,
+                out yaml,
                 out var entityCount,
-                out _,
-                out var prototypeManifestHash,
+                out prototypeCounts,
+                out prototypeManifestHash,
                 out reason) ||
             entityCount != snapshot.EntityCount ||
             !FixedHashEquals(prototypeManifestHash, snapshot.PrototypeManifestHash))
@@ -882,10 +1377,9 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         out string reason)
     {
         manifest = default!;
-        if (!TryValidateSnapshot(snapshot, out var yaml, out reason) ||
-            !TryReadSerializedManifest(
-                yaml,
-                out var entityCount,
+        if (!TryValidateSnapshot(
+                snapshot,
+                out _,
                 out var prototypeCounts,
                 out var prototypeManifestHash,
                 out reason))
@@ -895,7 +1389,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
 
         manifest = new LuaMSavedShipManifest(
             snapshot.FormatVersion,
-            entityCount,
+            snapshot.EntityCount,
             snapshot.PayloadSizeBytes,
             prototypeManifestHash,
             prototypeCounts
@@ -931,6 +1425,50 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
             if (!result.Add(uid) || !Exists(uid))
                 continue;
 
+            if (uid != root && IsPlayerBody(uid))
+            {
+                result.Remove(uid);
+                continue;
+            }
+
+            var children = Transform(uid).ChildEnumerator;
+            while (children.MoveNext(out var child))
+                pending.Push(child);
+        }
+
+        return result;
+    }
+
+    private bool IsPlayerBody(EntityUid uid)
+    {
+        if (HasComp<ActorComponent>(uid) ||
+            HasComp<PlayerJobComponent>(uid) ||
+            HasComp<LuaMPlayerControlledBodyComponent>(uid))
+        {
+            return true;
+        }
+
+        return TryComp<MindContainerComponent>(uid, out var container) &&
+               container.Mind is { } mind &&
+               TryComp<MindComponent>(mind, out var mindComponent) &&
+               mindComponent.UserId != null;
+    }
+
+    public static bool IsSupportedSnapshotFormatVersion(int formatVersion)
+        => formatVersion == SnapshotFormatVersion;
+
+    private List<EntityUid> CollectExistingTransformGraph(EntityUid root)
+    {
+        var result = new List<EntityUid>();
+        var visited = new HashSet<EntityUid>();
+        var pending = new Stack<EntityUid>();
+        pending.Push(root);
+        while (pending.TryPop(out var uid))
+        {
+            if (!visited.Add(uid) || !Exists(uid))
+                continue;
+
+            result.Add(uid);
             var children = Transform(uid).ChildEnumerator;
             while (children.MoveNext(out var child))
                 pending.Push(child);
@@ -991,70 +1529,6 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         }
 
         return true;
-    }
-
-    private static bool TryReadSerializedManifest(
-        string yaml,
-        out int entityCount,
-        out Dictionary<string, int> prototypeCounts,
-        out string prototypeManifestHash,
-        out string reason)
-    {
-        entityCount = 0;
-        prototypeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-        prototypeManifestHash = string.Empty;
-        reason = string.Empty;
-
-        try
-        {
-            var stream = new YamlStream();
-            stream.Load(new StringReader(yaml));
-            if (stream.Documents.Count != 1 ||
-                stream.Documents[0].RootNode is not YamlMappingNode root ||
-                !TryGetMapping(root, "meta", out var meta) ||
-                !TryGetScalar(meta, "category", out var category) ||
-                !string.Equals(category, "Grid", StringComparison.Ordinal) ||
-                !TryGetScalar(meta, "entityCount", out var countText) ||
-                !int.TryParse(countText, NumberStyles.None, CultureInfo.InvariantCulture, out entityCount) ||
-                entityCount <= 0 ||
-                !TryGetSequence(root, "entities", out var prototypeGroups))
-            {
-                reason = "snapshot-yaml-metadata-invalid";
-                return false;
-            }
-
-            var countedEntities = 0;
-            foreach (var node in prototypeGroups.Children)
-            {
-                if (node is not YamlMappingNode group ||
-                    !TryGetScalar(group, "proto", out var prototype) ||
-                    !TryGetSequence(group, "entities", out var entities))
-                {
-                    reason = "snapshot-yaml-entity-group-invalid";
-                    return false;
-                }
-
-                var count = entities.Children.Count;
-                countedEntities = checked(countedEntities + count);
-                prototypeCounts[prototype] = checked(prototypeCounts.GetValueOrDefault(prototype) + count);
-            }
-
-            if (countedEntities != entityCount)
-            {
-                reason = "snapshot-yaml-entity-count-mismatch";
-                return false;
-            }
-
-            prototypeManifestHash = ComputePrototypeManifestHash(prototypeCounts);
-            return true;
-        }
-        catch (Exception exception) when (
-            exception is not OutOfMemoryException &&
-            exception is not StackOverflowException)
-        {
-            reason = $"snapshot-yaml-parse-failed:{exception.GetType().Name}";
-            return false;
-        }
     }
 
     private bool TryInspectEntitySet(

@@ -107,10 +107,10 @@ public sealed partial class CrewPickerControl : PickerControl
                 texture = _spriteSystem.Frame0(jobIcon.Icon);
             }
 
-            var buttonTooltip = "";
+            var buttonTooltip = prototype.LocalizedDescription ?? "";
             if (!_jobReqs.IsAllowed(prototype, profile, out var denyReason))
             {
-                buttonTooltip = denyReason.ToString();
+                buttonTooltip += $"\n\n{denyReason}";
             }
 
             var isButtonDisabled = jobCount == 0 || !_jobReqs.IsAllowed(prototype, profile, out _);
@@ -119,7 +119,8 @@ public sealed partial class CrewPickerControl : PickerControl
                 jobName: jobName,
                 toolTip: buttonTooltip,
                 disabled: isButtonDisabled,
-                jobIcon: texture
+                jobIcon: texture,
+                displayColor: prototype.DisplayColor
             );
             viewStateList.Add(viewState);
         }

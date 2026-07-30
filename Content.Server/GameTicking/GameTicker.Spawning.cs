@@ -186,7 +186,8 @@ namespace Content.Server.GameTicking
             // Do nothing, something else has handled spawning this player for us!
             if (bev.Handled)
             {
-                PlayerJoinGame(player, silent);
+                if (!bev.DeferJoin)
+                    PlayerJoinGame(player, silent);
                 return;
             }
 

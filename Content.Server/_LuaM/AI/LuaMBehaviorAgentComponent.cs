@@ -27,6 +27,15 @@ public sealed partial class LuaMBehaviorAgentComponent : Component
     [DataField]
     public bool DriveActivityLifecycle;
 
+    /// <summary>
+    /// Domain adapters that must publish a complete observation set atomically
+    /// can opt out of the generic periodic loop and call EvaluateNow themselves.
+    /// This prevents two independent update cadences from issuing decisions for
+    /// the same executor.
+    /// </summary>
+    [DataField]
+    public bool ExternalEvaluationOnly;
+
     [ViewVariables]
     public readonly List<LuaMBehaviorObservation> Observations = new();
 

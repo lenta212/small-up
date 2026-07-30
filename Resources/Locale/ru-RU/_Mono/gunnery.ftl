@@ -29,6 +29,8 @@ gunnery-upgrade-construction-part = Требуется {$part}: {$inserted}/{$re
 gunnery-select-ballistic = Баллистические
 gunnery-select-energy = Энергетические
 gunnery-select-missiles = Ракетные
+gunnery-radar-overlays = Слои радара
+gunnery-weapon-list = Оружейные каналы
 
 gunnery-panel-collapse-controls = Свернуть панель управления
 gunnery-panel-expand-controls = Развернуть панель управления

@@ -35,3 +35,27 @@
   - type: NpcFactionMember
     factions:
     - NanoTrasen
+    - LuaMUnknownSurvivor
+
+- type: playTimeTracker
+  id: JobLuaMUnknownSurvivor
+
+- type: job
+  id: LuaMUnknownSurvivor
+  name: job-name-luam-unknown-survivor
+  description: job-description-luam-unknown-survivor
+  playTimeTracker: JobLuaMUnknownSurvivor
+  startingGear: LuaMUnknownOperatorGear
+  icon: JobIconUnknown
+  supervisors: job-supervisors-luam-unknown-survivor
+  setPreference: true
+  canBeAntag: false
+  displayWeight: -100
+  displayColor: "#E53935"
+  special:
+  - !type:AddComponentSpecial
+    components:
+    - type: NpcFactionMember
+      factions:
+      - NanoTrasen
+      - LuaMUnknownSurvivor

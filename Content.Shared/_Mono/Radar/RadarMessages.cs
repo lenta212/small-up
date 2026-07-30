@@ -58,6 +58,16 @@ public sealed class GiveBlipsEvent : EntityEventArgs
     /// </summary>
     public readonly List<HitscanNetData> HitscanLines;
 
+    /// <summary>
+    /// Authoritative flight telemetry for the shuttle carrying this radar.
+    /// </summary>
+    public readonly OwnshipTelemetryNetData? OwnshipTelemetry;
+
+    /// <summary>
+    /// Recent impacts on the grid carrying this radar, newest first.
+    /// </summary>
+    public readonly List<ShipHitReportNetData> HitReports;
+
     public GiveBlipsEvent(
         NetEntity radar,
         uint requestId,
@@ -65,7 +75,9 @@ public sealed class GiveBlipsEvent : EntityEventArgs
         List<BlipConfig> configPalette,
         List<BlipNetData> blips,
         List<MissileVectorNetData> missiles,
-        List<HitscanNetData> hitscans)
+        List<HitscanNetData> hitscans,
+        OwnshipTelemetryNetData? ownshipTelemetry,
+        List<ShipHitReportNetData> hitReports)
     {
         Radar = radar;
         RequestId = requestId;
@@ -74,6 +86,8 @@ public sealed class GiveBlipsEvent : EntityEventArgs
         Blips = blips;
         Missiles = missiles;
         HitscanLines = hitscans;
+        OwnshipTelemetry = ownshipTelemetry;
+        HitReports = hitReports;
     }
 }
 
@@ -98,7 +112,10 @@ public record struct BlipNetData
     Vector2 Vel,
     Angle Rotation,
     ushort ConfigIndex,
-    ushort? OnGridConfigIndex
+    ushort? OnGridConfigIndex,
+    bool IsWeaponProjectile,
+    RadarThreatKind Threat,
+    float? TimeToImpact
 );
 
 [Serializable, NetSerializable]

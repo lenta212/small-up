@@ -46,6 +46,12 @@ namespace Content.Shared.Roles
         public string? LocalizedDescription => Description is null ? null : Loc.GetString(Description);
 
         /// <summary>
+        /// Optional warning/accent color used for this job in lobby role lists.
+        /// </summary>
+        [DataField]
+        public Color? DisplayColor { get; private set; }
+
+        /// <summary>
         ///     Requirements for the job.
         /// </summary>
         [DataField, Access(typeof(SharedRoleSystem))]

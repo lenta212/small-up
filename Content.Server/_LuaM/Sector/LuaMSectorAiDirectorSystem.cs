@@ -18,6 +18,8 @@ using Content.Server.GameTicking;
 using Content.Server.Ghost.Roles.Components;
 using Content.Server.Medical.CrewMonitoring;
 using Content.Server.Pinpointer;
+using Content.Server.Spawners.EntitySystems;
+using Content.Server.Station.Systems;
 using Content.Server._LuaM.Rescue;
 using Content.Server._NF.Radio;
 using Content.Server.Radio;
@@ -41,6 +43,7 @@ using Content.Shared.Maps;
 using Content.Shared.Mind;
 using Content.Shared.Mind.Components;
 using Content.Shared.Mobs;
+using Content.Shared.Mobs.Components;
 using Content.Shared.Mobs.Systems;
 using Content.Shared.PAI;
 using Content.Shared.Pinpointer;
@@ -713,6 +716,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         "FoodPotato",
         "FoodTomato",
         "FoodApple",
+        "CrateHydroponicsSeeds",
+        "ChemicalBarrelDiethylamine",
     ];
 
     private static readonly LuaMPersonalSpeechPersona[] PersonalAiPersonas =
@@ -743,7 +748,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     [
         "identity: Айболит отвечает как автономный медик LuaM, без шуток и без лишнего лора.",
         "lore: секторная память LuaM хранит коридоры спасения, медсигналы смерти и follow-up после эвакуации.",
-        "protocol: реальный вылет начинается только от медсигнала смерти или LuaM rescue order; радио само по себе не телепортирует бота.",
+        "protocol: сервер может детерминированно принять адресованный радиовызов до gateway; gateway только формулирует read-only ответ и никогда не выдаёт приказы.",
         "radio-style: короткая фраза подтверждения, затем текущий статус, затем один практический приказ экипажу.",
         "crew-tone: спокойно, по делу, просить держать коридор чистым, не трогать пациента и не перекрывать борт.",
     ];
@@ -778,6 +783,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     [Dependency] private LuaMRescueAgentSystem _rescueAgents = default!;
     [Dependency] private LuaMRescueTeamSystem _rescueTeams = default!;
     [Dependency] private InventorySystem _inventory = default!;
+    [Dependency] private StationSpawningSystem _stationSpawning = default!;
 
     private HttpClient _http = new();
     private ISawmill _sawmill = default!;
@@ -793,6 +799,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private int _localBridgeProcessedLines;
     private bool _localBridgeInitialized;
     private EntityUid? _unknownOperator;
+    private bool _unknownSurvivorClaimed;
     private TimeSpan _nextUnknownOperatorCheck;
     private UnknownSurvivalStage _unknownSurvivalStage;
     private int _unknownSurvivalMistakes;
@@ -879,6 +886,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         SubscribeLocalEvent<MetaDataComponent, RadioTransformMessageEvent>(OnRadioTransformMessage);
         SubscribeLocalEvent<GameRunLevelChangedEvent>(OnGameRunLevelChanged);
         SubscribeLocalEvent<RoundRestartCleanupEvent>(OnRoundRestartCleanup);
+        SubscribeLocalEvent<PlayerSpawningEvent>(
+            OnUnknownSurvivorSpawning,
+            before: new[] { typeof(ContainerSpawnPointSystem), typeof(SpawnPointSystem) });
     }
 
     public override void Shutdown()
@@ -934,6 +944,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             QueueDel(shuttle);
 
         _unknownOperator = null;
+        _unknownSurvivorClaimed = false;
         _unknownShuttle = null;
         _unknownSurvivalStage = UnknownSurvivalStage.Awakening;
         _unknownSurvivalMistakes = 0;
@@ -2405,6 +2416,16 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     public string HandleAibolitRadioRequest(ICommonSession player, string rawMessage, string source)
     {
+        return HandleAibolitRadioRequest(player, rawMessage, source, out _);
+    }
+
+    private string HandleAibolitRadioRequest(
+        ICommonSession player,
+        string rawMessage,
+        string source,
+        out bool deterministicDispatchReply)
+    {
+        deterministicDispatchReply = false;
         var message = TrimForChat(rawMessage.ReplaceLineEndings(" "), MaxPlayerAiRequestLength);
         if (string.IsNullOrWhiteSpace(message))
             return "Медканал получил пустой вызов. Спросите статус, цель, маршрут или помощь.";
@@ -2416,16 +2437,48 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         if (IsAibolitRadioHelpRequest(normalized))
             return BuildAibolitRadioHelpResult();
 
+        if (IsAibolitRadioDispatchRequest(normalized))
+        {
+            deterministicDispatchReply = true;
+            return TryDispatchAibolitFromRadio(player, source);
+        }
+
         var rescueStatus = _rescueAgents.BuildRescueRadioStatus();
         if (IsAibolitRadioStatusRequest(normalized))
             return BuildAibolitRadioLinkedFallback("status", rescueStatus);
 
-        if (IsAibolitRadioHelpMeRequest(normalized))
-            return BuildAibolitRadioLinkedFallback(
-                "help",
-                $"{rescueStatus} Для фактической переброски используйте медсигнал смерти или LuaM rescue order.");
-
         return BuildAibolitRadioLinkedFallback("ack", rescueStatus);
+    }
+
+    private string TryDispatchAibolitFromRadio(ICommonSession player, string source)
+    {
+        if (player.AttachedEntity is not { Valid: true } target ||
+            Deleted(target) ||
+            HasComp<GhostComponent>(target) ||
+            !TryComp<ActorComponent>(target, out var actor) ||
+            actor.PlayerSession.UserId != player.UserId ||
+            !TryComp<MobStateComponent>(target, out var mobState) ||
+            mobState.CurrentState == MobState.Dead)
+        {
+            return "Вызов не принят: для радио-вызова нужен живой персонаж под вашим управлением.";
+        }
+
+        if (!TryAuthorizePlayerWorldAction(player, out var rejection))
+            return rejection;
+
+        if (!_rescueAgents.TryFindActiveAgent(out var agent, out _))
+            return "Вызов не принят: активного Айболита в секторе сейчас нет. Статус медгруппы доступен без ожидания.";
+
+        if (!_rescueAgents.TryOrderAgentFromRadio(agent, target, out var orderStatus))
+        {
+            _sawmill.Info(
+                $"Aibolit radio dispatch rejected for {player.UserId} via {source}: {orderStatus}");
+            return "Вызов не принят: персонаж не прошёл медицинскую проверку либо Айболит уже занят другим пациентом. Запросите статус и повторите позже.";
+        }
+
+        _sawmill.Info(
+            $"Aibolit radio dispatch accepted for {player.UserId} via {source}: {orderStatus}");
+        return "Вызов принят: активный Айболит получил приказ прибыть к вашему персонажу. Держите проход свободным.";
     }
 
     public void AdminSetEnabled(bool enabled)
@@ -6431,8 +6484,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     {
         return ContainsAny(
             normalized,
-            "help",
-            "помощь",
+            "commands",
+            "how to use",
+            "what can you do",
+            "reference",
+            "справка",
+            "инструкц",
             "как пользоваться",
             "что писать",
             "команды");
@@ -6463,22 +6520,33 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             "лечит");
     }
 
-    private static bool IsAibolitRadioHelpMeRequest(string normalized)
+    private static bool IsAibolitRadioDispatchRequest(string normalized)
     {
         return ContainsAny(
             normalized,
+            "help",
             "help me",
+            "need help",
+            "medical help",
+            "treatment",
+            "evacuation",
             "rescue me",
             "treat me",
             "save me",
+            "evacuate me",
+            "помощь",
             "помоги",
             "помогите",
             "спаси",
             "спасите",
             "лечи",
             "лечите",
+            "вылечи",
+            "лечение",
             "эвакуируй",
+            "эвакуируйте",
             "эвак",
+            "забери меня",
             "умираю",
             "ранен",
             "ранена");
@@ -6486,7 +6554,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private static string BuildAibolitRadioHelpResult()
     {
-        return "По медканалу обращайтесь: 'Айболит, статус', 'Айболит, где цель', 'Айболит, нужна помощь'. Отвечаю в этот же радиоканал; фактические приказы боту остаются через медсигнал смерти или LuaM rescue order.";
+        return "По медканалу обращайтесь: 'Айболит, статус' и 'Айболит, где цель' дают справку без действий; 'Айболит, помоги/лечи/эвакуируй меня' пытается вызвать активного Айболита к вашему живому персонажу.";
     }
 
     private static string BuildAibolitRadioLinkedFallback(string mode, string status)
@@ -7699,6 +7767,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private void EnsureUnknownOperator()
     {
+        if (_unknownSurvivorClaimed)
+            return;
+
         if (_unknownOperator is { } existing && Exists(existing) &&
             _unknownShuttle is { } existingShuttle && Exists(existingShuttle))
             return;
@@ -7722,6 +7793,47 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             _sawmill.Info("Unknown operator woke aboard the stripped wreck shuttle on the crew-monitoring map.");
             return;
         }
+    }
+
+    private void OnUnknownSurvivorSpawning(PlayerSpawningEvent ev)
+    {
+        if (ev.SpawnResult != null || ev.Job?.Id != "LuaMUnknownSurvivor")
+            return;
+
+        if (!TryEnsureUnknownShuttleForPlayer(out var shuttle))
+            return;
+
+        if (_unknownOperator is { } existing && Exists(existing) && !HasComp<ActorComponent>(existing))
+            QueueDel(existing);
+
+        ev.SpawnResult = _stationSpawning.SpawnPlayerMob(
+            new EntityCoordinates(shuttle, new Vector2(-1.5f, 0.5f)),
+            ev.Job,
+            ev.HumanoidCharacterProfile,
+            ev.Station,
+            session: ev.Session);
+        _unknownSurvivorClaimed = true;
+        _unknownOperator = ev.SpawnResult;
+        _metaData.SetEntityName(ev.SpawnResult.Value, LocalBridgeRadioActor);
+    }
+
+    private bool TryEnsureUnknownShuttleForPlayer(out EntityUid shuttle)
+    {
+        if (_unknownShuttle is { } existing && Exists(existing))
+        {
+            shuttle = existing;
+            return true;
+        }
+
+        var servers = EntityQueryEnumerator<CrewMonitoringServerComponent, TransformComponent>();
+        while (servers.MoveNext(out _, out _, out var transform))
+        {
+            if (transform.MapID != MapId.Nullspace)
+                return TryEnsureUnknownShuttle(transform.MapID, out shuttle);
+        }
+
+        shuttle = EntityUid.Invalid;
+        return false;
     }
 
     private bool TryEnsureUnknownShuttle(MapId mapId, out EntityUid shuttle)
@@ -7787,6 +7899,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             new Vector2(-0.3f, 4.5f),
             new Vector2(0.1f, 4.5f),
             new Vector2(0.5f, 4.5f),
+            new Vector2(1.5f, 3.5f),
+            new Vector2(1.5f, 4.5f),
         };
 
         DebugTools.Assert(positions.Length == UnknownShuttleResourcePrototypes.Length);
@@ -9045,8 +9159,13 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         if (addressKind == RadioAiAddressKind.Rescue)
         {
-            var rescueResult = HandleAibolitRadioRequest(session, request, $"radio {args.Channel.ID}");
-            if (TryStartAibolitRadioGatewayReply(
+            var rescueResult = HandleAibolitRadioRequest(
+                session,
+                request,
+                $"radio {args.Channel.ID}",
+                out var deterministicDispatchReply);
+            if (!deterministicDispatchReply &&
+                TryStartAibolitRadioGatewayReply(
                     args,
                     session,
                     request,
@@ -9099,6 +9218,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private string HandleUnknownSurvivalAdvice(string rawAdvice)
     {
+        // This dialogue mutates the legacy NPC survival scenario. A player who
+        // selected Unknown Survivor owns their body and must never be advanced,
+        // injured, or killed by radio text addressed to the old NPC.
+        if (!IsLegacyUnknownSurvivalNpc())
+            return string.Empty;
+
         var stageBefore = _unknownSurvivalStage;
         var mistakesBefore = _unknownSurvivalMistakes;
         var reply = BuildUnknownSurvivalReply(rawAdvice);
@@ -9110,6 +9235,18 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             _unknownSurvivalMistakes);
         AppendUnknownDialogueAudit(rawAdvice, reply, stageBefore, _unknownSurvivalStage, outcome);
         return reply;
+    }
+
+    private bool IsLegacyUnknownSurvivalNpc()
+    {
+        if (_unknownSurvivorClaimed ||
+            _unknownOperator is not { } unknown ||
+            !Exists(unknown))
+        {
+            return false;
+        }
+
+        return !HasComp<ActorComponent>(unknown);
     }
 
     private static string ClassifyUnknownDialogueOutcome(
@@ -9266,6 +9403,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
     private bool TryFinishUnknownSurvivalAsDead(string reason)
     {
+        // Keep the terminal mutation guarded as well as the radio entry point.
+        // This protects against future internal callers and player attachment to
+        // the legacy NPC between scenario updates.
+        if (!IsLegacyUnknownSurvivalNpc())
+            return false;
+
         if (_unknownSurvivalMistakes < 3 && _unknownSurvivalAdviceCount < 12)
             return false;
 
@@ -12005,7 +12148,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         return new LuaMAiGatewayChatRequest
         {
             Version = 1,
-            Goal = "Answer as the autonomous medical responder Aibolit in Russian. Return only JSON matching the chat schema. Use action \"none\" only. Keep the radio reply under 220 characters, mention the current rescue status when relevant, do not invent deployments, and if asked to dispatch physically say that real dispatch requires a death signal or LuaM rescue order.",
+            Goal = "Answer as the autonomous medical responder Aibolit in Russian. Return only JSON matching the chat schema. Use action \"none\" only. Keep the radio reply under 220 characters and mention the current rescue status when relevant. The server-provided localFallback is authoritative: never issue, change, cancel, or claim a rescue dispatch, and never contradict an accepted or rejected result.",
             Language = "ru-RU",
             AdminName = "radio operator",
             Message = $"aibolit radio request: {safeRequest}; source={safeSource}; rescueStatus={safeStatus}; localFallback={safeFallback}",

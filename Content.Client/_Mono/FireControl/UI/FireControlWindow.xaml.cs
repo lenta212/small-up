@@ -2,6 +2,7 @@
 // All rights reserved. Relicensed under AGPL with permission
 
 using System.Linq;
+using Content.Client.Shuttles.UI;
 using Content.Client.UserInterface.Controls;
 using Content.Shared._Mono.FireControl;
 using Content.Shared._Mono.ShipGuns;
@@ -34,6 +35,10 @@ public sealed partial class FireControlWindow : FancyWindow
     {
         RobustXamlLoader.Load(this);
         IoCManager.InjectDependencies(this);
+
+        LayoutContainer.SetAnchorPreset(ConsoleSurface, LayoutContainer.LayoutPreset.Wide);
+        LayoutContainer.SetAnchorPreset(CrtOverlay, LayoutContainer.LayoutPreset.Wide);
+
         RefreshButton.OnPressed += _ => OnServerRefresh?.Invoke();
         SelectAllButton.OnPressed += SelectAllWeapons;
         UnselectAllButton.OnPressed += UnselectAllWeapons;
@@ -46,6 +51,18 @@ public sealed partial class FireControlWindow : FancyWindow
 
         DockToggle.OnToggled += OnDockTogglePressed;
         DockToggle.Pressed = NavRadar.ShowDocks;
+    }
+
+    protected override void Opened()
+    {
+        base.Opened();
+        CrtOverlay.StartBoot();
+    }
+
+    public void SetConsole(EntityUid? console)
+    {
+        NavRadar.SetConsole(console);
+        CombatTelemetry.SetConsole(console);
     }
 
     private void SelectAllWeapons(BaseButton.ButtonEventArgs args)
@@ -210,13 +227,13 @@ public sealed partial class FireControlWindow : FancyWindow
         if (state.Connected)
         {
             ServerStatus.Text = Loc.GetString("gunnery-window-connected");
-            ServerStatus.FontColorOverride = Color.Green;
+            ServerStatus.FontColorOverride = Color.FromHex("#A9E3C7");
         }
         else
         {
             RefreshButton.Disabled = false;
             ServerStatus.Text = Loc.GetString("gunnery-window-disconnected");
-            ServerStatus.FontColorOverride = Color.Red;
+            ServerStatus.FontColorOverride = Color.FromHex("#FF5864");
         }
 
         UpdateWeaponsList(state);
@@ -282,13 +299,13 @@ public sealed partial class FireControlWindow : FancyWindow
             }
             else
             {
-                var button = new Button
+                var button = new ShuttleConsoleButton
                 {
                     ToggleMode = true,
                     Text = controllable.Name,
-                    StyleClasses = { "ButtonSquare OpenRight" },
                     HorizontalExpand = true,
-                    Margin = new Thickness(4, 1)
+                    MinHeight = 34f,
+                    Margin = new Thickness(0, 2)
                 };
 
                 button.OnToggled += _ =>

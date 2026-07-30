@@ -323,7 +323,7 @@ function Assert-LuaMReleasePolicy {
 
     Assert-LuaMStringArray -Value $Policy.approvedReleaseAdditions -Name 'approvedReleaseAdditions' -RepositoryPaths
 
-    $batchProperties = @('name', 'state', 'packageSelection', 'packageScopes', 'runtimeDependenciesIncluded', 'excludedLocalArtifacts')
+    $batchProperties = @('name', 'state', 'packageSelection', 'packageFiles', 'packageScopes', 'runtimeDependenciesIncluded', 'excludedLocalArtifacts')
     Assert-LuaMJsonProperties -Value $Policy.pendingLocalIntegrationBatch -Name 'pendingLocalIntegrationBatch' -Required $batchProperties -Allowed $batchProperties
     Assert-LuaMNonEmptyString -Value $Policy.pendingLocalIntegrationBatch.name -Name 'pendingLocalIntegrationBatch.name' -MaxLength 256 -Pattern '^[A-Za-z0-9][A-Za-z0-9_.-]*$'
     if ($Policy.pendingLocalIntegrationBatch.state -isnot [string] -or
@@ -337,6 +337,7 @@ function Assert-LuaMReleasePolicy {
         throw 'deployment-authorized batch state requires an authorized deploymentAuthorization.'
     }
     Assert-LuaMNonEmptyString -Value $Policy.pendingLocalIntegrationBatch.packageSelection -Name 'pendingLocalIntegrationBatch.packageSelection' -MaxLength 1024
+    Assert-LuaMStringArray -Value $Policy.pendingLocalIntegrationBatch.packageFiles -Name 'pendingLocalIntegrationBatch.packageFiles' -RepositoryPaths
     Assert-LuaMStringArray -Value $Policy.pendingLocalIntegrationBatch.packageScopes -Name 'pendingLocalIntegrationBatch.packageScopes' -RepositoryPaths
     Assert-LuaMStringArray -Value $Policy.pendingLocalIntegrationBatch.runtimeDependenciesIncluded -Name 'pendingLocalIntegrationBatch.runtimeDependenciesIncluded' -AllowEmpty -RepositoryPaths
     Assert-LuaMStringArray -Value $Policy.pendingLocalIntegrationBatch.excludedLocalArtifacts -Name 'pendingLocalIntegrationBatch.excludedLocalArtifacts' -RepositoryPaths
@@ -425,6 +426,7 @@ function Get-LuaMReleaseGateRequiredFiles {
     $files = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($group in @(
         @($Policy.approvedReleaseAdditions),
+        @($Policy.pendingLocalIntegrationBatch.packageFiles),
         @($Policy.pendingLocalIntegrationBatch.runtimeDependenciesIncluded),
         @($Policy.releaseGate.requiredFiles))) {
         foreach ($candidate in @($group)) {

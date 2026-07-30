@@ -860,6 +860,115 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return $"медгруппа активна: {agentCount}. {string.Join(" ", summaries)}{extra}";
     }
 
+    /// <summary>
+    /// Accepts a patient self-dispatch without granting radio users the
+    /// replacement semantics of the administrative order API.
+    /// </summary>
+    public bool TryOrderAgentFromRadio(EntityUid agent, EntityUid target, out string status)
+    {
+        status = string.Empty;
+
+        if (!TryComp<LuaMRescueAgentComponent>(agent, out var rescue) ||
+            !TryComp<HTNComponent>(agent, out _))
+        {
+            status = $"{FormatEntityRef(agent)} is not a LuaM rescue agent.";
+            return false;
+        }
+
+        if (HasComp<ActorComponent>(agent))
+        {
+            status = $"{FormatEntityRef(agent)} is under manual player control.";
+            return false;
+        }
+
+        if (!_activity.IsEligibleRescuePatient(
+                agent,
+                target,
+                LuaMRescuePatientRequestKind.AutomaticTreatment,
+                manualOverride: false,
+                out var eligibilityFailure))
+        {
+            status =
+                $"Radio caller {FormatEntityRef(target)} is not an eligible medical patient: {eligibilityFailure}.";
+            return false;
+        }
+
+        if (TryGetConflictingRadioPatientOwner(rescue, target, out var currentPatient, out var alreadyAssigned))
+        {
+            status =
+                $"{FormatEntityRef(agent)} is already committed to {FormatEntityRef(currentPatient)}; " +
+                $"radio caller {FormatEntityRef(target)} cannot replace the active patient.";
+            return false;
+        }
+
+        if (alreadyAssigned)
+        {
+            status =
+                $"{FormatEntityRef(agent)} already owns the rescue task for radio caller {FormatEntityRef(target)}.";
+            return true;
+        }
+
+        return TryOrderAgent(agent, target, out status);
+    }
+
+    private bool TryGetConflictingRadioPatientOwner(
+        LuaMRescueAgentComponent rescue,
+        EntityUid requestedTarget,
+        out EntityUid currentPatient,
+        out bool alreadyAssigned)
+    {
+        alreadyAssigned = false;
+        currentPatient = default;
+        EntityUid?[] ownedPatients =
+        [
+            rescue.AssignedTarget,
+            rescue.EvacuatingTarget,
+            rescue.OnboardCareTarget,
+            rescue.DeathSignalTarget,
+            rescue.TaskPatientTarget,
+            rescue.ManualOverrideTarget,
+            rescue.DormantRouteTarget,
+            rescue.RouteBlockHoldTarget,
+            rescue.PendingMedicalDoAfterTarget,
+            rescue.PendingPlayerActionTarget,
+            rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active
+                ? rescue.ActivityContext.Target
+                : null,
+        ];
+
+        foreach (var ownedPatient in ownedPatients)
+        {
+            if (ownedPatient is not { Valid: true } patient || Deleted(patient))
+                continue;
+
+            if (patient == requestedTarget)
+            {
+                alreadyAssigned = true;
+                continue;
+            }
+
+            currentPatient = patient;
+            return true;
+        }
+
+        foreach (var patient in rescue.RequiredOnboardHandoffPatients)
+        {
+            if (!patient.Valid || Deleted(patient))
+                continue;
+
+            if (patient == requestedTarget)
+            {
+                alreadyAssigned = true;
+                continue;
+            }
+
+            currentPatient = patient;
+            return true;
+        }
+
+        return false;
+    }
+
     public bool TryOrderAgent(EntityUid agent, EntityUid? target, out string status)
     {
         status = string.Empty;
@@ -4434,9 +4543,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!rescue.TerminalTreatmentFailures.TryGetValue(target, out var failure))
             return false;
 
-        // Damage ticks are not evidence that the failed treatment became viable.
-        // Keep the budget terminal until a confirmed medical success or an
-        // explicit administrative redispatch clears it.
+        // Keep the current bounded attempt terminal until its recovery delay
+        // expires. ApplyTerminalTreatmentFallback parks an unsupported patient
+        // long enough to avoid a hot retry loop, while PruneSkippedTargets later
+        // re-arms treatment so newly supplied medicine can be discovered.
         rescue.LastAutoTreatmentStatus = failure;
         _activity.Fail(uid, LuaMRescueFailureReason.NoEffectiveMedicine, out _);
         ApplyTerminalTreatmentFallback(uid, rescue, target);
@@ -4492,9 +4602,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         // A non-evacuation patient with no effective bounded treatment must not
-        // remain the coordinator owner forever. Preserve a durable specialist
-        // handoff marker; an explicit order clears both this marker and the skip.
-        rescue.SkippedTargets[target] = TimeSpan.MaxValue;
+        // remain the coordinator owner forever, but an equipment failure must
+        // not blacklist the patient forever either. Park the episode with a
+        // bounded delay; expiry clears the failed budget and permits a fresh
+        // scan after players resupply the responder or the patient changes.
+        var retrySeconds = Math.Max(
+            5f,
+            Math.Max(rescue.TargetSkipSeconds, rescue.AutoTreatCooldown));
+        rescue.SkippedTargets[target] =
+            _timing.CurTime + TimeSpan.FromSeconds(retrySeconds);
+        rescue.LastAutoTreatmentStatus += $"; retry-after={retrySeconds:0.0}s";
         StopPullingTarget(uid, target);
         ClearRescueTask(uid, rescue, $"NeedsSpecialist: terminal treatment for {FormatEntityRef(target)}");
         ClearArrivalReportTarget(rescue, target);
@@ -5679,8 +5796,34 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (state.CurrentState == MobState.Dead)
             {
                 kind = LuaMRescuePatientRequestKind.AutomaticEvacuation;
-                if (!IsEvacuationCandidate(uid, candidate, rescue, searchRange, out _))
+                var canDefibrillateLocally =
+                    rescue.AutoDefibDeadPatients &&
+                    !rescue.TerminalDefibrillationFailures.ContainsKey(candidate);
+                if (canDefibrillateLocally)
+                {
+                    // Defibrillation is a patient action and does not require a
+                    // shuttle. Keep evacuation eligibility (recoverable body,
+                    // pullable target, faction/species policy), but do not gate
+                    // this executable local recovery path on an assigned shuttle.
+                    if (!_activity.IsEligibleRescuePatient(
+                            uid,
+                            candidate,
+                            kind,
+                            manualOverride: false,
+                            out _) ||
+                        !TryGetNavigationSelectionPenalty(
+                            uid,
+                            candidate,
+                            rescue.PlayerActionRange,
+                            out _))
+                    {
+                        continue;
+                    }
+                }
+                else if (!IsEvacuationCandidate(uid, candidate, rescue, searchRange, out _))
+                {
                     continue;
+                }
             }
             else
             {
@@ -7199,15 +7342,6 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (!BeginPatientActivity(
-            uid,
-            rescue,
-            LuaMRescueActivity.Triage,
-            target,
-            new EntityCoordinates(target, Vector2.Zero)))
-        {
-            return false;
-        }
         rescue.NextAutoAnalyzeAttempt = _timing.CurTime + TimeSpan.FromSeconds(Math.Min(5f, rescue.AutoAnalyzeCooldown));
 
         if (!TryFindHealthAnalyzerItem(uid, out var analyzer, out var status))
@@ -7227,6 +7361,16 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             }
 
             Dirty(uid, rescue);
+            return false;
+        }
+
+        if (!BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.Triage,
+            target,
+            new EntityCoordinates(target, Vector2.Zero)))
+        {
             return false;
         }
 
@@ -7646,14 +7790,35 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (!rescue.AutoDefibDeadPatients ||
             Deleted(target) ||
             !TryComp<MobStateComponent>(target, out var mobState) ||
-            mobState.CurrentState is not (MobState.Dead or MobState.Critical) ||
-            TryValidateDefibrillationPatient(target, out var failureReason, out var status))
+            mobState.CurrentState is not (MobState.Dead or MobState.Critical))
         {
             return false;
         }
 
-        if (!rescue.TerminalDefibrillationFailures.ContainsKey(target))
+        var validationSucceeded =
+            TryValidateDefibrillationPatient(target, out var failureReason, out var status);
+        var hasRecordedTerminal =
+            rescue.TerminalDefibrillationFailures.TryGetValue(target, out var recordedTerminal);
+
+        if (validationSucceeded && !hasRecordedTerminal)
+            return false;
+
+        if (!validationSucceeded && !hasRecordedTerminal)
+        {
             MarkTerminalDefibrillationFailure(uid, rescue, target, failureReason, status);
+        }
+        else if (validationSucceeded)
+        {
+            // Equipment exhaustion and the bounded attempt cap are recorded
+            // after structural validation succeeds. Reuse the terminal record
+            // here so the executor can release or transport the patient instead
+            // of restoring the same follow intent forever.
+            failureReason = rescue.ActivityContext.FailureReason == LuaMRescueFailureReason.None
+                ? LuaMRescueFailureReason.NoEffectiveMedicine
+                : rescue.ActivityContext.FailureReason;
+            status = recordedTerminal ?? "recorded terminal defibrillation failure";
+            rescue.LastAutoDefibStatus = status;
+        }
 
         // An inherited physical/home-handoff contract transports even an
         // unrevivable body. Defibrillation is terminal, but custody is not: let
@@ -7661,7 +7826,20 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (rescue.RequiredOnboardHandoffPatients.Contains(target))
             return false;
 
+        // A usable shuttle is the recovery path for a structurally valid
+        // patient whose local defibrillation budget or equipment is exhausted.
+        if (validationSucceeded && NeedsEvacuation(uid, target, rescue))
+            return false;
+
         StopPullingTarget(uid, target);
+        if (rescue.ManualOverrideTarget == target)
+        {
+            RevokeManualOverrideTarget(
+                uid,
+                rescue,
+                target,
+                $"terminal defibrillation for {FormatEntityRef(target)}");
+        }
         rescue.EvacuatingTarget = null;
         rescue.AssignedTarget = null;
         rescue.AssignedPatientStrap = null;
@@ -8684,6 +8862,15 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                      .ToArray())
         {
             rescue.SkippedTargets.Remove(target);
+            if (Deleted(target) ||
+                !rescue.TerminalTreatmentFailures.ContainsKey(target))
+            {
+                continue;
+            }
+
+            ClearTreatmentFailure(rescue, target);
+            rescue.LastAutoTreatmentStatus =
+                $"treatment retry re-armed after bounded specialist handoff delay; patient={FormatEntityRef(target)}";
         }
     }
 

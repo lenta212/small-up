@@ -10,6 +10,7 @@ using Content.Shared.Examine;
 using Content.Server.Explosion.Components;
 using Content.Shared.Explosion.Components;
 using Robust.Shared.Prototypes;
+using Content.Server._Mono.Radar;
 
 namespace Content.Server._Crescent.ShipShields;
 
@@ -20,6 +21,7 @@ public partial class ShipShieldsSystem
     [Dependency] private StationSystem _station = default!;
     [Dependency] private SharedAudioSystem _audio = default!;
     [Dependency] private IPrototypeManager _prototypeManager = default!;
+    [Dependency] private ShipCombatTelemetrySystem _combatTelemetry = default!;
     public void InitializeEmitters()
     {
         SubscribeLocalEvent<ShipShieldEmitterComponent, ShieldDeflectedEvent>(OnShieldDeflected);
@@ -38,6 +40,8 @@ public partial class ShipShieldsSystem
 
     private void OnShieldDeflected(EntityUid uid, ShipShieldEmitterComponent component, ShieldDeflectedEvent args)
     {
+        _combatTelemetry.RecordShieldDeflection(uid, args);
+
         if (TryComp<EmpOnTriggerComponent>(args.Deflected, out var emp))
         {
             component.Damage += Math.Clamp(emp.EnergyConsumption, 0f, MAX_EMP_DAMAGE);

@@ -6,7 +6,7 @@ namespace Content.IntegrationTests.Tests._LuaM;
 public sealed class LuaMShipyardPurchaseDurabilityContractTest
 {
     [Test]
-    public void PurchaseUsesDurableDebitWithSynchronousWorldFinalizer()
+    public void PurchaseUsesDurableDebitWithAwaitedWorldFinalizer()
     {
         var source = ReadSource(
             "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs");
@@ -16,7 +16,7 @@ public sealed class LuaMShipyardPurchaseDurabilityContractTest
             Assert.That(source, Does.Contain("ObservePurchaseMessageAsync"));
             Assert.That(source, Does.Contain("await _bank.TryBankWithdrawAsync("));
             Assert.That(source, Does.Contain("finalizeAfterCommit: FinalizeAfterCommit"));
-            Assert.That(source, Does.Contain("TryCreatePurchasedShuttle("));
+            Assert.That(source, Does.Contain("await TryCreatePurchasedShuttleAsync("));
             Assert.That(source, Does.Not.Contain("_bank.TryBankWithdraw(player, vessel.Price)"));
         });
     }
@@ -38,8 +38,8 @@ public sealed class LuaMShipyardPurchaseDurabilityContractTest
             Assert.That(consoles, Does.Contain("catch (BankMutationRollbackException"));
             Assert.That(consoles, Does.Contain(
                 "BlockShuttlePurchase(userId, targetId, purchaseReservationId)"));
-            Assert.That(consoles, Does.Contain("TryCleanupFailedShuttlePurchase("));
-            Assert.That(consoles, Does.Contain("if (!finalized && stagedShuttleUid != null)"));
+            Assert.That(consoles, Does.Contain("await TryCleanupFailedShuttlePurchaseAsync("));
+            Assert.That(consoles, Does.Contain("if (!finalized && finalizationState.StagedShuttleUid != null)"));
             Assert.That(system, Does.Contain("_shuttlePurchaseUsersInFlight.Clear()"));
             Assert.That(system, Does.Contain("_deedMutationCardsInFlight.Clear()"));
             Assert.That(system, Does.Not.Contain("_shuttlePurchaseUsersBlocked.Clear()"));
@@ -52,8 +52,8 @@ public sealed class LuaMShipyardPurchaseDurabilityContractTest
     {
         var source = ReadSource(
             "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs");
-        var validation = source[source.IndexOf("private bool TryValidateShuttlePurchase(", StringComparison.Ordinal)..source.IndexOf("private bool TryCreatePurchasedShuttle(", StringComparison.Ordinal)];
-        var finalizer = source[source.IndexOf("private bool TryCreatePurchasedShuttle(", StringComparison.Ordinal)..source.IndexOf("private Task<LuaMShipOrchestrationResult> RegisterPurchasedShipAsync(", StringComparison.Ordinal)];
+        var validation = source[source.IndexOf("private bool TryValidateShuttlePurchase(", StringComparison.Ordinal)..source.IndexOf("private async Task<bool> TryCreatePurchasedShuttleAsync(", StringComparison.Ordinal)];
+        var finalizer = source[source.IndexOf("private async Task<bool> TryCreatePurchasedShuttleAsync(", StringComparison.Ordinal)..source.IndexOf("private Task<LuaMShipOrchestrationResult> RegisterPurchasedShipAsync(", StringComparison.Ordinal)];
 
         Assert.Multiple(() =>
         {
@@ -73,13 +73,15 @@ public sealed class LuaMShipyardPurchaseDurabilityContractTest
     {
         var source = ReadSource(
             "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs");
-        var methodStart = source.IndexOf("private bool TryCreatePurchasedShuttle(");
-        var methodEnd = source.IndexOf("private bool TryCleanupFailedShuttlePurchase(", methodStart);
+        var methodStart = source.IndexOf("private async Task<bool> TryCreatePurchasedShuttleAsync(");
+        var methodEnd = source.IndexOf(
+            "private Task<LuaMShipOrchestrationResult> RegisterPurchasedShipAsync(",
+            methodStart);
         Assert.That(methodStart, Is.GreaterThanOrEqualTo(0));
         Assert.That(methodEnd, Is.GreaterThan(methodStart));
 
         var finalizer = source[methodStart..methodEnd];
-        var deedMarker = finalizer.IndexOf("targetDeedPublished = true;");
+        var deedMarker = finalizer.IndexOf("state.TargetDeedPublished = true;");
         Assert.Multiple(() =>
         {
             Assert.That(deedMarker, Is.GreaterThanOrEqualTo(0));

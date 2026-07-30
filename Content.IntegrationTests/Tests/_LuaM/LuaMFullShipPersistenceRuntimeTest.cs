@@ -4,11 +4,13 @@ using System.Linq;
 using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
+using Content.Server._NF.CryoSleep;
+using Content.Server.Database;
 using Content.Server._LuaM.ShipPersistence;
 using Content.Server.Atmos.EntitySystems;
 using Content.Server.Gravity;
-using Content.Server.Mind;
 using Content.Server.Lathe;
+using Content.Server.Mind;
 using Content.Server.Power.Components;
 using Content.Server.Power.EntitySystems;
 using Content.Server.Shuttles.Components;
@@ -17,6 +19,8 @@ using Content.Server.Spreader;
 using Content.Server.Station.Systems;
 using Content.Shared.Access.Components;
 using Content.Shared.Atmos;
+using Content.Shared.Buckle;
+using Content.Shared.Buckle.Components;
 using Content.Shared.Containers;
 using Content.Shared.Gravity;
 using Content.Shared.Power.Components;
@@ -32,11 +36,13 @@ using Content.Shared.Station.Components;
 using Content.Shared._Mono.Shipyard;
 using Content.Shared._NF.Shipyard.Components;
 using Robust.Shared.Containers;
+using Robust.Shared.EntitySerialization;
 using Robust.Shared.EntitySerialization.Systems;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
 using Robust.Shared.Map.Components;
 using Robust.Shared.Maths;
+using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
 using YamlDotNet.RepresentationModel;
@@ -51,12 +57,123 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
     private static readonly ResPath McChickenPath = new("/Maps/_Mono/Shuttles/mcchicken.yml");
     private const string ContainerOwnerName = "LuaM snapshot container owner";
     private const string ContainedItemName = "LuaM snapshot contained crowbar";
+    private const string PlayerSlotOwnerName = "LuaM snapshot player slot owner";
+    private const string PlayerInventoryItemName = "LuaM snapshot player inventory crowbar";
+    private const string StrapName = "LuaM snapshot player strap";
+    private const string StrappedMouseName = "LuaM snapshot strapped mouse";
+    private const string StrappedInventoryItemName = "LuaM snapshot strapped inventory wrench";
     private const string LooseItemName = "LuaM snapshot loose wrench";
     private const string MouseName = "LuaM snapshot mouse";
-    private const string MindName = "LuaM snapshot mind";
     private const string ApcName = "LuaM snapshot APC";
     private const string BatteryName = "LuaM snapshot battery";
+    private const string LegacyBodyName = "LuaM legacy v1 player body";
+    private const string LegacyInventoryItemName = "LuaM legacy v1 player inventory";
+    private const string LegacySlotOwnerName = "LuaM legacy v1 slot owner";
+    private const string LegacyMindName = "LuaM legacy v1 mind";
+    private const string VesselStationName = "LuaM snapshot runtime station root";
     private const string ContainerId = "LuaMFullShipPersistenceRuntimeContainer";
+    private const string PlayerSlotId = "LuaMFullShipPersistenceRuntimePlayerSlot";
+    private const string PlayerInventoryId = "LuaMFullShipPersistenceRuntimePlayerInventory";
+
+    [Test]
+    public void PortableReferenceSanitizerOnlyTouchesKnownComponentFields()
+    {
+        const string yaml = """
+                            meta:
+                              category: Grid
+                              entityCount: 1
+                            entities:
+                            - proto: LuaMReferenceFixture
+                              entities:
+                              - uid: 1
+                                components:
+                                - type: ContainerContainer
+                                  containers:
+                                    slot:
+                                      ent: invalid
+                                      ents:
+                                      - invalid
+                                      - 7
+                                - type: Strap
+                                  buckledEntities:
+                                  - invalid
+                                  - 8
+                                - type: UnrelatedFixture
+                                  containers:
+                                    ent: invalid
+                                  buckledEntities:
+                                  - invalid
+                            """;
+
+        Assert.That(
+            LuaMFullShipPersistenceSystem.TryInspectAndSanitizeSerializedShipYaml(
+                yaml,
+                out var sanitized,
+                out var entityCount,
+                out var prototypeCounts,
+                out var prototypeManifestHash,
+                out var reason),
+            Is.True,
+            reason);
+
+        var stream = new YamlStream();
+        stream.Load(new StringReader(sanitized));
+        var root = (YamlMappingNode) stream.Documents.Single().RootNode;
+        var groups = (YamlSequenceNode) RequireYamlChild(root, "entities");
+        var group = (YamlMappingNode) groups.Children.Single();
+        var serializedEntities = (YamlSequenceNode) RequireYamlChild(group, "entities");
+        var entity = (YamlMappingNode) serializedEntities.Children.Single();
+        var components = (YamlSequenceNode) RequireYamlChild(entity, "components");
+        var containerComponent = RequireComponent(components, "ContainerContainer");
+        var strapComponent = RequireComponent(components, "Strap");
+        var unrelatedComponent = RequireComponent(components, "UnrelatedFixture");
+
+        var containers = (YamlMappingNode) RequireYamlChild(containerComponent, "containers");
+        var slot = (YamlMappingNode) RequireYamlChild(containers, "slot");
+        var containerEntities = (YamlSequenceNode) RequireYamlChild(slot, "ents");
+        var strappedEntities = (YamlSequenceNode) RequireYamlChild(strapComponent, "buckledEntities");
+        var unrelatedContainers = (YamlMappingNode) RequireYamlChild(unrelatedComponent, "containers");
+        var unrelatedBuckled = (YamlSequenceNode) RequireYamlChild(unrelatedComponent, "buckledEntities");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(entityCount, Is.EqualTo(1));
+            Assert.That(prototypeCounts, Is.EquivalentTo(
+                new Dictionary<string, int> { ["LuaMReferenceFixture"] = 1 }));
+            Assert.That(prototypeManifestHash, Has.Length.EqualTo(64));
+            Assert.That(((YamlScalarNode) RequireYamlChild(slot, "ent")).Value, Is.EqualTo("null"));
+            Assert.That(containerEntities.Children.Select(node => ((YamlScalarNode) node).Value),
+                Is.EqualTo(new[] { "7" }));
+            Assert.That(strappedEntities.Children.Select(node => ((YamlScalarNode) node).Value),
+                Is.EqualTo(new[] { "8" }));
+            Assert.That(((YamlScalarNode) RequireYamlChild(unrelatedContainers, "ent")).Value,
+                Is.EqualTo("invalid"));
+            Assert.That(((YamlScalarNode) unrelatedBuckled.Children.Single()).Value,
+                Is.EqualTo("invalid"));
+        });
+    }
+
+    [Test]
+    public void EntityCountLimitIsRejectedBeforeEntityYamlTraversal()
+    {
+        var yaml = $$"""
+                     meta:
+                       category: Grid
+                       entityCount: {{LuaMShipPersistenceLimits.MaxEntityCount + 1}}
+                     entities: []
+                     """;
+
+        Assert.That(
+            LuaMFullShipPersistenceSystem.TryInspectAndSanitizeSerializedShipYaml(
+                yaml,
+                out _,
+                out _,
+                out _,
+                out _,
+                out var reason),
+            Is.False);
+        Assert.That(reason, Is.EqualTo("snapshot-yaml-metadata-invalid"));
+    }
 
     [Test]
     public async Task DocklessStoredShipCanBePlacedNearSelectedGate()
@@ -292,6 +409,7 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
 
                 var gameMap = prototypes.Index<GameMapPrototype>("McChicken");
                 vesselStation = stations.InitializeNewStation(gameMap.Stations["McChicken"], [sourceGrid]);
+                metadata.SetEntityName(vesselStation, VesselStationName);
 
                 var externalGrid = mapManager.CreateGridEntity(sourceMap);
                 transform.SetLocalPosition(externalGrid.Owner, new Vector2(100f, 0f));
@@ -321,6 +439,10 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                     Encoding.UTF8.GetString(firstSnapshot.Payload),
                     Does.Not.Contain(externalDockName),
                     "A portable ship snapshot must not include the station grid or its gate.");
+                Assert.That(
+                    Encoding.UTF8.GetString(firstSnapshot.Payload),
+                    Does.Not.Contain(VesselStationName),
+                    "A portable ship snapshot must not auto-include its null-space station root.");
                 Assert.That(firstSnapshot.EntityCount, Is.GreaterThan(700));
                 Assert.That(
                     persistence.TryGetSavedShipManifest(firstSnapshot, out var savedManifest, out var manifestReason),
@@ -354,6 +476,10 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                     Is.True,
                     restoreReason);
                 Assert.That(entities.GetComponent<LuaMShipIdentityComponent>(restored).SnapshotRevision, Is.EqualTo(2));
+                Assert.That(
+                    entities.HasComponent<StationMemberComponent>(restored),
+                    Is.False,
+                    "The ignored live station reference must not survive as an invalid membership.");
                 Assert.That(
                     docking.GetDocks(restored).All(candidate => !candidate.Comp.Docked),
                     Is.True,
@@ -852,17 +978,22 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
     }
 
     [Test]
-    public async Task FullGridRoundTripPreservesStructureAtmosEntitiesContainersMobAndMachineStateWithoutRestoringMinds()
+    public async Task FullGridRoundTripPreservesShipStateWithoutPersistingBodies()
     {
-        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var pair = await PoolManager.GetServerClient(new PoolSettings
+        {
+            Connected = true,
+            Dirty = true,
+        });
         var server = pair.Server;
+        var session = server.PlayerMan.Sessions.Single();
         var entities = server.ResolveDependency<IEntityManager>();
         var loader = entities.System<MapLoaderSystem>();
         var maps = entities.System<SharedMapSystem>();
         var atmosphere = entities.System<AtmosphereSystem>();
         var metadata = entities.System<MetaDataSystem>();
         var containers = entities.System<SharedContainerSystem>();
-        var minds = entities.System<MindSystem>();
+        var buckle = entities.System<SharedBuckleSystem>();
         var apcs = entities.System<ApcSystem>();
         var batteries = entities.System<BatterySystem>();
         var persistence = entities.System<LuaMFullShipPersistenceSystem>();
@@ -870,7 +1001,6 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
 
         MapId sourceMap = default;
         MapId targetMap = default;
-        EntityUid originalMind = EntityUid.Invalid;
         EntityUid restoredGrid = EntityUid.Invalid;
         EntityUid sourceGrid = EntityUid.Invalid;
         Tile hullTile = default;
@@ -921,13 +1051,43 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
 
                 var mouse = entities.SpawnEntity("MobMouse", coordinates);
                 metadata.SetEntityName(mouse, MouseName);
+                Assert.That(entities.HasComponent<PlayerJobComponent>(mouse), Is.False,
+                    "This body must exercise attach history independently of a station job.");
+                Assert.That(server.PlayerMan.SetAttachedEntity(session, mouse, true), Is.True);
+                Assert.That(server.PlayerMan.SetAttachedEntity(session, null, true), Is.True);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(entities.HasComponent<ActorComponent>(mouse), Is.False);
+                    Assert.That(entities.HasComponent<PlayerJobComponent>(mouse), Is.False);
+                    Assert.That(entities.HasComponent<LuaMPlayerControlledBodyComponent>(mouse), Is.True,
+                        "PlayerAttachedEvent must leave durable round-local evidence after detach.");
+                });
+
+                var playerInventory = containers.EnsureContainer<Container>(mouse, PlayerInventoryId);
+                var playerInventoryItem = entities.SpawnEntity("Crowbar", coordinates);
+                metadata.SetEntityName(playerInventoryItem, PlayerInventoryItemName);
+                Assert.That(containers.Insert(playerInventoryItem, playerInventory), Is.True);
+
+                var playerSlotOwner = entities.SpawnEntity(null, coordinates);
+                metadata.SetEntityName(playerSlotOwner, PlayerSlotOwnerName);
+                var playerSlot = containers.EnsureContainer<ContainerSlot>(playerSlotOwner, PlayerSlotId);
+                Assert.That(containers.Insert(mouse, playerSlot), Is.True);
+
+                var strap = entities.SpawnEntity("Chair", coordinates);
+                metadata.SetEntityName(strap, StrapName);
+                var strappedMouse = entities.SpawnEntity("MobMouse", coordinates);
+                metadata.SetEntityName(strappedMouse, StrappedMouseName);
+                entities.EnsureComponent<PlayerJobComponent>(strappedMouse).JobPrototype = "Passenger";
+                var strappedInventory = containers.EnsureContainer<Container>(strappedMouse, PlayerInventoryId);
+                var strappedInventoryItem = entities.SpawnEntity("Wrench", coordinates);
+                metadata.SetEntityName(strappedInventoryItem, StrappedInventoryItemName);
+                Assert.That(containers.Insert(strappedInventoryItem, strappedInventory), Is.True);
+                Assert.That(buckle.TryBuckle(strappedMouse, null, strap, popup: false), Is.True);
+
                 Assert.That(
                     entities.GetComponent<MetaDataComponent>(mouse).EntityPrototype?.MapSavable,
                     Is.False,
                     "The fixture must exercise a mob prototype that normal map saving excludes.");
-                var mind = minds.CreateMind(null, MindName);
-                originalMind = mind.Owner;
-                minds.TransferTo(mind, mouse, createGhost: false, mind: mind.Comp);
 
                 var apc = entities.SpawnEntity("APCBasic", coordinates);
                 metadata.SetEntityName(apc, ApcName);
@@ -957,7 +1117,7 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                     Assert.That(snapshot.PayloadSizeBytes, Is.EqualTo(snapshot.Payload.Length));
                     Assert.That(snapshot.PayloadHash, Has.Length.EqualTo(64));
                     Assert.That(snapshot.PrototypeManifestHash, Has.Length.EqualTo(64));
-                    Assert.That(snapshot.EntityCount, Is.GreaterThan(6));
+                    Assert.That(snapshot.EntityCount, Is.GreaterThan(5));
                     Assert.That(snapshot.CreatedAtUtc.Kind, Is.EqualTo(DateTimeKind.Utc));
                     Assert.That(
                         entities.GetComponent<LuaMShipIdentityComponent>(grid).SnapshotRevision,
@@ -967,15 +1127,35 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                         entities.GetComponent<MetaDataComponent>(mouse).EntityPrototype?.MapSavable,
                         Is.False,
                         "Temporary MapSavable overrides must always be restored.");
+                    Assert.That(
+                        Encoding.UTF8.GetString(snapshot.Payload),
+                        Does.Not.Contain("proto: MindBase"),
+                        "Portable ship snapshots must not include nullspace mind entities.");
+                    Assert.That(
+                        Encoding.UTF8.GetString(snapshot.Payload),
+                        Does.Not.Contain(MouseName),
+                        "Portable ship snapshots must not include player bodies.");
+                    Assert.That(
+                        Encoding.UTF8.GetString(snapshot.Payload),
+                        Does.Not.Contain(PlayerInventoryItemName),
+                        "Inventory carried by a former player body must not become ship cargo.");
+                    Assert.That(
+                        Encoding.UTF8.GetString(snapshot.Payload),
+                        Does.Not.Contain(StrappedMouseName),
+                        "A buckled former player body must not become durable ship content.");
+                    Assert.That(
+                        Encoding.UTF8.GetString(snapshot.Payload),
+                        Does.Not.Contain(StrappedInventoryItemName),
+                        "Inventory on a buckled former player body must not become durable ship content.");
+                    Assert.That(playerSlot.ContainedEntities, Is.EqualTo(new[] { mouse }),
+                        "Capture must not mutate the live ship container.");
+                    Assert.That(
+                        entities.GetComponent<StrapComponent>(strap).BuckledEntities,
+                        Does.Contain(strappedMouse),
+                        "Capture must not unbuckle a live player.");
                 });
 
-                // Detach only the live source mind after capture so deleting the
-                // source fixture cannot create an unrelated ghost. The payload
-                // itself still contains the attached mouse/mind relationship.
-                minds.TransferTo(mind, null, createGhost: false, mind: mind.Comp);
                 entities.DeleteEntity(grid);
-                if (entities.EntityExists(originalMind))
-                    entities.DeleteEntity(originalMind);
 
                 maps.CreateMap(out targetMap);
 
@@ -1071,16 +1251,39 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                     entities.GetComponent<TransformComponent>(restoredLooseItem).LocalPosition,
                     Is.EqualTo(new Vector2(1.25f, 0.75f)));
 
-                var restoredMouse = RequireNamedDescendant(entities, restoredGrid, MouseName);
-                var restoredMindContainer = entities.GetComponent<MindContainerComponent>(restoredMouse);
-                Assert.Multiple(() =>
-                {
-                    Assert.That(restoredMindContainer.Mind, Is.Null,
-                        "A ship snapshot must never restore a copied player mind.");
-                    Assert.That(
-                        entities.GetComponent<MetaDataComponent>(restoredMouse).EntityPrototype?.MapSavable,
-                        Is.False);
-                });
+                Assert.That(
+                    FindNamedDescendants(entities, restoredGrid, MouseName),
+                    Is.Empty,
+                    "Restoring a shuttle must not restore any body that was aboard during capture.");
+                Assert.That(
+                    FindNamedDescendants(entities, restoredGrid, PlayerInventoryItemName),
+                    Is.Empty,
+                    "Restoring a shuttle must not restore inventory carried by an excluded body.");
+                Assert.That(
+                    FindNamedDescendants(entities, restoredGrid, StrappedMouseName),
+                    Is.Empty,
+                    "Restoring a shuttle must not restore a buckled former player body.");
+                Assert.That(
+                    FindNamedDescendants(entities, restoredGrid, StrappedInventoryItemName),
+                    Is.Empty,
+                    "Restoring a shuttle must not restore the buckled body's inventory.");
+
+                var restoredPlayerSlotOwner =
+                    RequireNamedDescendant(entities, restoredGrid, PlayerSlotOwnerName);
+                Assert.That(
+                    containers.TryGetContainer(
+                        restoredPlayerSlotOwner,
+                        PlayerSlotId,
+                        out var restoredPlayerSlot),
+                    Is.True);
+                Assert.That(restoredPlayerSlot!.ContainedEntities, Is.Empty,
+                    "A slot must not retain EntityUid.Invalid after its player body was excluded.");
+
+                var restoredStrap = RequireNamedDescendant(entities, restoredGrid, StrapName);
+                Assert.That(
+                    entities.GetComponent<StrapComponent>(restoredStrap).BuckledEntities,
+                    Is.Empty,
+                    "A strap must not retain EntityUid.Invalid after its player body was excluded.");
 
                 var restoredApc = RequireNamedDescendant(entities, restoredGrid, ApcName);
                 Assert.That(entities.GetComponent<ApcComponent>(restoredApc).MainBreakerEnabled, Is.False);
@@ -1105,6 +1308,215 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
         }
     }
 
+    [Test]
+    public async Task LegacyV1SnapshotIsRejectedBeforeDeserialization()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapManager = server.ResolveDependency<IMapManager>();
+        var maps = entities.System<SharedMapSystem>();
+        var loader = entities.System<MapLoaderSystem>();
+        var metadata = entities.System<MetaDataSystem>();
+        var containers = entities.System<SharedContainerSystem>();
+        var minds = entities.System<MindSystem>();
+        var persistence = entities.System<LuaMFullShipPersistenceSystem>();
+
+        MapId sourceMap = default;
+        MapId targetMap = default;
+
+        try
+        {
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out sourceMap);
+                var sourceGrid = mapManager.CreateGridEntity(sourceMap);
+                maps.SetTile(sourceGrid, sourceGrid, Vector2i.Zero, new Tile(1));
+                var coordinates = new EntityCoordinates(sourceGrid, new Vector2(0.5f, 0.5f));
+
+                var slotOwner = entities.SpawnEntity(null, coordinates);
+                metadata.SetEntityName(slotOwner, LegacySlotOwnerName);
+                var slot = containers.EnsureContainer<ContainerSlot>(slotOwner, PlayerSlotId);
+
+                var body = entities.SpawnEntity("MobMouse", coordinates);
+                metadata.SetEntityName(body, LegacyBodyName);
+                entities.EnsureComponent<PlayerJobComponent>(body).JobPrototype = "Passenger";
+                var inventory = containers.EnsureContainer<Container>(body, PlayerInventoryId);
+                var inventoryItem = entities.SpawnEntity("Crowbar", coordinates);
+                metadata.SetEntityName(inventoryItem, LegacyInventoryItemName);
+                Assert.That(containers.Insert(inventoryItem, inventory), Is.True);
+                Assert.That(containers.Insert(body, slot), Is.True);
+
+                var mind = minds.CreateMind(null, LegacyMindName);
+                minds.TransferTo(mind, body, createGhost: false, mind: mind.Comp);
+
+                var shipId = persistence.GetOrAssignShipId(sourceGrid);
+                entities.GetComponent<LuaMShipIdentityComponent>(sourceGrid).SnapshotRevision = 1;
+
+                var changedPrototypes = EnableMapSavingForTransformGraph(entities, sourceGrid);
+                string legacyYaml;
+                try
+                {
+                    using var writer = new StringWriter();
+                    var options = SerializationOptions.Default with
+                    {
+                        MissingEntityBehaviour = MissingEntityBehaviour.IncludeNullspace,
+                        EntityExceptionBehaviour = EntityExceptionBehaviour.Rethrow,
+                        ErrorOnOrphan = true,
+                        LogAutoInclude = null,
+                    };
+                    Assert.That(loader.TrySaveGrid(sourceGrid, writer, options), Is.True);
+                    legacyYaml = writer.ToString();
+                }
+                finally
+                {
+                    foreach (var (prototype, mapSavable) in changedPrototypes)
+                        prototype.MapSavable = mapSavable;
+                }
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(legacyYaml, Does.Contain(LegacyBodyName));
+                    Assert.That(legacyYaml, Does.Contain(LegacyInventoryItemName));
+                    Assert.That(legacyYaml, Does.Contain("proto: MindBase"));
+                });
+
+                var snapshot = BuildLegacySnapshot(legacyYaml, shipId, revision: 1);
+                minds.TransferTo(mind, null, createGhost: false, mind: mind.Comp);
+                entities.DeleteEntity(mind);
+                entities.DeleteEntity(sourceGrid);
+
+                maps.CreateMap(out targetMap);
+                var entityCountBeforeRestore = entities.GetEntities().Count();
+                Assert.That(
+                    persistence.TryRestoreSnapshot(
+                        snapshot,
+                        targetMap,
+                        out var restoredGrid,
+                        out var restoreReason),
+                    Is.False);
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(snapshot.FormatVersion,
+                        Is.EqualTo(LuaMFullShipPersistenceSystem.LegacySnapshotFormatVersion));
+                    Assert.That(
+                        LuaMFullShipPersistenceSystem.IsSupportedSnapshotFormatVersion(snapshot.FormatVersion),
+                        Is.False);
+                    Assert.That(restoredGrid, Is.EqualTo(EntityUid.Invalid));
+                    Assert.That(restoreReason, Is.EqualTo("unsupported-snapshot-format-1"));
+                    Assert.That(entities.GetEntities().Count(), Is.EqualTo(entityCountBeforeRestore),
+                        "Unsupported legacy data must be rejected before the map loader creates any entities.");
+                });
+            });
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (maps.MapExists(sourceMap))
+                    maps.DeleteMap(sourceMap);
+                if (maps.MapExists(targetMap))
+                    maps.DeleteMap(targetMap);
+            });
+
+            pair.Kill();
+        }
+    }
+
+    private static Dictionary<EntityPrototype, bool> EnableMapSavingForTransformGraph(
+        IEntityManager entities,
+        EntityUid root)
+    {
+        var changed = new Dictionary<EntityPrototype, bool>();
+        var pending = new Stack<EntityUid>();
+        var visited = new HashSet<EntityUid>();
+        pending.Push(root);
+
+        while (pending.TryPop(out var uid))
+        {
+            if (!visited.Add(uid) || !entities.EntityExists(uid))
+                continue;
+
+            var prototype = entities.GetComponent<MetaDataComponent>(uid).EntityPrototype;
+            if (prototype is { MapSavable: false } && changed.TryAdd(prototype, prototype.MapSavable))
+                prototype.MapSavable = true;
+
+            var children = entities.GetComponent<TransformComponent>(uid).ChildEnumerator;
+            while (children.MoveNext(out var child))
+                pending.Push(child);
+        }
+
+        return changed;
+    }
+
+    private static LuaMFullShipSnapshot BuildLegacySnapshot(string yaml, Guid shipId, long revision)
+    {
+        var stream = new YamlStream();
+        stream.Load(new StringReader(yaml));
+        var root = (YamlMappingNode) stream.Documents.Single().RootNode;
+        var meta = (YamlMappingNode) RequireYamlChild(root, "meta");
+        var entityCount = int.Parse(
+            ((YamlScalarNode) RequireYamlChild(meta, "entityCount")).Value!,
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        var prototypeCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var groups = (YamlSequenceNode) RequireYamlChild(root, "entities");
+        foreach (var groupNode in groups.Children.Cast<YamlMappingNode>())
+        {
+            var prototype = ((YamlScalarNode) RequireYamlChild(groupNode, "proto")).Value ?? string.Empty;
+            var entities = (YamlSequenceNode) RequireYamlChild(groupNode, "entities");
+            prototypeCounts[prototype] =
+                prototypeCounts.GetValueOrDefault(prototype) + entities.Children.Count;
+        }
+
+        Assert.That(prototypeCounts.Values.Sum(), Is.EqualTo(entityCount));
+        var manifest = new StringBuilder();
+        foreach (var (prototype, count) in prototypeCounts.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            manifest.Append(prototype).Append('\t').Append(count).Append('\n');
+
+        var payload = Encoding.UTF8.GetBytes(yaml);
+        return new LuaMFullShipSnapshot(
+            LuaMFullShipPersistenceSystem.LegacySnapshotFormatVersion,
+            shipId,
+            revision,
+            DateTime.UtcNow,
+            payload,
+            payload.Length,
+            ComputeSha256(payload),
+            entityCount,
+            ComputeSha256(Encoding.UTF8.GetBytes(manifest.ToString())),
+            "legacy-v1-runtime-fixture",
+            "legacy-v1-runtime-fixture");
+    }
+
+    private static YamlNode RequireYamlChild(YamlMappingNode mapping, string key)
+    {
+        foreach (var (keyNode, valueNode) in mapping.Children)
+        {
+            if (keyNode is YamlScalarNode { Value: var value } && value == key)
+                return valueNode;
+        }
+
+        Assert.Fail($"Missing YAML key '{key}'.");
+        return null!;
+    }
+
+    private static YamlMappingNode RequireComponent(YamlSequenceNode components, string type)
+    {
+        foreach (var component in components.Children.Cast<YamlMappingNode>())
+        {
+            if (((YamlScalarNode) RequireYamlChild(component, "type")).Value == type)
+                return component;
+        }
+
+        Assert.Fail($"Missing component '{type}'.");
+        return null!;
+    }
+
+    private static string ComputeSha256(byte[] value)
+        => Convert.ToHexString(SHA256.HashData(value)).ToLowerInvariant();
+
     private static EntityUid RequireNamedDescendant(IEntityManager entities, EntityUid root, string name)
     {
         var pending = new Stack<EntityUid>();
@@ -1125,6 +1537,31 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
 
         Assert.Fail($"Could not find restored descendant named '{name}'.");
         return EntityUid.Invalid;
+    }
+
+    private static IReadOnlyList<EntityUid> FindNamedDescendants(
+        IEntityManager entities,
+        EntityUid root,
+        string name)
+    {
+        var result = new List<EntityUid>();
+        var pending = new Stack<EntityUid>();
+        var visited = new HashSet<EntityUid>();
+        pending.Push(root);
+        while (pending.TryPop(out var uid))
+        {
+            if (!visited.Add(uid) || !entities.EntityExists(uid))
+                continue;
+
+            if (entities.GetComponent<MetaDataComponent>(uid).EntityName == name)
+                result.Add(uid);
+
+            var children = entities.GetComponent<TransformComponent>(uid).ChildEnumerator;
+            while (children.MoveNext(out var child))
+                pending.Push(child);
+        }
+
+        return result;
     }
 
     private static EntityUid RequireShuttleConsole(IEntityManager entities, EntityUid grid)

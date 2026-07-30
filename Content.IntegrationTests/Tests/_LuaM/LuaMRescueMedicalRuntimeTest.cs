@@ -4,6 +4,7 @@ using System.Numerics;
 using Content.IntegrationTests.Pair;
 using Content.Server.Atmos.Components;
 using Content.Server.Body.Components;
+using Content.Server.Medical.Components;
 using Content.Server.Mind;
 using Content.Server._LuaM.Rescue;
 using Content.Shared.Atmos.Rotting;
@@ -28,6 +29,7 @@ using Content.Shared._Goobstation.DoAfter;
 using Robust.Shared.Containers;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
+using Robust.Shared.Maths;
 
 namespace Content.IntegrationTests.Tests._LuaM;
 
@@ -189,6 +191,145 @@ public sealed class LuaMRescueMedicalRuntimeTest
                 Assert.That(CountActiveMedicalDoAfters(entities, agent, unrelatedPatient), Is.Zero);
                 Assert.That(IsHeld(entities, agent, medicine), Is.True);
                 Assert.That(entities.GetComponent<StorageComponent>(belt).Container.Contains(medicine), Is.False);
+            });
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task StockRescueAgentCarriesAnalyzerAndMissingAnalyzerNeverClaimsTriage()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var rescueSystem = entities.System<LuaMRescueAgentSystem>();
+        var coordinator = entities.System<LuaMRescueActivityCoordinatorSystem>();
+        var inventory = entities.System<InventorySystem>();
+        var mapSystem = server.System<SharedMapSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid stockedAgent = default;
+        EntityUid stockedPatient = default;
+        EntityUid stockedAnalyzer = default;
+        EntityUid missingAgent = default;
+        EntityUid missingPatient = default;
+        await server.WaitAssertion(() =>
+        {
+            for (var x = 0; x <= 8; x++)
+                mapSystem.SetTile(map.Grid, new Vector2i(x, 0), map.Tile.Tile);
+
+            stockedAgent = entities.SpawnEntity(
+                "LuaMRescueAgent",
+                new EntityCoordinates(map.Grid.Owner, new Vector2(0.5f, 0.5f)));
+            stockedPatient = entities.SpawnEntity(
+                "MobHuman",
+                new EntityCoordinates(map.Grid.Owner, new Vector2(1.5f, 0.5f)));
+            entities.RemoveComponent<BarotraumaComponent>(stockedPatient);
+            var stockedDamage = new DamageSpecifier();
+            stockedDamage.DamageDict.Add("Blunt", 20);
+            Assert.That(
+                entities.System<DamageableSystem>()
+                    .TryChangeDamage(stockedPatient, stockedDamage, ignoreResistances: true),
+                Is.Not.Null);
+            var stockedRescue = entities.GetComponent<LuaMRescueAgentComponent>(stockedAgent);
+            stockedRescue.AutoAcquireTargets = false;
+            stockedRescue.AssignedShuttle = null;
+            stockedRescue.EvacuateTargetsToShuttle = false;
+
+            Assert.That(inventory.TryGetSlotEntity(stockedAgent, "back", out var stockedBackpack), Is.True);
+            stockedAnalyzer = entities.GetComponent<StorageComponent>(stockedBackpack!.Value)
+                .Container.ContainedEntities
+                .Single(item => entities.HasComponent<HealthAnalyzerComponent>(item));
+
+            missingAgent = entities.SpawnEntity(
+                "LuaMRescueAgent",
+                new EntityCoordinates(map.Grid.Owner, new Vector2(5.5f, 0.5f)));
+            missingPatient = entities.SpawnEntity(
+                "MobHuman",
+                new EntityCoordinates(map.Grid.Owner, new Vector2(6.5f, 0.5f)));
+            entities.RemoveComponent<BarotraumaComponent>(missingPatient);
+            var missingDamage = new DamageSpecifier();
+            missingDamage.DamageDict.Add("Blunt", 20);
+            Assert.That(
+                entities.System<DamageableSystem>()
+                    .TryChangeDamage(missingPatient, missingDamage, ignoreResistances: true),
+                Is.Not.Null);
+            var missingRescue = entities.GetComponent<LuaMRescueAgentComponent>(missingAgent);
+            missingRescue.AutoAcquireTargets = false;
+            missingRescue.AssignedShuttle = null;
+            missingRescue.EvacuateTargetsToShuttle = false;
+
+            Assert.That(inventory.TryGetSlotEntity(missingAgent, "back", out var missingBackpack), Is.True);
+            var missingAnalyzer = entities.GetComponent<StorageComponent>(missingBackpack!.Value)
+                .Container.ContainedEntities
+                .Single(item => entities.HasComponent<HealthAnalyzerComponent>(item));
+            entities.DeleteEntity(missingAnalyzer);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(stockedRescue.AutoAnalyzeBeforeTreatment, Is.True);
+                Assert.That(missingRescue.AutoAnalyzeBeforeTreatment, Is.True);
+            });
+
+            Assert.That(
+                rescueSystem.TryOrderAgent(stockedAgent, stockedPatient, out var stockedStatus),
+                Is.True,
+                stockedStatus);
+            Assert.That(
+                rescueSystem.TryOrderAgent(missingAgent, missingPatient, out var missingStatus),
+                Is.True,
+                missingStatus);
+            stockedRescue.AutoAcquireTargets = true;
+            missingRescue.AutoAcquireTargets = true;
+            stockedRescue.TargetRefreshAccumulator = stockedRescue.TargetRefreshInterval;
+            missingRescue.TargetRefreshAccumulator = missingRescue.TargetRefreshInterval;
+        });
+
+        var observedExpectedExecutors = false;
+        for (var i = 0; i < 120 && !observedExpectedExecutors; i++)
+        {
+            await pair.RunTicksSync(1);
+            await server.WaitAssertion(() =>
+            {
+                var stockedRescue = entities.GetComponent<LuaMRescueAgentComponent>(stockedAgent);
+                var missingRescue = entities.GetComponent<LuaMRescueAgentComponent>(missingAgent);
+                Assert.That(coordinator.GetSnapshot(stockedAgent, out var stockedActivity), Is.True);
+                Assert.That(coordinator.GetSnapshot(missingAgent, out var missingActivity), Is.True);
+                observedExpectedExecutors =
+                    stockedRescue.PendingMedicalDoAfterTarget == stockedPatient &&
+                    stockedRescue.PendingMedicalDoAfterItem == stockedAnalyzer &&
+                    stockedRescue.PendingMedicalDoAfterKind == "analyzer" &&
+                    stockedActivity.Activity == LuaMRescueActivity.Triage &&
+                    stockedActivity.DoAfterStatus == LuaMRescueDoAfterStatus.Running &&
+                    missingRescue.LastAutoAnalyzeStatus == "no health analyzer found in hands or storage" &&
+                    missingRescue.PendingMedicalDoAfterTarget == missingPatient &&
+                    missingRescue.PendingMedicalDoAfterKind != "analyzer" &&
+                    missingActivity.Activity == LuaMRescueActivity.TreatPatient &&
+                    missingActivity.DoAfterStatus == LuaMRescueDoAfterStatus.Running;
+            });
+
+            if (!observedExpectedExecutors)
+                await Task.Delay(5);
+        }
+
+        await server.WaitAssertion(() =>
+        {
+            var stockedRescue = entities.GetComponent<LuaMRescueAgentComponent>(stockedAgent);
+            var missingRescue = entities.GetComponent<LuaMRescueAgentComponent>(missingAgent);
+            Assert.That(coordinator.GetSnapshot(stockedAgent, out var stockedActivity), Is.True);
+            Assert.That(coordinator.GetSnapshot(missingAgent, out var missingActivity), Is.True);
+            var diagnostics =
+                $"stocked={stockedActivity.Activity}/{stockedActivity.DoAfterStatus}/" +
+                $"{stockedRescue.PendingMedicalDoAfterKind}/{stockedRescue.LastAutoAnalyzeStatus}; " +
+                $"missing={missingActivity.Activity}/{missingActivity.DoAfterStatus}/" +
+                $"{missingRescue.PendingMedicalDoAfterKind}/{missingRescue.LastAutoAnalyzeStatus}";
+            Assert.That(observedExpectedExecutors, Is.True, diagnostics);
+            Assert.Multiple(() =>
+            {
+                Assert.That(IsHeld(entities, stockedAgent, stockedAnalyzer), Is.True, diagnostics);
+                Assert.That(stockedRescue.PendingMedicalDoAfterTarget, Is.EqualTo(stockedPatient), diagnostics);
+                Assert.That(missingRescue.PendingMedicalDoAfterTarget, Is.EqualTo(missingPatient), diagnostics);
             });
         });
 
@@ -600,6 +741,15 @@ public sealed class LuaMRescueMedicalRuntimeTest
                 Assert.That(
                     rescue.TerminalTreatmentFailures[delayedPatient],
                     Does.Contain(nameof(LuaMRescueFailureReason.NoEffectiveMedicine)));
+                Assert.That(rescue.SkippedTargets, Does.ContainKey(delayedPatient));
+                Assert.That(
+                    rescue.SkippedTargets[delayedPatient],
+                    Is.GreaterThan(server.Timing.CurTime),
+                    "A real terminal treatment failure must schedule a future retry.");
+                Assert.That(
+                    rescue.SkippedTargets[delayedPatient],
+                    Is.LessThan(TimeSpan.MaxValue),
+                    "Equipment exhaustion must not blacklist the patient forever.");
                 Assert.That(rescue.LastPlayerActionStatus, Does.Contain("NoEffectiveMedicine"));
             });
         });

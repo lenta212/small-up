@@ -85,14 +85,21 @@ public sealed partial class PickerWindow : FancyWindow
             .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         var crewJobs = availableJobs.Where(kvp => !kvp.Value.IsLateJoinStation)
             .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        var stationAvailable = StationJobInformationExtensions.IsAnyStationAvailable(availableJobs);
+        var crewAvailable = StationJobInformationExtensions.IsAnyCrewJobAvailable(availableJobs);
+
+        if ((_currentTab?.Type == PickerType.Station && !stationAvailable) ||
+            (_currentTab?.Type == PickerType.Crew && !crewAvailable))
+        {
+            SetCurrentTab(PickerType.StationOrCrewLarge);
+            return;
+        }
 
         StationTabLabel.Text = _loc.GetString("frontier-lobby-station-title") + stationJobs.GetJobSumCountString();
-        StationTabButton.Disabled = !StationJobInformationExtensions.IsAnyStationAvailable(availableJobs) ||
-                                    _currentTab?.Type == PickerType.Station;
+        StationTabButton.Disabled = !stationAvailable || _currentTab?.Type == PickerType.Station;
 
         CrewTabLabel.Text = _loc.GetString("frontier-lobby-crew-title") + crewJobs.GetJobSumCountString();
-        CrewTabButton.Disabled = !StationJobInformationExtensions.IsAnyCrewJobAvailable(availableJobs) ||
-                                 _currentTab?.Type == PickerType.Crew;
+        CrewTabButton.Disabled = !crewAvailable || _currentTab?.Type == PickerType.Crew;
 
         _currentTab?.Control.UpdateUi(availableJobs);
     }

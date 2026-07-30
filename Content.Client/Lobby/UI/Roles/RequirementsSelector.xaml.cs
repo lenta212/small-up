@@ -81,7 +81,8 @@ public sealed partial class RequirementsSelector : BoxContainer
         int titleSize,
         string? description,
         TextureRect? icon = null,
-        List<ProtoId<GuideEntryPrototype>>? guides = null)
+        List<ProtoId<GuideEntryPrototype>>? guides = null,
+        Color? titleColor = null)
     {
         foreach (var (text, value) in items)
         {
@@ -92,8 +93,15 @@ public sealed partial class RequirementsSelector : BoxContainer
         _guides = guides;
 
         TitleLabel.Text = title;
+        TitleLabel.FontColorOverride = titleColor;
         TitleLabel.MinSize = new Vector2(titleSize, 0f);
-        TitleLabel.ToolTip = description;
+
+        if (!string.IsNullOrWhiteSpace(description))
+        {
+            TooltipSupplier = _ => CreateDescriptionTooltip(description);
+            TitleLabel.TooltipSupplier = _ => CreateDescriptionTooltip(description);
+            OptionsContainer.TooltipSupplier = _ => CreateDescriptionTooltip(description);
+        }
 
         if (icon != null)
         {
@@ -128,6 +136,15 @@ public sealed partial class RequirementsSelector : BoxContainer
             MinWidth = 90,
             HorizontalExpand = true,
         };
+    }
+
+    private static Tooltip CreateDescriptionTooltip(string description)
+    {
+        var tooltip = new Tooltip();
+        var message = new FormattedMessage();
+        message.AddMarkup(description);
+        tooltip.SetMessage(message);
+        return tooltip;
     }
 
     public void Select(int id)

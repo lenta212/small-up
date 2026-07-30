@@ -172,6 +172,19 @@ public abstract partial class SharedProjectileSystem : EntitySystem
         }
         var deleted = Deleted(target);
 
+        if (_net.IsServer)
+        {
+            var damageDealt = modifiedDamage.GetTotal().Float();
+            var mapVelocity = _physics.GetMapLinearVelocity(uid, ourBody, Transform(uid));
+            var damageEvent = new ProjectileDamageDealtEvent(
+                target,
+                coordinates,
+                mapVelocity,
+                damageDealt,
+                deleted);
+            RaiseLocalEvent(uid, ref damageEvent);
+        }
+
         var filter = Robust.Shared.Player.Filter.Pvs(coordinates, entityMan: EntityManager);
         if (_guns.GunPrediction &&
             TryComp(projectile, out PredictedProjectileServerComponent? serverProjectile) &&
@@ -592,6 +605,17 @@ public record struct ProjectileReflectAttemptEvent(EntityUid ProjUid, Projectile
 /// </summary>
 [ByRefEvent]
 public record struct ProjectileHitEvent(DamageSpecifier Damage, EntityUid Target, EntityUid? Shooter = null, bool Handled = false);
+
+/// <summary>
+/// Raised on the server after projectile damage modifiers have been applied.
+/// </summary>
+[ByRefEvent]
+public readonly record struct ProjectileDamageDealtEvent(
+    EntityUid Target,
+    EntityCoordinates Coordinates,
+    Vector2 MapVelocity,
+    float DamageDealt,
+    bool TargetDeleted);
 
 /// <summary>
 /// Mono - raised when a projectile is spent

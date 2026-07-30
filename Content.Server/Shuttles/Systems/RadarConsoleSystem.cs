@@ -1,4 +1,5 @@
 using System.Numerics;
+using Content.Server.Shuttles.Events;
 using Content.Server.UserInterface;
 using Content.Shared.Shuttles.BUIStates;
 using Content.Shared.Shuttles.Components;
@@ -23,6 +24,7 @@ public sealed partial class RadarConsoleSystem : SharedRadarConsoleSystem
         base.Initialize();
         SubscribeLocalEvent<RadarConsoleComponent, ComponentStartup>(OnRadarStartup);
         SubscribeLocalEvent<RadarConsoleComponent, BoundUIOpenedEvent>(OnUIOpened); // Frontier
+        SubscribeLocalEvent<RadarTargetChangedEvent>(OnRadarTargetChanged);
     }
 
     private void OnRadarStartup(EntityUid uid, RadarConsoleComponent component, ComponentStartup args)
@@ -34,6 +36,16 @@ public sealed partial class RadarConsoleSystem : SharedRadarConsoleSystem
     private void OnUIOpened(EntityUid uid, RadarConsoleComponent component, ref BoundUIOpenedEvent args)
     {
         UpdateState(uid, component);
+    }
+
+    private void OnRadarTargetChanged(RadarTargetChangedEvent args)
+    {
+        var query = EntityQueryEnumerator<RadarConsoleComponent, TransformComponent>();
+        while (query.MoveNext(out var consoleUid, out var radar, out var xform))
+        {
+            if (xform.GridUid == args.GridUid)
+                UpdateState(consoleUid, radar);
+        }
     }
     // End Frontier
 

@@ -94,13 +94,44 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
         lock (_routeLock)
         {
             var consecutiveFailures = 0;
+            LuaMRescuePathProbeSnapshot? staleReachable = null;
             if (_routeProbes.TryGetValue(key, out var existing))
             {
-                var moved = Vector2.DistanceSquared(existing.AgentPosition, agentPosition) > ReprobeMovementSquared ||
-                            Vector2.DistanceSquared(existing.TargetPosition, targetPosition) > ReprobeMovementSquared;
+                var agentMoved =
+                    Vector2.DistanceSquared(existing.AgentPosition, agentPosition) > ReprobeMovementSquared;
+                var targetMoved =
+                    Vector2.DistanceSquared(existing.TargetPosition, targetPosition) > ReprobeMovementSquared;
+                var moved = agentMoved || targetMoved;
 
                 if (!moved && existing.ExpiresAt > now)
-                    return existing.Snapshot;
+                    return VisibleSnapshot(existing, directDistance);
+
+                // Revalidating a previously confirmed route because the rescuer
+                // advanced, or because its short cache lifetime elapsed, must not
+                // turn ordinary progress into a stop. Keep the last Reachable
+                // result visible while the replacement query runs. A moving
+                // patient still invalidates the route synchronously.
+                if (!targetMoved)
+                {
+                    if (existing.Snapshot.State == LuaMRescuePathProbeState.Reachable)
+                        staleReachable = existing.Snapshot with { Distance = directDistance };
+                    else if (existing.Snapshot.State == LuaMRescuePathProbeState.Pending &&
+                             existing.ExpiresAt > now)
+                        staleReachable = existing.StaleReachable;
+
+                    // Do not starve an in-flight background query by restarting it
+                    // for every additional half-metre of rescuer movement.
+                    if (existing.Snapshot.State == LuaMRescuePathProbeState.Pending &&
+                        staleReachable != null &&
+                        existing.ExpiresAt > now)
+                    {
+                        return staleReachable.Value with
+                        {
+                            Distance = directDistance,
+                            RequiresCloserApproach = existing.CloseObstructed,
+                        };
+                    }
+                }
 
                 if (!moved)
                     consecutiveFailures = existing.ConsecutiveFailures;
@@ -122,7 +153,8 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
                     directDistance,
                     false,
                     consecutiveFailures + 1,
-                    closeObstructed));
+                    closeObstructed),
+                staleReachable);
             _routeProbes[key] = probe;
 
             _ = CompleteProbeAsync(
@@ -133,7 +165,7 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
                 targetXform.Coordinates,
                 closeObstructed ? Math.Min(0.25f, actionRange) : actionRange,
                 _pathfinding.GetFlags(agent));
-            return probe.Snapshot;
+            return VisibleSnapshot(probe, directDistance);
         }
     }
 
@@ -213,8 +245,24 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
                 requiresAccess,
                 attemptCount,
                 current.CloseObstructed);
+            current.StaleReachable = null;
             current.ExpiresAt = _timing.CurTime + lifetime;
         }
+    }
+
+    private static LuaMRescuePathProbeSnapshot VisibleSnapshot(RouteProbe probe, float directDistance)
+    {
+        if (probe.Snapshot.State != LuaMRescuePathProbeState.Pending ||
+            probe.StaleReachable is not { } stale)
+        {
+            return probe.Snapshot;
+        }
+
+        return stale with
+        {
+            Distance = directDistance,
+            RequiresCloserApproach = probe.CloseObstructed,
+        };
     }
 
     private static TimeSpan GetFailedProbeLifetime(int consecutiveFailures)
@@ -238,7 +286,8 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
         TimeSpan expiresAt,
         CancellationTokenSource cancellation,
         int consecutiveFailures,
-        LuaMRescuePathProbeSnapshot snapshot)
+        LuaMRescuePathProbeSnapshot snapshot,
+        LuaMRescuePathProbeSnapshot? staleReachable = null)
     {
         public readonly Vector2 AgentPosition = agentPosition;
         public readonly Vector2 TargetPosition = targetPosition;
@@ -246,6 +295,7 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
         public readonly CancellationTokenSource Cancellation = cancellation;
         public int ConsecutiveFailures = consecutiveFailures;
         public LuaMRescuePathProbeSnapshot Snapshot = snapshot;
+        public LuaMRescuePathProbeSnapshot? StaleReachable = staleReachable;
         public readonly bool CloseObstructed = snapshot.RequiresCloserApproach;
     }
 }
