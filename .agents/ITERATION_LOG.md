@@ -1,3 +1,12 @@
+## 2026-07-30T07:50:31Z -- first full gate stopped locally; both blockers repaired
+
+- Gate result: the first command-line attempt omitted the value of empty `ConfigSourcePath` and failed in 0.5 seconds before entering the script. The corrected direct invocation ran tag `luam-20260730-072112` for 25 minutes 45 seconds and stopped fail-closed inside `local-fast`; content LuaM tests passed, while integration finished 932 passed, two failed, and one environment-gated test skipped out of 935.
+- Blocker 1: `LuaMShipyardCallPlacementContractTest` recognized only a `.git` directory, so its source read failed from the intentionally separate release worktree where `.git` is a file. It now uses the same directory-or-file repository marker as the neighboring contract tests.
+- Blocker 2: `ExplicitOrderBeforeRecoveryReconciliationWinsButInheritsInfrastructure` created a critical body with neither Actor nor mind. Current terminal-defibrillation policy correctly classifies that fixture as unrecoverable and clears the manual episode, so it could not test the intended recovery-reconciliation invariant. The fixture now attaches a local mind while continuing to suppress Actor-generated dispatch signals, then removes that mind during cleanup.
+- Verification: `Content.IntegrationTests` rebuilt with zero errors. The two exact previously failing tests passed 2/2 with one worker in 30 seconds. Release contract passed schema 2 with 159 unique batch files and the newly changed rescue test included; `git diff --check` reported only line-ending notices.
+- Production impact: none. The gate stopped before source packaging, remote dry-run, client publication, package swap, service restart, database, snapshot, ship, player, round, configuration, firewall, or gateway mutation.
+- Next action: commit the three fixes plus journals, mirror the exact canonical server journal, then rerun `& .\Tools\ship_luam_release.ps1 -ConfigSourcePath ([string]::Empty) -Force -Json` from the clean candidate.
+
 ## 2026-07-30T07:20:02Z -- production journal reconciled before comprehensive release gate
 
 - Required preflight: read both repository journals, then compared the installed `/opt/monolith-ds/AI_SERVER_JOURNAL.md` before allowing the release orchestrator to perform its remote dry-run.

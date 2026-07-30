@@ -537,7 +537,8 @@
                                                                "Resources/Prototypes/Entities/Structures/Machines/gateway.yml",
                                                                "Resources/Prototypes/Entities/Structures/Wallmounts/surveillance_camera.yml",
                                                                "Resources/Prototypes/tags.yml",
-                                                               "Tools/validate_luam_feature_pack.py"
+                                                               "Tools/validate_luam_feature_pack.py",
+                                                               "Content.IntegrationTests/Tests/_LuaM/LuaMRescueTerminalPolicyRuntimeTest.cs"
                                                            ],
                                          "packageScopes":  [
                                                                ".agents",

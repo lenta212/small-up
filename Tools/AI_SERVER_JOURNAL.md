@@ -1,3 +1,11 @@
+## 2026-07-30T07:50:31Z -- first comprehensive gate failed locally and both test blockers were repaired
+
+- Gate outcome: an initial empty-argument parse attempt failed in 0.5 seconds before script execution. The corrected clean-tree run used tag `luam-20260730-072112`, passed the content LuaM filter, then stopped fail-closed in `local-fast` after integration reported 932 passed, two failed, and one environment-gated skip out of 935. It never reached source packaging, remote dry-run, publication, or deployment.
+- Repairs: the shipyard source contract now recognizes the `.git` file used by an additional worktree, matching neighboring repository-root helpers. The recovery-reconciliation test now supplies its critical fixture with a local mind while leaving Actor disabled; this preserves the test's no-signal boundary without accidentally invoking the correct unrecoverable-patient terminal policy.
+- Fresh local evidence: integration project build passed with zero errors. The two exact prior failures passed 2/2 with one worker in 30 seconds. Release contract passed with schema 2 and 159 unique declared batch files.
+- Production impact/recovery: none. No host dry-run, client, package, service, config, database, snapshot, ship, player, round, firewall, or gateway state changed, so no production rollback is required.
+- Next action: commit and mirror this exact journal, then repeat the complete clean orchestrator with an explicitly empty config source.
+
 ## 2026-07-30T07:20:02Z -- canonical journal reconciled before comprehensive release gate
 
 - Required preflight: repository and installed journals were read before the release orchestrator may perform its production dry-run. The installed `/opt/monolith-ds/AI_SERVER_JOURNAL.md` SHA256 was `eb40a6491d25cb07ffbdf5f50a7983ad6f3fd8c00ea62bddbf281027ae90ca21`, owner/mode `root:root`/`0644`.
