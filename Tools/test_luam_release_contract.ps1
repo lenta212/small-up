@@ -256,6 +256,12 @@ $binaryBuildText = Get-Content -LiteralPath (Join-Path $root "Tools/build_luam_s
 Assert-Contract ($binaryBuildText.Contains('Invoke-SourcePackageVerification')) "Binary builder does not verify its source package."
 Assert-Contract ($binaryBuildText.Contains('Assert-LuaMBinaryReleaseReceipt')) "Binary builder does not emit a validated release receipt."
 Assert-Contract ($binaryBuildText.Contains('-SkipAudit is local-only')) "Binary builder permits a production audit bypass."
+Assert-Contract ($binaryBuildText.Contains('[string]$ExistingClientPackagePath') -and
+                 $binaryBuildText.Contains('[string]$ExpectedExistingClientPackageSha256')) "Binary builder does not expose the hash-pinned existing-client pair."
+Assert-Contract ($binaryBuildText.Contains('-ExistingClientPackagePath and -ExpectedExistingClientPackageSha256 must be supplied together.')) "Binary builder does not reject an incomplete existing-client pair."
+Assert-Contract ($binaryBuildText.Contains('Existing client package changed during the binary build.')) "Binary builder does not revalidate an existing client after server packaging."
+Assert-Contract ($binaryBuildText.Contains('Copy-Item -LiteralPath $resolvedExistingClientPackage -Destination $clientPackage -Force')) "Binary builder does not place the verified existing client into the audited release pair."
+Assert-Contract ($binaryBuildText.Contains('Copied existing client package SHA256 mismatch.')) "Binary builder does not verify the copied client artifact."
 
 $deployText = Get-Content -LiteralPath (Join-Path $root "Tools/deploy_luam_server_release.ps1") -Raw -Encoding UTF8
 Assert-Contract ($deployText.Contains("LuaM release policy is missing; refusing remote deploy.")) "Deploy guard must fail closed when the JSON policy is missing."
@@ -301,6 +307,8 @@ Assert-Contract ([regex]::Matches($shipPipelineText, '\[AllowEmptyString\(\)\]\s
 Assert-Contract ($shipPipelineText.Contains('if (-not [string]::IsNullOrWhiteSpace($ConfigSourcePath))')) "Ship release orchestrator does not treat an empty config source as live-config preservation."
 Assert-Contract ($shipPipelineText.Contains('$serverDeployArgs += @("-ConfigSourcePath", $ConfigSourcePath)')) "Ship release orchestrator does not append a non-empty config source explicitly."
 Assert-Contract (-not $shipPipelineText.Contains('"-ConfigSourcePath", $ConfigSourcePath,')) "Ship release orchestrator still passes an empty config-source value to child PowerShell."
+Assert-Contract ($shipPipelineText.Contains('"-ExistingClientPackagePath", $ExistingClientPackagePath') -and
+                 $shipPipelineText.Contains('"-ExpectedExistingClientPackageSha256", $ExpectedExistingClientPackageSha256')) "Ship release orchestrator does not forward the hash-pinned existing client."
 
 # Execute the exact Python validator embedded into the remote deploy script.
 $validatorMatch = [regex]::Match(

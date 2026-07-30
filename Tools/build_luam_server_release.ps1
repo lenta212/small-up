@@ -5,6 +5,8 @@ param(
     [string]$ExternalClientBaseUrl = "",
     [string]$ForkId = "dsmonolith",
     [string]$BuildVersion = "",
+    [string]$ExistingClientPackagePath = "",
+    [string]$ExpectedExistingClientPackageSha256 = "",
     [string]$SourcePackagePath = "",
     [string]$ExpectedSourcePackageSha256 = "",
     [string]$ReleaseReceiptPath = "release\luam-binary-release-receipt.json",
@@ -75,6 +77,41 @@ if (-not [string]::IsNullOrWhiteSpace($BuildVersion) -and
 if (($HybridAcz -or [string]::IsNullOrWhiteSpace($ExternalClientBaseUrl)) -and
     -not [string]::IsNullOrWhiteSpace($BuildVersion)) {
     throw "-BuildVersion is only valid together with -ExternalClientBaseUrl."
+}
+
+$hasExistingClientPackage = -not [string]::IsNullOrWhiteSpace($ExistingClientPackagePath)
+$hasExpectedExistingClientHash = -not [string]::IsNullOrWhiteSpace($ExpectedExistingClientPackageSha256)
+if ($hasExistingClientPackage -ne $hasExpectedExistingClientHash) {
+    throw "-ExistingClientPackagePath and -ExpectedExistingClientPackageSha256 must be supplied together."
+}
+
+$resolvedExistingClientPackage = $null
+$expectedExistingClientHash = ""
+if ($hasExistingClientPackage) {
+    if ($HybridAcz -or [string]::IsNullOrWhiteSpace($ExternalClientBaseUrl)) {
+        throw "An existing client package can only be reused with -ExternalClientBaseUrl."
+    }
+    if (-not (Test-Path -LiteralPath $ExistingClientPackagePath -PathType Leaf)) {
+        throw "Existing client package not found: $ExistingClientPackagePath"
+    }
+
+    $resolvedExistingClientPackage = (Resolve-Path -LiteralPath $ExistingClientPackagePath).Path
+    if (-not $resolvedExistingClientPackage.EndsWith(".zip", [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Existing client package must be a .zip file: $resolvedExistingClientPackage"
+    }
+    if ($resolvedExistingClientPackage.Equals([IO.Path]::GetFullPath($clientPackage), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "ExistingClientPackagePath must not point at the generated release client package."
+    }
+
+    $expectedExistingClientHash = $ExpectedExistingClientPackageSha256.Trim().ToLowerInvariant()
+    if ($expectedExistingClientHash -notmatch "^[0-9a-f]{64}$") {
+        throw "ExpectedExistingClientPackageSha256 must be a 64-character SHA256 value."
+    }
+
+    $initialExistingClientHash = (Get-FileHash -LiteralPath $resolvedExistingClientPackage -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($initialExistingClientHash -ne $expectedExistingClientHash) {
+        throw "Existing client package SHA256 mismatch. Expected $expectedExistingClientHash, got $initialExistingClientHash"
+    }
 }
 
 $externalClientBaseUri = $null
@@ -322,6 +359,19 @@ try {
         }
     }
 
+    if ($null -ne $resolvedExistingClientPackage) {
+        $existingClientHash = (Get-FileHash -LiteralPath $resolvedExistingClientPackage -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($existingClientHash -ne $expectedExistingClientHash) {
+            throw "Existing client package changed during the binary build. Expected $expectedExistingClientHash, got $existingClientHash"
+        }
+
+        Copy-Item -LiteralPath $resolvedExistingClientPackage -Destination $clientPackage -Force
+        $copiedClientHash = (Get-FileHash -LiteralPath $clientPackage -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($copiedClientHash -ne $expectedExistingClientHash) {
+            throw "Copied existing client package SHA256 mismatch. Expected $expectedExistingClientHash, got $copiedClientHash"
+        }
+    }
+
     if (-not (Test-Path -LiteralPath $serverPackage -PathType Leaf)) {
         throw "Server package was not created: $serverPackage"
     }
@@ -492,6 +542,7 @@ try {
         buildVersion = $effectiveBuildVersion
         buildJson = $hasBuildJson
         cdnPublishRequired = -not [bool]$HybridAcz -and [string]::IsNullOrWhiteSpace($clientDownloadUrl)
+        reusedExistingClientPackage = $null -ne $resolvedExistingClientPackage
         packageBuildSkipped = [bool]$SkipPackageBuild
         audited = -not $SkipAudit
         localOnly = [bool]$LocalOnly

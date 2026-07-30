@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$ExternalClientBaseUrl = "http://188.127.225.57:1213",
+    [string]$ExistingClientPackagePath = "",
+    [string]$ExpectedExistingClientPackageSha256 = "",
     [string]$ConfigSourcePath = "server_config.remote.toml",
     [string]$RemoteConfigPath = "/opt/monolith-ds/server/server_config.toml",
     [string]$RemoteDataDir = "/opt/monolith-ds/data",
@@ -91,6 +93,12 @@ if ([string]::IsNullOrWhiteSpace($Tag)) {
     $Tag = "luam-" + [DateTime]::UtcNow.ToString("yyyyMMdd-HHmmss")
 }
 
+$hasExistingClientPackage = -not [string]::IsNullOrWhiteSpace($ExistingClientPackagePath)
+$hasExpectedExistingClientHash = -not [string]::IsNullOrWhiteSpace($ExpectedExistingClientPackageSha256)
+if ($hasExistingClientPackage -ne $hasExpectedExistingClientHash) {
+    throw "-ExistingClientPackagePath and -ExpectedExistingClientPackageSha256 must be supplied together."
+}
+
 $steps = [System.Collections.Generic.List[object]]::new()
 $ok = $true
 $failure = $null
@@ -117,13 +125,20 @@ try {
         throw "Source package verifier did not pass."
     }
 
-    $binary = Invoke-JsonScript -Name "binary-build" -Arguments @(
+    $binaryArgs = @(
         "-File", "Tools/build_luam_server_release.ps1",
         "-ExternalClientBaseUrl", $ExternalClientBaseUrl,
         "-SourcePackagePath", [string]$package.data.package,
         "-ExpectedSourcePackageSha256", [string]$package.data.sha256,
         "-ReleaseReceiptPath", "release/luam-binary-release-receipt.json",
         "-Json")
+    if (-not [string]::IsNullOrWhiteSpace($ExistingClientPackagePath)) {
+        $binaryArgs += @(
+            "-ExistingClientPackagePath", $ExistingClientPackagePath,
+            "-ExpectedExistingClientPackageSha256", $ExpectedExistingClientPackageSha256)
+    }
+
+    $binary = Invoke-JsonScript -Name "binary-build" -Arguments $binaryArgs
     $steps.Add($binary) | Out-Null
 
     $audit = Invoke-JsonScript -Name "release-surface-audit" -Arguments @(
