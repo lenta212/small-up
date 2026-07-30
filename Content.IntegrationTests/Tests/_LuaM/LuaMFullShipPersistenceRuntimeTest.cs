@@ -216,7 +216,15 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                 power.SetNeedsPower(generator, false, receiver);
             });
 
-            await server.WaitRunTicks(25);
+            // The pooled integration server's tick rate can vary with the preceding
+            // fixture. Wait for the half-second power-net update and the resulting
+            // charge/gravity events instead of assuming 25 ticks is always enough.
+            await PoolManager.WaitUntil(
+                server,
+                () => entities.GetComponent<PowerChargeComponent>(generator).Active
+                    && entities.GetComponent<GravityGeneratorComponent>(generator).GravityActive
+                    && entities.GetComponent<GravityComponent>(sourceGrid).Enabled,
+                maxTicks: 240);
 
             await server.WaitPost(() =>
             {
