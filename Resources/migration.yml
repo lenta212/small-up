@@ -154,7 +154,10 @@ ClosetBase: ClosetSteelBase
 # TransmitterSubspaceStockPart: null # Frontier
 
 # 2024-01-10
-ClothingHeadHatHoodRad: null
+# ClothingHeadHatHoodRad: null # LuaM: this prototype is live again and must survive full-ship restores.
+
+# 2024-01-12
+# SpaceMedipen: null # LuaM: this prototype is live again and must survive full-ship restores.
 
 # 2024-01-18
 ClothingHeadHelmetVoidParamed: null

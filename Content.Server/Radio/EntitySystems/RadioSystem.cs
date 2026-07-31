@@ -1,5 +1,6 @@
 using Content.Server._NF.Radio; // Frontier
 using Content.Server.Administration.Logs;
+using Content.Server.Administration.Managers;
 using Content.Server.Chat.Systems;
 using Content.Server._EinsteinEngines.Language;
 using Content.Server.Power.Components;
@@ -36,6 +37,7 @@ public sealed partial class RadioSystem : EntitySystem
     [Dependency] private IRobustRandom _random = default!;
     [Dependency] private ChatSystem _chat = default!;
     [Dependency] private LanguageSystem _language = default!; // Einstein Engines - Language
+    [Dependency] private IAdminManager _admin = default!;
 
     // set used to prevent radio feedback loops.
     private readonly HashSet<string> _messages = new();
@@ -218,6 +220,14 @@ public sealed partial class RadioSystem : EntitySystem
 
         while (canSend && radioQuery.MoveNext(out var receiver, out var radio, out var transform))
         {
+            // Regular ghosts may monitor only the medical channel; admin ghosts retain moderation access.
+            if (HasComp<GhostComponent>(receiver) &&
+                !_admin.IsAdmin(receiver) &&
+                !channel.ID.Equals("Medical", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             if (!radio.ReceiveAllChannels)
             {
                 if (!radio.Channels.Contains(channel.ID) || (TryComp<IntercomComponent>(receiver, out var intercom) &&

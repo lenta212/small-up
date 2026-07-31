@@ -652,6 +652,22 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         if (!TryValidateSnapshot(snapshot, out var yaml, out reason))
             return false;
 
+        if (!TryPrepareLegacySnapshotForRestore(
+                yaml,
+                out var restoreYaml,
+                out var detachedEntityCount,
+                out reason))
+        {
+            return false;
+        }
+
+        if (detachedEntityCount > 0)
+        {
+            Log.Warning(
+                $"Prepared {detachedEntityCount} legacy snapshot support " +
+                "entity reference(s) whose transform parent is no longer present.");
+        }
+
         if (!_maps.MapExists(targetMap))
         {
             reason = "target-map-does-not-exist";
@@ -674,7 +690,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         HashSet<EntityUid>? createdEntities = null;
         try
         {
-            using var reader = new StringReader(yaml);
+            using var reader = new StringReader(restoreYaml);
             var options = DeserializationOptions.Default with
             {
                 LogInvalidEntities = true,
@@ -731,8 +747,10 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 return false;
             }
 
-            // Defence in depth for a malformed or manually repaired current
-            // snapshot. Legacy v1 is rejected before deserialization.
+            // Defence in depth for a malformed, manually repaired, or legacy
+            // snapshot. Historical v1 hulls are accepted only after the same
+            // bounded hash/manifest validation, then copied player state is
+            // removed before the restored graph is handed to the caller.
             SanitizeRestoredPlayerBodies(createdEntities, restoredGrid);
 
             // Player minds are runtime ownership, not portable ship content.
@@ -1464,6 +1482,172 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     }
 
     /// <summary>
+    /// Older snapshots can contain a referenced support entity after its transform
+    /// parent was omitted from the portable graph. The engine resolves that parent
+    /// to EntityUid.Invalid, but format-7 metadata still does not classify the
+    /// entity as a root and debug builds reject the otherwise recoverable graph.
+    /// Preserve the exact entity and prototype manifest while explicitly marking
+    /// those detached entities as null-space roots for this restore only.
+    /// </summary>
+    private static bool TryPrepareLegacySnapshotForRestore(
+        string yaml,
+        out string preparedYaml,
+        out int detachedEntityCount,
+        out string reason)
+    {
+        preparedYaml = yaml;
+        detachedEntityCount = 0;
+        reason = string.Empty;
+
+        try
+        {
+            var stream = new YamlStream();
+            stream.Load(new StringReader(yaml));
+            if (stream.Documents.Count != 1 ||
+                stream.Documents[0].RootNode is not YamlMappingNode root ||
+                !TryGetSequence(root, "entities", out var prototypeGroups) ||
+                !TryGetSequence(root, "maps", out var maps) ||
+                !TryGetSequence(root, "grids", out var grids) ||
+                !TryGetSequence(root, "orphans", out var orphans) ||
+                !TryGetSequence(root, "nullspace", out var nullspace))
+            {
+                reason = "snapshot-yaml-root-metadata-invalid";
+                return false;
+            }
+
+            var entities = new List<(int Uid, YamlMappingNode Node)>();
+            var entityIds = new HashSet<int>();
+            foreach (var groupNode in prototypeGroups.Children)
+            {
+                if (groupNode is not YamlMappingNode group ||
+                    !TryGetSequence(group, "entities", out var groupEntities))
+                {
+                    reason = "snapshot-yaml-entity-group-invalid";
+                    return false;
+                }
+
+                foreach (var entityNode in groupEntities.Children)
+                {
+                    if (entityNode is not YamlMappingNode entity ||
+                        !TryGetScalar(entity, "uid", out var uidText) ||
+                        !int.TryParse(
+                            uidText,
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture,
+                            out var uid) ||
+                        uid <= 0 ||
+                        !entityIds.Add(uid))
+                    {
+                        reason = "snapshot-yaml-entity-uid-invalid";
+                        return false;
+                    }
+
+                    entities.Add((uid, entity));
+                }
+            }
+
+            var classifiedRoots = new HashSet<int>();
+            var nullspaceIds = new List<int>();
+            foreach (var roots in new[] { maps, grids, orphans, nullspace })
+            {
+                foreach (var rootNode in roots.Children)
+                {
+                    if (rootNode is not YamlScalarNode { Value: { } rootText } ||
+                        !int.TryParse(
+                            rootText,
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture,
+                            out var rootUid) ||
+                        !entityIds.Contains(rootUid))
+                    {
+                        reason = "snapshot-yaml-root-uid-invalid";
+                        return false;
+                    }
+
+                    classifiedRoots.Add(rootUid);
+                    if (ReferenceEquals(roots, nullspace))
+                        nullspaceIds.Add(rootUid);
+                }
+            }
+
+            var detachedIds = new List<int>();
+            foreach (var (uid, entity) in entities)
+            {
+                if (classifiedRoots.Contains(uid) ||
+                    !TryGetSequence(entity, "components", out var components))
+                {
+                    continue;
+                }
+
+                foreach (var componentNode in components.Children)
+                {
+                    if (componentNode is not YamlMappingNode component ||
+                        !TryGetScalar(component, "type", out var componentType) ||
+                        !string.Equals(componentType, "Transform", StringComparison.Ordinal) ||
+                        !TryGetScalar(component, "parent", out var parentText))
+                    {
+                        continue;
+                    }
+
+                    var parentMissing = string.Equals(parentText, "invalid", StringComparison.Ordinal) ||
+                        int.TryParse(
+                            parentText,
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture,
+                            out var parentUid) &&
+                        !entityIds.Contains(parentUid);
+                    if (!parentMissing)
+                        break;
+
+                    classifiedRoots.Add(uid);
+                    detachedIds.Add(uid);
+                    detachedEntityCount++;
+                    break;
+                }
+            }
+
+            if (detachedEntityCount == 0)
+                return true;
+
+            var sequenceStartIndex = nullspace.Start.Index;
+            var sequenceEndIndex = nullspace.End.Index;
+            if (sequenceStartIndex < 0 ||
+                sequenceEndIndex < sequenceStartIndex ||
+                sequenceEndIndex > yaml.Length)
+            {
+                reason = "snapshot-yaml-nullspace-location-invalid";
+                return false;
+            }
+
+            var sequenceStart = checked((int) sequenceStartIndex);
+            var sequenceEnd = checked((int) sequenceEndIndex);
+            if (sequenceEnd == sequenceStart &&
+                yaml.AsSpan(sequenceStart).StartsWith("[]", StringComparison.Ordinal))
+            {
+                sequenceEnd += 2;
+            }
+
+            var replacement = string.Join(
+                "\n",
+                nullspaceIds
+                    .Concat(detachedIds)
+                    .Select(uid => $"- {uid.ToString(CultureInfo.InvariantCulture)}"));
+            if (sequenceStart > 0 && yaml[sequenceStart - 1] != '\n')
+                replacement = "\n" + replacement;
+
+            preparedYaml = yaml[..sequenceStart] + replacement + yaml[sequenceEnd..];
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is not OutOfMemoryException &&
+            exception is not StackOverflowException)
+        {
+            reason = $"snapshot-compatibility-parse-failed:{exception.GetType().Name}";
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Re-validates a durable snapshot and extracts only aggregate prototype counts
     /// for local Python analysis. Raw saved state and player identifiers are never
     /// included in the returned manifest.
@@ -1552,7 +1736,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     }
 
     public static bool IsSupportedSnapshotFormatVersion(int formatVersion)
-        => formatVersion == SnapshotFormatVersion;
+        => formatVersion is LegacySnapshotFormatVersion or SnapshotFormatVersion;
 
     private List<EntityUid> CollectExistingTransformGraph(EntityUid root)
     {

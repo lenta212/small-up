@@ -10,13 +10,6 @@
   - type: NpcFactionMember
     factions:
       - BloodCultNF
-  - type: LuaMBehaviorAgent
-    profile: LuaMBloodCultistBehavior
-  - type: BonusMeleeDamage
-    applyIfUser: true
-    bonusDamage:
-      types:
-        Slash: 6
   - type: RechargeBasicEntityAmmo
     rechargeCooldown: 1.5
     rechargeSound:
@@ -162,7 +155,6 @@
   - type: Gun
     showExamineText: false
     fireRate: 0.5
-    damageModifier: 1.25
     minAngle: 1
     maxAngle: 10
     selectedMode: SemiAuto
@@ -191,7 +183,6 @@
     count: 3
   - type: Gun
     fireRate: 2
-    damageModifier: 1.25
     soundGunshot:
       path: /Audio/Effects/demon_consume.ogg
   - type: RechargeBasicEntityAmmo
@@ -215,13 +206,6 @@
   - type: NpcFactionMember
     factions:
     - BloodCultNF
-  - type: LuaMBehaviorAgent
-    profile: LuaMBloodCultistBehavior
-  - type: BonusMeleeDamage
-    applyIfUser: true
-    bonusDamage:
-      types:
-        Slash: 6
   - type: Advertise
     pack: bloodcultisthumanoidchatter
   - type: Sprite
@@ -273,13 +257,6 @@
   - type: NpcFactionMember
     factions:
     - BloodCultNF
-  - type: LuaMBehaviorAgent
-    profile: LuaMBloodCultistBehavior
-  - type: BonusMeleeDamage
-    applyIfUser: true
-    bonusDamage:
-      types:
-        Slash: 6
   - type: CanMoveInAir
   - type: Fixtures
     fixtures:
@@ -382,13 +359,6 @@
   - type: NpcFactionMember
     factions:
     - BloodCultNF
-  - type: LuaMBehaviorAgent
-    profile: LuaMBloodCultistBehavior
-  - type: BonusMeleeDamage
-    applyIfUser: true
-    bonusDamage:
-      types:
-        Slash: 6
   - type: CanMoveInAir
   - type: FootstepModifier
     footstepSoundCollection:
@@ -548,7 +518,6 @@
     - type: Gun
       showExamineText: false
       fireRate: 2
-      damageModifier: 1.25
       selectedMode: FullAuto
       availableModes:
         - FullAuto

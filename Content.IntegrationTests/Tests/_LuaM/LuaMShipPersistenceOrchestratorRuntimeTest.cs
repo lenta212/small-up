@@ -299,7 +299,7 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
     }
 
     [Test]
-    public async Task LegacySnapshotFormatIsQuarantinedInsteadOfReturnedToStored()
+    public async Task UnsupportedFutureSnapshotFormatIsQuarantinedInsteadOfReturnedToStored()
     {
         var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
         var server = pair.Server;
@@ -310,6 +310,7 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
         var owner = new NetUserId(Guid.NewGuid());
         var shipId = Guid.NewGuid();
         var now = DateTime.UtcNow;
+        var unsupportedFormat = LuaMFullShipPersistenceSystem.SnapshotFormatVersion + 1;
         var payload = "{}"u8.ToArray();
         var store = new LuaMShipSnapshotStoreRequest(
             shipId,
@@ -323,8 +324,8 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
             100_000,
             false,
             700,
-            LuaMFullShipPersistenceSystem.LegacySnapshotFormatVersion,
-            LuaMFullShipPersistenceSystem.LegacySnapshotFormatVersion,
+            unsupportedFormat,
+            unsupportedFormat,
             payload,
             Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant(),
             payload.Length,
@@ -385,7 +386,8 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                     Assert.That(request.OwnerUserId, Is.EqualTo(owner));
                     Assert.That(request.ExpectedRevision, Is.EqualTo(13));
                     Assert.That(request.LeaseId, Is.EqualTo(claimedLeaseId));
-                    Assert.That(request.Reason, Is.EqualTo("unsupported database snapshot format 1/1"));
+                    Assert.That(request.Reason, Is.EqualTo(
+                        $"unsupported database snapshot format {unsupportedFormat}/{unsupportedFormat}"));
                 });
                 return new LuaMShipPersistenceWriteResult(
                     LuaMShipPersistenceWriteStatus.Success,
@@ -421,7 +423,7 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
         {
             await server.WaitPost(() => maps.CreateMap(out targetMap));
             var orchestrator = entities.System<LuaMShipPersistenceOrchestrator>();
-            orchestrator.ConfigureForTesting(database.Object, runtime, "legacy-quarantine-test");
+            orchestrator.ConfigureForTesting(database.Object, runtime, "future-format-quarantine-test");
 
             var result = await RunOnServerAsync(() => orchestrator.RestoreClaimAsync(
                 shipId,
@@ -434,7 +436,8 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
             {
                 Assert.That(result.Success, Is.False);
                 Assert.That(result.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.InvalidRequest));
-                Assert.That(result.Reason, Is.EqualTo("unsupported database snapshot format 1/1"));
+                Assert.That(result.Reason, Is.EqualTo(
+                    $"unsupported database snapshot format {unsupportedFormat}/{unsupportedFormat}"));
                 Assert.That(orchestrator.ActiveLeases, Is.Empty);
             });
             database.Verify(

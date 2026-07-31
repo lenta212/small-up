@@ -67,7 +67,7 @@ public abstract partial class SharedStationSystem
             return;
         }
 
-        SetStation(ent, stationMember.Station);
+        SetStation(ent, GetExistingStation(stationMember.Station));
     }
 
     /// <summary>

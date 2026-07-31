@@ -27,6 +27,7 @@
           True: { visible: true }
           False: { visible: false }
   - type: InteractionOutline
+  - type: CleanupImmune
   - type: Physics
     bodyType: Static
   - type: Transform

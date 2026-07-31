@@ -66,7 +66,7 @@
   - type: HitscanBasicDamage
     damage:
       types:
-        Slash: 12.5
+        Slash: 10
   - type: HitscanBasicVisuals
     muzzleFlash:
       sprite: _NF/Effects/bloodcultbeams.rsi

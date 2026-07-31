@@ -156,12 +156,11 @@ public sealed partial class OreSiloSystem : SharedOreSiloSystem
         var actorQuery = EntityQueryEnumerator<ActorComponent>();
         while (actorQuery.MoveNext(out var actorUid, out var actorComp))
         {
-            // Actor teardown can briefly leave the component without a session.
-            if (actorComp.PlayerSession == null)
+            if (actorComp.PlayerSession is not { } session)
                 continue;
 
             _silosToAdd.Clear();
-            _activeSiloSessions.Add(actorComp.PlayerSession);
+            _activeSiloSessions.Add(session);
 
             var actorXform = Transform(actorUid);
 
@@ -181,20 +180,20 @@ public sealed partial class OreSiloSystem : SharedOreSiloSystem
 
             if (_silosToAdd.Count == 0)
             {
-                _cachedSilosBySession.Remove(actorComp.PlayerSession);
-                _cachedActorBySession.Remove(actorComp.PlayerSession);
+                _cachedSilosBySession.Remove(session);
+                _cachedActorBySession.Remove(session);
             }
             else
             {
-                if (!_cachedSilosBySession.TryGetValue(actorComp.PlayerSession, out var cachedSilos))
+                if (!_cachedSilosBySession.TryGetValue(session, out var cachedSilos))
                 {
                     cachedSilos = new HashSet<EntityUid>();
-                    _cachedSilosBySession.Add(actorComp.PlayerSession, cachedSilos);
+                    _cachedSilosBySession.Add(session, cachedSilos);
                 }
 
                 cachedSilos.Clear();
                 cachedSilos.UnionWith(_silosToAdd);
-                _cachedActorBySession[actorComp.PlayerSession] = actorUid;
+                _cachedActorBySession[session] = actorUid;
             }
         }
 

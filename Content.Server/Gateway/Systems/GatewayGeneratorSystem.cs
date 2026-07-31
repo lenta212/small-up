@@ -1,6 +1,8 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Numerics;
 using System.Threading.Tasks;
+using Content.Server._Mono.Cleanup;
 using Content.Server.Administration.Logs;
 using Content.Server.Atmos.Components;
 using Content.Server.Atmos.EntitySystems;
@@ -59,6 +61,8 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
     private const string PlanetNames = "NamesBorer";
 
     private const int InitialDestinationCount = 3;
+    private const float DungeonBoundaryMargin = 2f;
+    private const float MaxGeneratedWorldRange = 160f;
     private static readonly TimeSpan FailedDestinationRetention = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SafetyCleanupInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(1);
@@ -87,6 +91,15 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         {
             _nextSafetyCleanup = _timing.CurTime + SafetyCleanupInterval;
             CleanupFailedAndOrphanedDestinations();
+
+            if (_cfgManager.GetCVar(CCVars.GatewayGeneratorEnabled))
+            {
+                var repairQuery = EntityQueryEnumerator<GatewayGeneratorComponent>();
+                while (repairQuery.MoveNext(out var generatorUid, out var generator))
+                {
+                    RepairDestinationGateways(generatorUid, generator);
+                }
+            }
         }
 
         if (_timing.CurTime < _nextCleanup)
@@ -376,12 +389,24 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
                 if (!TryComp(destinationUid, out RestrictedRangeComponent? restricted))
                     throw new InvalidOperationException("Generated gateway destination has no restricted range.");
 
+                if (!TryGetRequiredDungeonRange(
+                        dungeons,
+                        restricted.Origin,
+                        out var requiredRange,
+                        out var furthestTile))
+                {
+                    var detail = furthestTile is { } tile
+                        ? $"tile {tile} requires range {requiredRange:0.##}, above the hard limit {MaxGeneratedWorldRange}"
+                        : "the dungeon produced no traversable tiles";
+                    throw new InvalidOperationException(
+                        $"Gateway dungeon bounds validation failed: {detail}.");
+                }
+
                 if (!ValidateDungeonBounds(dungeons, restricted, out var invalidTile))
                 {
-                    var detail = invalidTile is { } tile
-                        ? $"tile {tile} is outside radius {restricted.Range} around {restricted.Origin}"
-                        : "the dungeon produced no traversable tiles";
-                    throw new InvalidOperationException($"Gateway dungeon bounds validation failed: {detail}.");
+                    throw new InvalidOperationException(
+                        $"Gateway dungeon bounds validation failed: tile {invalidTile} is outside " +
+                        $"range {restricted.Range} around {restricted.Origin}.");
                 }
 
                 if (!_protoManager.TryIndex(
@@ -396,6 +421,9 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
                 destination.DungeonBoundsValidated = true;
                 destination.GenerationState = GatewayDestinationGenerationState.Ready;
                 destination.RetryAt = TimeSpan.Zero;
+                Log.Info(
+                    $"Gateway destination {ToPrettyString(destinationUid)} ({destination.Address}, " +
+                    $"profile {destination.Profile.Id}) is ready with restricted range {restricted.Range:0.##}.");
                 uiChanged = true;
             }
             catch (Exception exception)
@@ -417,6 +445,35 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
             _gateway.UpdateAllGateways();
     }
 
+    private static bool TryGetRequiredDungeonRange(
+        IReadOnlyCollection<Dungeon> dungeons,
+        Vector2 origin,
+        out float requiredRange,
+        out Vector2i? furthestTile)
+    {
+        requiredRange = 0f;
+        furthestTile = null;
+
+        foreach (var dungeon in dungeons)
+        {
+            foreach (var tile in dungeon.AllTiles)
+            {
+                var delta = (Vector2) tile - origin;
+                // RestrictedRangeSystem creates a four-sided boundary. Its usable area is
+                // therefore a diamond, so the matching distance is Manhattan rather than
+                // Euclidean.
+                var range = MathF.Abs(delta.X) + MathF.Abs(delta.Y) + DungeonBoundaryMargin;
+                if (range <= requiredRange)
+                    continue;
+
+                requiredRange = range;
+                furthestTile = tile;
+            }
+        }
+
+        return furthestTile != null && requiredRange <= MaxGeneratedWorldRange;
+    }
+
     private static bool ValidateDungeonBounds(
         IReadOnlyCollection<Dungeon> dungeons,
         RestrictedRangeComponent restricted,
@@ -424,10 +481,7 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
     {
         invalidTile = null;
         var hasTiles = false;
-        // RestrictedRange works from tile/entity centers, so validate against the same radius.
-        // Applying an extra whole-tile margin here incorrectly rejects valid edge tiles.
         var safeRange = Math.Max(0f, restricted.Range);
-        var safeRangeSquared = safeRange * safeRange;
 
         foreach (var dungeon in dungeons)
         {
@@ -435,7 +489,9 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
             {
                 hasTiles = true;
                 var delta = (Vector2) tile - restricted.Origin;
-                if (delta.LengthSquared() <= safeRangeSquared)
+                var requiredRange =
+                    MathF.Abs(delta.X) + MathF.Abs(delta.Y) + DungeonBoundaryMargin;
+                if (requiredRange <= safeRange)
                     continue;
 
                 invalidTile = tile;
@@ -619,6 +675,7 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
             if (TryComp(destinationUid, out GatewayGeneratorDestinationComponent? destination) &&
                 !destination.Loaded &&
                 destination.GenerationState != GatewayDestinationGenerationState.Failed &&
+                IsDestinationGatewayUsable(destinationUid, destination, out _) &&
                 !Terminating(destinationUid))
             {
                 count++;
@@ -626,6 +683,120 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         }
 
         return count;
+    }
+
+    /// <summary>
+    /// Restores a generated world's endpoint if an unrelated cleanup or deletion removed it.
+    /// </summary>
+    private int RepairDestinationGateways(
+        EntityUid generatorUid,
+        GatewayGeneratorComponent? generator = null)
+    {
+        if (!Resolve(generatorUid, ref generator))
+            return 0;
+
+        var repaired = 0;
+        var uiChanged = false;
+
+        foreach (var destinationUid in generator.Generated.ToArray())
+        {
+            if (!TryComp(destinationUid, out GatewayGeneratorDestinationComponent? destination) ||
+                destination.Orphaned ||
+                destination.GenerationState == GatewayDestinationGenerationState.Failed ||
+                Terminating(destinationUid))
+            {
+                continue;
+            }
+
+            if (IsDestinationGatewayUsable(
+                    destinationUid,
+                    destination,
+                    out var existingGateway))
+            {
+                EnsureComp<CleanupImmuneComponent>(destination.Gateway);
+                if (!existingGateway.Enabled)
+                {
+                    _gateway.SetEnabled(destination.Gateway, true, existingGateway);
+                    repaired++;
+                    uiChanged = true;
+                }
+
+                continue;
+            }
+
+            try
+            {
+                var previousGateway = destination.Gateway;
+                if (previousGateway.IsValid() &&
+                    Exists(previousGateway) &&
+                    !Terminating(previousGateway))
+                {
+                    if (TryComp(previousGateway, out GatewayComponent? staleGateway))
+                    {
+                        _gateway.ClosePortal(
+                            previousGateway,
+                            staleGateway,
+                            update: false,
+                            reason: GatewayPortalCloseReason.System);
+                        _gateway.SetEnabled(previousGateway, false, staleGateway);
+                    }
+
+                    QueueDel(previousGateway);
+                }
+
+                if (!_protoManager.TryIndex(
+                        destination.Profile,
+                        out GatewayWorldProfilePrototype? profile))
+                {
+                    throw new InvalidOperationException(
+                        $"Gateway world profile '{destination.Profile.Id}' no longer exists.");
+                }
+
+                var gatewayName = MetaData(destinationUid).EntityName;
+                destination.Gateway = SpawnDestinationGateway(
+                    destinationUid,
+                    destination,
+                    generator,
+                    profile,
+                    gatewayName);
+                repaired++;
+                uiChanged = true;
+
+                var message =
+                    $"Gateway destination {ToPrettyString(destinationUid)} ({destination.Address}, " +
+                    $"profile {destination.Profile.Id}) restored missing endpoint {ToPrettyString(previousGateway)} " +
+                    $"as {ToPrettyString(destination.Gateway)}.";
+                Log.Warning(message);
+                _adminLogger.Add(LogType.Action, LogImpact.Medium, $"{message}");
+            }
+            catch (Exception exception)
+            {
+                MarkGenerationFailed(destinationUid, destination, exception);
+                uiChanged = true;
+            }
+        }
+
+        if (uiChanged)
+            _gateway.UpdateAllGateways();
+
+        return repaired;
+    }
+
+    private bool IsDestinationGatewayUsable(
+        EntityUid destinationUid,
+        GatewayGeneratorDestinationComponent destination,
+        [NotNullWhen(true)] out GatewayComponent? gateway)
+    {
+        gateway = null;
+        if (!destination.Gateway.IsValid() ||
+            TerminatingOrDeleted(destination.Gateway) ||
+            !TryComp(destination.Gateway, out gateway) ||
+            !TryComp(destination.Gateway, out TransformComponent? gatewayTransform))
+        {
+            return false;
+        }
+
+        return gatewayTransform.MapUid == destinationUid;
     }
 
     internal bool TryGenerateDestination(EntityUid uid, GatewayGeneratorComponent? generator = null)
@@ -671,7 +842,8 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
             var origin = new Vector2i(random.Next(-MaxOffset, MaxOffset), random.Next(-MaxOffset, MaxOffset));
             var restricted = new RestrictedRangeComponent
             {
-                Origin = origin
+                Origin = origin,
+                Range = MaxGeneratedWorldRange
             };
             AddComp(mapUid, restricted);
 
@@ -708,15 +880,12 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
             genDest.Address = FormatAddress(seed);
             genDest.GenerationState = GatewayDestinationGenerationState.Generating;
 
-            var gatewayUid = SpawnAtPosition(generator.Proto, new EntityCoordinates(mapUid, origin));
-            genDest.Gateway = gatewayUid;
-            var gatewayComp = Comp<GatewayComponent>(gatewayUid);
-            _gateway.SetDestinationName(
-                gatewayUid,
-                FormattedMessage.FromMarkupOrThrow(
-                    $"[color={profile.AccentColor.ToHex()}]{gatewayName}[/color]"),
-                gatewayComp);
-            _gateway.SetEnabled(gatewayUid, true, gatewayComp);
+            genDest.Gateway = SpawnDestinationGateway(
+                mapUid,
+                genDest,
+                generator,
+                profile,
+                gatewayName);
 
             generator.Generated.Add(mapUid);
             _maps.InitializeMap(mapUid);
@@ -742,6 +911,31 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
             _gateway.UpdateAllGateways();
             return false;
         }
+    }
+
+    private EntityUid SpawnDestinationGateway(
+        EntityUid mapUid,
+        GatewayGeneratorDestinationComponent destination,
+        GatewayGeneratorComponent generator,
+        GatewayWorldProfilePrototype profile,
+        string gatewayName)
+    {
+        if (generator.Proto is not { } gatewayPrototype)
+            throw new InvalidOperationException("Gateway generator has no endpoint prototype.");
+
+        var gatewayUid = SpawnAtPosition(
+            gatewayPrototype,
+            new EntityCoordinates(mapUid, destination.Origin));
+        EnsureComp<CleanupImmuneComponent>(gatewayUid);
+
+        var gateway = Comp<GatewayComponent>(gatewayUid);
+        _gateway.SetDestinationName(
+            gatewayUid,
+            FormattedMessage.FromMarkupOrThrow(
+                $"[color={profile.AccentColor.ToHex()}]{gatewayName}[/color]"),
+            gateway);
+        _gateway.SetEnabled(gatewayUid, true, gateway);
+        return gatewayUid;
     }
 
     private void StartDungeonGeneration(

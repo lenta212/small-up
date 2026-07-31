@@ -1,11 +1,14 @@
 using System.Linq;
+using Content.Server._Mono.Cleanup;
 using Content.Server.Atmos.Components;
 using Content.Server.GameTicking;
 using Content.Server.Gateway.Components;
+using Content.Server.Gateway.Systems;
 using Content.Shared.CCVar;
 using Content.Shared.Gateway;
 using Content.Shared.Maps;
 using Content.Shared.Parallax.Biomes;
+using Content.Shared.Salvage;
 using Content.Shared.Salvage.Expeditions.Modifiers;
 using Content.Shared.Station.Components;
 using Content.Shared.Weather;
@@ -37,14 +40,17 @@ public sealed class LuaMFrontierMapLoadTest
     [Test]
     public async Task ProductionFrontierMapLoadsWithWorkingProceduralGateway()
     {
-        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        var pair = await PoolManager.GetServerClient(new PoolSettings
         {
+            Connected = true,
             Dirty = true,
         });
         var server = pair.Server;
         var entManager = server.ResolveDependency<IEntityManager>();
         var mapManager = server.ResolveDependency<IMapManager>();
         var mapSystem = entManager.System<SharedMapSystem>();
+        var gatewaySystem = entManager.System<GatewaySystem>();
+        var uiSystem = entManager.System<UserInterfaceSystem>();
         var protoManager = server.ResolveDependency<IPrototypeManager>();
         var ticker = entManager.System<GameTicker>();
         var cfg = server.ResolveDependency<IConfigurationManager>();
@@ -54,6 +60,11 @@ public sealed class LuaMFrontierMapLoadTest
         var oldGeneratorEnabled = false;
         var oldGeneratorMaxDestinations = 0;
         var mapId = MapId.Nullspace;
+        var sourceGatewayNet = NetEntity.Invalid;
+        var destinationGatewayNet = NetEntity.Invalid;
+        var initialDestinationUid = EntityUid.Invalid;
+        var removedGatewayUid = EntityUid.Invalid;
+        var clientActor = EntityUid.Invalid;
 
         try
         {
@@ -64,7 +75,9 @@ public sealed class LuaMFrontierMapLoadTest
                 cfg.SetCVar(CCVars.GatewayGeneratorMaxDestinations, 1);
                 cfg.SetCVar(CCVars.GatewayGeneratorEnabled, true);
 
-                var options = DeserializationOptions.Default with { InitializeMaps = true };
+                // Match the real pre-round flow: load the map first, then initialize it
+                // after station setup and the lobby preload have completed.
+                var options = DeserializationOptions.Default with { InitializeMaps = false };
                 try
                 {
                     ticker.LoadGameMap(protoManager.Index<GameMapPrototype>(ProductionMap), out mapId, options);
@@ -75,7 +88,38 @@ public sealed class LuaMFrontierMapLoadTest
                 }
             });
 
+            // Production keeps the loaded station in the pre-round lobby before MapInit.
+            // Let any gateway generation queued during station setup settle in that state.
             await pair.RunTicksSync(600);
+            await server.WaitPost(() => mapSystem.InitializeMap(mapId));
+            await server.WaitPost(() =>
+            {
+                var generators = entManager.AllComponents<GatewayGeneratorComponent>().ToList();
+                Assert.That(generators, Has.Count.EqualTo(1));
+                Assert.That(generators[0].Component.Generated, Has.Count.EqualTo(1));
+                initialDestinationUid = generators[0].Component.Generated.Single();
+            });
+            var gatewayReady = false;
+            for (var attempt = 0; attempt < 40 && !gatewayReady; attempt++)
+            {
+                await pair.RunTicksSync(100);
+                await server.WaitPost(() =>
+                {
+                    gatewayReady = entManager.AllComponents<GatewayGeneratorComponent>()
+                        .Any(entry =>
+                            entry.Component.Generated.Count == 1 &&
+                            entry.Component.Generated.All(destinationUid =>
+                                entManager.TryGetComponent<GatewayGeneratorDestinationComponent>(
+                                    destinationUid,
+                                    out var destination) &&
+                                destination.GenerationState == GatewayDestinationGenerationState.Ready));
+                });
+            }
+
+            Assert.That(
+                gatewayReady,
+                Is.True,
+                "The production gateway pool must converge to a ready destination.");
             await server.WaitAssertion(() =>
             {
                 var stationGrids = mapManager.GetAllGrids(mapId)
@@ -92,6 +136,10 @@ public sealed class LuaMFrontierMapLoadTest
                     "The Frontier station prototype must own the procedural gateway generator.");
                 Assert.That(generator!.Generated, Has.Count.EqualTo(1),
                     "The enabled generator must create a destination up to the configured test cap.");
+                Assert.That(
+                    generator.Generated.Single(),
+                    Is.EqualTo(initialDestinationUid),
+                    "A valid dungeon must keep its original destination instead of flashing and being replaced.");
 
                 var sourceGateways = entManager.AllComponents<GatewayComponent>()
                     .Where(entry =>
@@ -109,6 +157,7 @@ public sealed class LuaMFrontierMapLoadTest
                         Is.EqualTo(stationGrid),
                         "The mapped gateway must be anchored to the Frontier station grid.");
                 });
+                sourceGatewayNet = entManager.GetNetEntity(sourceGateways[0].Uid);
 
                 var destinationUid = generator.Generated.Single();
                 Assert.That(
@@ -132,6 +181,10 @@ public sealed class LuaMFrontierMapLoadTest
                         "The generated gateway world must complete its asynchronous dungeon transaction.");
                     Assert.That(destination.DungeonBoundsValidated, Is.True,
                         "A ready gateway world must have all dungeon tiles inside its restricted range.");
+                    Assert.That(
+                        entManager.GetComponent<RestrictedRangeComponent>(destinationUid).Range,
+                        Is.LessThanOrEqualTo(160f),
+                        "A generated dungeon must stay within the hard world-size safety bound.");
                     Assert.That(
                         entManager.GetComponent<MapAtmosphereComponent>(destinationUid).Space,
                         Is.EqualTo(air.Space));
@@ -157,7 +210,119 @@ public sealed class LuaMFrontierMapLoadTest
                     Assert.That(destinationGateways[0].Component.Enabled, Is.True,
                         "The generated planet must contain an enabled return gateway.");
                     Assert.That(destination.Gateway, Is.EqualTo(destinationGateways[0].Uid));
+                    Assert.That(
+                        entManager.HasComponent<CleanupImmuneComponent>(destination.Gateway),
+                        Is.True,
+                        "Automatic space cleanup must never delete a generated return gateway.");
                 });
+                destinationGatewayNet = entManager.GetNetEntity(destination.Gateway);
+
+                gatewaySystem.UpdateAllGateways();
+                Assert.That(
+                    uiSystem.TryGetUiState<GatewayBoundUserInterfaceState>(
+                        sourceGateways[0].Uid,
+                        GatewayUiKey.Key,
+                        out var gatewayState),
+                    Is.True,
+                    "The mapped gateway must publish a bound UI state.");
+                Assert.That(
+                    gatewayState!.Destinations.Select(entry => entry.Entity),
+                    Does.Contain(destinationGatewayNet),
+                    "The generated return gateway must be visible as a selectable destination.");
+            });
+
+            await server.WaitPost(() =>
+            {
+                var session = server.PlayerMan.Sessions.Single();
+                var sourceGateway = entManager.GetEntity(sourceGatewayNet);
+                clientActor = entManager.SpawnEntity(
+                    "MobHuman",
+                    entManager.GetComponent<TransformComponent>(sourceGateway).Coordinates);
+                Assert.That(
+                    server.PlayerMan.SetAttachedEntity(session, clientActor, true),
+                    Is.True,
+                    "The connected integration client must have an actor for the gateway UI.");
+                uiSystem.OpenUi(
+                    sourceGateway,
+                    GatewayUiKey.Key,
+                    clientActor);
+            });
+            await pair.RunTicksSync(10);
+            await pair.Client.WaitAssertion(() =>
+            {
+                var clientEntManager = pair.Client.ResolveDependency<IEntityManager>();
+                Assert.That(
+                    clientEntManager.TryGetEntity(sourceGatewayNet, out var clientGateway),
+                    Is.True,
+                    "The client must receive the mapped gateway before its UI opens.");
+                var clientUi = clientEntManager.System<Robust.Client.GameObjects.UserInterfaceSystem>();
+                Assert.That(
+                    clientUi.TryGetUiState<GatewayBoundUserInterfaceState>(
+                        clientGateway!.Value,
+                        GatewayUiKey.Key,
+                        out var clientState),
+                    Is.True,
+                    "The connected client must receive the gateway UI state.");
+                Assert.That(
+                    clientState!.Destinations.Select(entry => entry.Entity),
+                    Does.Contain(destinationGatewayNet),
+                    "The connected client must receive the generated destination outside its PVS.");
+            });
+
+            // Reproduce the live failure mode: an external cleanup removed the endpoint
+            // while the generator still counted its world against the hard cap.
+            await server.WaitPost(() =>
+            {
+                var destination =
+                    entManager.GetComponent<GatewayGeneratorDestinationComponent>(initialDestinationUid);
+                removedGatewayUid = destination.Gateway;
+                entManager.DeleteEntity(removedGatewayUid);
+            });
+            await pair.RunTicksSync(40);
+            await server.WaitAssertion(() =>
+            {
+                var destination =
+                    entManager.GetComponent<GatewayGeneratorDestinationComponent>(initialDestinationUid);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(
+                        destination.Gateway,
+                        Is.Not.EqualTo(removedGatewayUid),
+                        "The periodic safety pass must restore a missing endpoint without replacing its world.");
+                    Assert.That(entManager.EntityExists(destination.Gateway), Is.True);
+                    Assert.That(entManager.GetComponent<GatewayComponent>(destination.Gateway).Enabled, Is.True);
+                    Assert.That(entManager.HasComponent<CleanupImmuneComponent>(destination.Gateway), Is.True);
+                });
+
+                destinationGatewayNet = entManager.GetNetEntity(destination.Gateway);
+                gatewaySystem.UpdateAllGateways();
+                Assert.That(
+                    uiSystem.TryGetUiState<GatewayBoundUserInterfaceState>(
+                        entManager.GetEntity(sourceGatewayNet),
+                        GatewayUiKey.Key,
+                        out var repairedState),
+                    Is.True);
+                Assert.That(
+                    repairedState!.Destinations.Select(entry => entry.Entity),
+                    Does.Contain(destinationGatewayNet),
+                    "The repaired endpoint must immediately return to the open gateway UI.");
+            });
+            await pair.RunTicksSync(10);
+            await pair.Client.WaitAssertion(() =>
+            {
+                var clientEntManager = pair.Client.ResolveDependency<IEntityManager>();
+                Assert.That(clientEntManager.TryGetEntity(sourceGatewayNet, out var clientGateway), Is.True);
+                var clientUi = clientEntManager.System<Robust.Client.GameObjects.UserInterfaceSystem>();
+                Assert.That(
+                    clientUi.TryGetUiState<GatewayBoundUserInterfaceState>(
+                        clientGateway!.Value,
+                        GatewayUiKey.Key,
+                        out var repairedState),
+                    Is.True);
+                Assert.That(
+                    repairedState!.Destinations.Select(entry => entry.Entity),
+                    Does.Contain(destinationGatewayNet),
+                    "The connected client must receive the self-healed destination.");
             });
         }
         finally
@@ -165,6 +330,36 @@ public sealed class LuaMFrontierMapLoadTest
             await server.WaitPost(() =>
             {
                 cfg.SetCVar(CCVars.GatewayGeneratorEnabled, false);
+                if (sourceGatewayNet != NetEntity.Invalid &&
+                    entManager.TryGetEntity(sourceGatewayNet, out var sourceGateway))
+                {
+                    uiSystem.CloseUi(
+                        sourceGateway.Value,
+                        GatewayUiKey.Key,
+                        server.PlayerMan.Sessions.Single());
+                }
+
+                var session = server.PlayerMan.Sessions.Single();
+                if (session.AttachedEntity == clientActor)
+                    server.PlayerMan.SetAttachedEntity(session, null, true);
+                if (clientActor.IsValid() && entManager.EntityExists(clientActor))
+                    entManager.DeleteEntity(clientActor);
+
+                foreach (var destination in entManager
+                             .AllComponents<GatewayGeneratorDestinationComponent>()
+                             .Select(entry => entry.Uid)
+                             .ToArray())
+                {
+                    var destinationMapId =
+                        entManager.GetComponent<TransformComponent>(destination).MapID;
+                    if (destinationMapId != MapId.Nullspace && mapSystem.MapExists(destinationMapId))
+                        mapSystem.DeleteMap(destinationMapId);
+                }
+            });
+
+            await pair.RunTicksSync(100);
+            await server.WaitPost(() =>
+            {
                 if (mapId != MapId.Nullspace && mapSystem.MapExists(mapId))
                     mapSystem.DeleteMap(mapId);
 
@@ -172,8 +367,20 @@ public sealed class LuaMFrontierMapLoadTest
                 cfg.SetCVar(CCVars.GatewayGeneratorEnabled, oldGeneratorEnabled);
             });
 
-            await pair.RunTicksSync(5);
-            await pair.CleanReturnAsync();
+            await pair.RunTicksSync(20);
+            try
+            {
+                await pair.CleanReturnAsync();
+            }
+            catch (Exception)
+            {
+                if (server.UnhandledException is { } serverException)
+                    throw new Exception("The gateway regression killed the integration server.", serverException);
+                if (pair.Client.UnhandledException is { } clientException)
+                    throw new Exception("The gateway regression killed the integration client.", clientException);
+
+                throw;
+            }
         }
     }
 

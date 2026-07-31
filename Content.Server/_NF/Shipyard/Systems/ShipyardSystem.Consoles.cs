@@ -88,6 +88,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
 
     private static readonly ProtoId<TagPrototype> CrewedShuttleTag = "CrewedShuttle";
     private static readonly ProtoId<AccessLevelPrototype> PersistentShipCaptainAccess = "Captain";
+    private static readonly ProtoId<AccessLevelPrototype>[] PersistentShipCaptainAccessLevels =
+        [PersistentShipCaptainAccess];
+    private static readonly ProtoId<AccessLevelPrototype>[] PersistentShipSecurityAccessLevels =
+        [PersistentShipCaptainAccess, "Security", "Brig"];
     private static readonly Regex DeedRegex = new(@"\s*\([^()]*\)");
 
     public void InitializeConsole()
@@ -2588,8 +2592,20 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                             return false;
                         }
 
-                        if (_shuttle.TryFTLDockAtDock(restored, shuttle, stationGrid, selectedGate))
+                        if (_shuttle.TryFTLDockAtDockOrPlaceNearbyIfDockless(
+                                restored,
+                                shuttle,
+                                stationGrid,
+                                selectedGate))
+                        {
+                            if (!Comp<DockingComponent>(selectedGate).Docked)
+                            {
+                                _sawmill.Warning(
+                                    $"Persistent ship {stored.ShipId} has no usable airlock and was placed near selected gate {selectedGate}.");
+                            }
+
                             return true;
+                        }
 
                         // Some hulls cannot geometrically mate with a particular
                         // gate even when it is free. Deliver them to a collision-
@@ -2668,9 +2684,16 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             deed.PersistentShipId = stored.ShipId.ToString("D");
             Dirty(targetId, deed);
             TryComp<PersistentShipyardAccessComponent>(result.Grid.Value, out var persistentAccess);
+            ShipyardConsoleUiKey? legacyShipyardGroup = null;
+            if (TryComp<VesselComponent>(result.Grid.Value, out var restoredVessel) &&
+                _prototypeManager.TryIndex(restoredVessel.VesselId, out var restoredVesselPrototype))
+            {
+                legacyShipyardGroup = restoredVesselPrototype.Group;
+            }
+
             GrantShipAccessLevels(
                 targetId,
-                ResolvePersistentShipAccessLevels(persistentAccess?.GrantedLevels));
+                ResolvePersistentShipAccessLevels(persistentAccess?.GrantedLevels, legacyShipyardGroup));
 
             var successLocId = GetPersistentShipCallSuccessLocId(usedProximityFallback);
             if (usedProximityFallback)
@@ -2717,11 +2740,17 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     }
 
     internal static IReadOnlyCollection<ProtoId<AccessLevelPrototype>> ResolvePersistentShipAccessLevels(
-        IReadOnlyCollection<ProtoId<AccessLevelPrototype>>? persistedLevels)
+        IReadOnlyCollection<ProtoId<AccessLevelPrototype>>? persistedLevels,
+        ShipyardConsoleUiKey? legacyShipyardGroup = null)
     {
+        if (persistedLevels != null)
+            return persistedLevels;
+
         // Snapshots written before PersistentShipyardAccessComponent existed
-        // received Captain from every persistent-capable shipyard console.
-        return persistedLevels ?? new[] { PersistentShipCaptainAccess };
+        // can still recover the deterministic grant from their vessel group.
+        return legacyShipyardGroup == ShipyardConsoleUiKey.Security
+            ? PersistentShipSecurityAccessLevels
+            : PersistentShipCaptainAccessLevels;
     }
 
     private bool IsPersistentShipCallTargetCurrent(

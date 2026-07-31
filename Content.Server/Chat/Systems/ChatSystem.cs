@@ -1167,6 +1167,10 @@ public sealed partial class ChatSystem : SharedChatSystem
             if (player.AttachedEntity is not { Valid: true } playerEntity)
                 continue;
 
+            // Regular ghosts must not use local speech to scout private player activity.
+            if (HasComp<GhostComponent>(playerEntity) && !_adminManager.IsAdmin(player))
+                continue;
+
             var transformEntity = xforms.GetComponent(playerEntity);
 
             if (transformEntity.MapID != sourceMapId)

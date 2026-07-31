@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using Content.Server._NF.Shipyard.Systems;
 using Content.Shared.Access;
+using Content.Shared._NF.Shipyard;
 using Robust.Shared.Prototypes;
 
 namespace Content.IntegrationTests.Tests._LuaM;
@@ -137,7 +138,7 @@ public sealed class LuaMShipyardPurchaseDurabilityContractTest
             "TryComp<PersistentShipyardAccessComponent>(result.Grid.Value, out var persistentAccess);",
             StringComparison.Ordinal);
         var accessRestored = call.IndexOf(
-            "ResolvePersistentShipAccessLevels(persistentAccess?.GrantedLevels)",
+            "ResolvePersistentShipAccessLevels(persistentAccess?.GrantedLevels, legacyShipyardGroup)",
             StringComparison.Ordinal);
 
         Assert.Multiple(() =>
@@ -155,7 +156,7 @@ public sealed class LuaMShipyardPurchaseDurabilityContractTest
     }
 
     [Test]
-    public void PersistentAccessResolverUsesStoredSecurityGrantAndLegacyCaptainFallback()
+    public void PersistentAccessResolverUsesStoredGrantAndVesselAwareLegacyFallback()
     {
         HashSet<ProtoId<AccessLevelPrototype>> stored =
         [
@@ -165,15 +166,22 @@ public sealed class LuaMShipyardPurchaseDurabilityContractTest
         ];
 
         var restored = ShipyardSystem.ResolvePersistentShipAccessLevels(stored);
-        var legacyFallback = ShipyardSystem.ResolvePersistentShipAccessLevels(null);
+        var legacyCivilianFallback = ShipyardSystem.ResolvePersistentShipAccessLevels(
+            null,
+            ShipyardConsoleUiKey.Shipyard);
+        var legacySecurityFallback = ShipyardSystem.ResolvePersistentShipAccessLevels(
+            null,
+            ShipyardConsoleUiKey.Security);
 
         Assert.Multiple(() =>
         {
             Assert.That(restored, Is.SameAs(stored));
             Assert.That(restored.Select(level => level.Id),
                 Is.EquivalentTo(new[] { "Captain", "Security", "Brig" }));
-            Assert.That(legacyFallback.Select(level => level.Id),
+            Assert.That(legacyCivilianFallback.Select(level => level.Id),
                 Is.EquivalentTo(new[] { "Captain" }));
+            Assert.That(legacySecurityFallback.Select(level => level.Id),
+                Is.EquivalentTo(new[] { "Captain", "Security", "Brig" }));
         });
     }
 

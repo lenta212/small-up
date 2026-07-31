@@ -143,6 +143,7 @@ public sealed class LuaMShipPersistenceLifecycleContractTest
             Assert.That(call, Does.Contain("RestoreClaimAsync("));
             Assert.That(call, Does.Contain("stored.ShipId,"));
             Assert.That(call, Does.Contain("TryReservePersistentShipCall(stored.ShipId, targetId, out var reservationId)"));
+            Assert.That(call, Does.Contain("TryFTLDockAtDockOrPlaceNearbyIfDockless("));
             Assert.That(call, Does.Contain("deed.PersistentShipId = stored.ShipId.ToString(\"D\");"));
             Assert.That(call.IndexOf("if (!result.Success || result.Grid == null)", StringComparison.Ordinal),
                 Is.LessThan(call.IndexOf("EnsureComp<ShuttleDeedComponent>(targetId)", StringComparison.Ordinal)));
@@ -561,7 +562,8 @@ public sealed class LuaMShipPersistenceLifecycleContractTest
         var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
         while (directory != null)
         {
-            if (Directory.Exists(Path.Combine(directory.FullName, ".git")))
+            var gitMarker = Path.Combine(directory.FullName, ".git");
+            if (Directory.Exists(gitMarker) || File.Exists(gitMarker))
                 return directory.FullName;
 
             directory = directory.Parent;

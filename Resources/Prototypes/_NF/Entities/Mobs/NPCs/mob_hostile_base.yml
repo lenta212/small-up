@@ -3,8 +3,6 @@
   id: NFMobAtmos
   abstract: true
   components:
-  - type: BreathingImmunity
-  - type: PressureImmunity
   - type: Temperature
     heatDamageThreshold: 2000 # Should prevent mobs from taking damage on planets with extreme heat
     coldDamageThreshold: -250 # Should make mobs immune to cold planets

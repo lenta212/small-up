@@ -1156,6 +1156,42 @@ public sealed partial class ShuttleSystem
     }
 
     /// <summary>
+    /// Uses the exact selected target dock when the shuttle has a usable airlock.
+    /// A shuttle whose docking airlock was removed or destroyed is instead placed
+    /// safely near that target so it remains recoverable from persistent storage.
+    /// </summary>
+    public bool TryFTLDockAtDockOrPlaceNearbyIfDockless(
+        EntityUid shuttleUid,
+        ShuttleComponent component,
+        EntityUid targetGrid,
+        EntityUid targetDock)
+    {
+        if (!TryComp<DockingComponent>(targetDock, out var targetDockComponent) ||
+            Transform(targetDock).GridUid != targetGrid ||
+            targetDockComponent.Docked ||
+            (targetDockComponent.DockType & DockType.Airlock) == DockType.None)
+        {
+            return false;
+        }
+
+        if (TryFTLDockAtDock(shuttleUid, component, targetGrid, targetDock))
+            return true;
+
+        if (targetDockComponent.Docked || Transform(targetDock).GridUid != targetGrid)
+            return false;
+
+        var hasUsableAirlock = _dockSystem.GetDocks(shuttleUid).Any(candidate =>
+            (candidate.Comp.DockType & DockType.Airlock) != DockType.None &&
+            !candidate.Comp.ReceiveOnly &&
+            !candidate.Comp.Docked &&
+            Transform(candidate.Owner).Anchored);
+        if (hasUsableAirlock)
+            return false;
+
+        return TryFTLProximity(shuttleUid, targetDock);
+    }
+
+    /// <summary>
     /// Forces an FTL dock.
     /// </summary>
     public void FTLDock(Entity<TransformComponent> shuttle, DockingConfig config)

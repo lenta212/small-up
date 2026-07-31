@@ -198,6 +198,20 @@ public sealed partial class RespiratorSystem : EntitySystem
     }
 
     /// <summary>
+    /// Returns whether failed breathing can ever push this respirator into a
+    /// damaging suffocation state. Some NPC prototypes intentionally keep a
+    /// respirator for compatibility while configuring it as harmless.
+    /// </summary>
+    public bool CanSuffocate(Entity<RespiratorComponent?> ent)
+    {
+        if (!Resolve(ent, ref ent.Comp))
+            return false;
+
+        return ent.Comp.SuffocationThreshold > ent.Comp.MinSaturation &&
+               ent.Comp.Damage.AnyPositive();
+    }
+
+    /// <summary>
     /// Check whether or not an entity can metabolize the given gas mixture without suffocating or taking damage
     /// (i.e., no toxic gasses).
     /// </summary>

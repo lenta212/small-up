@@ -12,11 +12,21 @@ using Content.Shared.ActionBlocker;
 using Content.Shared.Atmos;
 using Content.Shared.Atmos.Components;
 using Content.Shared.Damage;
+using Content.Shared.FixedPoint;
 using Content.Shared.Mobs.Systems;
+using Content.Shared.NPC.Components;
+using Content.Shared.NPC.Prototypes;
 using Content.Shared.NPC.Systems;
 using Content.Shared.Power.Components;
-using Content.Shared._Shitmed.Body.Components;
+using Content.Shared.Projectiles;
+using Content.Shared.Weapons.Hitscan.Components;
+using Content.Shared.Weapons.Hitscan.Events;
+using Content.Shared.Weapons.Hitscan.Systems;
+using Content.Shared.Weapons.Melee.Events;
+using Content.Shared.Weapons.Ranged.Events;
+using Content.Shared.Weapons.Ranged.Systems;
 using Content.Shared._LuaM.AI;
+using Content.Shared._Shitmed.Body.Components;
 using Robust.Shared.Map;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
@@ -40,6 +50,12 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
 
     private const string BuiltInSource = "builtin";
     private static readonly TimeSpan MinimumObservationTtl = TimeSpan.FromMilliseconds(100);
+    private static readonly ProtoId<NpcFactionPrototype> BloodCultFaction = "BloodCultNF";
+    private const float BloodCultDecisionIntervalSeconds = 0.25f;
+    private const float BloodCultPerceptionRange = 18f;
+    private const float BloodCultThreatTolerance = 12f;
+    private const float BloodCultMeleeBonus = 6f;
+    private const float BloodCultRangedDamageMultiplier = 1.25f;
 
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private IPrototypeManager _prototypes = default!;
@@ -52,6 +68,19 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
     [Dependency] private NpcFactionSystem _factions = default!;
     [Dependency] private RespiratorSystem _respirator = default!;
     [Dependency] private SharedTransformSystem _transform = default!;
+
+    public override void Initialize()
+    {
+        base.Initialize();
+
+        SubscribeLocalEvent<NpcFactionMemberComponent, GetMeleeDamageEvent>(OnFactionMeleeDamage);
+        SubscribeLocalEvent<NpcFactionMemberComponent, SelfBeforeGunShotEvent>(OnBeforeFactionGunShot);
+        SubscribeLocalEvent<LuaMBloodCultShotComponent, AmmoShotEvent>(OnGunAmmoShot);
+        SubscribeLocalEvent<LuaMBloodCultShotComponent, GunShotEvent>(OnGunShot);
+        SubscribeLocalEvent<LuaMBloodCultShotComponent, HitscanRaycastFiredEvent>(
+            OnHitscanRaycastFired,
+            before: [typeof(HitscanBasicDamageSystem)]);
+    }
 
     public override void Update(float frameTime)
     {
@@ -176,15 +205,19 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
             return false;
         }
 
+        var bloodCultist = IsBloodCultist(actor);
         if (refreshBuiltInPerception && component.BuiltInPerception)
-            RefreshBuiltInPerception(actor, component, profile);
+            RefreshBuiltInPerception(actor, component, profile, bloodCultist);
 
         PruneObservations(component, profile, now);
         var previous = component.Decision;
         decision = LuaMBehaviorArbiter.Decide(profile, component.Observations, previous, now);
         component.Decision = decision;
         component.NextEvaluation = now + TimeSpan.FromSeconds(
-            Math.Clamp(profile.DecisionIntervalSeconds, 0.1f, 10f));
+            Math.Clamp(
+                bloodCultist ? BloodCultDecisionIntervalSeconds : profile.DecisionIntervalSeconds,
+                0.1f,
+                10f));
         component.LastStatus =
             $"{decision.Intent}/{decision.Tier} g{decision.Generation}: {decision.Reason}";
 
@@ -312,9 +345,19 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
     private void RefreshBuiltInPerception(
         EntityUid actor,
         LuaMBehaviorAgentComponent component,
-        LuaMBehaviorProfilePrototype profile)
+        LuaMBehaviorProfilePrototype profile,
+        bool bloodCultist)
     {
-        var ttl = TimeSpan.FromSeconds(Math.Clamp(profile.DecisionIntervalSeconds * 3f, 1f, 10f));
+        var decisionInterval = bloodCultist
+            ? BloodCultDecisionIntervalSeconds
+            : profile.DecisionIntervalSeconds;
+        var perceptionRange = bloodCultist
+            ? BloodCultPerceptionRange
+            : profile.PerceptionRange;
+        var threatTolerance = bloodCultist
+            ? BloodCultThreatTolerance
+            : profile.ThreatTolerance;
+        var ttl = TimeSpan.FromSeconds(Math.Clamp(decisionInterval * 3f, 1f, 10f));
 
         if (_mobState.IsIncapacitated(actor))
         {
@@ -348,7 +391,7 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
         }
 
         RefreshAtmospherePerception(actor, component, profile, ttl);
-        RefreshThreatPerception(actor, component, profile, ttl);
+        RefreshThreatPerception(actor, component, perceptionRange, threatTolerance, ttl);
         RefreshPowerPerception(actor, component, ttl);
     }
 
@@ -365,6 +408,7 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
         if (profile.HasCapability(LuaMBehaviorCapability.Breathe) &&
             !HasComp<BreathingImmunityComponent>(actor) &&
             TryComp<RespiratorComponent>(actor, out var respirator) &&
+            _respirator.CanSuffocate((actor, respirator)) &&
             !_respirator.CanMetabolizeInhaledAir((actor, respirator)))
         {
             UpsertObservation(component, LuaMBehaviorStimulus.UnsafeAtmosphere, 1f, 1f, null, null, ttl,
@@ -372,6 +416,7 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
         }
 
         if (profile.HasCapability(LuaMBehaviorCapability.PressureVulnerable) &&
+            HasComp<BarotraumaComponent>(actor) &&
             !HasComp<PressureImmunityComponent>(actor))
         {
             if (mixture.Pressure < Atmospherics.WarningLowPressure)
@@ -412,17 +457,18 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
     private void RefreshThreatPerception(
         EntityUid actor,
         LuaMBehaviorAgentComponent component,
-        LuaMBehaviorProfilePrototype profile,
+        float perceptionRange,
+        float threatTolerance,
         TimeSpan ttl)
     {
-        if (profile.PerceptionRange <= 0f)
+        if (perceptionRange <= 0f)
             return;
 
         var count = 0;
         var nearestDistance = float.MaxValue;
         EntityUid? nearest = null;
         var actorCoordinates = Transform(actor).Coordinates;
-        foreach (var hostile in _factions.GetNearbyHostiles(actor, profile.PerceptionRange))
+        foreach (var hostile in _factions.GetNearbyHostiles(actor, perceptionRange))
         {
             if (TerminatingOrDeleted(hostile))
                 continue;
@@ -446,20 +492,79 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
         if (count == 0)
             return;
 
-        var countSeverity = count / Math.Max(1f, profile.ThreatTolerance);
+        var countSeverity = count / Math.Max(1f, threatTolerance);
         var proximitySeverity = nearestDistance == float.MaxValue
             ? 0f
-            : 1f - Math.Clamp(nearestDistance / Math.Max(0.1f, profile.PerceptionRange), 0f, 1f);
+            : 1f - Math.Clamp(nearestDistance / Math.Max(0.1f, perceptionRange), 0f, 1f);
         var severity = Math.Max(countSeverity, proximitySeverity);
         UpsertObservation(component, LuaMBehaviorStimulus.HostileThreat, severity, 1f, nearest, null, ttl,
             $"{BuiltInSource}:threat");
 
-        if (count > Math.Max(1f, profile.ThreatTolerance))
+        if (count > Math.Max(1f, threatTolerance))
         {
             UpsertObservation(component, LuaMBehaviorStimulus.Overwhelmed,
-                count / Math.Max(1f, profile.ThreatTolerance * 2f), 1f, nearest, null, ttl,
+                count / Math.Max(1f, threatTolerance * 2f), 1f, nearest, null, ttl,
                 $"{BuiltInSource}:threat");
         }
+    }
+
+    private void OnFactionMeleeDamage(
+        Entity<NpcFactionMemberComponent> ent,
+        ref GetMeleeDamageEvent args)
+    {
+        if (!IsBloodCultist(ent.Owner))
+            return;
+
+        var bonus = new DamageSpecifier();
+        bonus.DamageDict.Add("Slash", FixedPoint2.New(BloodCultMeleeBonus));
+        args.Damage += bonus;
+    }
+
+    private void OnBeforeFactionGunShot(
+        Entity<NpcFactionMemberComponent> ent,
+        ref SelfBeforeGunShotEvent args)
+    {
+        if (!IsBloodCultist(ent.Owner))
+            return;
+
+        EnsureComp<LuaMBloodCultShotComponent>(args.Gun.Owner);
+        foreach (var (ammo, shootable) in args.Ammo)
+        {
+            if (ammo is { } hitscan && shootable is HitscanAmmoComponent)
+                EnsureComp<LuaMBloodCultShotComponent>(hitscan);
+        }
+    }
+
+    private void OnGunAmmoShot(Entity<LuaMBloodCultShotComponent> ent, ref AmmoShotEvent args)
+    {
+        foreach (var projectile in args.FiredProjectiles)
+        {
+            if (TryComp<ProjectileComponent>(projectile, out var component))
+                component.Damage *= BloodCultRangedDamageMultiplier;
+        }
+    }
+
+    private void OnGunShot(Entity<LuaMBloodCultShotComponent> ent, ref GunShotEvent args)
+    {
+        RemCompDeferred<LuaMBloodCultShotComponent>(ent.Owner);
+    }
+
+    private void OnHitscanRaycastFired(
+        Entity<LuaMBloodCultShotComponent> ent,
+        ref HitscanRaycastFiredEvent args)
+    {
+        if (ent.Comp.HitscanDamageBoostApplied ||
+            !TryComp<HitscanBasicDamageComponent>(ent.Owner, out var damage))
+            return;
+
+        damage.Damage *= BloodCultRangedDamageMultiplier;
+        ent.Comp.HitscanDamageBoostApplied = true;
+    }
+
+    private bool IsBloodCultist(EntityUid uid)
+    {
+        return TryComp<NpcFactionMemberComponent>(uid, out var faction) &&
+               _factions.IsMember((uid, faction), BloodCultFaction);
     }
 
     private void RefreshPowerPerception(

@@ -1162,6 +1162,7 @@ public sealed class LuaMRescueTerminalPolicyRuntimeTest
         var shuttleSystem = entities.System<LuaMRescueShuttleSystem>();
         var coordinator = entities.System<LuaMRescueActivityCoordinatorSystem>();
         var mobState = entities.System<MobStateSystem>();
+        var minds = entities.System<MindSystem>();
         var map = await pair.CreateTestMap();
 
         await server.WaitAssertion(() =>
@@ -1173,6 +1174,8 @@ public sealed class LuaMRescueTerminalPolicyRuntimeTest
                 map.MapId,
                 Vector2.Zero,
                 attachActor: false);
+            var patientMind = minds.CreateMind(null, "LuaM explicit recovery reconciliation patient");
+            minds.TransferTo(patientMind, patient, createGhost: false, mind: patientMind.Comp);
             var assignedShuttle = entities.SpawnEntity(null, map.MapCoords);
             var assignedAnchor = entities.SpawnEntity(null, map.MapCoords);
             var assignedConsole = entities.SpawnEntity(null, map.MapCoords);
@@ -1259,6 +1262,8 @@ public sealed class LuaMRescueTerminalPolicyRuntimeTest
                 Assert.That(replacementRescue.AssignedReturnTarget, Is.EqualTo(assignedReturnTarget));
             });
 
+            minds.TransferTo(patientMind, null, createGhost: false, mind: patientMind.Comp);
+            entities.DeleteEntity(patientMind.Owner);
             entities.DeleteEntity(patient);
             entities.DeleteEntity(replacement);
             entities.DeleteEntity(assignedShuttle);

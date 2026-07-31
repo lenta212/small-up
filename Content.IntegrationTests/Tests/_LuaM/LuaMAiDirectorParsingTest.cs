@@ -569,6 +569,103 @@ public sealed class LuaMAiDirectorParsingTest
         Assert.That(logLimitField!.GetRawConstantValue(), Is.EqualTo(5L * 1024L * 1024L));
     }
 
+    [TestCase("none", true)]
+    [TestCase("NONE", true)]
+    [TestCase("", true)]
+    [TestCase("spawn_entity", false)]
+    [TestCase("admin_command", false)]
+    public void UnknownGatewayAllowsConversationOnlyActions(string action, bool expected)
+    {
+        Assert.That(
+            InvokePrivateStatic<bool>(typeof(LuaMSectorAiDirectorSystem), "IsConversationOnlyGatewayAction", action),
+            Is.EqualTo(expected));
+    }
+
+    [TestCase("а ты где?", true)]
+    [TestCase("понял", true)]
+    [TestCase("понял, спасибо", true)]
+    [TestCase("ладно, хорошо", true)]
+    [TestCase("ты жив?", true)]
+    [TestCase("почему ты здесь?", true)]
+    [TestCase("Айболит, статус", false)]
+    [TestCase("экипаж, общий сбор", false)]
+    [TestCase("Хаск, подойди сюда", false)]
+    [TestCase("генератор сломан", false)]
+    public void UnknownConversationConservativelyRecognizesFollowUps(string message, bool expected)
+    {
+        Assert.That(
+            InvokePrivateStatic<bool>(
+                typeof(LuaMSectorAiDirectorSystem),
+                "IsLikelyUnknownConversationFollowUp",
+                message),
+            Is.EqualTo(expected));
+    }
+
+    [TestCase("Жду указаний.", true)]
+    [TestCase("Ожидаю приказов.", true)]
+    [TestCase("Готов выполнять команды.", true)]
+    [TestCase("Что прикажете?", true)]
+    [TestCase("Слышу тебя. Тут темно.", false)]
+    public void UnknownConversationRejectsSubordinatePersonaReplies(string reply, bool expected)
+    {
+        Assert.That(
+            InvokePrivateStatic<bool>(
+                typeof(LuaMSectorAiDirectorSystem),
+                "IsDisallowedUnknownPersonaReply",
+                reply),
+            Is.EqualTo(expected));
+    }
+
+    [TestCase("ИИ-провайдер временно не ответил. Команда не выполнена, но канал связи работает.", true)]
+    [TestCase("ИИ провайдер временно не ответил", true)]
+    [TestCase("Слышу тебя. Тут темно.", false)]
+    [TestCase("", true)]
+    public void UnknownConversationRejectsTechnicalGatewayFallbacks(string reply, bool expected)
+    {
+        Assert.That(
+            InvokePrivateStatic<bool>(
+                typeof(LuaMSectorAiDirectorSystem),
+                "IsGenericGatewayFallbackReply",
+                reply),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void UnknownConversationTrackingIsBounded()
+    {
+        Assert.That(GetPrivateConstant("UnknownConversationFollowSeconds"), Is.EqualTo(180));
+        Assert.That(GetPrivateConstant("UnknownConversationMaxTurns"), Is.EqualTo(6));
+        Assert.That(GetPrivateConstant("UnknownConversationHistoryLimit"), Is.EqualTo(6));
+        Assert.That(GetPrivateConstant("UnknownGatewayAttempts"), Is.EqualTo(3));
+    }
+
+    [Test]
+    public void UnknownGatewayRequestSchemaContainsStrictAllowlists()
+    {
+        var requestType = typeof(LuaMSectorAiDirectorSystem).GetNestedType(
+            "LuaMAiGatewayChatRequest",
+            BindingFlags.NonPublic);
+
+        Assert.That(requestType, Is.Not.Null);
+        Assert.That(requestType!.GetProperty("AdminModeEnabled"), Is.Not.Null);
+        Assert.That(requestType.GetProperty("AllowedActions"), Is.Not.Null);
+        Assert.That(requestType.GetProperty("AllowedAdminCommandNames"), Is.Not.Null);
+        Assert.That(requestType.GetProperty("AllowedEntityPrototypeIds"), Is.Not.Null);
+        Assert.That(requestType.GetProperty("AllowedSectorCommandIds"), Is.Not.Null);
+        Assert.That(requestType.GetProperty("AllowedRadioChannelIds"), Is.Not.Null);
+
+        Assert.That(
+            typeof(LuaMSectorAiDirectorSystem).GetMethod(
+                "BuildGatewayUnknownRadioRequest",
+                BindingFlags.Instance | BindingFlags.NonPublic),
+            Is.Not.Null);
+        Assert.That(
+            typeof(LuaMSectorAiDirectorSystem).GetMethod(
+                "RequestGatewayUnknownRadioAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic),
+            Is.Not.Null);
+    }
+
     [TestCase("Awakening", "InspectHull", 0, 0, "status", "initial_contact")]
     [TestCase("InspectHull", "RestorePower", 0, 0, "check the generator", "progressed")]
     [TestCase("InspectHull", "InspectHull", 0, 1, "\u043e\u0442\u043a\u0440\u043e\u0439 \u0448\u043b\u044e\u0437", "dangerous_advice")]
@@ -692,5 +789,14 @@ public sealed class LuaMAiDirectorParsingTest
         Assert.That(result, Is.Not.Null, $"Method {type.Name}.{methodName} returned null");
 
         return (T)result!;
+    }
+
+    private static object? GetPrivateConstant(string fieldName)
+    {
+        var field = typeof(LuaMSectorAiDirectorSystem).GetField(
+            fieldName,
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.That(field, Is.Not.Null, $"Missing private constant {fieldName}");
+        return field!.GetRawConstantValue();
     }
 }
