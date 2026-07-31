@@ -530,7 +530,6 @@ try {
         "Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficTest.cs",
         "Content.IntegrationTests/Tests/_LuaM/LuaMSectorTrafficInterceptTest.cs",
         "Content.IntegrationTests/Tests/_LuaM/LuaMTimedSpawnerLimitTest.cs",
-        "Content.IntegrationTests/Tests/_LuaM/LuaMShipyardPurchaseDurabilityContractTest.cs",
         "Content.IntegrationTests/Tests/_LuaM/LuaMCharacterPersistenceTest.cs",
         "Content.IntegrationTests/Tests/_LuaM/LuaMCharacterTtsValidationTest.cs",
         "Content.IntegrationTests/Tests/_LuaM/LuaMDynamicEventGrowthLimitTest.cs",

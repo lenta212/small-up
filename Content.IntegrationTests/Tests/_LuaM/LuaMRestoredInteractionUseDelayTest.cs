@@ -131,8 +131,14 @@ public sealed class LuaMRestoredInteractionUseDelayTest : InteractionTest
                     Is.True);
                 Assert.Multiple(() =>
                 {
-                    Assert.That(validDelayAfter!.StartTime, Is.EqualTo(validStartTime));
-                    Assert.That(validDelayAfter.EndTime, Is.EqualTo(validEndTime));
+                    Assert.That(
+                        Math.Abs((validDelayAfter!.StartTime - validStartTime).Ticks),
+                        Is.LessThanOrEqualTo(1),
+                        "Timestamp serialization may round by one 100-nanosecond tick.");
+                    Assert.That(
+                        Math.Abs((validDelayAfter.EndTime - validEndTime).Ticks),
+                        Is.LessThanOrEqualTo(1),
+                        "Timestamp serialization may round by one 100-nanosecond tick.");
                     Assert.That(validDelayAfter.Length, Is.EqualTo(validLength));
                 });
 
@@ -141,8 +147,12 @@ public sealed class LuaMRestoredInteractionUseDelayTest : InteractionTest
                     .ToArray();
                 Assert.Multiple(() =>
                 {
-                    Assert.That(restoredRechargeTimes, Does.Contain(validNextAutoRecharge),
-                        "A legitimate same-round energy-weapon recharge pause must survive park-and-call.");
+                    Assert.That(
+                        restoredRechargeTimes.Any(time =>
+                            Math.Abs((time - validNextAutoRecharge).Ticks) <= 1),
+                        Is.True,
+                        "A legitimate same-round energy-weapon recharge pause must survive park-and-call; " +
+                        "timestamp serialization may round by one 100-nanosecond tick.");
                     Assert.That(restoredRechargeTimes.Any(time => time <= timing.CurTime), Is.True,
                         "An impossible old-round recharge timestamp must expire so the restored weapon can recharge.");
                 });

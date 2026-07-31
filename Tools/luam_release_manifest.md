@@ -1,6 +1,6 @@
 # LuaM Local Release Manifest
 
-Current policy (2026-07-30): batch `20260730-comprehensive-connected-update` completed in production as rollout `luam-20260730-081938`. The matching client, procedural gateway settings, stored-ship compatibility, viewport/HUD stability, Unknown/Aibolit behavior, radar/targeting, late-join, and selected safety updates are live. Remote deployment is frozen again and the batch has returned to `local-package-only`; every later production mutation requires fresh explicit authorization, policy-bound artifacts, all release gates, a checked data backup, and the active-ship save barrier.
+Current policy (2026-07-31): batch `20260731-restored-ships-global` is a local `release-candidate` based on frozen production anchor `6687939bd4` (deployed runtime `a7f4e8aa64`). It retains the live hostile-cultist hotfix and prepares a fresh matching client/server pair for saved-ship access, interactions, expeditions, weapons, recharge, shields, and a full-width 16:9/16:10 gameplay viewport without side pillarboxing. Remote deployment remains frozen; publication requires fresh explicit authorization, policy-bound artifacts, all release gates, a checked data backup, and the active-ship save barrier. The live configuration and AI gateway are outside this batch.
 
 The machine-readable policy lives in `Tools\luam_release_policy.json` and is the only authority for the release gate and remote freeze. A missing or invalid JSON policy blocks remote deployment; this markdown manifest is documentation, not a fallback policy.
 

@@ -1,6 +1,9 @@
+using System;
 using System.Numerics;
 using Content.Client.Shuttles.UI;
 using Content.Client.UserInterface.Controls;
+using Content.Client.UserInterface.Systems.Viewport;
+using Content.Shared.CCVar;
 using NUnit.Framework;
 using Robust.Shared.Maths;
 
@@ -10,6 +13,24 @@ namespace Content.Tests.Client._LuaM;
 public sealed class LuaMRadarGeometryTest
 {
     private static readonly Box2 View = new(0f, 0f, 10f, 10f);
+
+    [TestCase(16, 9)]
+    [TestCase(16, 10)]
+    public void MainViewportCoversCommonLandscapeAspectRatios(int aspectWidth, int aspectHeight)
+    {
+        var minimumTiles = (int) MathF.Ceiling(
+            ViewportUIController.ViewportHeight * aspectWidth / (float) aspectHeight);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(CCVars.ViewportVerticalFit.DefaultValue, Is.True,
+                "The default viewport must continue fitting the available screen height.");
+            Assert.That(CCVars.ViewportMaximumWidth.DefaultValue, Is.GreaterThanOrEqualTo(minimumTiles),
+                "The height-fitted viewport must be wide enough to avoid black pillarbox bars.");
+            Assert.That(CCVars.ViewportWidth.DefaultValue, Is.EqualTo(CCVars.ViewportMaximumWidth.DefaultValue),
+                "New clients must start with the full server-supported viewport width.");
+        });
+    }
 
     [Test]
     public void SegmentViewportIntersectionHandlesCrossingTangentAndZeroLengthLines()
