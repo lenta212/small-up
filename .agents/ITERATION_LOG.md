@@ -5817,3 +5817,69 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Objective/result: delivered one global warning during running round 192: `Внимание! Дроны приближаются со всех сторон. Приготовьтесь к обороне!`
 - Delivery/evidence: one UTF-8 bridge command grew the inbox from 6,069 to 6,206 bytes and the outbox from 7,703 to 7,899 bytes. The outbox recorded exactly one `bridge announcement sent` at `2026-07-31T19:51:26.3520733Z`; no retry or duplicate was sent.
 - Safety/state: the service remained active with `NRestarts=0`/`ExecMainStatus=0`; round 192 and six players remained online. No code, configuration, database, service, or round change occurred.
+## 2026-07-31T19:53:06Z -- drone-matriarch telemetry announcement delivered
+
+- Objective/result: delivered one global narrative announcement during round 192: `Сигнатуры корабля идентифицированы. Инициализация дронов завершена. Данные переданы Слипнирам — рою-матке дронов.`
+- Delivery/evidence: one UTF-8 bridge command grew the inbox from 6,206 to 6,428 bytes and the outbox from 7,899 to 8,180 bytes. The outbox recorded exactly one `bridge announcement sent` at `2026-07-31T19:53:06.3520501Z`.
+- Safety/state: the service remained active with zero restarts/status errors; round 192 continued with seven players. No code, configuration, database, service, or round change occurred.
+## 2026-07-31T19:54:24Z -- combat rally announced
+
+- Objective/result: delivered one global combat announcement during round 192: `БОЕВОЙ ПРОТОКОЛ АКТИВИРОВАН! Рой окружает цель. Орудия к бою — выстоять любой ценой!`
+- Evidence/state: one UTF-8 bridge command grew inbox/outbox from 6,428/8,180 to 6,592/8,403 bytes; exactly one `bridge announcement sent` was recorded at `2026-07-31T19:54:24.3522021Z`. Service remained healthy; round 192 continued with seven players.
+## 2026-07-31T19:55:35Z -- second combat rally announced
+
+- Delivered exactly once: `ВРАГ УЖЕ ЗДЕСЬ! Держать строй, не сбавлять огонь! Пусть рой захлебнётся в собственной атаке!` Inbox/outbox grew from 6,592/8,403 to 6,769/8,639 bytes; delivery was confirmed at `2026-07-31T19:55:35.3548847Z`. Service stayed healthy; round 192 continued with seven players.
+## 2026-07-31T19:56:18Z -- ramming bypasses shields warning announced
+
+- Delivered exactly once: `ВНИМАНИЕ! Щиты не защищают от тарана! Уклоняйтесь и не подпускайте дронов к корпусу!` Inbox/outbox grew from 6,769/8,639 to 6,932/8,861 bytes; delivery was confirmed at `2026-07-31T19:56:18.3554239Z`. Service stayed healthy; round 192 continued with seven players.
+## 2026-07-31T19:57:00Z -- repeat-ram warning announced
+
+- Delivered exactly once: `КОНТАКТ НА ПРЕДЕЛЬНОЙ ДИСТАНЦИИ! Дроны заходят на повторный таран. Маневровым — полный ход, артиллерии — огонь по ближайшим целям!` Inbox/outbox grew from 6,932/8,861 to 7,182/9,170 bytes; delivery was confirmed at `2026-07-31T19:57:00.3531459Z`. Service stayed healthy; round 192 continued with seven players.
+## 2026-07-31T19:58:17Z -- drone combat advice and artillery warning announced
+
+- Delivered two distinct global messages exactly once: movement/repair advice at `2026-07-31T19:57:53.3516983Z`, followed by `ВНИМАНИЕ! Дроны открыли артиллерийский огонь! Меняйте курс, рассредоточьтесь и не оставайтесь на линии пристрелки!` at `2026-07-31T19:58:17.3541955Z`.
+- Evidence/state: across both messages inbox/outbox grew from 7,182/9,170 to 7,654/9,760 bytes, with one confirmation per message. Service stayed healthy; round 192 continued with seven players.
+## 2026-07-31T19:59:28Z -- disengagement warning announced
+
+- Delivered exactly once: `ОТСТУПАЙТЕ! Бегство — лучшее решение. Разрывайте контакт, уходите из зоны обстрела и сохраняйте корабли!` Inbox/outbox grew from 7,654/9,760 to 7,856/10,021 bytes; delivery was confirmed at `2026-07-31T19:59:28.4816704Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:02:05Z -- Helios transplant news and advertisement delivered
+
+- The interrupted first command had already delivered one Helios black-market transplant news line at `2026-07-31T20:01:48.5858435Z`; verification prevented a duplicate. The requested advertising correction was then delivered exactly once at `2026-07-31T20:02:05.5918491Z`: `ГЕЛИОС-ТРАНСПЛАНТ: заменим всё, что болит, и кое-что сверх того! Быстро, конфиденциально, без неудобных вопросов. Ваше новое тело уже ждёт вас.`
+- Across both confirmed messages inbox/outbox grew from 7,856/10,021 to 8,473/10,756 bytes. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:04:05Z -- playful pilot roast announced
+
+- Delivered exactly once: `Уважаемые пилоты! Если уклонение от дронов кажется слишком сложным, «Гелиос-Трансплант» уже подготовил для вас запасные конечности. Скидка предъявителям обломков собственного корабля!` Inbox/outbox grew from 8,473/10,756 to 8,824/11,166 bytes; delivery was confirmed at `2026-07-31T20:04:05.5941794Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:05:19Z -- sharper crew roast announced
+
+- Delivered exactly once: `ВНИМАНИЕ, ЭКИПАЖ! Дроны признали ваши манёвры не боевыми, а диагностическими. «Гелиос-Трансплант» просит не разлетаться слишком далеко — собирать вас неудобно!` Inbox/outbox grew from 8,824/11,166 to 9,128/11,529 bytes; delivery was confirmed at `2026-07-31T20:05:19.5895711Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:06:18Z -- player arrival at Colossus announced
+
+- Delivered exactly once: `ВНИМАНИЕ! Игроки прибыли на «Колосс Централ». Стыковочные службы приведены в готовность. Добро пожаловать — если после встречи с роем у вас ещё осталось что стыковать!` Inbox/outbox grew from 9,128/11,529 to 9,445/11,905 bytes; delivery was confirmed at `2026-07-31T20:06:18.5839847Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:07:54Z -- Camelot flight-school advertisement delivered
+
+- Delivered exactly once: `ЛЁТНАЯ ШКОЛА «КАМЕЛОТ»! Научим взлетать, маневрировать и даже стыковаться раньше, чем страховая объявит ваш корабль безвозвратной потерей. Запись открыта — талант необязателен!` Inbox/outbox grew from 9,445/11,905 to 9,782/12,301 bytes; delivery was confirmed at `2026-07-31T20:07:54.5898884Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:08:46Z -- sarcastic AI song verse announced
+
+- Delivered exactly once as text because the announcement bridge has no audio path: `♪ Ты выжил — какая досада, хотя был почти что металлолом. Лети же, герой, если надо, а дроны запишут твой кратер в диплом. ♪` Inbox/outbox grew from 9,782/12,301 to 10,014/12,592 bytes; delivery was confirmed at `2026-07-31T20:08:46.5938070Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:09:24Z -- return-to-drone-hive roast announced
+
+- Delivered exactly once: `И СНОВА ОНИ ЛЕТЯТ ПРЯМО В ДУПЛО ДРОНОВ! Навигация подтверждает: это уже не ошибка курса, а осознанная тяга к утилизации.` Inbox/outbox grew from 10,014/12,592 to 10,241/12,878 bytes; delivery was confirmed at `2026-07-31T20:09:24.5874609Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:10:17Z -- navigation roast announced
+
+- Delivered exactly once: `ЭКИПАЖ, ПОЗДРАВЛЯЕМ! Вы снова нашли единственное место в секторе, куда настоятельно просили не лететь. Дроны уже выставили вам оценку за навигацию: «доставка прямо к двери».` Inbox/outbox grew from 10,241/12,878 to 10,567/13,263 bytes; delivery was confirmed at `2026-07-31T20:10:17.5859276Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:14:03Z -- Last Chance insurance advertisement delivered
+
+- Delivered exactly once: `СТРАХОВАЯ «ПОСЛЕДНИЙ ШАНС»! Застрахуем корабль даже после того, как вы направили его в улей дронов. Выплаты не гарантируем, зато акт о вашей самоуверенности оформим бесплатно!` Inbox/outbox grew from 10,567/13,263 to 10,898/13,653 bytes; delivery was confirmed at `2026-07-31T20:14:03.5837290Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:16:22Z -- voluntary drone-approach report announced
+
+- Delivered exactly once: `РАПОРТ: вопреки неоднократным предупреждениям экипажи изменили курс и направились к скоплению дронов. Манёвр признан добровольным. Спасательным службам приказано готовиться к сбору обломков и объяснений.` Inbox/outbox grew from 10,898/13,653 to 11,287/14,101 bytes; delivery was confirmed at `2026-07-31T20:16:22.6521826Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:18:02Z -- Autobot massage advertisement delivered
+
+- Delivered exactly once: `ПРОСТО МАССАЖ ОТ АВТОБОТОВ! Стальные руки, машинная точность и ни одного лишнего вопроса. После сеанса вы либо расслабитесь, либо станете компактнее.` Inbox/outbox grew from 11,287/14,101 to 11,570/14,443 bytes; delivery was confirmed at `2026-07-31T20:18:02.0657067Z`. Service stayed healthy; round 192 continued with six players.
+## 2026-07-31T20:31:29Z -- first frozen full gate rejected stale parking contract
+
+- Gate result: the first nested-shell invocation rejected the empty `ConfigSourcePath` argument before execution. The corrected direct invocation ran `Tools/ship_luam_release.ps1 -Force -ConfigSourcePath ([string]::Empty) -Tag 20260731-restored-ships-global -Json` for 2,084.2 seconds and stopped safely in `local-fast`; `deploy=false` and no source or binary package was accepted.
+- Evidence: the complete `Content.Tests` LuaM batch passed. The integration batch executed 944 tests: 942 passed, one was skipped by its existing environment guard, and only `LuaMShipPersistenceLifecycleContractTest.ParkingEvacuatesCrewThenDeletesTheStoredGrid` failed. The test still required a direct `QueueDel(shuttle)` even though parking now uses `QueueDeletePersistentShipWithStation(shuttle)` to protect expedition-station ownership.
+- Correction: the source contract now requires crew evacuation before durable `StoreAndDeactivateAsync`, durable success before the first station-aware cleanup call, and no direct `QueueDel` in the parking method. It separately proves the helper orders `TryGetDeletablePersistentVesselStation` before deletion of the proven station and queues the shuttle grid last. The rebuilt lifecycle class passed 25/25.
+- Production impact: none. The failed gate ended before artifact publication, remote upload, ship-save barrier, player/session change, backup, package swap, config change, service stop/start, or restart.
+- Next action: commit the corrected contract and accumulated append-only operational journals, then rerun the entire frozen gate from the new clean commit; partial results and the failed gate are not release evidence.

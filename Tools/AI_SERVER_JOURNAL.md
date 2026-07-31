@@ -1501,3 +1501,83 @@ Next action: monitor player reconnection and do not assume the un-deployed relea
 - Scope/result: delivered one operator-requested global warning: `Внимание! Дроны приближаются со всех сторон. Приготовьтесь к обороне!`
 - Delivery/verification: exactly one UTF-8 bridge command grew the inbox from 6,069 to 6,206 bytes and the outbox from 7,703 to 7,899 bytes. The outbox recorded exactly one `bridge announcement sent` at `2026-07-31T19:51:26.3520733Z`; no retry or duplicate occurred.
 - Post-state/recovery: `monolith-ds.service` remained active with `NRestarts=0`/`ExecMainStatus=0`; `/status` still reported running round 192 with six players. No code, package, client, configuration, database, ship, gateway, service, or round mutation occurred. The transient announcement requires no rollback.
+## 2026-07-31T19:53:06Z -- drone-matriarch telemetry announced in game
+
+- Scope/result: delivered one operator-requested global narrative announcement: `Сигнатуры корабля идентифицированы. Инициализация дронов завершена. Данные переданы Слипнирам — рою-матке дронов.`
+- Delivery/verification: exactly one UTF-8 bridge command grew the inbox from 6,206 to 6,428 bytes and the outbox from 7,899 to 8,180 bytes. The outbox recorded exactly one `bridge announcement sent` at `2026-07-31T19:53:06.3520501Z`; no retry or duplicate occurred.
+- Post-state/recovery: `monolith-ds.service` remained active with `NRestarts=0`/`ExecMainStatus=0`; `/status` reported running round 192 with seven players. No code, package, client, configuration, database, ship, gateway, service, or round mutation occurred. The transient announcement requires no rollback.
+## 2026-07-31T19:54:24Z -- combat rally announced in game
+
+- Scope/result: delivered one operator-requested global combat announcement: `БОЕВОЙ ПРОТОКОЛ АКТИВИРОВАН! Рой окружает цель. Орудия к бою — выстоять любой ценой!`
+- Delivery/verification: exactly one UTF-8 bridge command grew inbox/outbox from 6,428/8,180 to 6,592/8,403 bytes. The outbox recorded exactly one `bridge announcement sent` at `2026-07-31T19:54:24.3522021Z`; no retry or duplicate occurred.
+- Post-state/recovery: service remained active with `NRestarts=0`/`ExecMainStatus=0`; round 192 continued with seven players. No code, configuration, database, service, or round mutation occurred; the transient announcement requires no rollback.
+## 2026-07-31T19:55:35Z -- second combat rally announced in game
+
+- Scope/result: delivered exactly one global announcement: `ВРАГ УЖЕ ЗДЕСЬ! Держать строй, не сбавлять огонь! Пусть рой захлебнётся в собственной атаке!`
+- Evidence/state: inbox/outbox grew from 6,592/8,403 to 6,769/8,639 bytes; `bridge announcement sent` was recorded at `2026-07-31T19:55:35.3548847Z`. Service remained active with zero restarts/status errors; round 192 continued with seven players. The transient announcement requires no rollback.
+## 2026-07-31T19:56:18Z -- ramming bypasses shields warning announced in game
+
+- Scope/result: delivered exactly one global warning: `ВНИМАНИЕ! Щиты не защищают от тарана! Уклоняйтесь и не подпускайте дронов к корпусу!`
+- Evidence/state: inbox/outbox grew from 6,769/8,639 to 6,932/8,861 bytes; `bridge announcement sent` was recorded at `2026-07-31T19:56:18.3554239Z`. Service remained active with zero restarts/status errors; round 192 continued with seven players. The transient announcement requires no rollback.
+## 2026-07-31T19:57:00Z -- repeat-ram warning announced in game
+
+- Scope/result: delivered exactly one global warning: `КОНТАКТ НА ПРЕДЕЛЬНОЙ ДИСТАНЦИИ! Дроны заходят на повторный таран. Маневровым — полный ход, артиллерии — огонь по ближайшим целям!`
+- Evidence/state: inbox/outbox grew from 6,932/8,861 to 7,182/9,170 bytes; `bridge announcement sent` was recorded at `2026-07-31T19:57:00.3531459Z`. Service remained active with zero restarts/status errors; round 192 continued with seven players. The transient announcement requires no rollback.
+## 2026-07-31T19:58:17Z -- drone combat advice and artillery warning announced in game
+
+- Scope/result: delivered two operator-requested global messages exactly once: `НЕ СТОЙТЕ НА МЕСТЕ! Сбивайте дронов на траектории тарана, держите дистанцию и заранее готовьте ремонтные бригады у внешней обшивки!`, then `ВНИМАНИЕ! Дроны открыли артиллерийский огонь! Меняйте курс, рассредоточьтесь и не оставайтесь на линии пристрелки!`
+- Evidence/state: the outbox recorded one `bridge announcement sent` for each at `2026-07-31T19:57:53.3516983Z` and `2026-07-31T19:58:17.3541955Z`; inbox/outbox grew from 7,182/9,170 to 7,654/9,760 bytes. Service remained active with zero restarts/status errors; round 192 continued with seven players. These transient announcements require no rollback.
+## 2026-07-31T19:59:28Z -- disengagement warning announced in game
+
+- Scope/result: delivered exactly one global warning: `ОТСТУПАЙТЕ! Бегство — лучшее решение. Разрывайте контакт, уходите из зоны обстрела и сохраняйте корабли!`
+- Evidence/state: inbox/outbox grew from 7,654/9,760 to 7,856/10,021 bytes; `bridge announcement sent` was recorded at `2026-07-31T19:59:28.4816704Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:02:05Z -- Helios transplant news and advertisement announced in game
+
+- Scope/result: an interrupted command nonetheless completed and delivered one Helios black-market transplant news line at `2026-07-31T20:01:48.5858435Z`. A read-only outbox check proved delivery before any retry. After the operator clarified `Реклама`, one separate advertisement was delivered exactly once: `ГЕЛИОС-ТРАНСПЛАНТ: заменим всё, что болит, и кое-что сверх того! Быстро, конфиденциально, без неудобных вопросов. Ваше новое тело уже ждёт вас.`
+- Evidence/state: the advertisement received one `bridge announcement sent` confirmation at `2026-07-31T20:02:05.5918491Z`. Across both messages inbox/outbox grew from 7,856/10,021 to 8,473/10,756 bytes. Service remained active with zero restarts/status errors; round 192 continued with six players. These transient announcements require no rollback.
+## 2026-07-31T20:04:05Z -- playful pilot roast announced in game
+
+- Scope/result: delivered exactly one lighthearted global message: `Уважаемые пилоты! Если уклонение от дронов кажется слишком сложным, «Гелиос-Трансплант» уже подготовил для вас запасные конечности. Скидка предъявителям обломков собственного корабля!`
+- Evidence/state: inbox/outbox grew from 8,473/10,756 to 8,824/11,166 bytes; `bridge announcement sent` was recorded at `2026-07-31T20:04:05.5941794Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:05:19Z -- sharper crew roast announced in game
+
+- Scope/result: delivered exactly one sharper but non-targeted global joke: `ВНИМАНИЕ, ЭКИПАЖ! Дроны признали ваши манёвры не боевыми, а диагностическими. «Гелиос-Трансплант» просит не разлетаться слишком далеко — собирать вас неудобно!`
+- Evidence/state: inbox/outbox grew from 8,824/11,166 to 9,128/11,529 bytes; `bridge announcement sent` was recorded at `2026-07-31T20:05:19.5895711Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:06:18Z -- player arrival at Colossus announced in game
+
+- Scope/result: delivered exactly one global arrival announcement: `ВНИМАНИЕ! Игроки прибыли на «Колосс Централ». Стыковочные службы приведены в готовность. Добро пожаловать — если после встречи с роем у вас ещё осталось что стыковать!`
+- Evidence/state: inbox/outbox grew from 9,128/11,529 to 9,445/11,905 bytes; `bridge announcement sent` was recorded at `2026-07-31T20:06:18.5839847Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:07:54Z -- Camelot flight-school advertisement announced in game
+
+- Scope/result: delivered exactly one global advertisement: `ЛЁТНАЯ ШКОЛА «КАМЕЛОТ»! Научим взлетать, маневрировать и даже стыковаться раньше, чем страховая объявит ваш корабль безвозвратной потерей. Запись открыта — талант необязателен!`
+- Evidence/state: inbox/outbox grew from 9,445/11,905 to 9,782/12,301 bytes; `bridge announcement sent` was recorded at `2026-07-31T20:07:54.5898884Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:08:46Z -- sarcastic AI song verse announced in game
+
+- Scope/result: delivered exactly one original song verse as text because the bridge has no audio path: `♪ Ты выжил — какая досада, хотя был почти что металлолом. Лети же, герой, если надо, а дроны запишут твой кратер в диплом. ♪`
+- Evidence/state: inbox/outbox grew from 9,782/12,301 to 10,014/12,592 bytes; `bridge announcement sent` was recorded at `2026-07-31T20:08:46.5938070Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:09:24Z -- return-to-drone-hive roast announced in game
+
+- Scope/result: delivered exactly one global joke: `И СНОВА ОНИ ЛЕТЯТ ПРЯМО В ДУПЛО ДРОНОВ! Навигация подтверждает: это уже не ошибка курса, а осознанная тяга к утилизации.`
+- Evidence/state: inbox/outbox grew from 10,014/12,592 to 10,241/12,878 bytes; `bridge announcement sent` was recorded at `2026-07-31T20:09:24.5874609Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:10:17Z -- navigation roast announced in game
+
+- Scope/result: delivered exactly one global joke: `ЭКИПАЖ, ПОЗДРАВЛЯЕМ! Вы снова нашли единственное место в секторе, куда настоятельно просили не лететь. Дроны уже выставили вам оценку за навигацию: «доставка прямо к двери».`
+- Evidence/state: inbox/outbox grew from 10,241/12,878 to 10,567/13,263 bytes; `bridge announcement sent` was recorded at `2026-07-31T20:10:17.5859276Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:14:03Z -- Last Chance insurance advertisement announced in game
+
+- Scope/result: delivered exactly one global advertisement: `СТРАХОВАЯ «ПОСЛЕДНИЙ ШАНС»! Застрахуем корабль даже после того, как вы направили его в улей дронов. Выплаты не гарантируем, зато акт о вашей самоуверенности оформим бесплатно!`
+- Evidence/state: inbox/outbox grew from 10,567/13,263 to 10,898/13,653 bytes; `bridge announcement sent` was recorded at `2026-07-31T20:14:03.5837290Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:16:22Z -- voluntary drone-approach report announced in game
+
+- Scope/result: delivered exactly one global narrative report: `РАПОРТ: вопреки неоднократным предупреждениям экипажи изменили курс и направились к скоплению дронов. Манёвр признан добровольным. Спасательным службам приказано готовиться к сбору обломков и объяснений.`
+- Evidence/state: inbox/outbox grew from 10,898/13,653 to 11,287/14,101 bytes; `bridge announcement sent` was recorded at `2026-07-31T20:16:22.6521826Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:18:02Z -- Autobot massage advertisement announced in game
+
+- Scope/result: delivered exactly one global advertisement: `ПРОСТО МАССАЖ ОТ АВТОБОТОВ! Стальные руки, машинная точность и ни одного лишнего вопроса. После сеанса вы либо расслабитесь, либо станете компактнее.`
+- Evidence/state: inbox/outbox grew from 11,287/14,101 to 11,570/14,443 bytes; `bridge announcement sent` was recorded at `2026-07-31T20:18:02.0657067Z`. Service remained active with zero restarts/status errors; round 192 continued with six players. The transient announcement requires no rollback.
+## 2026-07-31T20:31:29Z -- frozen full gate stopped locally on stale parking contract
+
+- Result: the no-deploy release orchestrator for `20260731-restored-ships-global` ran 2,084.2 seconds and stopped in `local-fast`. Content LuaM tests passed; integration executed 944 tests with 942 passed, one existing environment-guard skip, and one failed source contract. No release package from this attempt is eligible.
+- Cause/correction: `LuaMShipPersistenceLifecycleContractTest` still expected direct `QueueDel(shuttle)` inside parking. Production code correctly uses `QueueDeletePersistentShipWithStation(shuttle)` only after durable storage, validates station ownership, removes a proven vessel station, and queues the ship last. The updated lifecycle contract verifies that full order, forbids the direct bypass, rebuilt successfully, and passed 25/25.
+- Production impact: none. `deploy=false`; no remote upload, client publication, session/admission change, ship-save barrier, backup, package swap, configuration mutation, database mutation, service stop/start, restart, or round mutation occurred.
+- Next action: commit the contract plus append-only journals and rerun the complete frozen receipt-bound gate from the resulting clean commit. Do not reuse evidence from this failed attempt.

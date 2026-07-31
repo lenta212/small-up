@@ -75,6 +75,10 @@ public sealed class LuaMShipPersistenceLifecycleContractTest
             source,
             "private async Task HandleParkShipMessageAsync(",
             "private void EvacuateCrewForParking(");
+        var deletion = Slice(
+            source,
+            "private void QueueDeletePersistentShipWithStation(",
+            "internal bool TryGetDeletablePersistentVesselStation(");
 
         Assert.Multiple(() =>
         {
@@ -82,11 +86,21 @@ public sealed class LuaMShipPersistenceLifecycleContractTest
             Assert.That(method, Does.Not.Contain("FoundOrganics("));
             Assert.That(method, Does.Contain("StoreAndDeactivateAsync("));
             Assert.That(method, Does.Contain("deed.ShuttleUid = null;"));
-            Assert.That(method, Does.Contain("QueueDel(shuttle);"));
+            Assert.That(method, Does.Contain("QueueDeletePersistentShipWithStation(shuttle);"));
+            Assert.That(method, Does.Not.Contain("QueueDel(shuttle);"));
             Assert.That(method.IndexOf("EvacuateCrewForParking(", StringComparison.Ordinal),
                 Is.LessThan(method.IndexOf("StoreAndDeactivateAsync(", StringComparison.Ordinal)));
             Assert.That(method.IndexOf("StoreAndDeactivateAsync(", StringComparison.Ordinal),
-                Is.LessThan(method.IndexOf("QueueDel(shuttle);", StringComparison.Ordinal)));
+                Is.LessThan(method.IndexOf("QueueDeletePersistentShipWithStation(shuttle);", StringComparison.Ordinal)));
+            Assert.That(deletion, Does.Contain(
+                "TryGetDeletablePersistentVesselStation(shuttle, out var shuttleStation)"));
+            Assert.That(deletion, Does.Contain("_station.DeleteStation(shuttleStation);"));
+            Assert.That(deletion, Does.Contain("QueueDel(shuttle);"));
+            Assert.That(
+                deletion.IndexOf("TryGetDeletablePersistentVesselStation(", StringComparison.Ordinal),
+                Is.LessThan(deletion.IndexOf("_station.DeleteStation(shuttleStation);", StringComparison.Ordinal)));
+            Assert.That(deletion.IndexOf("_station.DeleteStation(shuttleStation);", StringComparison.Ordinal),
+                Is.LessThan(deletion.IndexOf("QueueDel(shuttle);", StringComparison.Ordinal)));
         });
     }
 
