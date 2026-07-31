@@ -1,15 +1,15 @@
 ﻿{
-    "remoteDeployFrozen":  false,
-    "reason":  "Operator explicitly requested a server-only hostile-mob hotfix and authorized an immediate production restart even with connected players. Authorization is limited to the receipt-bound server release; the deployed client archive must remain unchanged.",
+    "remoteDeployFrozen":  true,
+    "reason":  "The receipt-bound server-only hostile-mob hotfix was deployed and verified on 2026-07-31. The one-release production authorization is consumed; every further production mutation requires fresh explicit authorization and a new policy-bound release gate.",
     "lastReviewed":  "2026-07-31",
     "deploymentAuthorization":  {
-                                    "state":  "authorized",
-                                    "approvalId":  "chat-20260731-hostile-mob-server-hotfix",
-                                    "approvedBy":  "operator",
-                                    "approvedAtUtc":  "2026-07-31T10:35:23Z",
-                                    "expiresAtUtc":  "2026-07-31T22:35:23Z",
+                                    "state":  "frozen",
+                                    "approvalId":  null,
+                                    "approvedBy":  null,
+                                    "approvedAtUtc":  null,
+                                    "expiresAtUtc":  null,
                                     "allowedMutations":  [
-                                                               "server-release"
+
                                                          ]
                                 },
     "releaseGate":  {
@@ -379,7 +379,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260731-hostile-mob-server-hotfix",
-                                         "state":  "deployment-authorized",
+                                         "state":  "local-package-only",
                                          "packageSelection":  "Server-only hostile-mob hotfix on the exact deployed source: stop atmosphere-immune NPCs from selecting retreat in harmless vacuum, give BloodCultNF actors 18-tile perception, 0.25-second decisions and 12-hostile tolerance, add +6 slash melee damage and a one-time 1.25x projectile or hitscan damage multiplier. The existing client archive is reused unchanged.",
                                          "packageFiles":  [
                                                                "Content.Server/Body/Systems/RespiratorSystem.cs",
