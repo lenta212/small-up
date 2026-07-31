@@ -75,6 +75,7 @@ public sealed partial class ShipShieldEmitterComponent : Component
     [DataField]
     public Color ShieldColor = Color.White;
 
+    [DataField]
     [ViewVariables]
     public float OverloadAccumulator = 0f;
 

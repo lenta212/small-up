@@ -232,6 +232,16 @@ public sealed partial class FireControlSystem : EntitySystem
             {
                 controlGrid.ControllingServer = null;
             }
+            else if (controlGrid.ControllingServer == server)
+            {
+                // Mid-round map loads can restore the grid marker before power events rebuild
+                // the runtime-only links. Reconnecting the same server is reconciliation, not
+                // a competing claim for the grid.
+                component.ConnectedGrid = grid;
+                RefreshControllables(grid.Value, controlGrid);
+                RegisterPoweredConsolesOnGrid(grid.Value);
+                return true;
+            }
             else
             {
                 // Valid server already exists, cannot connect
@@ -243,8 +253,29 @@ public sealed partial class FireControlSystem : EntitySystem
         component.ConnectedGrid = grid;
 
         RefreshControllables((EntityUid)grid, controlGrid);
+        RegisterPoweredConsolesOnGrid(grid.Value);
 
         return true;
+    }
+
+    /// <summary>
+    /// Rebuilds runtime-only console links after a gunnery server claims its grid.
+    /// </summary>
+    /// <remarks>
+    /// A powered console may receive its power event before the server during a mid-round map
+    /// load and fail its first registration attempt. The server connection is the deterministic
+    /// point at which every powered console can safely retry.
+    /// </remarks>
+    private void RegisterPoweredConsolesOnGrid(EntityUid grid)
+    {
+        var query = EntityQueryEnumerator<FireControlConsoleComponent, TransformComponent>();
+        while (query.MoveNext(out var console, out var component, out var xform))
+        {
+            if (xform.GridUid != grid || !_power.IsPowered(console))
+                continue;
+
+            TryRegisterConsole(console, component);
+        }
     }
 
     private void Unregister(EntityUid controllable, FireControllableComponent? component = null)

@@ -5,12 +5,26 @@ using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using Content.Server.Database;
+using Content.Server._Crescent.ShipShields;
 using Content.Server._NF.CryoSleep;
+using Content.Server._NF.Station.Components;
+using Content.Server.Power.Components;
+using Content.Server.Salvage;
 using Content.Server.Shuttles.Components;
 using Content.Server.Shuttles.Systems;
+using Content.Server.Station.Systems;
 using Content.Server.Mind;
+using Content.Server.Weapons.Ranged.Systems;
+using Content.Shared._NF.Shipyard.Prototypes;
+using Content.Shared._Mono.Ships.Components;
+using Content.Shared.Maps;
 using Content.Shared.Mind;
 using Content.Shared.Mind.Components;
+using Content.Shared.Salvage.Expeditions;
+using Content.Shared.Station;
+using Content.Shared.Station.Components;
+using Content.Shared.Timing;
+using Content.Shared.Weapons.Ranged.Components;
 using Robust.Shared.Containers;
 using Robust.Shared;
 using Robust.Shared.Configuration;
@@ -22,6 +36,7 @@ using Robust.Shared.Maths;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Serialization;
+using Robust.Shared.Timing;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
@@ -37,12 +52,21 @@ public sealed class LuaMShipRestoreScope
 
     public Guid ShipId { get; }
     public EntityUid Grid { get; }
+    internal ProtoId<VesselPrototype>? VesselId { get; }
+    internal StationConfig? VesselStationConfig { get; }
 
-    internal LuaMShipRestoreScope(Guid shipId, EntityUid grid, HashSet<EntityUid> createdEntities)
+    internal LuaMShipRestoreScope(
+        Guid shipId,
+        EntityUid grid,
+        HashSet<EntityUid> createdEntities,
+        ProtoId<VesselPrototype>? vesselId,
+        StationConfig? vesselStationConfig)
     {
         ShipId = shipId;
         Grid = grid;
         _createdEntities = createdEntities;
+        VesselId = vesselId;
+        VesselStationConfig = vesselStationConfig;
     }
 
     internal bool TryTakeCreatedEntities(out IReadOnlySet<EntityUid> createdEntities)
@@ -158,6 +182,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     }
 
     [Dependency] private IConfigurationManager _configuration = default!;
+    [Dependency] private IGameTiming _gameTiming = default!;
     [Dependency] private SharedContainerSystem _containers = default!;
     [Dependency] private MapLoaderSystem _mapLoader = default!;
     [Dependency] private SharedMapSystem _maps = default!;
@@ -165,6 +190,11 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     [Dependency] private DockingSystem _docking = default!;
     [Dependency] private ShuttleConsoleLockSystem _consoleLocks = default!;
     [Dependency] private MindSystem _minds = default!;
+    [Dependency] private IPrototypeManager _prototypes = default!;
+    [Dependency] private GunSystem _gun = default!;
+    [Dependency] private SalvageSystem _salvage = default!;
+    [Dependency] private ShipShieldsSystem _shipShields = default!;
+    [Dependency] private StationSystem _stations = default!;
 
     private readonly HashSet<Guid> _busyShips = [];
 
@@ -298,6 +328,8 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     reason = $"ship-security-binding-failed:{bindingReason}";
                     return false;
                 }
+
+                CaptureSalvageExpeditionCooldown(grid);
 
                 // A dock weld and DockedWith both point at the station grid. Save
                 // the vessel in its portable, undocked state, then restore the
@@ -578,8 +610,23 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
             return false;
 
         grid = restore.Grid;
-        CommitRestore(restore);
-        return true;
+        if (CommitRestore(restore))
+            return true;
+
+        try
+        {
+            RollbackRestore(restore);
+            reason = "restored-vessel-station-initialization-failed";
+        }
+        catch (Exception exception)
+        {
+            Log.Error(
+                $"Could not clean direct persistent ship restore {snapshot.ShipId} after station initialization failed: {exception}");
+            reason = $"restored-vessel-station-initialization-and-cleanup-failed:{exception.GetType().Name}";
+        }
+
+        grid = EntityUid.Invalid;
+        return false;
     }
 
     /// <summary>
@@ -690,7 +737,21 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
 
             // Player minds are runtime ownership, not portable ship content.
             SanitizeRestoredMinds(createdEntities);
+            _shipShields.ReconcileRestoredShipShields(restoredGrid, createdEntities);
             createdEntities.RemoveWhere(uid => !Exists(uid));
+            ExpireImpossibleRestoredUseDelays(createdEntities);
+            ExpireImpossibleRestoredBatteryRechargeDelays(createdEntities);
+            RefreshRestoredGunModifiers(createdEntities);
+
+            if (!TryResolveVesselStationConfig(
+                    restoredGrid,
+                    out var vesselId,
+                    out var vesselStationConfig,
+                    out reason))
+            {
+                CleanupPartialLoadEntities(entitiesBeforeLoad);
+                return false;
+            }
 
             if (!_consoleLocks.TryBindPersistentShipSecurity(
                     restoredGrid,
@@ -702,12 +763,18 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 return false;
             }
 
-            restore = new LuaMShipRestoreScope(snapshot.ShipId, restoredGrid, createdEntities);
+            restore = new LuaMShipRestoreScope(
+                snapshot.ShipId,
+                restoredGrid,
+                createdEntities,
+                vesselId,
+                vesselStationConfig);
             return true;
         }
         catch (Exception exception)
         {
             CleanupPartialLoadEntities(entitiesBeforeLoad);
+            Log.Error($"Persistent ship {snapshot.ShipId} snapshot restore failed: {exception}");
             reason = $"snapshot-restore-exception:{exception.GetType().Name}";
             return false;
         }
@@ -715,6 +782,219 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         {
             _busyShips.Remove(snapshot.ShipId);
         }
+    }
+
+    /// <summary>
+    /// Expires only cooldown timestamps that cannot have been produced by
+    /// <see cref="UseDelaySystem"/> on the current server time base.
+    /// </summary>
+    /// <remarks>
+    /// A park-and-call cycle in one round must retain a genuinely active delay.
+    /// A delay started on the current time base cannot have both its start and end
+    /// in the future. Checking the start avoids expiring a legitimate active delay
+    /// whose configured length was shortened after it began.
+    /// </remarks>
+    private void ExpireImpossibleRestoredUseDelays(IReadOnlySet<EntityUid> restoredEntities)
+    {
+        var now = _gameTiming.CurTime;
+        var expiredAt = now == TimeSpan.MinValue ? now : now - TimeSpan.FromTicks(1);
+        var expiredEntries = 0;
+
+        foreach (var uid in restoredEntities)
+        {
+            if (!TryComp<UseDelayComponent>(uid, out var component))
+                continue;
+
+            var dirty = false;
+            foreach (var delay in component.Delays.Values)
+            {
+                if (delay.EndTime <= now || delay.StartTime <= now)
+                    continue;
+
+                delay.StartTime = expiredAt;
+                delay.EndTime = expiredAt;
+                expiredEntries++;
+                dirty = true;
+            }
+
+            if (dirty)
+                Dirty(uid, component);
+        }
+
+        if (expiredEntries > 0)
+        {
+            Log.Warning(
+                $"Expired {expiredEntries} impossible use-delay timestamp(s) while restoring a persistent ship.");
+        }
+    }
+
+    /// <summary>
+    /// Expires self-recharge pauses whose absolute timestamp belongs to an older round time base.
+    /// </summary>
+    /// <remarks>
+    /// Battery self-rechargers store <c>NextAutoRecharge</c> as an absolute timestamp. A legitimate
+    /// pause can never end later than <c>CurTime + AutoRechargePauseTime</c>, so only values beyond
+    /// that bound are stale. This preserves same-round park-and-call pauses while repairing older
+    /// snapshots whose energy weapons would otherwise remain unable to recharge for hours.
+    /// </remarks>
+    private void ExpireImpossibleRestoredBatteryRechargeDelays(IReadOnlySet<EntityUid> restoredEntities)
+    {
+        var now = _gameTiming.CurTime;
+        var expiredEntries = 0;
+
+        foreach (var uid in restoredEntities)
+        {
+            if (!TryComp<BatterySelfRechargerComponent>(uid, out var component) ||
+                !component.AutoRechargePause)
+            {
+                continue;
+            }
+
+            var pauseSeconds = float.IsFinite(component.AutoRechargePauseTime)
+                ? Math.Max(component.AutoRechargePauseTime, 0f)
+                : 0f;
+            var remainingTimeCapacity = TimeSpan.MaxValue - now;
+            var latestValidEnd = pauseSeconds >= remainingTimeCapacity.TotalSeconds
+                ? TimeSpan.MaxValue
+                : now + TimeSpan.FromSeconds(pauseSeconds);
+
+            if (component.NextAutoRecharge <= latestValidEnd)
+                continue;
+
+            component.NextAutoRecharge = now;
+            expiredEntries++;
+        }
+
+        if (expiredEntries > 0)
+        {
+            Log.Warning(
+                $"Expired {expiredEntries} impossible battery self-recharge timestamp(s) while restoring a persistent ship.");
+        }
+    }
+
+    /// <summary>
+    /// Recomputes derived gun values normally initialized by a map-init event.
+    /// </summary>
+    private void RefreshRestoredGunModifiers(IReadOnlySet<EntityUid> restoredEntities)
+    {
+        foreach (var uid in restoredEntities)
+        {
+            if (TryComp<GunComponent>(uid, out var gun))
+                _gun.RefreshModifiers((uid, gun));
+        }
+    }
+
+    /// <summary>
+    /// Resolves all prototype data needed to recreate a vessel station without creating runtime entities.
+    /// </summary>
+    /// <remarks>
+    /// A missing VesselComponent is supported for legacy and non-vessel snapshots. Once the component
+    /// is present, however, an unknown map prototype or station key is invalid persistent data and must
+    /// fail before the database restore transition can be committed.
+    /// </remarks>
+    private bool TryResolveVesselStationConfig(
+        EntityUid restoredGrid,
+        out ProtoId<VesselPrototype>? vesselId,
+        out StationConfig? stationConfig,
+        out string reason)
+    {
+        vesselId = null;
+        stationConfig = null;
+        reason = string.Empty;
+
+        if (!TryComp<VesselComponent>(restoredGrid, out var vessel))
+            return true;
+
+        if (!_prototypes.TryIndex<GameMapPrototype>(vessel.VesselId.Id, out var gameMap))
+        {
+            reason = $"restored-vessel-game-map-prototype-not-found:{vessel.VesselId.Id}";
+            return false;
+        }
+
+        if (!gameMap.Stations.TryGetValue(vessel.VesselId.Id, out stationConfig))
+        {
+            reason = $"restored-vessel-station-config-not-found:{vessel.VesselId.Id}";
+            return false;
+        }
+
+        vesselId = vessel.VesselId;
+        return true;
+    }
+
+    /// <summary>
+    /// Recreates the round-local station root after the durable restore transition has committed.
+    /// </summary>
+    private void RestoreVesselStation(LuaMShipRestoreScope restore)
+    {
+        if (restore.VesselId is not { } vesselId || restore.VesselStationConfig is not { } stationConfig)
+            return;
+
+        if (_stations.GetOwningStation(restore.Grid) is { Valid: true } existingStation)
+        {
+            if (!TryComp<StationDataComponent>(existingStation, out var existingData) ||
+                existingData.Grids.Count != 1 ||
+                _stations.GetLargestGrid((existingStation, existingData)) != restore.Grid ||
+                !TryComp<ExtraShuttleInformationComponent>(existingStation, out var existingVessel) ||
+                existingVessel.Vessel != vesselId)
+            {
+                throw new InvalidOperationException(
+                    "Restored vessel already belongs to an inconsistent round-local station.");
+            }
+
+            RestoreSalvageExpeditionCooldown(restore.Grid, existingStation);
+            _salvage.RefreshExpeditionConsoles(existingStation);
+            return;
+        }
+
+        var vesselName = Name(restore.Grid);
+        var station = _stations.InitializeNewStation(stationConfig, [restore.Grid], vesselName);
+        EnsureComp<ExtraShuttleInformationComponent>(station).Vessel = vesselId;
+        RestoreSalvageExpeditionCooldown(restore.Grid, station);
+        _salvage.RefreshExpeditionConsoles(station);
+
+        if (_stations.GetOwningStation(restore.Grid) != station)
+            throw new InvalidOperationException("Restored vessel station did not own its grid after initialization.");
+    }
+
+    private void CaptureSalvageExpeditionCooldown(EntityUid grid)
+    {
+        var station = _stations.GetOwningStation(grid);
+        if (station is { } stationUid &&
+            TryComp<SalvageExpeditionDataComponent>(stationUid, out var data) &&
+            (data.Cooldown || data.Claimed))
+        {
+            var remaining = data.NextOffer > _gameTiming.CurTime
+                ? data.NextOffer - _gameTiming.CurTime
+                : TimeSpan.Zero;
+            EnsureComp<LuaMSalvageExpeditionCooldownComponent>(grid).RemainingCooldown = remaining;
+            return;
+        }
+
+        if (HasComp<LuaMSalvageExpeditionCooldownComponent>(grid))
+            RemComp<LuaMSalvageExpeditionCooldownComponent>(grid);
+    }
+
+    private void RestoreSalvageExpeditionCooldown(EntityUid grid, EntityUid station)
+    {
+        if (!TryComp<LuaMSalvageExpeditionCooldownComponent>(grid, out var saved))
+        {
+            if (TryComp<SalvageExpeditionDataComponent>(station, out var freshData))
+            {
+                freshData.Cooldown = false;
+                freshData.NextOffer = TimeSpan.Zero;
+            }
+
+            return;
+        }
+
+        var data = EnsureComp<SalvageExpeditionDataComponent>(station);
+        var remaining = saved.RemainingCooldown > TimeSpan.Zero
+            ? saved.RemainingCooldown
+            : TimeSpan.Zero;
+        data.Cooldown = true;
+        data.NextOffer = remaining > TimeSpan.MaxValue - _gameTiming.CurTime
+            ? TimeSpan.MaxValue
+            : _gameTiming.CurTime + remaining;
     }
 
     private void SanitizeRestoredMinds(IReadOnlySet<EntityUid> createdEntities)
@@ -1377,10 +1657,40 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     }
 
     /// <summary>
-    /// Forgets the exact restored entity set after the database CAS transition succeeds.
+    /// Creates the deferred vessel station, then forgets the exact restored entity set after
+    /// the database CAS transition succeeds.
     /// </summary>
     public bool CommitRestore(LuaMShipRestoreScope restore)
     {
+        if (!restore.TryGetCreatedEntities(out _))
+            return false;
+
+        var entitiesBeforeStation = EntityManager.GetEntities().ToHashSet();
+        try
+        {
+            RestoreVesselStation(restore);
+        }
+        catch (Exception exception)
+        {
+            Log.Error(
+                $"Persistent ship {restore.ShipId} committed without its vessel station because station initialization failed: {exception}");
+
+            var partialStationEntities = EntityManager.GetEntities()
+                .Where(uid => !entitiesBeforeStation.Contains(uid))
+                .ToHashSet();
+            try
+            {
+                CleanupRestoreEntities(partialStationEntities);
+            }
+            catch (Exception cleanupException)
+            {
+                Log.Error(
+                    $"Could not completely clean partial station entities for committed persistent ship {restore.ShipId}: {cleanupException}");
+            }
+
+            return false;
+        }
+
         return restore.TryTakeCreatedEntities(out _);
     }
 
@@ -1392,6 +1702,10 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         if (!restore.TryGetCreatedEntities(out var createdEntities))
             return false;
 
+        // A powered emitter can recreate its derived envelope while database completion is
+        // pending. It was not part of deserialization and would otherwise be treated as a
+        // retained passenger, detached from the deleted grid, and leaked into the map/PVS.
+        _shipShields.ReconcileRestoredShipShields(restore.Grid, createdEntities);
         CleanupRestoreEntities(createdEntities);
         return restore.TryTakeCreatedEntities(out _);
     }

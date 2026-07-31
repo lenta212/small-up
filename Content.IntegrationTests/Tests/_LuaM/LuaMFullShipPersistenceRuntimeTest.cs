@@ -32,6 +32,7 @@ using Content.Shared.Research.Prototypes;
 using Content.Shared.Shuttles.Components;
 using Content.Shared.Shuttles.Systems;
 using Content.Shared.Station.Components;
+using Content.Shared._Mono.Ships.Components;
 using Content.Shared._Mono.Shipyard;
 using Content.Shared._NF.Shipyard.Components;
 using Robust.Shared.Containers;
@@ -209,6 +210,7 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                 var gameMap = prototypes.Index<GameMapPrototype>("McChicken");
                 vesselStation = stations.InitializeNewStation(gameMap.Stations["McChicken"], [sourceGrid]);
                 metadata.SetEntityName(vesselStation, VesselStationName);
+                entities.EnsureComponent<VesselComponent>(sourceGrid).VesselId = "McChicken";
 
                 var externalGrid = mapManager.CreateGridEntity(sourceMap);
                 transform.SetLocalPosition(externalGrid.Owner, new Vector2(100f, 0f));
@@ -277,8 +279,12 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
                 Assert.That(entities.GetComponent<LuaMShipIdentityComponent>(restored).SnapshotRevision, Is.EqualTo(2));
                 Assert.That(
                     entities.HasComponent<StationMemberComponent>(restored),
-                    Is.False,
-                    "The ignored live station reference must not survive as an invalid membership.");
+                    Is.True,
+                    "A restored registered vessel must replace its ignored live station reference with a new round-local membership.");
+                Assert.That(
+                    stations.GetOwningStation(restored),
+                    Is.Not.Null.And.Not.EqualTo(vesselStation),
+                    "A restored registered vessel must recreate its station root from its saved vessel prototype.");
                 Assert.That(
                     docking.GetDocks(restored).All(candidate => !candidate.Comp.Docked),
                     Is.True,

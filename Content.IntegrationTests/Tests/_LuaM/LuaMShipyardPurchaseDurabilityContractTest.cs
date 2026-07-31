@@ -1,4 +1,9 @@
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using Content.Server._NF.Shipyard.Systems;
+using Content.Shared.Access;
+using Robust.Shared.Prototypes;
 
 namespace Content.IntegrationTests.Tests._LuaM;
 
@@ -87,8 +92,88 @@ public sealed class LuaMShipyardPurchaseDurabilityContractTest
             Assert.That(deedMarker, Is.GreaterThanOrEqualTo(0));
             Assert.That(finalizer.IndexOf("if (voucher.DestroyOnEmpty)"), Is.GreaterThan(deedMarker));
             Assert.That(finalizer.IndexOf("voucher.RedemptionsLeft--;"), Is.GreaterThan(finalizer.IndexOf("if (voucher.DestroyOnEmpty)", StringComparison.Ordinal)));
-            Assert.That(finalizer.IndexOf("_accessSystem.TrySetTags("), Is.GreaterThan(deedMarker));
+            Assert.That(finalizer.IndexOf("EnsureComp<PersistentShipyardAccessComponent>(shuttleUid)"),
+                Is.GreaterThan(deedMarker));
+            Assert.That(finalizer.IndexOf("persistentAccess.GrantedLevels.UnionWith(component.NewAccessLevels);"),
+                Is.GreaterThan(deedMarker));
+            Assert.That(finalizer.IndexOf("GrantShipAccessLevels(targetId, persistentAccess.GrantedLevels);"),
+                Is.GreaterThan(deedMarker));
             Assert.That(finalizer.IndexOf("_shipOwnership.RegisterShipOwnership("), Is.GreaterThan(deedMarker));
+        });
+    }
+
+    [Test]
+    public void PersistentShipCallRestoresShipyardAccessAfterPublishingDeed()
+    {
+        var source = ReadSource(
+            "Content.Server/_NF/Shipyard/Systems/ShipyardSystem.Consoles.cs");
+        var callStart = source.IndexOf(
+            "private async Task HandleCallShipMessageAsync(",
+            StringComparison.Ordinal);
+        var callEnd = source.IndexOf(
+            "internal static string GetPersistentShipCallSuccessLocId(",
+            callStart,
+            StringComparison.Ordinal);
+        var helperStart = source.IndexOf(
+            "private void GrantShipAccessLevels(",
+            StringComparison.Ordinal);
+        var helperEnd = source.IndexOf(
+            "private bool IsPersistentShipCallTargetCurrent(",
+            helperStart,
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(callStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(callEnd, Is.GreaterThan(callStart));
+            Assert.That(helperStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(helperEnd, Is.GreaterThan(helperStart));
+        });
+
+        var call = source[callStart..callEnd];
+        var helper = source[helperStart..helperEnd];
+        var deedPublished = call.IndexOf("Dirty(targetId, deed);", StringComparison.Ordinal);
+        var persistedAccessRead = call.IndexOf(
+            "TryComp<PersistentShipyardAccessComponent>(result.Grid.Value, out var persistentAccess);",
+            StringComparison.Ordinal);
+        var accessRestored = call.IndexOf(
+            "ResolvePersistentShipAccessLevels(persistentAccess?.GrantedLevels)",
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(deedPublished, Is.GreaterThanOrEqualTo(0));
+            Assert.That(persistedAccessRead, Is.GreaterThan(deedPublished));
+            Assert.That(accessRestored, Is.GreaterThan(deedPublished),
+                "A successful persistent call must restore the access originally granted with the ship deed.");
+            Assert.That(source, Does.Contain(
+                "private static readonly ProtoId<AccessLevelPrototype> PersistentShipCaptainAccess = \"Captain\";"));
+            Assert.That(helper, Does.Contain("access.Tags.ToHashSet()"));
+            Assert.That(helper, Does.Contain("newAccess.UnionWith(accessLevels);"));
+            Assert.That(helper, Does.Contain("_accessSystem.TrySetTags(targetId, newAccess, access);"));
+        });
+    }
+
+    [Test]
+    public void PersistentAccessResolverUsesStoredSecurityGrantAndLegacyCaptainFallback()
+    {
+        HashSet<ProtoId<AccessLevelPrototype>> stored =
+        [
+            "Captain",
+            "Security",
+            "Brig",
+        ];
+
+        var restored = ShipyardSystem.ResolvePersistentShipAccessLevels(stored);
+        var legacyFallback = ShipyardSystem.ResolvePersistentShipAccessLevels(null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored, Is.SameAs(stored));
+            Assert.That(restored.Select(level => level.Id),
+                Is.EquivalentTo(new[] { "Captain", "Security", "Brig" }));
+            Assert.That(legacyFallback.Select(level => level.Id),
+                Is.EquivalentTo(new[] { "Captain" }));
         });
     }
 

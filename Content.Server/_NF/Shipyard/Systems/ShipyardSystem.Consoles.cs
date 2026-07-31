@@ -87,6 +87,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
     [Dependency] private IServerDbManager _serverDb = default!;
 
     private static readonly ProtoId<TagPrototype> CrewedShuttleTag = "CrewedShuttle";
+    private static readonly ProtoId<AccessLevelPrototype> PersistentShipCaptainAccess = "Captain";
     private static readonly Regex DeedRegex = new(@"\s*\([^()]*\)");
 
     public void InitializeConsole()
@@ -651,12 +652,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             Dirty(targetId, voucher);
         }
 
-        if (TryComp<AccessComponent>(targetId, out var newCap))
-        {
-            var newAccess = newCap.Tags.ToList();
-            newAccess.AddRange(component.NewAccessLevels);
-            _accessSystem.TrySetTags(targetId, newAccess, newCap);
-        }
+        var persistentAccess = EnsureComp<PersistentShipyardAccessComponent>(shuttleUid);
+        persistentAccess.GrantedLevels.Clear();
+        persistentAccess.GrantedLevels.UnionWith(component.NewAccessLevels);
+        GrantShipAccessLevels(targetId, persistentAccess.GrantedLevels);
 
         if (!voucherUsed && !string.IsNullOrEmpty(component.NewJobTitle))
             _idSystem.TryChangeJobTitle(targetId, component.NewJobTitle, idCard, player);
@@ -2358,7 +2357,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             {
                 // The durable store succeeded, so discard the now-inactive
                 // physical grid without overwriting a card that changed state.
-                QueueDel(shuttle);
+                QueueDeletePersistentShipWithStation(shuttle);
                 ConsolePopup(player, Loc.GetString("shipyard-console-purchase-changed"));
                 PlayDenySound(player, uid, component);
                 return;
@@ -2367,7 +2366,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             deed.PersistentShipId = identity.ShipId.ToString("D");
             deed.ShuttleUid = null;
             Dirty(targetId, deed);
-            QueueDel(shuttle);
+            QueueDeletePersistentShipWithStation(shuttle);
             ConsolePopup(player, Loc.GetString("shipyard-console-park-success"));
             PlayConfirmSound(player, uid, component);
         }
@@ -2422,6 +2421,55 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         {
             _sawmill.Error($"Unhandled persistent ship call failure at entity {uid}: {exception}");
         }
+    }
+
+    private void QueueDeletePersistentShipWithStation(EntityUid shuttle)
+    {
+        var owningStation = _station.GetOwningStation(shuttle);
+        if (TryGetDeletablePersistentVesselStation(shuttle, out var shuttleStation))
+        {
+            _station.DeleteStation(shuttleStation);
+        }
+        else if (owningStation is { Valid: true })
+        {
+            _sawmill.Warning(
+                $"Refused to delete unproven station {owningStation.Value} while removing persistent ship grid {shuttle}.");
+        }
+
+        QueueDel(shuttle);
+    }
+
+    internal bool TryGetDeletablePersistentVesselStation(EntityUid shuttle, out EntityUid station)
+    {
+        station = EntityUid.Invalid;
+        if (!TryComp<VesselComponent>(shuttle, out var vessel) ||
+            _station.GetOwningStation(shuttle) is not { Valid: true } owningStation ||
+            !TryComp<StationDataComponent>(owningStation, out var stationData) ||
+            stationData.Grids.Count != 1 ||
+            _station.GetLargestGrid((owningStation, stationData)) != shuttle ||
+            !TryComp<ExtraShuttleInformationComponent>(owningStation, out var vesselInfo) ||
+            vesselInfo.Vessel != vessel.VesselId)
+        {
+            return false;
+        }
+
+        var foundShuttle = false;
+        var memberQuery = EntityQueryEnumerator<StationMemberComponent>();
+        while (memberQuery.MoveNext(out var memberGrid, out var member))
+        {
+            if (member.Station != owningStation)
+                continue;
+            if (memberGrid != shuttle)
+                return false;
+
+            foundShuttle = true;
+        }
+
+        if (!foundShuttle)
+            return false;
+
+        station = owningStation;
+        return true;
     }
 
     private async Task HandleCallShipMessageAsync(EntityUid uid, ShipyardConsoleCallMessage args)
@@ -2594,7 +2642,7 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
                     DateTime.UtcNow);
                 if (rollback.Success)
                 {
-                    QueueDel(result.Grid.Value);
+                    QueueDeletePersistentShipWithStation(result.Grid.Value);
                 }
                 else
                 {
@@ -2619,6 +2667,10 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
             deed.DeedHolder = targetId;
             deed.PersistentShipId = stored.ShipId.ToString("D");
             Dirty(targetId, deed);
+            TryComp<PersistentShipyardAccessComponent>(result.Grid.Value, out var persistentAccess);
+            GrantShipAccessLevels(
+                targetId,
+                ResolvePersistentShipAccessLevels(persistentAccess?.GrantedLevels));
 
             var successLocId = GetPersistentShipCallSuccessLocId(usedProximityFallback);
             if (usedProximityFallback)
@@ -2646,6 +2698,30 @@ public sealed partial class ShipyardSystem : SharedShipyardSystem
         return usedProximityFallback
             ? "shipyard-console-call-success-nearby"
             : "shipyard-console-call-success";
+    }
+
+    /// <summary>
+    /// Adds access levels when a deed is published onto an ID card without
+    /// replacing access already held by that card.
+    /// </summary>
+    private void GrantShipAccessLevels(
+        EntityUid targetId,
+        IEnumerable<ProtoId<AccessLevelPrototype>> accessLevels)
+    {
+        if (!TryComp<AccessComponent>(targetId, out var access))
+            return;
+
+        var newAccess = access.Tags.ToHashSet();
+        newAccess.UnionWith(accessLevels);
+        _accessSystem.TrySetTags(targetId, newAccess, access);
+    }
+
+    internal static IReadOnlyCollection<ProtoId<AccessLevelPrototype>> ResolvePersistentShipAccessLevels(
+        IReadOnlyCollection<ProtoId<AccessLevelPrototype>>? persistedLevels)
+    {
+        // Snapshots written before PersistentShipyardAccessComponent existed
+        // received Captain from every persistent-capable shipyard console.
+        return persistedLevels ?? new[] { PersistentShipCaptainAccess };
     }
 
     private bool IsPersistentShipCallTargetCurrent(

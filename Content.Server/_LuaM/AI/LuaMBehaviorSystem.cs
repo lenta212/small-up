@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Content.Server.Atmos.Components;
 using Content.Server.Atmos.EntitySystems;
 using Content.Server.Body.Components;
 using Content.Server.Body.Systems;
 using Content.Server.NPC.HTN;
+using Content.Server.Temperature.Components;
 using Content.Server._LuaM.NPC;
 using Content.Shared.ActionBlocker;
 using Content.Shared.Atmos;
@@ -13,6 +15,7 @@ using Content.Shared.Damage;
 using Content.Shared.Mobs.Systems;
 using Content.Shared.NPC.Systems;
 using Content.Shared.Power.Components;
+using Content.Shared._Shitmed.Body.Components;
 using Content.Shared._LuaM.AI;
 using Robust.Shared.Map;
 using Robust.Shared.Player;
@@ -360,6 +363,7 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
             return;
 
         if (profile.HasCapability(LuaMBehaviorCapability.Breathe) &&
+            !HasComp<BreathingImmunityComponent>(actor) &&
             TryComp<RespiratorComponent>(actor, out var respirator) &&
             !_respirator.CanMetabolizeInhaledAir((actor, respirator)))
         {
@@ -367,7 +371,8 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
                 $"{BuiltInSource}:atmosphere");
         }
 
-        if (profile.HasCapability(LuaMBehaviorCapability.PressureVulnerable))
+        if (profile.HasCapability(LuaMBehaviorCapability.PressureVulnerable) &&
+            !HasComp<PressureImmunityComponent>(actor))
         {
             if (mixture.Pressure < Atmospherics.WarningLowPressure)
             {
@@ -384,11 +389,12 @@ public sealed partial class LuaMBehaviorSystem : EntitySystem
             }
         }
 
-        if (!profile.HasCapability(LuaMBehaviorCapability.TemperatureVulnerable))
+        if (!profile.HasCapability(LuaMBehaviorCapability.TemperatureVulnerable) ||
+            !TryComp<TemperatureComponent>(actor, out var temperature))
             return;
 
-        const float safeMinimum = 260f;
-        const float safeMaximum = 330f;
+        var safeMinimum = temperature.ParentColdDamageThreshold ?? temperature.ColdDamageThreshold;
+        var safeMaximum = temperature.ParentHeatDamageThreshold ?? temperature.HeatDamageThreshold;
         if (mixture.Temperature < safeMinimum)
         {
             UpsertObservation(component, LuaMBehaviorStimulus.ExtremeTemperature,

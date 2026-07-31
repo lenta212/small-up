@@ -33,6 +33,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
     private string _serverInstanceId = "new_frontier";
     private TimeSpan _leaseDuration = DefaultLeaseDuration;
     private readonly Dictionary<Guid, LuaMActiveShipLease> _active = new();
+    private readonly HashSet<LuaMShipRestoreScope> _pendingRestoreCommits = new();
     private readonly HashSet<LuaMShipRestoreScope> _pendingRestoreRollbacks = new();
     private readonly HashSet<NetUserId> _restoredOwners = new();
     private readonly object _maintenanceSync = new();
@@ -65,6 +66,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         if (_restoreRollbackRetryAccumulator >= 1f)
         {
             _restoreRollbackRetryAccumulator = 0f;
+            RetryPendingRestoreCommits();
             RetryPendingRestoreRollbacks();
         }
 
@@ -92,6 +94,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         // Test configuration must not inherit leases or retry scopes from a
         // preceding fixture's mock database.
         _active.Clear();
+        _pendingRestoreCommits.Clear();
         _pendingRestoreRollbacks.Clear();
         _restoredOwners.Clear();
         _renewAccumulator = 0;
@@ -559,7 +562,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
                 completionReason);
         }
 
-        _runtime.CommitRestore(restore);
+        var restoreCommitted = _runtime.CommitRestore(restore);
         var active = new LuaMActiveShipLease(
             shipId,
             ownerUserId,
@@ -571,7 +574,70 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
             grid,
             claimed.PayloadRevision);
         _active.Add(shipId, active);
+        if (!restoreCommitted)
+        {
+            _pendingRestoreCommits.Add(restore);
+            _sawmill.Error(
+                $"Ship restore {shipId} became durable before its station could be initialized; finalization was queued for retry.");
+        }
         return new(true, complete.Status, active.RegistryRevision, active.LeaseId, grid, null);
+    }
+
+    private void RetryPendingRestoreCommits()
+    {
+        if (_pendingRestoreCommits.Count == 0)
+            return;
+
+        foreach (var restore in new List<LuaMShipRestoreScope>(_pendingRestoreCommits))
+        {
+            if (!Exists(restore.Grid) || TerminatingOrDeleted(restore.Grid))
+            {
+                _pendingRestoreCommits.Remove(restore);
+                _sawmill.Warning(
+                    $"Stopped retrying station finalization for ship {restore.ShipId} because its active grid no longer exists.");
+                continue;
+            }
+
+            try
+            {
+                if (!_runtime.CommitRestore(restore))
+                    continue;
+
+                _pendingRestoreCommits.Remove(restore);
+                _sawmill.Info($"Deferred station finalization for ship {restore.ShipId} completed successfully.");
+            }
+            catch (Exception exception)
+            {
+                _sawmill.Error(
+                    $"Deferred station finalization for ship {restore.ShipId} is still failing: {exception}");
+            }
+        }
+    }
+
+    private bool TryFinalizePendingRestoreCommit(Guid shipId)
+    {
+        LuaMShipRestoreScope? pending = null;
+        foreach (var restore in _pendingRestoreCommits)
+        {
+            if (restore.ShipId == shipId)
+            {
+                pending = restore;
+                break;
+            }
+        }
+
+        if (pending == null)
+            return true;
+        if (!_runtime.CommitRestore(pending))
+            return false;
+
+        _pendingRestoreCommits.Remove(pending);
+        return true;
+    }
+
+    private void ForgetPendingRestoreCommit(Guid shipId)
+    {
+        _pendingRestoreCommits.RemoveWhere(restore => restore.ShipId == shipId);
     }
 
     private string? TryRollbackRestore(LuaMShipRestoreScope restore)
@@ -706,6 +772,13 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
                 cancel);
         }
 
+        if (!TryFinalizePendingRestoreCommit(shipId))
+        {
+            return Failure(
+                LuaMShipPersistenceWriteStatus.InvalidState,
+                "restored vessel station finalization is still pending");
+        }
+
         if (active.PayloadRevision == long.MaxValue)
             return Failure(LuaMShipPersistenceWriteStatus.InvalidRequest, "snapshot revision exhausted");
         if (!_runtime.TryCaptureSnapshot(active.Grid, active.PayloadRevision + 1, out var snapshot, out var reason))
@@ -731,6 +804,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         QueueSavedShipAnalysis(snapshot);
 
         _active.Remove(shipId);
+        ForgetPendingRestoreCommit(shipId);
         return new(true, stored.Status, stored.Revision, null, active.Grid, null);
     }
 
@@ -844,6 +918,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
             return Failure(retired.Status, $"snapshot retirement failed: {retired.Status}");
 
         _active.Remove(shipId);
+        ForgetPendingRestoreCommit(shipId);
         return new(true, retired.Status, retired.Revision, null, active.Grid, null);
     }
 
@@ -1346,6 +1421,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         }
 
         _active.Remove(active.ShipId);
+        ForgetPendingRestoreCommit(active.ShipId);
         return new(
             true,
             released.Success ? released.Status : LuaMShipPersistenceWriteStatus.AlreadyProcessed,

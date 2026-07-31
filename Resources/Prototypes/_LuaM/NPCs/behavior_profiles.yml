@@ -713,6 +713,13 @@
   threatTolerance: 3
 
 - type: luamBehaviorProfile
+  id: LuaMBloodCultistBehavior
+  parent: LuaMSecurityBehavior
+  decisionIntervalSeconds: 0.25
+  perceptionRange: 18
+  threatTolerance: 12
+
+- type: luamBehaviorProfile
   id: LuaMMiningDroneBehavior
   parent: LuaMUniversalBehaviorBase
   capabilities:

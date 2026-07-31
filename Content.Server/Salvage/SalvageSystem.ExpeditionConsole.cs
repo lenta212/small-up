@@ -28,7 +28,7 @@ public sealed partial class SalvageSystem
 
     private void OnSalvageClaimMessage(EntityUid uid, SalvageExpeditionConsoleComponent component, ClaimSalvageMessage args)
     {
-        if (!TryEnsureConsoleExpeditionData(uid, out var station, out var data) || data.Claimed)
+        if (!TryEnsureConsoleExpeditionData(uid, out var station, out var data) || data.Claimed || data.Cooldown)
             return;
 
         var activeExpeditionCount = 0;
@@ -283,6 +283,19 @@ public sealed partial class SalvageSystem
             // End Frontier
 
             _ui.SetUiState((uid, uiComp), SalvageConsoleUiKey.Expedition, state);
+        }
+    }
+
+    /// <summary>
+    /// Rebinds and refreshes expedition consoles after a vessel receives its round-local station.
+    /// </summary>
+    public void RefreshExpeditionConsoles(EntityUid stationUid)
+    {
+        var query = EntityQueryEnumerator<SalvageExpeditionConsoleComponent, TransformComponent>();
+        while (query.MoveNext(out var uid, out var component, out var xform))
+        {
+            if (_station.GetOwningStation(uid, xform) == stationUid)
+                UpdateConsole((uid, component));
         }
     }
 
