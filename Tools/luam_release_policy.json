@@ -1,15 +1,14 @@
 ﻿{
     "remoteDeployFrozen":  false,
-    "reason":  "Operator explicitly requested repairing the disappearing Colossus gateway destinations, publishing the matching update, and restarting production. Authorization is limited to the receipt-bound client-static and server release for this gateway hotfix.",
-    "lastReviewed":  "2026-07-30",
+    "reason":  "Operator explicitly requested a server-only hostile-mob hotfix and authorized an immediate production restart even with connected players. Authorization is limited to the receipt-bound server release; the deployed client archive must remain unchanged.",
+    "lastReviewed":  "2026-07-31",
     "deploymentAuthorization":  {
                                     "state":  "authorized",
-                                    "approvalId":  "chat-20260730-colossus-gateway-hotfix",
+                                    "approvalId":  "chat-20260731-hostile-mob-server-hotfix",
                                     "approvedBy":  "operator",
-                                    "approvedAtUtc":  "2026-07-30T10:45:49Z",
-                                    "expiresAtUtc":  "2026-07-30T16:00:00Z",
+                                    "approvedAtUtc":  "2026-07-31T10:35:23Z",
+                                    "expiresAtUtc":  "2026-07-31T22:35:23Z",
                                     "allowedMutations":  [
-                                                               "client-static",
                                                                "server-release"
                                                          ]
                                 },
@@ -122,6 +121,9 @@
                                         ]
                     },
     "approvedReleaseAdditions":  [
+                                     "Content.Server/Body/Systems/RespiratorSystem.cs",
+                                     "Content.Server/_LuaM/AI/LuaMBloodCultShotComponent.cs",
+                                     "Content.IntegrationTests/Tests/_LuaM/LuaMHostileMobServerHotfixTest.cs",
                                      "Content.Client/PDA/PdaBoundUserInterface.cs",
                                      "Content.Client/PDA/PdaMenu.xaml",
                                      "Content.Client/PDA/PdaMenu.xaml.cs",
@@ -376,10 +378,13 @@
                                      "AGENTS.md"
                                  ],
     "pendingLocalIntegrationBatch":  {
-                                         "name":  "20260730-colossus-gateway-hotfix",
+                                         "name":  "20260731-hostile-mob-server-hotfix",
                                          "state":  "deployment-authorized",
-                                         "packageSelection":  "Colossus gateway hotfix: protect generated return endpoints from automatic cleanup, restore a missing endpoint without replacing its generated world, refresh open gateway interfaces, and create procedural worlds with a validated 160-tile safety boundary from initialization.",
+                                         "packageSelection":  "Server-only hostile-mob hotfix on the exact deployed source: stop atmosphere-immune NPCs from selecting retreat in harmless vacuum, give BloodCultNF actors 18-tile perception, 0.25-second decisions and 12-hostile tolerance, add +6 slash melee damage and a one-time 1.25x projectile or hitscan damage multiplier. The existing client archive is reused unchanged.",
                                          "packageFiles":  [
+                                                               "Content.Server/Body/Systems/RespiratorSystem.cs",
+                                                               "Content.Server/_LuaM/AI/LuaMBloodCultShotComponent.cs",
+                                                               "Content.IntegrationTests/Tests/_LuaM/LuaMHostileMobServerHotfixTest.cs",
                                                                ".agents/ITERATION_LOG.md",
                                                                "Content.Client/_NF/LateJoin/Controls/CrewPickerControl.xaml.cs",
                                                                "Content.Client/_NF/LateJoin/Controls/StationOrCrewLargeControl.xaml.cs",
