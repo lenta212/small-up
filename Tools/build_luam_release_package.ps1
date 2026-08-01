@@ -550,6 +550,45 @@ function Add-File {
     }
 }
 
+function Invoke-GitCaptureForPathspecs {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$BaseArguments,
+        [Parameter(Mandatory = $true)][string[]]$Pathspecs
+    )
+
+    # Keep each CreateProcess command line comfortably below the Windows
+    # limit. The production scope currently contains hundreds of pathspecs.
+    $results = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $batch = [System.Collections.Generic.List[string]]::new()
+    $batchCharacters = 0
+
+    foreach ($pathspec in $Pathspecs) {
+        $estimatedCharacters = $pathspec.Length + 3
+        if ($batch.Count -gt 0 -and $batchCharacters + $estimatedCharacters -gt 12000) {
+            foreach ($line in Invoke-LuaMGitCapture -Root $root -Arguments (@($BaseArguments) + '--' + @($batch))) {
+                if (-not [string]::IsNullOrWhiteSpace($line)) {
+                    $results.Add($line) | Out-Null
+                }
+            }
+            $batch.Clear()
+            $batchCharacters = 0
+        }
+
+        $batch.Add($pathspec)
+        $batchCharacters += $estimatedCharacters
+    }
+
+    if ($batch.Count -gt 0) {
+        foreach ($line in Invoke-LuaMGitCapture -Root $root -Arguments (@($BaseArguments) + '--' + @($batch))) {
+            if (-not [string]::IsNullOrWhiteSpace($line)) {
+                $results.Add($line) | Out-Null
+            }
+        }
+    }
+
+    return @($results) | Sort-Object
+}
+
 function Invoke-Readiness {
     $args = @(
         "-NoProfile",
@@ -651,9 +690,9 @@ try {
     }
 
     $changedInScope = @(
-        @(Invoke-LuaMGitCapture -Root $root -Arguments (@('-c', 'core.quotepath=false', 'diff', '--name-only', '--no-ext-diff', '--') + $releaseScopes))
-        @(Invoke-LuaMGitCapture -Root $root -Arguments (@('-c', 'core.quotepath=false', 'diff', '--cached', '--name-only', '--no-ext-diff', '--') + $releaseScopes))
-        @(Invoke-LuaMGitCapture -Root $root -Arguments (@('-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard', '--') + $releaseScopes))
+        @(Invoke-GitCaptureForPathspecs -BaseArguments @('-c', 'core.quotepath=false', 'diff', '--name-only', '--no-ext-diff') -Pathspecs $releaseScopes)
+        @(Invoke-GitCaptureForPathspecs -BaseArguments @('-c', 'core.quotepath=false', 'diff', '--cached', '--name-only', '--no-ext-diff') -Pathspecs $releaseScopes)
+        @(Invoke-GitCaptureForPathspecs -BaseArguments @('-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard') -Pathspecs $releaseScopes)
     ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique
     foreach ($file in $changedInScope) {
         Add-File -Set $files -Path $file
@@ -704,7 +743,7 @@ try {
 
     $gitHead = [string]$finalWorktreeReceipt.gitHead
     $gitBranch = [string]$finalWorktreeReceipt.gitBranch
-    $untracked = @(Invoke-LuaMGitCapture -Root $root -Arguments (@('-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard', '--') + $releaseScopes))
+    $untracked = @(Invoke-GitCaptureForPathspecs -BaseArguments @('-c', 'core.quotepath=false', 'ls-files', '--others', '--exclude-standard') -Pathspecs $releaseScopes)
     $fileHashArray = @($fileHashes | ForEach-Object { $_ })
     $payloadDigestSha256 = Get-LuaMFileRecordDigest -Files $fileHashArray
     $changedFiles = @(Get-ChangedFiles)
