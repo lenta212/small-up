@@ -32,6 +32,20 @@ public sealed partial class PowerChargeSystem : EntitySystem
         SubscribeLocalEvent<PowerChargeComponent, EmpPulseEvent>(OnEmpPulse); // Frontier: emp code
     }
 
+    /// <summary>
+    /// Restores a charging machine to a neutral finite state after loading corrupted persistent data.
+    /// </summary>
+    public bool SanitizeNonFiniteCharge(EntityUid uid, PowerChargeComponent? component = null)
+    {
+        if (!Resolve(uid, ref component, false) || float.IsFinite(component.Charge))
+            return false;
+
+        component.Charge = 0f;
+        component.Active = false;
+        component.NeedUIUpdate = true;
+        return true;
+    }
+
     private void OnAnchorStateChange(EntityUid uid, PowerChargeComponent component, AnchorStateChangedEvent args)
     {
         if (args.Anchored || !TryComp<ApcPowerReceiverComponent>(uid, out var powerReceiverComponent))

@@ -617,29 +617,54 @@ public sealed partial class ShuttleConsoleSystem : SharedShuttleConsoleSystem
         if (gridUid == null)
             return default;
 
+        ShipShieldEmitterComponent? selected = null;
+        ShipShieldEmitterComponent? active = null;
+        var bestPercent = float.NegativeInfinity;
+        TryComp<ShipShieldedComponent>(gridUid.Value, out var shielded);
+
         var query = AllEntityQuery<ShipShieldEmitterComponent, TransformComponent>();
-        while (query.MoveNext(out _, out var emitter, out var emitterXform))
+        while (query.MoveNext(out var emitterUid, out var emitter, out var emitterXform))
         {
             if (emitterXform.GridUid != gridUid)
                 continue;
 
-            var limit = emitter.DamageLimit > 0 ? emitter.DamageLimit : 1f;
-            var percent = Math.Clamp(1f - emitter.Damage / limit, 0f, 1f);
-            var online = emitter.Shield != null;
+            // The shield envelope records the authoritative emitter. Entity-query order is not
+            // stable after a persistent map load, so returning the first emitter can report a
+            // depleted spare generator even while another generator owns the live shield.
+            if (shielded?.Source == emitterUid && emitter.Shield == shielded.Shield)
+                active = emitter;
 
-            TimeSpan? endTime = null;
-            if (!online)
+            var candidatePercent = GetShieldPercent(emitter);
+            if (candidatePercent > bestPercent)
             {
-                var healRate = emitter.HealPerSecond * emitter.UnpoweredBonus;
-                var rechargeSeconds = healRate > 0f ? emitter.Damage / healRate : 0f;
-                var seconds = MathF.Max(rechargeSeconds, emitter.OverloadAccumulator);
-                endTime = _timing.CurTime + TimeSpan.FromSeconds(seconds);
+                selected = emitter;
+                bestPercent = candidatePercent;
             }
-
-            return new ShipShieldState(true, online, percent, endTime);
         }
 
-        return default;
+        var selectedEmitter = active ?? selected;
+        if (selectedEmitter == null)
+            return default;
+
+        var percent = GetShieldPercent(selectedEmitter);
+        var online = selectedEmitter.Shield != null;
+
+        TimeSpan? endTime = null;
+        if (!online)
+        {
+            var healRate = selectedEmitter.HealPerSecond * selectedEmitter.UnpoweredBonus;
+            var rechargeSeconds = healRate > 0f ? selectedEmitter.Damage / healRate : 0f;
+            var seconds = MathF.Max(rechargeSeconds, selectedEmitter.OverloadAccumulator);
+            endTime = _timing.CurTime + TimeSpan.FromSeconds(seconds);
+        }
+
+        return new ShipShieldState(true, online, percent, endTime);
+
+        static float GetShieldPercent(ShipShieldEmitterComponent emitter)
+        {
+            var limit = emitter.DamageLimit > 0 ? emitter.DamageLimit : 1f;
+            return Math.Clamp(1f - emitter.Damage / limit, 0f, 1f);
+        }
     }
     // Forge-Change-End
 

@@ -1,15 +1,16 @@
 ﻿{
-    "remoteDeployFrozen":  true,
-    "reason":  "The restored-ship and hostile-mob global update is being assembled and verified locally. Remote deployment remains frozen until the operator gives one fresh explicit authorization for client-static publication, the guarded ship-save transition, and the server restart.",
-    "lastReviewed":  "2026-07-31",
+    "remoteDeployFrozen":  false,
+    "reason":  "The operator explicitly authorized the complete client-and-server rollout on 2026-08-01, including client-static publication, the authenticated ship-save barrier, backup, guarded server restart, and the restored-power repair required for Nikifor Adriatic's shuttle.",
+    "lastReviewed":  "2026-08-01",
     "deploymentAuthorization":  {
-                                    "state":  "frozen",
-                                    "approvalId":  null,
-                                    "approvedBy":  null,
-                                    "approvedAtUtc":  null,
-                                    "expiresAtUtc":  null,
+                                    "state":  "authorized",
+                                    "approvalId":  "operator-chat-20260801-full-server-update",
+                                    "approvedBy":  "server operator via Codex chat",
+                                    "approvedAtUtc":  "2026-08-01T16:27:59Z",
+                                    "expiresAtUtc":  "2026-08-02T04:27:59Z",
                                     "allowedMutations":  [
-
+                                                             "server-release",
+                                                             "client-static"
                                                          ]
                                 },
     "releaseGate":  {
@@ -101,6 +102,7 @@
                                                                           "Content.IntegrationTests/Tests/_LuaM/LuaMShipyardGrantedAccessPersistenceRuntimeTest.cs",
                                                                           "Content.IntegrationTests/Tests/_LuaM/LuaMSalvageExpeditionConsoleBindingTest.cs",
                                                                           "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredInteractionUseDelayTest.cs",
+                                                                          "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredPowerStateTest.cs",
                                                                           "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredShipGunneryTest.cs",
                                                                           "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredShipShieldTest.cs"
                                                                       ]
@@ -386,7 +388,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260731-restored-ships-global",
-                                         "state":  "release-candidate",
+                                         "state":  "deployment-authorized",
                                          "packageSelection":  "Fresh client-and-server update based on the exact frozen production source. It retains the deployed hostile-mob and BloodCultNF hotfix, publishes its ServerNews, repairs saved-ship access, ordinary interactions, expedition station/UI/cooldown state, GCS weapons, energy recharge, shield reconstruction and rollback, and removes 16:9/16:10 gameplay viewport pillarboxing. Live configuration and the AI gateway are unchanged.",
                                          "packageFiles":  [
                                                                "Content.Server/Body/Systems/RespiratorSystem.cs",
@@ -408,6 +410,7 @@
                                                                "Content.IntegrationTests/Tests/_LuaM/LuaMDeepCryoRuntimeTest.cs",
                                                                "Content.IntegrationTests/Tests/_LuaM/LuaMFullShipPersistenceRuntimeTest.cs",
                                                                "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredInteractionUseDelayTest.cs",
+                                                               "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredPowerStateTest.cs",
                                                                "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredShipGunneryTest.cs",
                                                                "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredShipShieldTest.cs",
                                                                "Content.IntegrationTests/Tests/_LuaM/LuaMSalvageExpeditionConsoleBindingTest.cs",
@@ -424,6 +427,7 @@
                                                                "Content.Server/_LuaM/Administration/LuaMShipPersistenceCommands.cs",
                                                                "Content.Server/_LuaM/Sector/LuaMSectorAiDirectorSystem.cs",
                                                                "Content.Server/_LuaM/ShipPersistence/LuaMFullShipPersistenceSystem.cs",
+                                                               "Content.Server/Power/EntitySystems/PowerChargeSystem.cs",
                                                                "Content.Server/_LuaM/ShipPersistence/LuaMSalvageExpeditionCooldownComponent.cs",
                                                                "Content.Server/_LuaM/ShipPersistence/LuaMShipPersistenceOrchestrator.cs",
                                                                "Content.Server/Salvage/SalvageSystem.ExpeditionConsole.cs",

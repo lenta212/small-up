@@ -9,6 +9,7 @@ using Content.Server._Crescent.ShipShields;
 using Content.Server._NF.CryoSleep;
 using Content.Server._NF.Station.Components;
 using Content.Server.Power.Components;
+using Content.Server.Power.EntitySystems;
 using Content.Server.Salvage;
 using Content.Server.Shuttles.Components;
 using Content.Server.Shuttles.Systems;
@@ -24,6 +25,7 @@ using Content.Shared.Salvage.Expeditions;
 using Content.Shared.Station;
 using Content.Shared.Station.Components;
 using Content.Shared.Timing;
+using Content.Shared.Power.Components;
 using Content.Shared.Weapons.Ranged.Components;
 using Robust.Shared.Containers;
 using Robust.Shared;
@@ -195,6 +197,8 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     [Dependency] private SalvageSystem _salvage = default!;
     [Dependency] private ShipShieldsSystem _shipShields = default!;
     [Dependency] private StationSystem _stations = default!;
+    [Dependency] private BatterySystem _battery = default!;
+    [Dependency] private PowerChargeSystem _powerCharge = default!;
 
     private readonly HashSet<Guid> _busyShips = [];
 
@@ -759,6 +763,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
             createdEntities.RemoveWhere(uid => !Exists(uid));
             ExpireImpossibleRestoredUseDelays(createdEntities);
             ExpireImpossibleRestoredBatteryRechargeDelays(createdEntities);
+            SanitizeRestoredPowerState(createdEntities);
             RefreshRestoredGunModifiers(createdEntities);
 
             if (!TryResolveVesselStationConfig(
@@ -887,6 +892,86 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         {
             Log.Warning(
                 $"Expired {expiredEntries} impossible battery self-recharge timestamp(s) while restoring a persistent ship.");
+        }
+    }
+
+    /// <summary>
+    /// Removes non-finite runtime values that would otherwise poison an entire restored power net.
+    /// </summary>
+    /// <remarks>
+    /// Valid battery charge is durable and remains untouched. A non-finite charge has no meaningful
+    /// recoverable value, so it is reset empty; the normal solver can then recharge it from the
+    /// ship's surviving generators and SMES units. Transient solver fields are reset to neutral.
+    /// </remarks>
+    private void SanitizeRestoredPowerState(IReadOnlySet<EntityUid> restoredEntities)
+    {
+        var repairedEntities = 0;
+        var repairedFields = 0;
+
+        foreach (var uid in restoredEntities)
+        {
+            var repaired = false;
+            float? batteryCharge = null;
+
+            if (TryComp<BatteryComponent>(uid, out var battery))
+            {
+                if (!float.IsFinite(battery.CurrentCharge))
+                {
+                    _battery.SetCharge(uid, 0f, battery);
+                    repairedFields++;
+                    repaired = true;
+                }
+
+                batteryCharge = float.IsFinite(battery.CurrentCharge)
+                    ? Math.Clamp(battery.CurrentCharge, 0f, Math.Max(battery.MaxCharge, 0f))
+                    : 0f;
+            }
+
+            if (TryComp<PowerNetworkBatteryComponent>(uid, out var network))
+            {
+                var state = network.NetworkBattery;
+                repaired |= ResetNonFinite(ref state.SupplyRampPosition);
+                repaired |= ResetNonFinite(ref state.CurrentSupply);
+                repaired |= ResetNonFinite(ref state.CurrentReceiving);
+                repaired |= ResetNonFinite(ref state.LoadingNetworkDemand);
+                repaired |= ResetNonFinite(ref state.AvailableSupply);
+                repaired |= ResetNonFinite(ref state.DesiredPower);
+                repaired |= ResetNonFinite(ref state.SupplyRampTarget);
+                repaired |= ResetNonFinite(ref state.MaxEffectiveSupply);
+                repaired |= ResetNonFinite(ref network.LastSupply);
+
+                if (!float.IsFinite(state.CurrentStorage))
+                {
+                    state.CurrentStorage = batteryCharge ?? 0f;
+                    repairedFields++;
+                    repaired = true;
+                }
+            }
+
+            if (_powerCharge.SanitizeNonFiniteCharge(uid))
+            {
+                repairedFields++;
+                repaired = true;
+            }
+
+            if (repaired)
+                repairedEntities++;
+        }
+
+        if (repairedFields > 0)
+        {
+            Log.Warning(
+                $"Repaired {repairedFields} non-finite power field(s) on {repairedEntities} entity/entities while restoring a persistent ship.");
+        }
+
+        bool ResetNonFinite(ref float value)
+        {
+            if (float.IsFinite(value))
+                return false;
+
+            value = 0f;
+            repairedFields++;
+            return true;
         }
     }
 

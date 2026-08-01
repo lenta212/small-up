@@ -3,8 +3,10 @@ using System.Numerics;
 using Content.Server._Crescent.ShipShields;
 using Content.Server._LuaM.ShipPersistence;
 using Content.Server.Power.Components;
+using Content.Server.Shuttles.Systems;
 using Content.Shared._Crescent.ShipShields;
 using Content.Shared.Maps;
+using Content.Shared.Shuttles.BUIStates;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
 using Robust.Shared.Maths;
@@ -44,6 +46,9 @@ public sealed class LuaMRestoredShipShieldTest
                 var sourceEmitter = entities.SpawnEntity(
                     "ShieldGeneratorSmall",
                     new EntityCoordinates(sourceGrid.Owner, new Vector2(2.5f, 2.5f)));
+                var sourceConsole = entities.SpawnEntity(
+                    "ComputerShuttle",
+                    new EntityCoordinates(sourceGrid.Owner, new Vector2(1.5f, 1.5f)));
                 entities.GetComponent<ApcPowerReceiverComponent>(sourceEmitter).Powered = true;
                 shields.Update(1.6f);
 
@@ -106,6 +111,7 @@ public sealed class LuaMRestoredShipShieldTest
                     restoreReason);
 
                 var restoredEmitter = RequirePrototypeDescendant(restoredGrid, "ShieldGeneratorSmall");
+                var restoredConsole = RequirePrototypeDescendant(restoredGrid, "ComputerShuttle");
                 var restoredEmitterComponent = entities.GetComponent<ShipShieldEmitterComponent>(restoredEmitter);
 
                 Assert.Multiple(() =>
@@ -127,6 +133,28 @@ public sealed class LuaMRestoredShipShieldTest
                 shields.Update(1.6f);
 
                 AssertValidShieldLinks(restoredGrid, restoredEmitter);
+
+                // A depleted spare must not make navigation/fire-control report 0% when the
+                // restored emitter above owns a healthy live envelope.
+                var depletedSpare = entities.SpawnEntity(
+                    "ShieldGeneratorMedium",
+                    new EntityCoordinates(restoredGrid, new Vector2(3.5f, 3.5f)));
+                var spareEmitter = entities.GetComponent<ShipShieldEmitterComponent>(depletedSpare);
+                spareEmitter.Damage = spareEmitter.DamageLimit;
+                spareEmitter.Recharging = true;
+
+                var consoleSystem = entities.System<ShuttleConsoleSystem>();
+                var state = consoleSystem.GetNavState(
+                    restoredConsole,
+                    new Dictionary<NetEntity, List<DockingPortState>>());
+                var expectedPercent = 1f - restoredEmitterComponent.Damage / restoredEmitterComponent.DamageLimit;
+                Assert.Multiple(() =>
+                {
+                    Assert.That(state.ShieldState.HasShield, Is.True);
+                    Assert.That(state.ShieldState.Online, Is.True);
+                    Assert.That(state.ShieldState.Percent, Is.EqualTo(expectedPercent).Within(0.0001f));
+                    Assert.That(state.ShieldState.Percent, Is.GreaterThan(0f));
+                });
             });
         }
         finally
