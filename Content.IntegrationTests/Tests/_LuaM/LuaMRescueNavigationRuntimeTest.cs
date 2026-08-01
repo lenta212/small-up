@@ -1,5 +1,6 @@
 using System.Numerics;
 using Content.IntegrationTests.Pair;
+using Content.Server.Body.Systems;
 using Content.Server.NPC;
 using Content.Server._LuaM.Rescue;
 using Content.Server.Gravity;
@@ -192,6 +193,79 @@ public sealed class LuaMRescueNavigationRuntimeTest
                 "The last authoritative route must remain usable while its background replacement is pending.");
         });
 
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task StockAibolitStartsInternalsInVacuumAndApproachesInZeroGravity()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapSystem = server.System<SharedMapSystem>();
+        var navigation = entities.System<LuaMRescueNavigationSystem>();
+        var rescueSystem = entities.System<LuaMRescueAgentSystem>();
+        var transform = entities.System<SharedTransformSystem>();
+        var internals = entities.System<InternalsSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid target = default;
+        await server.WaitAssertion(() =>
+        {
+            BuildHorizontalFloor(mapSystem, map, 0, 8);
+            var gravity = entities.EnsureComponent<GravityComponent>(map.Grid);
+            Assert.Multiple(() =>
+            {
+                Assert.That(gravity.Enabled, Is.False,
+                    "The fixture must remain a real zero-gravity grid.");
+            });
+
+            // Map-root coordinates are real space. Starting gear must connect
+            // oxygen there before the rescuer enters the zero-gravity route.
+            agent = entities.SpawnEntity("LuaMRescueAgent", map.MapCoords);
+            Assert.That(internals.AreInternalsWorking(agent), Is.True,
+                "Stock Aibolit must connect its carried oxygen when spawned into vacuum.");
+            transform.SetCoordinates(agent, GridCoordinates(map.Grid, 0.5f, 0.5f));
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.AutoAcquireTargets = false;
+            rescue.EvacuateTargetsToShuttle = false;
+            rescue.AutoAnalyzeBeforeTreatment = false;
+            rescue.AutoTreatWithCarriedItems = false;
+            target = entities.SpawnEntity("MobHuman", GridCoordinates(map.Grid, 8.5f, 0.5f));
+        });
+
+        var route = await AwaitCompletedProbe(pair, navigation, agent, target, RescueActionRange);
+        Assert.That(route.State, Is.EqualTo(LuaMRescuePathProbeState.Reachable));
+        await server.WaitAssertion(() =>
+        {
+            Assert.That(rescueSystem.TryOrderAgent(agent, target, out var status), Is.True, status);
+        });
+
+        var steering = await AwaitSteeringTarget(pair, entities, agent, target);
+        Assert.That(steering.Started, Is.True, steering.Diagnostics);
+
+        var approached = false;
+        var distance = float.PositiveInfinity;
+        for (var i = 0; i < ProbeTickLimit * 4; i += 4)
+        {
+            await pair.RunTicksSync(4);
+            await server.WaitAssertion(() =>
+            {
+                distance = Vector2.Distance(
+                    transform.GetWorldPosition(agent),
+                    transform.GetWorldPosition(target));
+            });
+
+            if (distance <= RescueActionRange)
+            {
+                approached = true;
+                break;
+            }
+        }
+
+        Assert.That(approached, Is.True,
+            $"Stock Aibolit remained {distance:0.00} m from the patient in vacuum zero gravity.");
         await pair.CleanReturnAsync();
     }
 

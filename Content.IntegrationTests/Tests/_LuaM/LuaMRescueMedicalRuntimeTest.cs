@@ -6,6 +6,7 @@ using Content.Server.Atmos.Components;
 using Content.Server.Body.Components;
 using Content.Server.Medical.Components;
 using Content.Server.Mind;
+using Content.Server.Power.Components;
 using Content.Server._LuaM.Rescue;
 using Content.Shared.Atmos.Rotting;
 using Content.Shared.Chemistry.Components;
@@ -47,6 +48,15 @@ public sealed class LuaMRescueMedicalRuntimeTest
   id: LuaMRescueMedicalRuntimeAgent
   components:
   - type: LuaMRescueAgent
+  - type: Medibot
+    treatments:
+      Alive:
+        reagent: Tricordrazine
+        quantity: 15
+        minDamage: 0
+      Critical:
+        reagent: Inaprovaline
+        quantity: 20
   - type: DoAfter
     raiseEndedEvent: true
   - type: HTN
@@ -85,6 +95,25 @@ public sealed class LuaMRescueMedicalRuntimeTest
         Asphyxiation: -1
     doAfterDuration: 0.05
     zapDelay: 0.01
+
+- type: vendingMachineInventory
+  id: LuaMRescueMedicalRuntimeInventory
+  startingInventory:
+    Ointment: 2
+    Brutepack: 2
+
+- type: entity
+  parent: VendingMachine
+  id: LuaMRescueMedicalRuntimeVending
+  components:
+  - type: VendingMachine
+    pack: LuaMRescueMedicalRuntimeInventory
+    ejectDelay: 0.05
+    requiresCash: false
+  - type: ApcPowerReceiver
+    needsPower: false
+  - type: Sprite
+    sprite: error.rsi
 ";
 
     [Test]
@@ -111,6 +140,171 @@ public sealed class LuaMRescueMedicalRuntimeTest
                 "Heat",
                 "Ointment",
                 "Brutepack");
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task HeldMedicinePlannerChoosesHighestPatientBenefitInsteadOfFirstHand()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var rescueSystem = entities.System<LuaMRescueAgentSystem>();
+        var handsSystem = entities.System<SharedHandsSystem>();
+        var damageable = entities.System<DamageableSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid patient = default;
+        EntityUid weakMatch = default;
+        EntityUid strongMatch = default;
+        await server.WaitAssertion(() =>
+        {
+            agent = SpawnAgent(entities, map.MapId, Vector2.Zero);
+            patient = SpawnDamagedPatient(
+                entities,
+                map.MapId,
+                new Vector2(0.5f, 0f),
+                "Blunt",
+                40);
+            var secondaryDamage = new DamageSpecifier();
+            secondaryDamage.DamageDict.Add("Heat", 5);
+            Assert.That(
+                damageable.TryChangeDamage(patient, secondaryDamage, ignoreResistances: true),
+                Is.Not.Null);
+
+            weakMatch = entities.SpawnEntity("Ointment", Coordinates(map.MapId, Vector2.Zero));
+            strongMatch = entities.SpawnEntity("Brutepack", Coordinates(map.MapId, Vector2.Zero));
+            var hands = entities.GetComponent<HandsComponent>(agent);
+            var orderedHands = hands.Hands.Values.ToArray();
+            Assert.That(orderedHands, Has.Length.GreaterThanOrEqualTo(2));
+            Assert.That(handsSystem.TryPickup(agent, weakMatch, orderedHands[0], handsComp: hands), Is.True);
+            Assert.That(handsSystem.TryPickup(agent, strongMatch, orderedHands[1], handsComp: hands), Is.True);
+
+            Assert.That(
+                rescueSystem.TryOrderPlayerAction(
+                    agent,
+                    LuaMRescuePlayerActionKind.Treat,
+                    patient,
+                    out var orderStatus),
+                Is.True,
+                orderStatus);
+        });
+
+        await pair.RunTicksSync(1);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            Assert.Multiple(() =>
+            {
+                Assert.That(rescue.PendingMedicalDoAfterTarget, Is.EqualTo(patient));
+                Assert.That(rescue.PendingMedicalDoAfterItem, Is.EqualTo(strongMatch),
+                    "Planner must rank every held capability instead of accepting the first merely useful hand.");
+                Assert.That(rescue.PendingMedicalDoAfterItem, Is.Not.EqualTo(weakMatch));
+                Assert.That(CountActiveMedicalDoAfters(entities, agent, patient), Is.EqualTo(1));
+            });
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task AutomaticResupplyVendsAndRetrievesPatientSpecificMedicine()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var rescueSystem = entities.System<LuaMRescueAgentSystem>();
+        var coordinator = entities.System<LuaMRescueActivityCoordinatorSystem>();
+        var mapSystem = server.System<SharedMapSystem>();
+        var transform = entities.System<SharedTransformSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid patient = default;
+        EntityUid vending = default;
+        await server.WaitAssertion(() =>
+        {
+            for (var x = 0; x <= 2; x++)
+                mapSystem.SetTile(map.Grid, new Vector2i(x, 0), map.Tile.Tile);
+
+            agent = SpawnAgent(entities, map.MapId, Vector2.Zero);
+            transform.SetCoordinates(agent, new EntityCoordinates(map.Grid.Owner, new Vector2(0.5f, 0.5f)));
+            patient = SpawnDamagedPatient(
+                entities,
+                map.MapId,
+                new Vector2(0.5f, 0f),
+                "Blunt",
+                30);
+            transform.SetCoordinates(patient, new EntityCoordinates(map.Grid.Owner, new Vector2(1f, 0.5f)));
+            vending = entities.SpawnEntity(
+                "LuaMRescueMedicalRuntimeVending",
+                new EntityCoordinates(map.Grid.Owner, new Vector2(1.5f, 0.5f)));
+            entities.GetComponent<ApcPowerReceiverComponent>(vending).Powered = true;
+
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.AutoAcquireTargets = true;
+            rescue.TargetRefreshInterval = 0.001f;
+            rescue.AutoTreatWithCarriedItems = true;
+            rescue.AutoResupplyFromVending = true;
+            rescue.AutoResupplyRange = 4f;
+            rescue.AutoPickupSupplyRange = 4f;
+            rescue.PlayerActionTimeout = 5f;
+            rescue.AssignedTarget = patient;
+            rescue.TaskPatientTarget = patient;
+            Assert.That(
+                coordinator.BeginOrReplaceIntent(
+                    agent,
+                    LuaMRescueRole.Aibolit,
+                    LuaMRescueActivity.TreatPatient,
+                    patient,
+                    new EntityCoordinates(patient, Vector2.Zero),
+                    out _),
+                Is.True,
+                "The autonomous resupply path requires an active treatment intent.");
+        });
+
+        EntityUid selectedMedicine = default;
+        var verifiedTreatmentStarted = false;
+        for (var tick = 0; tick < 120; tick++)
+        {
+            await pair.RunTicksSync(1);
+            await server.WaitAssertion(() =>
+            {
+                var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+                if (rescue.PendingMedicalDoAfterTarget != patient ||
+                    rescue.PendingMedicalDoAfterItem is not { Valid: true } item)
+                {
+                    return;
+                }
+
+                selectedMedicine = item;
+                verifiedTreatmentStarted = true;
+            });
+            if (verifiedTreatmentStarted)
+                break;
+        }
+
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            Assert.Multiple(() =>
+            {
+                Assert.That(verifiedTreatmentStarted, Is.True,
+                    $"Resupply never produced executable treatment; supply={rescue.LastAutoSupplyStatus}; " +
+                    $"action={rescue.LastPlayerActionStatus}; treatment={rescue.LastAutoTreatmentStatus}");
+                Assert.That(entities.GetComponent<MetaDataComponent>(selectedMedicine).EntityPrototype?.ID,
+                    Is.EqualTo("Brutepack"));
+                Assert.That(IsHeld(entities, agent, selectedMedicine), Is.True,
+                    "Resupply is complete only after the selected product is physically retrieved.");
+                Assert.That(rescueSystem.IsEffectiveTreatmentItem(selectedMedicine, patient, out var reason), Is.True,
+                    reason);
+                Assert.That(rescue.PendingVendingProduct, Is.Null);
+                Assert.That(rescue.PendingVendingDispensedItem, Is.Null);
+                Assert.That(rescue.TaskPatientTarget, Is.EqualTo(patient));
+            });
         });
 
         await pair.CleanReturnAsync();
@@ -380,6 +574,11 @@ public sealed class LuaMRescueMedicalRuntimeTest
         {
             var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
             Assert.That(coordinator.GetSnapshot(agent, out var activity), Is.True);
+            var diagnostics =
+                $"activity={activity.Activity}/{activity.TerminalStatus}/gen={activity.Generation}; " +
+                $"assigned={rescue.AssignedTarget}; task={rescue.TaskPatientTarget}/{rescue.TaskStage}; " +
+                $"pending={rescue.PendingMedicalDoAfterTarget}/{rescue.PendingMedicalDoAfterKind}/gen={rescue.PendingMedicalIntentGeneration}; " +
+                $"tracking={rescue.LastTargetTrackingStatus}; treatment={rescue.LastAutoTreatmentStatus}";
             Assert.Multiple(() =>
             {
                 Assert.That(CountActiveMedicalDoAfters(entities, agent, patient), Is.EqualTo(1));
@@ -388,7 +587,7 @@ public sealed class LuaMRescueMedicalRuntimeTest
                     "Every Update during an authoritative medical DoAfter must reset route stall.");
                 Assert.That(rescue.SkippedTargets, Does.Not.ContainKey(patient));
                 Assert.That(rescue.TerminalTreatmentFailures, Does.Not.ContainKey(patient));
-                Assert.That(rescue.AssignedTarget, Is.EqualTo(patient));
+                Assert.That(rescue.AssignedTarget, Is.EqualTo(patient), diagnostics);
                 Assert.That(activity.Target, Is.EqualTo(patient));
                 Assert.That(activity.DoAfterStatus, Is.EqualTo(LuaMRescueDoAfterStatus.Running));
                 Assert.That(activity.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Active));
@@ -913,6 +1112,147 @@ public sealed class LuaMRescueMedicalRuntimeTest
                 Assert.That(rescue.PendingMedicalEffectVerification, Is.False);
                 Assert.That(rescue.PendingPlayerAction, Is.EqualTo(LuaMRescuePlayerActionKind.None));
             });
+
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task TerminalMissionCancelsPhysicalTreatmentFromSameGeneration()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var rescueSystem = entities.System<LuaMRescueAgentSystem>();
+        var coordinator = entities.System<LuaMRescueActivityCoordinatorSystem>();
+        var hands = entities.System<SharedHandsSystem>();
+        var solutions = entities.System<SharedSolutionContainerSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid patient = default;
+        EntityUid injector = default;
+        uint generation = 0;
+        await server.WaitAssertion(() =>
+        {
+            agent = SpawnAgent(entities, map.MapId, Vector2.Zero);
+            patient = SpawnDamagedPatient(
+                entities,
+                map.MapId,
+                new Vector2(0.5f, 0f),
+                "Blunt",
+                20);
+            injector = entities.SpawnEntity(
+                "LuaMRescueLongDoAfterBruteInjector",
+                Coordinates(map.MapId, Vector2.Zero));
+            Assert.That(hands.TryPickupAnyHand(agent, injector), Is.True);
+            Assert.That(
+                rescueSystem.TryOrderPlayerAction(
+                    agent,
+                    LuaMRescuePlayerActionKind.Treat,
+                    patient,
+                    out var orderStatus),
+                Is.True,
+                orderStatus);
+        });
+
+        await pair.RunTicksSync(1);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            Assert.That(coordinator.GetSnapshot(agent, out var active), Is.True);
+            generation = active.Generation;
+            Assert.Multiple(() =>
+            {
+                Assert.That(active.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Active));
+                Assert.That(rescue.PendingMedicalIntentGeneration, Is.EqualTo(generation));
+                Assert.That(rescue.PendingMedicalDoAfterTarget, Is.EqualTo(patient));
+                Assert.That(CountActiveMedicalDoAfters(entities, agent, patient), Is.EqualTo(1));
+            });
+
+            Assert.That(
+                coordinator.Fail(
+                    agent,
+                    generation,
+                    LuaMRescueFailureReason.DeadlineExceeded,
+                    out var terminal),
+                Is.True);
+            Assert.That(terminal.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Failed));
+        });
+
+        await pair.RunTicksSync(1);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            Assert.That(coordinator.GetSnapshot(agent, out var terminal), Is.True);
+            Assert.Multiple(() =>
+            {
+                Assert.That(terminal.Generation, Is.EqualTo(generation));
+                Assert.That(terminal.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Failed));
+                Assert.That(terminal.FailureReason, Is.EqualTo(LuaMRescueFailureReason.DeadlineExceeded));
+                Assert.That(rescue.PendingMedicalDoAfterTarget, Is.Null);
+                Assert.That(rescue.PendingMedicalEffectVerification, Is.False);
+                Assert.That(rescue.PendingPlayerAction, Is.EqualTo(LuaMRescuePlayerActionKind.None));
+                Assert.That(rescue.LastPlayerActionStatus, Does.Contain("stale medical intent"));
+                Assert.That(CountActiveMedicalDoAfters(entities, agent, patient), Is.Zero,
+                    "A terminal mission must cancel its physical treatment before medicine can be applied.");
+            });
+            Assert.That(solutions.TryGetSolution(injector, "pen", out _, out var solution), Is.True);
+            Assert.That(solution.Volume, Is.GreaterThan(FixedPoint2.Zero));
+
+            // A completed transfer may be waiting for a delayed metabolic
+            // effect when the mission terminalizes. The same generation and
+            // target must not make that observation phase authoritative again.
+            rescue.PendingMedicalDoAfterTarget = patient;
+            rescue.PendingMedicalDoAfterItem = injector;
+            rescue.PendingMedicalDoAfterKind = "injector";
+            rescue.PendingMedicalIntentGeneration = generation;
+            rescue.PendingMedicalEffectVerification = true;
+            rescue.PendingMedicalEffectVerificationStartedAt = server.Timing.CurTime;
+            rescue.PendingMedicalExpectedPositiveEffect = true;
+            rescue.PendingPlayerAction = LuaMRescuePlayerActionKind.Treat;
+            rescue.PendingPlayerActionTarget = patient;
+        });
+
+        await pair.RunTicksSync(1);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            Assert.That(coordinator.GetSnapshot(agent, out var terminal), Is.True);
+            Assert.Multiple(() =>
+            {
+                Assert.That(terminal.Generation, Is.EqualTo(generation));
+                Assert.That(terminal.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Failed));
+                Assert.That(rescue.PendingMedicalDoAfterTarget, Is.Null);
+                Assert.That(rescue.PendingMedicalEffectVerification, Is.False);
+                Assert.That(rescue.PendingPlayerAction, Is.EqualTo(LuaMRescuePlayerActionKind.None));
+            });
+
+            var defibrillator = entities.SpawnEntity(
+                "Defibrillator",
+                Coordinates(map.MapId, Vector2.Zero));
+            var defibrillatorComponent = entities.GetComponent<DefibrillatorComponent>(defibrillator);
+            rescue.PendingMedicalDoAfterTarget = patient;
+            rescue.PendingMedicalDoAfterItem = defibrillator;
+            rescue.PendingMedicalDoAfterKind = "defibrillator";
+            rescue.PendingMedicalIntentGeneration = generation;
+            rescue.PendingMedicalOutcomeRecorded = false;
+            rescue.PendingMedicalOutcomeSucceeded = false;
+            rescue.DefibrillationAttempts[patient] = 2;
+            var lateDefibrillation = new TargetDefibrillatedEvent(
+                agent,
+                (defibrillator, defibrillatorComponent));
+            entities.EventBus.RaiseLocalEvent(patient, ref lateDefibrillation);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(rescue.PendingMedicalOutcomeRecorded, Is.False,
+                    "A terminal generation must ignore its late defibrillation result.");
+                Assert.That(rescue.PendingMedicalOutcomeSucceeded, Is.False);
+                Assert.That(rescue.DefibrillationAttempts.GetValueOrDefault(patient), Is.EqualTo(2),
+                    "A late success must not clear the terminal generation's retry accounting.");
+            });
         });
 
         await pair.CleanReturnAsync();
@@ -1180,6 +1520,13 @@ public sealed class LuaMRescueMedicalRuntimeTest
             await server.WaitAssertion(() =>
             {
                 var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+                var diagnostics =
+                    $"attempt={expectedAttempt}; started={rescue.DefibrillationAttempts.GetValueOrDefault(patient)}; " +
+                    $"completed={rescue.CompletedDefibrillationFailures.GetValueOrDefault(patient)}; " +
+                    $"terminal={rescue.TerminalDefibrillationFailures.GetValueOrDefault(patient)}; " +
+                    $"activity={rescue.ActivityContext.Activity}/{rescue.ActivityContext.TerminalStatus}/gen={rescue.ActivityContext.Generation}; " +
+                    $"pending={rescue.PendingMedicalDoAfterTarget}/{rescue.PendingMedicalDoAfterKind}/gen={rescue.PendingMedicalIntentGeneration}; " +
+                    $"status={rescue.LastAutoDefibStatus}";
                 Assert.Multiple(() =>
                 {
                     Assert.That(mobState.IsDead(patient), Is.True,
@@ -1187,7 +1534,7 @@ public sealed class LuaMRescueMedicalRuntimeTest
                     Assert.That(CountActiveMedicalDoAfters(entities, agent, patient), Is.Zero);
                     Assert.That(rescue.PendingMedicalDoAfterTarget, Is.Null);
                     Assert.That(rescue.DefibrillationAttempts.GetValueOrDefault(patient), Is.EqualTo(expectedAttempt));
-                    Assert.That(rescue.CompletedDefibrillationFailures.GetValueOrDefault(patient), Is.EqualTo(expectedAttempt));
+                    Assert.That(rescue.CompletedDefibrillationFailures.GetValueOrDefault(patient), Is.EqualTo(expectedAttempt), diagnostics);
                 });
             });
         }

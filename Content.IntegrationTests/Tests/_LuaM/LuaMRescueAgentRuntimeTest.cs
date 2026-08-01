@@ -784,6 +784,90 @@ public sealed class LuaMRescueAgentRuntimeTest
     }
 
     [Test]
+    public async Task SameUrgencyTriageUsesHysteresisBeforePreemptingCurrentPatient()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapSystem = server.System<SharedMapSystem>();
+        var agentSystem = entities.System<LuaMRescueAgentSystem>();
+        var navigation = entities.System<LuaMRescueNavigationSystem>();
+        var damageable = entities.System<DamageableSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid current = default;
+        EntityUid challenger = default;
+        uint initialGeneration = 0;
+        await server.WaitAssertion(() =>
+        {
+            BuildHorizontalFloor(mapSystem, map, 0, 8);
+            agent = entities.SpawnEntity("LuaMRescueAgent", GridCoordinates(map.Grid, 0.5f, 0.5f));
+            current = entities.SpawnEntity("MobHuman", GridCoordinates(map.Grid, 5.5f, 0.5f));
+            challenger = entities.SpawnEntity("MobHuman", GridCoordinates(map.Grid, 2.5f, 0.5f));
+            entities.RemoveComponent<BarotraumaComponent>(agent);
+            entities.RemoveComponent<BarotraumaComponent>(current);
+            entities.RemoveComponent<BarotraumaComponent>(challenger);
+
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.AutoAcquireTargets = false;
+            rescue.AutoTreatWithCarriedItems = false;
+            rescue.EvacuateTargetsToShuttle = false;
+            rescue.TargetRefreshInterval = 0.001f;
+
+            var currentDamage = new DamageSpecifier();
+            currentDamage.DamageDict.Add("Blunt", 20);
+            var challengerDamage = new DamageSpecifier();
+            challengerDamage.DamageDict.Add("Blunt", 21);
+            Assert.That(damageable.TryChangeDamage(current, currentDamage, ignoreResistances: true), Is.Not.Null);
+            Assert.That(damageable.TryChangeDamage(challenger, challengerDamage, ignoreResistances: true), Is.Not.Null);
+        });
+
+        await AwaitReachableRoute(pair, navigation, agent, current);
+        await AwaitReachableRoute(pair, navigation, agent, challenger);
+        await server.WaitAssertion(() =>
+        {
+            Assert.That(agentSystem.TryOrderAgent(agent, current, out var orderStatus), Is.True, orderStatus);
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            initialGeneration = rescue.ActivityContext.Generation;
+            rescue.AutoAcquireTargets = true;
+            agentSystem.Update(rescue.TargetRefreshInterval);
+            Assert.Multiple(() =>
+            {
+                Assert.That(rescue.AssignedTarget, Is.EqualTo(current),
+                    "One damage point and a shorter walk must not cause same-band target thrashing.");
+                Assert.That(rescue.ActivityContext.Target, Is.EqualTo(current));
+                Assert.That(rescue.ActivityContext.Generation, Is.EqualTo(initialGeneration));
+                Assert.That(rescue.DeferredPatientTargets, Does.Not.ContainKey(current));
+            });
+
+            var materialDeterioration = new DamageSpecifier();
+            materialDeterioration.DamageDict.Add("Blunt", 10);
+            Assert.That(
+                damageable.TryChangeDamage(challenger, materialDeterioration, ignoreResistances: true),
+                Is.Not.Null);
+        });
+
+        await AwaitReachableRoute(pair, navigation, agent, current);
+        await AwaitReachableRoute(pair, navigation, agent, challenger);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            agentSystem.Update(rescue.TargetRefreshInterval);
+            Assert.Multiple(() =>
+            {
+                Assert.That(rescue.AssignedTarget, Is.EqualTo(challenger));
+                Assert.That(rescue.TaskPatientTarget, Is.EqualTo(challenger));
+                Assert.That(rescue.ActivityContext.Target, Is.EqualTo(challenger));
+                Assert.That(rescue.ActivityContext.Generation, Is.GreaterThan(initialGeneration));
+                Assert.That(rescue.DeferredPatientTargets, Does.ContainKey(current));
+            });
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
     public async Task ExplicitOrderAtomicallyClearsAllStalePatientOwners()
     {
         await using var pair = await PoolManager.GetServerClient();
@@ -1809,13 +1893,14 @@ public sealed class LuaMRescueAgentRuntimeTest
             {
                 Assert.That(
                     rescue.EvacuatingTarget,
-                    requiredHandoff ? Is.EqualTo(patient) : Is.Null);
+                    Is.Null,
+                    "A terminal buckle mission must release movement ownership even when physical custody remains required.");
                 Assert.That(
                     rescue.AssignedTarget,
-                    requiredHandoff ? Is.EqualTo(patient) : Is.Null);
+                    Is.Null);
                 Assert.That(
                     rescue.TaskPatientTarget,
-                    requiredHandoff ? Is.EqualTo(patient) : Is.Null);
+                    Is.Null);
                 Assert.That(
                     rescue.RequiredOnboardHandoffPatients.Contains(patient),
                     Is.EqualTo(requiredHandoff));
@@ -1838,9 +1923,10 @@ public sealed class LuaMRescueAgentRuntimeTest
                 var htn = entities.GetComponent<HTNComponent>(agent);
                 Assert.Multiple(() =>
                 {
-                    Assert.That(rescue.ActivityContext.Activity, Is.EqualTo(LuaMRescueActivity.Handoff));
-                    Assert.That(rescue.ActivityContext.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Blocked));
-                    Assert.That(rescue.ActivityContext.Fallback, Is.EqualTo(LuaMRescueActivity.Handoff));
+                    Assert.That(rescue.ActivityContext.Activity, Is.EqualTo(LuaMRescueActivity.Standby));
+                    Assert.That(rescue.ActivityContext.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Active));
+                    Assert.That(rescue.ActivityContext.Target, Is.Null,
+                        "Required custody is a durable queue marker, not permission to retain terminal movement ownership.");
                     Assert.That(htn.Blackboard.ContainsKey(NPCBlackboard.FollowTarget), Is.False);
                 });
 
@@ -1864,9 +1950,9 @@ public sealed class LuaMRescueAgentRuntimeTest
                         "Refreshing an already-held Required handoff must not cancel/replan HTN movement again.");
                     Assert.That(sentinelPlanningToken!.IsCancellationRequested, Is.False);
                     Assert.That(rescue.ActivityContext.Generation, Is.EqualTo(heldGeneration),
-                        "Refreshing canonical Required custody must not replace the blocked Handoff intent.");
-                    Assert.That(rescue.AssignedTarget, Is.EqualTo(patient));
-                    Assert.That(rescue.EvacuatingTarget, Is.EqualTo(patient));
+                        "Refreshing queued Required custody must not create replacement movement intent.");
+                    Assert.That(rescue.AssignedTarget, Is.Null);
+                    Assert.That(rescue.EvacuatingTarget, Is.Null);
                 });
             });
         }
@@ -3014,6 +3100,480 @@ public sealed class LuaMRescueAgentRuntimeTest
         });
 
         await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task ActiveGenerationRepairsStaleTaskFollowAndPullMirrors()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var rescueSystem = entities.System<LuaMRescueAgentSystem>();
+        var pulling = entities.System<PullingSystem>();
+        var damageable = entities.System<DamageableSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid authoritativePatient = default;
+        EntityUid stalePatient = default;
+        await server.WaitAssertion(() =>
+        {
+            agent = SpawnAgent(entities, map.MapId, Vector2.Zero);
+            authoritativePatient = entities.SpawnEntity(
+                "MobHuman",
+                new MapCoordinates(new Vector2(0.5f, 0f), map.MapId));
+            stalePatient = entities.SpawnEntity(
+                "MobHuman",
+                new MapCoordinates(new Vector2(0.75f, 0f), map.MapId));
+            entities.RemoveComponent<BarotraumaComponent>(authoritativePatient);
+            entities.RemoveComponent<BarotraumaComponent>(stalePatient);
+
+            var damage = new DamageSpecifier();
+            damage.DamageDict.Add("Blunt", 20);
+            Assert.That(
+                damageable.TryChangeDamage(authoritativePatient, damage, ignoreResistances: true),
+                Is.Not.Null);
+            Assert.That(
+                damageable.TryChangeDamage(stalePatient, damage, ignoreResistances: true),
+                Is.Not.Null);
+
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.AutoTreatWithCarriedItems = false;
+            rescue.EvacuateTargetsToShuttle = false;
+            Assert.That(
+                rescueSystem.TryOrderAgent(agent, authoritativePatient, out var orderStatus),
+                Is.True,
+                orderStatus);
+            Assert.That(rescue.ActivityContext.Target, Is.EqualTo(authoritativePatient));
+            Assert.That(rescue.ActivityContext.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Active));
+
+            Assert.That(pulling.TryStartPull(agent, stalePatient), Is.True);
+            rescue.TaskStage = LuaMRescueTaskStage.FollowingPatient;
+            rescue.TaskPatientTarget = stalePatient;
+            rescue.AssignedTarget = authoritativePatient;
+            rescue.EvacuatingTarget = stalePatient;
+            rescue.OnboardCareTarget = stalePatient;
+            rescue.DeathSignalTarget = stalePatient;
+            rescue.ShuttleRoutedTarget = stalePatient;
+            rescue.AssignedPatientStrap = stalePatient;
+            rescue.AutoAcquireTargets = true;
+            rescue.TargetRefreshInterval = 0.01f;
+            rescue.TargetRefreshAccumulator = rescue.TargetRefreshInterval;
+            var htn = entities.GetComponent<HTNComponent>(agent);
+            htn.Blackboard.SetValue(
+                NPCBlackboard.FollowTarget,
+                new EntityCoordinates(stalePatient, Vector2.Zero));
+        });
+
+        await pair.RunTicksSync(2);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            var htn = entities.GetComponent<HTNComponent>(agent);
+            Assert.Multiple(() =>
+            {
+                Assert.That(rescue.ActivityContext.Target, Is.EqualTo(authoritativePatient));
+                Assert.That(rescue.ActivityContext.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Active));
+                Assert.That(rescue.TaskPatientTarget, Is.EqualTo(authoritativePatient));
+                Assert.That(rescue.AssignedTarget, Is.EqualTo(authoritativePatient));
+                Assert.That(rescue.EvacuatingTarget, Is.Null);
+                Assert.That(rescue.OnboardCareTarget, Is.Null);
+                Assert.That(rescue.DeathSignalTarget, Is.Null);
+                Assert.That(rescue.ShuttleRoutedTarget, Is.Null);
+                Assert.That(rescue.AssignedPatientStrap, Is.Null);
+                Assert.That(entities.GetComponent<PullerComponent>(agent).Pulling, Is.Not.EqualTo(stalePatient));
+                Assert.That(entities.GetComponent<PullableComponent>(stalePatient).Puller, Is.Null);
+            });
+
+            if (htn.Blackboard.TryGetValue<EntityCoordinates>(
+                    NPCBlackboard.FollowTarget,
+                    out var follow,
+                    entities))
+            {
+                Assert.That(follow.EntityId, Is.Not.EqualTo(stalePatient));
+            }
+
+            rescue.RequiredOnboardHandoffPatients.Add(stalePatient);
+            Assert.That(pulling.TryStartPull(agent, stalePatient), Is.True);
+            rescue.TaskPatientTarget = stalePatient;
+            rescue.EvacuatingTarget = stalePatient;
+            rescue.OnboardCareTarget = stalePatient;
+            rescue.DeathSignalTarget = stalePatient;
+            rescue.ShuttleRoutedTarget = stalePatient;
+            rescue.AssignedPatientStrap = stalePatient;
+            rescue.TargetRefreshAccumulator = rescue.TargetRefreshInterval;
+            htn.Blackboard.SetValue(
+                NPCBlackboard.FollowTarget,
+                new EntityCoordinates(stalePatient, Vector2.Zero));
+        });
+
+        await pair.RunTicksSync(2);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            var htn = entities.GetComponent<HTNComponent>(agent);
+            Assert.Multiple(() =>
+            {
+                Assert.That(rescue.ActivityContext.Target, Is.EqualTo(authoritativePatient));
+                Assert.That(rescue.TaskPatientTarget, Is.EqualTo(authoritativePatient));
+                Assert.That(rescue.AssignedTarget, Is.EqualTo(authoritativePatient));
+                Assert.That(rescue.EvacuatingTarget, Is.Null);
+                Assert.That(rescue.OnboardCareTarget, Is.Null);
+                Assert.That(rescue.DeathSignalTarget, Is.Null);
+                Assert.That(rescue.ShuttleRoutedTarget, Is.Null);
+                Assert.That(rescue.AssignedPatientStrap, Is.Null);
+                Assert.That(rescue.RequiredOnboardHandoffPatients, Does.Contain(stalePatient));
+                Assert.That(entities.GetComponent<PullerComponent>(agent).Pulling, Is.EqualTo(stalePatient),
+                    "Generic mirror repair must not release an explicit required handoff custody owner.");
+                Assert.That(entities.GetComponent<PullableComponent>(stalePatient).Puller, Is.EqualTo(agent));
+            });
+
+            if (htn.Blackboard.TryGetValue<EntityCoordinates>(
+                    NPCBlackboard.FollowTarget,
+                    out var follow,
+                    entities))
+            {
+                Assert.That(follow.EntityId, Is.Not.EqualTo(stalePatient),
+                    "Required physical custody must not retain stale movement ownership.");
+            }
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task RepeatedGenerationCorruptionNeverSplitsPatientOwnership()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var coordinator = entities.System<LuaMRescueActivityCoordinatorSystem>();
+        var pulling = entities.System<PullingSystem>();
+        var damageable = entities.System<DamageableSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        var patients = new List<EntityUid>();
+        await server.WaitAssertion(() =>
+        {
+            agent = SpawnAgent(entities, map.MapId, Vector2.Zero);
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            rescue.AutoAcquireTargets = true;
+            rescue.AutoTreatWithCarriedItems = false;
+            rescue.EvacuateTargetsToShuttle = false;
+            rescue.TargetRefreshInterval = 0.001f;
+
+            for (var i = 0; i < 6; i++)
+            {
+                var patient = entities.SpawnEntity(
+                    "MobHuman",
+                    new MapCoordinates(new Vector2(0.5f + i * 0.1f, 0f), map.MapId));
+                entities.RemoveComponent<BarotraumaComponent>(patient);
+                var damage = new DamageSpecifier();
+                damage.DamageDict.Add("Blunt", 20 + i);
+                Assert.That(
+                    damageable.TryChangeDamage(patient, damage, ignoreResistances: true),
+                    Is.Not.Null);
+                patients.Add(patient);
+            }
+        });
+
+        const int generations = 240;
+        var random = new Random(0xA1B0117);
+        for (var iteration = 0; iteration < generations; iteration++)
+        {
+            var authoritativeIndex = random.Next(patients.Count);
+            var staleIndex = random.Next(patients.Count);
+            if (staleIndex == authoritativeIndex)
+                staleIndex = (staleIndex + 1) % patients.Count;
+            var authoritativePatient = patients[authoritativeIndex];
+            var stalePatient = patients[staleIndex];
+
+            await server.WaitAssertion(() =>
+            {
+                var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+                var htn = entities.GetComponent<HTNComponent>(agent);
+                if (entities.GetComponent<PullerComponent>(agent).Pulling is { Valid: true } previousPull &&
+                    entities.TryGetComponent<PullableComponent>(previousPull, out var previousPullable))
+                {
+                    pulling.TryStopPull(previousPull, previousPullable, agent);
+                }
+
+                Assert.That(
+                    coordinator.BeginOrReplaceIntent(
+                        agent,
+                        LuaMRescueRole.Aibolit,
+                        LuaMRescueActivity.ApproachPatient,
+                        authoritativePatient,
+                        new EntityCoordinates(authoritativePatient, Vector2.Zero),
+                        out var active),
+                    Is.True);
+                Assert.That(active.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Active));
+
+                rescue.TaskStage = LuaMRescueTaskStage.FollowingPatient;
+                rescue.TaskPatientTarget = stalePatient;
+                rescue.AssignedTarget = stalePatient;
+                rescue.EvacuatingTarget = stalePatient;
+                rescue.OnboardCareTarget = stalePatient;
+                rescue.DeathSignalTarget = stalePatient;
+                rescue.ShuttleRoutedTarget = stalePatient;
+                rescue.AssignedPatientStrap = stalePatient;
+                rescue.TargetRefreshAccumulator = rescue.TargetRefreshInterval;
+                htn.Blackboard.SetValue(
+                    NPCBlackboard.FollowTarget,
+                    new EntityCoordinates(stalePatient, Vector2.Zero));
+                Assert.That(pulling.TryStartPull(agent, stalePatient), Is.True);
+            });
+
+            await pair.RunTicksSync(2);
+            await server.WaitAssertion(() =>
+            {
+                var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+                var htn = entities.GetComponent<HTNComponent>(agent);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(rescue.ActivityContext.Target, Is.EqualTo(authoritativePatient),
+                        $"generation {iteration} lost its authoritative patient");
+                    Assert.That(rescue.ActivityContext.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Active));
+                    Assert.That(rescue.TaskPatientTarget, Is.EqualTo(authoritativePatient));
+                    Assert.That(rescue.AssignedTarget, Is.EqualTo(authoritativePatient));
+                    Assert.That(rescue.EvacuatingTarget, Is.Null);
+                    Assert.That(rescue.OnboardCareTarget, Is.Null);
+                    Assert.That(rescue.DeathSignalTarget, Is.Null);
+                    Assert.That(rescue.ShuttleRoutedTarget, Is.Null);
+                    Assert.That(rescue.AssignedPatientStrap, Is.Null);
+                    Assert.That(entities.GetComponent<PullerComponent>(agent).Pulling, Is.Not.EqualTo(stalePatient));
+                    Assert.That(entities.GetComponent<PullableComponent>(stalePatient).Puller, Is.Null);
+                });
+
+                if (htn.Blackboard.TryGetValue<EntityCoordinates>(
+                        NPCBlackboard.FollowTarget,
+                        out var follow,
+                        entities))
+                {
+                    Assert.That(follow.EntityId, Is.Not.EqualTo(stalePatient));
+                }
+            });
+        }
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task TerminalGenerationReleasesMovementButPreservesExplicitPhysicalCustody()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var coordinator = entities.System<LuaMRescueActivityCoordinatorSystem>();
+        var pulling = entities.System<PullingSystem>();
+        var buckleSystem = entities.System<BuckleSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid ordinaryPatient = default;
+        EntityUid requiredPatient = default;
+        EntityUid buckledPatient = default;
+        EntityUid bed = default;
+        uint ordinaryGeneration = 0;
+        uint requiredGeneration = 0;
+        uint buckledGeneration = 0;
+        await server.WaitAssertion(() =>
+        {
+            agent = SpawnAgent(entities, map.MapId, Vector2.Zero);
+            ordinaryPatient = entities.SpawnEntity("MobHuman", map.MapCoords);
+            requiredPatient = entities.SpawnEntity("MobHuman", map.MapCoords);
+            buckledPatient = entities.SpawnEntity("MobHuman", map.MapCoords);
+            bed = entities.SpawnEntity("MedicalBed", map.MapCoords);
+
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            var htn = entities.GetComponent<HTNComponent>(agent);
+            rescue.AutoAcquireTargets = false;
+            rescue.AssignedShuttle = map.Grid;
+            rescue.AssignedShuttleAnchor = bed;
+            Assert.That(
+                coordinator.BeginOrReplaceIntent(
+                    agent,
+                    LuaMRescueRole.Aibolit,
+                    LuaMRescueActivity.Pulling,
+                    ordinaryPatient,
+                    new EntityCoordinates(ordinaryPatient, Vector2.Zero),
+                    out var active),
+                Is.True);
+            ordinaryGeneration = active.Generation;
+            Assert.That(pulling.TryStartPull(agent, ordinaryPatient), Is.True);
+            SeedMovementMirrors(rescue, htn, ordinaryPatient, bed);
+            Assert.That(
+                coordinator.Fail(
+                    agent,
+                    ordinaryGeneration,
+                    LuaMRescueFailureReason.DeadlineExceeded,
+                    out _),
+                Is.True);
+        });
+
+        await pair.RunTicksSync(1);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            var htn = entities.GetComponent<HTNComponent>(agent);
+            AssertTerminalMovementReleased(
+                entities,
+                coordinator,
+                agent,
+                rescue,
+                htn,
+                ordinaryPatient,
+                ordinaryGeneration);
+            Assert.That(entities.GetComponent<PullableComponent>(ordinaryPatient).Puller, Is.Null);
+
+            Assert.That(
+                coordinator.BeginOrReplaceIntent(
+                    agent,
+                    LuaMRescueRole.Aibolit,
+                    LuaMRescueActivity.Handoff,
+                    requiredPatient,
+                    new EntityCoordinates(requiredPatient, Vector2.Zero),
+                    out var active),
+                Is.True);
+            requiredGeneration = active.Generation;
+            rescue.RequiredOnboardHandoffPatients.Add(requiredPatient);
+            Assert.That(pulling.TryStartPull(agent, requiredPatient), Is.True);
+            SeedMovementMirrors(rescue, htn, requiredPatient, bed);
+            Assert.That(
+                coordinator.Fail(
+                    agent,
+                    requiredGeneration,
+                    LuaMRescueFailureReason.AttemptLimitReached,
+                    out _),
+                Is.True);
+        });
+
+        await pair.RunTicksSync(1);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            var htn = entities.GetComponent<HTNComponent>(agent);
+            AssertTerminalMovementReleased(
+                entities,
+                coordinator,
+                agent,
+                rescue,
+                htn,
+                requiredPatient,
+                requiredGeneration);
+            Assert.Multiple(() =>
+            {
+                Assert.That(rescue.RequiredOnboardHandoffPatients, Does.Contain(requiredPatient));
+                Assert.That(entities.GetComponent<PullerComponent>(agent).Pulling, Is.EqualTo(requiredPatient));
+                Assert.That(entities.GetComponent<PullableComponent>(requiredPatient).Puller, Is.EqualTo(agent));
+            });
+
+            Assert.That(pulling.TryStopPull(requiredPatient, entities.GetComponent<PullableComponent>(requiredPatient), agent), Is.True);
+            rescue.RequiredOnboardHandoffPatients.Remove(requiredPatient);
+            Assert.That(
+                coordinator.BeginOrReplaceIntent(
+                    agent,
+                    LuaMRescueRole.Aibolit,
+                    LuaMRescueActivity.BucklePatient,
+                    buckledPatient,
+                    new EntityCoordinates(bed, Vector2.Zero),
+                    out var active),
+                Is.True);
+            buckledGeneration = active.Generation;
+            var buckle = entities.GetComponent<BuckleComponent>(buckledPatient);
+            Assert.That(buckleSystem.TryBuckle(buckledPatient, agent, bed, buckleComp: buckle, popup: false), Is.True);
+            SeedMovementMirrors(rescue, htn, buckledPatient, bed);
+            Assert.That(
+                coordinator.Fail(
+                    agent,
+                    buckledGeneration,
+                    LuaMRescueFailureReason.DeadlineExceeded,
+                    out _),
+                Is.True);
+        });
+
+        await pair.RunTicksSync(1);
+        await server.WaitAssertion(() =>
+        {
+            var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            var htn = entities.GetComponent<HTNComponent>(agent);
+            AssertTerminalMovementReleased(
+                entities,
+                coordinator,
+                agent,
+                rescue,
+                htn,
+                buckledPatient,
+                buckledGeneration,
+                expectedStrap: bed);
+            Assert.Multiple(() =>
+            {
+                Assert.That(rescue.RequiredOnboardHandoffPatients, Does.Contain(buckledPatient),
+                    "A terminal buckle generation must promote an occupied bed to explicit handoff custody.");
+                Assert.That(entities.GetComponent<BuckleComponent>(buckledPatient).BuckledTo, Is.EqualTo(bed));
+                Assert.That(entities.GetComponent<StrapComponent>(bed).BuckledEntities, Does.Contain(buckledPatient));
+            });
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    private static void SeedMovementMirrors(
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid patient,
+        EntityUid bed)
+    {
+        rescue.AssignedTarget = patient;
+        rescue.EvacuatingTarget = patient;
+        rescue.OnboardCareTarget = patient;
+        rescue.DeathSignalTarget = patient;
+        rescue.ShuttleRoutedTarget = patient;
+        rescue.AssignedPatientStrap = bed;
+        rescue.TaskStage = LuaMRescueTaskStage.DeliveringPatient;
+        rescue.TaskPatientTarget = patient;
+        rescue.TaskSupplyTarget = bed;
+        rescue.ProgressTarget = patient;
+        rescue.ProgressGoal = bed;
+        rescue.RouteBlockHoldTarget = patient;
+        rescue.RouteBlockHoldGoal = bed;
+        htn.Blackboard.SetValue(
+            NPCBlackboard.FollowTarget,
+            new EntityCoordinates(patient, Vector2.Zero));
+    }
+
+    private static void AssertTerminalMovementReleased(
+        IEntityManager entities,
+        LuaMRescueActivityCoordinatorSystem coordinator,
+        EntityUid agent,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid patient,
+        uint generation,
+        EntityUid? expectedStrap = null)
+    {
+        Assert.That(coordinator.GetSnapshot(agent, out var terminal), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(terminal.Generation, Is.EqualTo(generation));
+            Assert.That(terminal.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Failed));
+            Assert.That(terminal.Target, Is.EqualTo(patient));
+            Assert.That(rescue.AssignedTarget, Is.Null);
+            Assert.That(rescue.EvacuatingTarget, Is.Null);
+            Assert.That(rescue.OnboardCareTarget, Is.Null);
+            Assert.That(rescue.DeathSignalTarget, Is.Null);
+            Assert.That(rescue.ShuttleRoutedTarget, Is.Null);
+            Assert.That(rescue.AssignedPatientStrap, Is.EqualTo(expectedStrap));
+            Assert.That(rescue.TaskPatientTarget, Is.Null);
+            Assert.That(rescue.TaskSupplyTarget, Is.Null);
+            Assert.That(rescue.ProgressTarget, Is.Null);
+            Assert.That(rescue.ProgressGoal, Is.Null);
+            Assert.That(rescue.RouteBlockHoldTarget, Is.Null);
+            Assert.That(rescue.RouteBlockHoldGoal, Is.Null);
+        });
+        if (htn.Blackboard.TryGetValue<EntityCoordinates>(NPCBlackboard.FollowTarget, out var follow, entities))
+            Assert.That(follow.EntityId, Is.Not.EqualTo(patient));
     }
 
     private static void AssertRejectedWithoutPull(

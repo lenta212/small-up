@@ -662,3 +662,26 @@ public readonly record struct LuaMRescueDormantRouteTransfer(
     float ObservationSeconds,
     float ProbeTimeoutSeconds,
     string Status);
+
+/// <summary>
+/// Compact operator-facing health projection. Counts represent independently
+/// bounded subsystem budgets/circuits rather than unique patients, because one
+/// patient may legitimately have separate route and treatment failures.
+/// </summary>
+public readonly record struct LuaMRescueReliabilitySnapshot(
+    int ActiveRetryBudgets,
+    int OpenCircuits,
+    int PendingOperations,
+    int RequiredCustodyPatients,
+    uint Generation,
+    LuaMRescueTerminalStatus TerminalStatus)
+{
+    public bool Degraded => OpenCircuits > 0;
+
+    public string ToDebugString()
+    {
+        return $"{(Degraded ? "degraded" : "nominal")}," +
+               $"retry={ActiveRetryBudgets},circuits={OpenCircuits},pending={PendingOperations}," +
+               $"custody={RequiredCustodyPatients},generation={Generation},terminal={TerminalStatus}";
+    }
+}

@@ -542,11 +542,12 @@ public sealed class LuaMRescueOnboardRuntimeTest
             {
                 Assert.That(buckle.BuckledTo, Is.EqualTo(bed));
                 Assert.That(strap.BuckledEntities, Does.Contain(onboard));
-                Assert.That(rescue.OnboardCareTarget, Is.EqualTo(onboard));
-                Assert.That(rescue.AssignedPatientStrap, Is.EqualTo(bed));
-                Assert.That(rescue.TaskStage, Is.EqualTo(LuaMRescueTaskStage.DeliveringPatient));
-                Assert.That(rescue.TaskPatientTarget, Is.EqualTo(onboard));
-                Assert.That(rescue.TaskSupplyTarget, Is.EqualTo(bed));
+                Assert.That(rescue.OnboardCareTarget, Is.Null,
+                    "Terminal custody must not retain movement ownership.");
+                Assert.That(rescue.AssignedPatientStrap, Is.Null);
+                Assert.That(rescue.TaskStage, Is.EqualTo(LuaMRescueTaskStage.None));
+                Assert.That(rescue.TaskPatientTarget, Is.Null);
+                Assert.That(rescue.TaskSupplyTarget, Is.Null);
                 Assert.That(rescue.AssignedTarget, Is.Not.EqualTo(critical));
                 Assert.That(rescue.EvacuatingTarget, Is.Not.EqualTo(critical));
                 Assert.That(rescue.TaskPatientTarget, Is.Not.EqualTo(critical));
@@ -575,7 +576,8 @@ public sealed class LuaMRescueOnboardRuntimeTest
                 Assert.That(rescue.AssignedPatientStrap, Is.Not.EqualTo(bed));
                 Assert.That(rescue.TaskPatientTarget, Is.Not.EqualTo(onboard));
                 Assert.That(rescue.IgnoredOnboardPatients, Does.Not.Contain(onboard));
-                Assert.That(rescue.TerminalOnboardCareFailures, Does.Not.ContainKey(onboard));
+                Assert.That(rescue.TerminalOnboardCareFailures, Does.ContainKey(onboard),
+                    "Physical release clears custody but keeps the terminal diagnostic snapshot.");
             });
         });
 
@@ -1639,12 +1641,19 @@ public sealed class LuaMRescueOnboardRuntimeTest
 
             var buckle = entities.GetComponent<BuckleComponent>(patient);
             var strap = entities.GetComponent<StrapComponent>(bed);
+            var shuttleDockTransform = entities.GetComponent<TransformComponent>(shuttleDock);
+            var homeDockTransform = entities.GetComponent<TransformComponent>(homeDock);
+            var dockingDiagnostics =
+                $"shuttle={shuttle}; home={home}; " +
+                $"shuttleDock grid={shuttleDockTransform.GridUid} parent={shuttleDockTransform.ParentUid}; " +
+                $"homeDock grid={homeDockTransform.GridUid} parent={homeDockTransform.ParentUid}; " +
+                $"status={rescue.LastOnboardCareStatus}";
             Assert.Multiple(() =>
             {
                 Assert.That(buckle.BuckledTo, Is.Null,
                     "Only reciprocal docking at the configured home grid may release the patient.");
                 Assert.That(strap.BuckledEntities, Does.Not.Contain(patient));
-                Assert.That(rescue.OnboardCareTarget, Is.Null);
+                Assert.That(rescue.OnboardCareTarget, Is.Null, dockingDiagnostics);
                 Assert.That(rescue.AssignedPatientStrap, Is.Null);
                 Assert.That(rescue.LastOnboardCareStatus, Does.Contain("released").IgnoreCase);
             });
@@ -1686,6 +1695,14 @@ public sealed class LuaMRescueOnboardRuntimeTest
     {
         var buckle = entities.GetComponent<BuckleComponent>(patient);
         var strap = entities.GetComponent<StrapComponent>(bed);
+        var diagnostics =
+            $"activity={rescue.ActivityContext.Activity}/{rescue.ActivityContext.TerminalStatus}/" +
+            $"{rescue.ActivityContext.FailureReason}; target={rescue.ActivityContext.Target}; " +
+            $"onboard={rescue.OnboardCareTarget}; assigned={rescue.AssignedTarget}; strap={rescue.AssignedPatientStrap}; " +
+            $"required={rescue.RequiredOnboardHandoffPatients.Contains(patient)}; " +
+            $"task={rescue.TaskStage}/{rescue.TaskPatientTarget}; " +
+            $"care={rescue.LastOnboardCareStatus}; evac={rescue.LastAutoEvacuationStatus}; " +
+            $"tracking={rescue.LastTargetTrackingStatus}";
         Assert.Multiple(() =>
         {
             Assert.That(lifecycle.State, Is.EqualTo(expectedState));
@@ -1694,9 +1711,9 @@ public sealed class LuaMRescueOnboardRuntimeTest
             Assert.That(buckle.BuckledTo, Is.EqualTo(bed));
             Assert.That(strap.BuckledEntities, Does.Contain(patient));
             Assert.That(rescue.OnboardCareTarget, Is.EqualTo(patient));
-            Assert.That(rescue.AssignedPatientStrap, Is.EqualTo(bed));
-            Assert.That(rescue.ActivityContext.Activity, Is.EqualTo(LuaMRescueActivity.OnboardCare));
-            Assert.That(rescue.ActivityContext.Target, Is.EqualTo(patient));
+            Assert.That(rescue.AssignedPatientStrap, Is.EqualTo(bed), diagnostics);
+            Assert.That(rescue.ActivityContext.Activity, Is.EqualTo(LuaMRescueActivity.OnboardCare), diagnostics);
+            Assert.That(rescue.ActivityContext.Target, Is.EqualTo(patient), diagnostics);
             Assert.That(rescue.ActivityContext.TerminalStatus, Is.EqualTo(LuaMRescueTerminalStatus.Active));
             Assert.That(rescue.OnboardHandoffAttempts.GetValueOrDefault(patient), Is.Zero);
             Assert.That(rescue.IgnoredOnboardPatients, Does.Not.Contain(patient));

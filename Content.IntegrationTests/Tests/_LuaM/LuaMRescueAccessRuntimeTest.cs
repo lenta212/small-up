@@ -197,6 +197,66 @@ public sealed class LuaMRescueAccessRuntimeTest
         await pair.CleanReturnAsync();
     }
 
+    [Test]
+    public async Task RouteCacheInvalidatesWhenTargetChangesGridAtSameLocalCoordinates()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var maps = server.ResolveDependency<IMapManager>();
+        var mapSystem = server.System<SharedMapSystem>();
+        var transform = entities.System<SharedTransformSystem>();
+        var navigation = entities.System<LuaMRescueNavigationSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid agent = default;
+        EntityUid target = default;
+        await server.WaitAssertion(() =>
+        {
+            BuildFloorRectangle(mapSystem, map, 0, 4, 0, 0);
+            agent = SpawnSleepingAccessNpc(entities, map.Grid, 0.5f, 0.5f);
+            target = entities.SpawnEntity(null, GridCoordinates(map.Grid, 4.5f, 0.5f));
+
+            Assert.That(
+                navigation.ProbeRoute(agent, target, ActionRange, allowConfirmedDockedCrossGrid: true).State,
+                Is.EqualTo(LuaMRescuePathProbeState.Pending));
+        });
+
+        var initial = await AwaitCompletedProbe(
+            pair,
+            navigation,
+            agent,
+            target,
+            allowConfirmedDockedCrossGrid: true);
+        Assert.That(initial.State, Is.EqualTo(LuaMRescuePathProbeState.Reachable));
+
+        await server.WaitAssertion(() =>
+        {
+            var movingGrid = maps.CreateGridEntity(map.MapId);
+            for (var x = 0; x <= 4; x++)
+                mapSystem.SetTile(movingGrid, new Vector2i(x, 0), map.Tile.Tile);
+
+            // Preserve the exact local endpoint. Only its owning grid changes,
+            // reproducing a patient carried by a shuttle relative to a rescuer
+            // on the station grid.
+            transform.SetCoordinates(target, new EntityCoordinates(movingGrid.Owner, new Vector2(4.5f, 0.5f)));
+            Assert.Multiple(() =>
+            {
+                Assert.That(entities.GetComponent<TransformComponent>(target).GridUid, Is.EqualTo(movingGrid.Owner));
+                Assert.That(entities.GetComponent<TransformComponent>(target).Coordinates.Position,
+                    Is.EqualTo(new Vector2(4.5f, 0.5f)));
+                Assert.That(
+                    navigation.ProbeRoute(agent, target, ActionRange, allowConfirmedDockedCrossGrid: true).State,
+                    Is.EqualTo(LuaMRescuePathProbeState.Pending),
+                    "A cached station route must be invalidated when the patient moves onto another grid.");
+            });
+
+            navigation.CancelRoute(agent, target);
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
     private static EntityUid SpawnSleepingAccessNpc(
         IEntityManager entities,
         Entity<MapGridComponent> grid,
@@ -278,14 +338,19 @@ public sealed class LuaMRescueAccessRuntimeTest
         TestPair pair,
         LuaMRescueNavigationSystem navigation,
         EntityUid agent,
-        EntityUid target)
+        EntityUid target,
+        bool allowConfirmedDockedCrossGrid = false)
     {
         for (var i = 0; i < ProbeTickLimit; i++)
         {
             LuaMRescuePathProbeSnapshot snapshot = default;
             await pair.Server.WaitAssertion(() =>
             {
-                snapshot = navigation.ProbeRoute(agent, target, ActionRange);
+                snapshot = navigation.ProbeRoute(
+                    agent,
+                    target,
+                    ActionRange,
+                    allowConfirmedDockedCrossGrid);
             });
 
             if (snapshot.State != LuaMRescuePathProbeState.Pending)

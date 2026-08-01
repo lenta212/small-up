@@ -88,8 +88,14 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
 
         var key = (agent, target, actionRange, allowConfirmedDockedCrossGrid);
         var now = _timing.CurTime;
-        var agentPosition = agentXform.Coordinates.Position;
-        var targetPosition = targetXform.Coordinates.Position;
+        // Cache movement in map space, not in the entity's parent/grid-local
+        // coordinates. A patient standing still inside a moving shuttle keeps
+        // identical local coordinates even though the old path endpoint has
+        // moved in the world.
+        var agentPosition = agentXform.MapPosition.Position;
+        var targetPosition = targetXform.MapPosition.Position;
+        var agentGrid = agentXform.GridUid;
+        var targetGrid = targetXform.GridUid;
 
         lock (_routeLock)
         {
@@ -97,9 +103,9 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
             LuaMRescuePathProbeSnapshot? staleReachable = null;
             if (_routeProbes.TryGetValue(key, out var existing))
             {
-                var agentMoved =
+                var agentMoved = existing.AgentGrid != agentGrid ||
                     Vector2.DistanceSquared(existing.AgentPosition, agentPosition) > ReprobeMovementSquared;
-                var targetMoved =
+                var targetMoved = existing.TargetGrid != targetGrid ||
                     Vector2.DistanceSquared(existing.TargetPosition, targetPosition) > ReprobeMovementSquared;
                 var moved = agentMoved || targetMoved;
 
@@ -145,6 +151,8 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
             var probe = new RouteProbe(
                 agentPosition,
                 targetPosition,
+                agentGrid,
+                targetGrid,
                 now + SuccessfulProbeLifetime,
                 cancellation,
                 consecutiveFailures,
@@ -283,6 +291,8 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
     private sealed class RouteProbe(
         Vector2 agentPosition,
         Vector2 targetPosition,
+        EntityUid? agentGrid,
+        EntityUid? targetGrid,
         TimeSpan expiresAt,
         CancellationTokenSource cancellation,
         int consecutiveFailures,
@@ -291,6 +301,8 @@ public sealed class LuaMRescueNavigationSystem : EntitySystem
     {
         public readonly Vector2 AgentPosition = agentPosition;
         public readonly Vector2 TargetPosition = targetPosition;
+        public readonly EntityUid? AgentGrid = agentGrid;
+        public readonly EntityUid? TargetGrid = targetGrid;
         public TimeSpan ExpiresAt = expiresAt;
         public readonly CancellationTokenSource Cancellation = cancellation;
         public int ConsecutiveFailures = consecutiveFailures;

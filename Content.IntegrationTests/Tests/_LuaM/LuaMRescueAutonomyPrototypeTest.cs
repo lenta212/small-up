@@ -602,7 +602,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(source, Does.Contain("TryGetActivePatientTarget"));
         Assert.That(source, Does.Contain("TryGetRescueTargetPriority"));
         Assert.That(source, Does.Contain("GetRescueTargetAcuity"));
-        Assert.That(source, Does.Contain("candidatePriority <= currentPriority"));
+        Assert.That(source, Does.Contain("SameUrgencyPreemptionPriorityMargin"));
+        Assert.That(source, Does.Contain("candidatePriority - currentPriority < requiredPriorityAdvantage"));
         Assert.That(source, Does.Contain("candidateDistance >= currentDistance"));
         Assert.That(source, Does.Contain("rerouting to closer higher-acuity patient"));
         Assert.That(source, Does.Contain("mobState.CurrentState == MobState.Critical"));
