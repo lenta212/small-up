@@ -1336,6 +1336,11 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         TryRecoverBlackBox(storyId, record.ResolvedBy, record.ResolutionNote, out _);
         TryRegisterCompanyRecord(storyId, record.ResolvedBy, record.ResolutionNote, out _);
         TryRegisterShipRecord(storyId, record.ResolvedBy, record.ResolutionNote, out _);
+        if (record.ActiveContractId is { } contractId)
+        {
+            _bountyContracts.TryRemoveGeneratedContract(contractId);
+            record.ActiveContractId = null;
+        }
         SaveMemory(memory);
 
         var resolvedEvent = new LuaMSectorStoryResolvedEvent(record.Story, record.ResolvedBy, record.ResolutionNote);
@@ -1500,6 +1505,13 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
     {
         foreach (var record in memory.Records)
         {
+            if (record.Resolved)
+            {
+                record.ContractSeeded = true;
+                record.ActiveContractId = null;
+                continue;
+            }
+
             if (record.ContractSeeded)
             {
                 continue;
@@ -1518,7 +1530,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
             var reward = GetAdjustedReward(record, reputationBonus);
             var description = BuildGeneratedContractDescription(record, reputationBonus);
 
-            if (_bountyContracts.TryCreateGeneratedBountyContract(
+            var contract = _bountyContracts.TryCreateGeneratedBountyContract(
                 record.ContractCollection.Value,
                 record.ContractCategory.Value,
                 Trim(record.ContractName, SharedBountyContractSystem.MaxNameLength),
@@ -1526,13 +1538,25 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
                 service,
                 Trim(description, SharedBountyContractSystem.MaxDescriptionLength),
                 Trim(record.ContractVessel, SharedBountyContractSystem.MaxVesselLength),
-                author: record.Author) != null)
+                author: record.Author);
+            if (contract != null)
             {
                 record.ContractSeeded = true;
+                record.ActiveContractId = contract.ContractId;
             }
         }
 
         memory.ContractsSeeded = memory.Records.All(record => record.ContractSeeded);
+    }
+
+    public bool TryBindContractRouteTarget(ProtoId<LuaMSectorStoryPrototype> story, EntityUid target)
+    {
+        if (!TryGetMemory(out var memory))
+            return false;
+
+        var record = memory.Records.FirstOrDefault(entry => entry.Story == story);
+        return record?.ActiveContractId is { } contractId &&
+               _bountyContracts.TrySetGeneratedContractRouteTarget(contractId, target);
     }
 
     private static bool IsStoryUnlocked(LuaMSectorStoryPrototype story, IReadOnlyDictionary<string, int> reputationLedger)

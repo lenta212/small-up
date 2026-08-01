@@ -79,7 +79,8 @@ public sealed class LuaMDynamicEventDebrisTest
                     templateId: "quiet-distress",
                     ignoreOpenRuntimeLead: true,
                     ignorePlayerGate: true,
-                    markerCoordinates: targetCoordinates);
+                    markerCoordinates: targetCoordinates,
+                    dangerousContract: true);
 
                 Assert.That(generated, Is.True, error);
                 Assert.That(record, Is.Not.Null);

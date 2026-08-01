@@ -57,9 +57,10 @@ public sealed partial class LuaMSectorDynamicEventSystem
             return false;
         }
 
-        var resolvedMarkerCoordinates = ResolveMarkerCoordinates(markerCoordinates);
+        if (!TryResolveMarkerCoordinates(markerCoordinates, out var resolvedMarkerCoordinates, out error))
+            return false;
         var markerLocation = FormatMarkerLocation(resolvedMarkerCoordinates);
-        var debrisPlan = BuildDebrisSitePlan(resolvedMarkerCoordinates);
+        var debrisPlan = BuildDebrisSitePlan(resolvedMarkerCoordinates, false);
         var conditionRewardBonus = GetConditionRewardBonus(status);
         var queuedRouteCalibrationSource = GetQueuedRouteCalibrationSource();
         var routeCalibrationChainDepth = GetRouteCalibrationChainDepth(queuedRouteCalibrationSource);
@@ -125,11 +126,12 @@ public sealed partial class LuaMSectorDynamicEventSystem
             conditionSeverity,
             status,
             true,
-            out var routeCalibrationSource);
-        SpawnSensorDriftMarker(template, record, actor, resolvedMarkerCoordinates, status, routeCalibrationApplied);
+            out var routeCalibrationSource,
+            out var markerUid);
+        if (record != null)
+            _stories.TryBindContractRouteTarget(record.Story, markerUid);
         SpawnSiteNote(template, record, actor, resolvedMarkerCoordinates, markerLocation, conditionRiskSummary, routeCalibrationSource);
         SpawnSiteObjects(template, record, actor, resolvedMarkerCoordinates, conditionRiskSummary, routeCalibrationSource);
-        SpawnConditionHazards(template, record, actor, resolvedMarkerCoordinates, markerLocation, status, routeCalibrationSource);
         ScheduleNextAutomaticEvent();
         return true;
     }

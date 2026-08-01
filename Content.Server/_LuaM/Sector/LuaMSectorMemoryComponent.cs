@@ -180,6 +180,8 @@ public sealed partial class LuaMSectorStoryRecord
 
     [DataField]
     public bool ContractSeeded;
+
+    public uint? ActiveContractId;
 }
 
 [DataDefinition]

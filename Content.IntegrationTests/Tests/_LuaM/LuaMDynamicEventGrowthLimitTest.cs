@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Numerics;
 using Content.Server._LuaM.Sector;
 using Content.Server._NF.SectorServices;
 using Content.Shared.CCVar;
@@ -26,10 +27,15 @@ public sealed class LuaMDynamicEventGrowthLimitTest
         var resources = server.ResolveDependency<IResourceManager>();
         var storySystem = entManager.System<LuaMSectorStorySystem>();
         var dynamicEvents = entManager.System<LuaMSectorDynamicEventSystem>();
+        var mapSystem = entManager.System<SharedMapSystem>();
 
         var oldEnabled = true;
         var oldMaxActiveSites = 0;
         LuaMSectorStoryRecord firstRecord = null;
+        MapId testMapId = default;
+        MapCoordinates testCoordinates = default;
+        MapCoordinates secondCoordinates = default;
+        MapCoordinates replacementCoordinates = default;
 
         try
         {
@@ -44,9 +50,13 @@ public sealed class LuaMDynamicEventGrowthLimitTest
                     resources.UserData.Delete(SectorMemoryPath);
                 SectorNewsComponent.Articles.Clear();
 
-                var host = entManager.SpawnEntity(null, MapCoordinates.Nullspace);
-                entManager.AddComponent<StationSectorServiceHostComponent>(host);
-                entManager.AddComponent<SectorNewsComponent>(host);
+                mapSystem.CreateMap(out testMapId);
+                testCoordinates = new MapCoordinates(Vector2.Zero, testMapId);
+                secondCoordinates = new MapCoordinates(new Vector2(50, 0), testMapId);
+                replacementCoordinates = new MapCoordinates(new Vector2(100, 0), testMapId);
+                var serviceHost = entManager.SpawnEntity(null, MapCoordinates.Nullspace);
+                entManager.AddComponent<StationSectorServiceHostComponent>(serviceHost);
+                entManager.AddComponent<SectorNewsComponent>(serviceHost);
             });
 
             await pair.RunTicksSync(10);
@@ -64,7 +74,8 @@ public sealed class LuaMDynamicEventGrowthLimitTest
                     out var disabledError,
                     templateId: "quiet-distress",
                     ignoreOpenRuntimeLead: true,
-                    ignorePlayerGate: true), Is.False);
+                    ignorePlayerGate: true,
+                    markerCoordinates: testCoordinates), Is.False);
                 Assert.That(disabledError, Does.Contain("отключены конфигурацией"));
 
                 server.CfgMan.SetCVar(CCVars.LuaMDynamicEventsEnabled, true);
@@ -75,7 +86,8 @@ public sealed class LuaMDynamicEventGrowthLimitTest
                     out var firstError,
                     templateId: "quiet-distress",
                     ignoreOpenRuntimeLead: true,
-                    ignorePlayerGate: true), Is.True, firstError);
+                    ignorePlayerGate: true,
+                    markerCoordinates: testCoordinates), Is.True, firstError);
 
                 Assert.That(dynamicEvents.TryGenerateDynamicEvent(
                     "integration-test-second",
@@ -83,7 +95,8 @@ public sealed class LuaMDynamicEventGrowthLimitTest
                     out var secondError,
                     templateId: "field-repair",
                     ignoreOpenRuntimeLead: true,
-                    ignorePlayerGate: true), Is.True, secondError);
+                    ignorePlayerGate: true,
+                    markerCoordinates: secondCoordinates), Is.True, secondError);
 
                 Assert.That(dynamicEvents.TryGenerateDynamicEvent(
                     "integration-test-over-limit",
@@ -91,7 +104,8 @@ public sealed class LuaMDynamicEventGrowthLimitTest
                     out var limitError,
                     templateId: "black-box-echo",
                     ignoreOpenRuntimeLead: true,
-                    ignorePlayerGate: true), Is.False);
+                    ignorePlayerGate: true,
+                    markerCoordinates: testCoordinates), Is.False);
                 Assert.That(limitError, Does.Contain("2/2"));
 
                 var proposal = new LuaMSectorAiEventProposal { TemplateId = "quiet-distress" };
@@ -101,7 +115,8 @@ public sealed class LuaMDynamicEventGrowthLimitTest
                     out _,
                     out var aiLimitError,
                     ignoreOpenRuntimeLead: true,
-                    ignorePlayerGate: true), Is.False);
+                    ignorePlayerGate: true,
+                    markerCoordinates: testCoordinates), Is.False);
                 Assert.That(aiLimitError, Does.Contain("2/2"));
 
                 Assert.That(firstRecord, Is.Not.Null);
@@ -118,7 +133,8 @@ public sealed class LuaMDynamicEventGrowthLimitTest
                     out var replacementError,
                     templateId: "black-box-echo",
                     ignoreOpenRuntimeLead: true,
-                    ignorePlayerGate: true), Is.True, replacementError);
+                    ignorePlayerGate: true,
+                    markerCoordinates: replacementCoordinates), Is.True, replacementError);
             });
 
             await pair.RunTicksSync(5);
@@ -146,7 +162,7 @@ public sealed class LuaMDynamicEventGrowthLimitTest
                 server.CfgMan.SetCVar(CCVars.LuaMDynamicEventsEnabled, oldEnabled);
             });
 
-            await pair.RunTicksSync(5);
+            await pair.RunTicksSync(30);
             await pair.CleanReturnAsync();
         }
     }

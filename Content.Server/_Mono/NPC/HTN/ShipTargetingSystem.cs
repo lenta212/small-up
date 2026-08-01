@@ -87,6 +87,14 @@ public sealed partial class ShipTargetingSystem : EntitySystem
                 comp.WeaponCheckAccum += comp.WeaponCheckSpacing;
             }
 
+            comp.FireControlAccum -= frameTime;
+            if (comp.FireControlAccum > 0f)
+                continue;
+
+            var fireControlSpacing = float.IsFinite(comp.FireControlSpacing) && comp.FireControlSpacing > 0f
+                ? comp.FireControlSpacing
+                : 0.05f;
+            comp.FireControlAccum = fireControlSpacing + uid.Id % 5 * 0.002f;
             FireWeapons(shipUid.Value, comp.Cannons, mapTarget, linVel, comp.CurrentLeadingVelocity);
         }
     }

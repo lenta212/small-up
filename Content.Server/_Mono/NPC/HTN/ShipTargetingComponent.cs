@@ -50,4 +50,16 @@ public sealed partial class ShipTargetingComponent : Component
     /// </summary>
     [ViewVariables]
     public float WeaponCheckSpacing = 3f;
+
+    /// <summary>
+    /// Accumulator for the comparatively expensive full cannon aiming pass.
+    /// </summary>
+    [ViewVariables]
+    public float FireControlAccum;
+
+    /// <summary>
+    /// Maximum cadence of AI cannon aiming. Gun cooldowns remain authoritative.
+    /// </summary>
+    [DataField]
+    public float FireControlSpacing = 0.05f;
 }

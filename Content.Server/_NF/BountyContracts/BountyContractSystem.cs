@@ -335,6 +335,33 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
         return false;
     }
 
+    public bool TrySetGeneratedContractRouteTarget(uint contractId, EntityUid target)
+    {
+        if (!Exists(target) || !TryGetContract(contractId, out var contract))
+            return false;
+
+        contract.RouteTarget = GetNetEntity(target);
+        return true;
+    }
+
+    public bool TryRemoveGeneratedContract(uint contractId)
+    {
+        var data = GetContracts();
+        if (data?.Contracts == null)
+            return false;
+
+        foreach (var collection in data.Contracts.Values)
+        {
+            if (!collection.Remove(contractId))
+                continue;
+
+            _adminLog.Add(LogType.BountyContractRemoved, $"Resolved generated sector bounty with ID {contractId}");
+            return true;
+        }
+
+        return false;
+    }
+
     public bool TrySetBountyContractAccepted(EntityUid loaderUid, EntityUid actor, uint contractId, bool accepted)
     {
         var data = GetContracts();
@@ -382,17 +409,29 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
 
     private string TryGiveAcceptedContractPinpointer(EntityUid actor, BountyContract contract)
     {
-        if (string.IsNullOrWhiteSpace(contract.Vessel) ||
-            contract.Vessel.Equals(Loc.GetString("bounty-contracts-ui-create-vessel-unknown"), StringComparison.OrdinalIgnoreCase))
+        EntityUid targetUid;
+        string targetName;
+        if (contract.RouteTarget != NetEntity.Invalid &&
+            TryGetEntity(contract.RouteTarget, out var exactTarget) &&
+            Exists(exactTarget))
         {
-            return Loc.GetString("bounty-contracts-pinpointer-no-vessel");
+            targetUid = exactTarget.Value;
+            targetName = Name(targetUid);
         }
-
-        if (!TryFindContractRouteTarget(contract.Vessel, out var targetUid, out var targetName))
+        else
         {
-            return Loc.GetString(
-                "bounty-contracts-pinpointer-target-not-found",
-                ("vessel", contract.Vessel));
+            if (string.IsNullOrWhiteSpace(contract.Vessel) ||
+                contract.Vessel.Equals(Loc.GetString("bounty-contracts-ui-create-vessel-unknown"), StringComparison.OrdinalIgnoreCase))
+            {
+                return Loc.GetString("bounty-contracts-pinpointer-no-vessel");
+            }
+
+            if (!TryFindContractRouteTarget(contract.Vessel, out targetUid, out targetName))
+            {
+                return Loc.GetString(
+                    "bounty-contracts-pinpointer-target-not-found",
+                    ("vessel", contract.Vessel));
+            }
         }
 
         var pinpointerUid = Spawn(ContractRoutePinpointerPrototype, Transform(actor).Coordinates);
@@ -478,9 +517,7 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
 
     private static bool IsRouteNameMatch(string candidate, string routeName)
     {
-        return candidate.Equals(routeName, StringComparison.OrdinalIgnoreCase) ||
-               candidate.Contains(routeName, StringComparison.OrdinalIgnoreCase) ||
-               routeName.Contains(candidate, StringComparison.OrdinalIgnoreCase);
+        return candidate.Equals(routeName, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string BuildAcceptedContractMessage(BountyContract contract)

@@ -68,12 +68,13 @@ public sealed class BountyContract
     public readonly string? Vessel;
     public readonly string? Description;
     public readonly string? Author;
+    public NetEntity RouteTarget;
     public NetEntity AcceptedByUid;
     public string? AcceptedBy;
 
     public BountyContract(uint contractId, BountyContractCategory category, string name,
         int reward, NetEntity authorUid, string? dna, string? vessel, string? description, string? author,
-        NetEntity acceptedByUid = default, string? acceptedBy = null)
+        NetEntity acceptedByUid = default, string? acceptedBy = null, NetEntity routeTarget = default)
     {
         ContractId = contractId;
         Category = category;
@@ -86,6 +87,7 @@ public sealed class BountyContract
         Author = author;
         AcceptedByUid = acceptedByUid == default ? NetEntity.Invalid : acceptedByUid;
         AcceptedBy = acceptedBy;
+        RouteTarget = routeTarget == default ? NetEntity.Invalid : routeTarget;
     }
 }
 

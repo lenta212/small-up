@@ -18,6 +18,7 @@ using Robust.Server.Player;
 using Robust.Shared.Configuration;
 using Robust.Shared.Enums;
 using Robust.Shared.Map;
+using Robust.Shared.Map.Components;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
@@ -136,6 +137,7 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
     [Dependency] private IPlayerManager _players = default!;
     [Dependency] private IPrototypeManager _prototypes = default!;
     [Dependency] private IRobustRandom _random = default!;
+    [Dependency] private IMapManager _mapManager = default!;
     [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private MetaDataSystem _metaData = default!;
     [Dependency] private PaperSystem _paper = default!;
@@ -319,7 +321,8 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         MapCoordinates? markerCoordinates = null,
         bool spawnDebrisSite = true,
         bool spawnSiteNote = true,
-        bool allowDirectSubmission = true)
+        bool allowDirectSubmission = true,
+        bool dangerousContract = false)
     {
         record = null;
         error = string.Empty;
@@ -353,10 +356,11 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
             return false;
         }
 
-        var resolvedMarkerCoordinates = ResolveMarkerCoordinates(markerCoordinates);
+        if (!TryResolveMarkerCoordinates(markerCoordinates, out var resolvedMarkerCoordinates, out error))
+            return false;
         var markerLocation = FormatMarkerLocation(resolvedMarkerCoordinates);
         var debrisPlan = spawnDebrisSite
-            ? BuildDebrisSitePlan(resolvedMarkerCoordinates)
+            ? BuildDebrisSitePlan(resolvedMarkerCoordinates, dangerousContract)
             : new DebrisSitePlan(false, 0, false);
         var conditionRewardBonus = GetConditionRewardBonus(status);
         var queuedRouteCalibrationSource = GetQueuedRouteCalibrationSource();
@@ -416,12 +420,17 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
             conditionSeverity,
             status,
             allowDirectSubmission,
-            out var routeCalibrationSource);
-        SpawnSensorDriftMarker(template, record, actor, resolvedMarkerCoordinates, status, routeCalibrationApplied);
+            out var routeCalibrationSource,
+            out var markerUid);
+        if (record != null)
+            _stories.TryBindContractRouteTarget(record.Story, markerUid);
+        if (dangerousContract)
+            SpawnSensorDriftMarker(template, record, actor, resolvedMarkerCoordinates, status, routeCalibrationApplied);
         if (spawnSiteNote)
             SpawnSiteNote(template, record, actor, resolvedMarkerCoordinates, markerLocation, conditionRiskSummary, routeCalibrationSource);
         SpawnSiteObjects(template, record, actor, resolvedMarkerCoordinates, conditionRiskSummary, routeCalibrationSource);
-        SpawnConditionHazards(template, record, actor, resolvedMarkerCoordinates, markerLocation, status, routeCalibrationSource);
+        if (dangerousContract)
+            SpawnConditionHazards(template, record, actor, resolvedMarkerCoordinates, markerLocation, status, routeCalibrationSource);
         ScheduleNextAutomaticEvent();
         return true;
     }
@@ -1917,16 +1926,48 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         return removed;
     }
 
-    private MapCoordinates? ResolveMarkerCoordinates(MapCoordinates? markerCoordinates)
+    private bool TryResolveMarkerCoordinates(MapCoordinates? markerCoordinates, out MapCoordinates coordinates, out string error)
     {
-        if (markerCoordinates != null)
-            return markerCoordinates;
+        error = string.Empty;
+        if (markerCoordinates is { } supplied && supplied != MapCoordinates.Nullspace)
+        {
+            coordinates = supplied;
+            return true;
+        }
 
-        var service = _sectorService.GetServiceEntity();
-        if (!service.IsValid())
-            return null;
+        var hostQuery = EntityQueryEnumerator<StationSectorServiceHostComponent, TransformComponent>();
+        while (hostQuery.MoveNext(out _, out _, out var hostTransform))
+        {
+            var hostCoordinates = _transform.ToMapCoordinates(hostTransform.Coordinates, logError: false);
+            if (hostCoordinates != MapCoordinates.Nullspace)
+            {
+                var occupiedBounds = _mapManager.GetAllGrids(hostCoordinates.MapId)
+                    .Select(grid => _transform.GetWorldMatrix(grid.Owner).TransformBox(grid.Comp.LocalAABB))
+                    .ToArray();
+                const float siteHalfExtent = 18f;
+                const float clearance = 12f;
+                for (var attempt = 0; attempt < 16; attempt++)
+                {
+                    var radius = 120f + attempt / 8 * 50f;
+                    var angle = Angle.FromDegrees(attempt % 8 * 45f);
+                    var candidate = hostCoordinates.Position + angle.ToVec() * radius;
+                    var siteBounds = Box2.CenteredAround(candidate, new Vector2(siteHalfExtent * 2f)).Enlarged(clearance);
+                    if (occupiedBounds.Any(bounds => bounds.Intersects(siteBounds)))
+                        continue;
 
-        return _transform.ToMapCoordinates(Transform(service).Coordinates, logError: false);
+                    coordinates = new MapCoordinates(candidate, hostCoordinates.MapId);
+                    return true;
+                }
+
+                coordinates = MapCoordinates.Nullspace;
+                error = "Не удалось построить безопасный маршрут: вокруг станции нет свободной площадки.";
+                return false;
+            }
+        }
+
+        coordinates = MapCoordinates.Nullspace;
+        error = "Не удалось построить безопасный маршрут: станция не привязана к активной карте.";
+        return false;
     }
 
     private string FormatMarkerLocation(MapCoordinates? coordinates)
@@ -1938,7 +1979,7 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
             $"GPS карта {coordinates.Value.MapId} x {coordinates.Value.Position.X:0.0} y {coordinates.Value.Position.Y:0.0}");
     }
 
-    private DebrisSitePlan BuildDebrisSitePlan(MapCoordinates? markerCoordinates)
+    private DebrisSitePlan BuildDebrisSitePlan(MapCoordinates? markerCoordinates, bool dangerousContract)
     {
         if (markerCoordinates == null ||
             markerCoordinates == MapCoordinates.Nullspace)
@@ -1960,7 +2001,7 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         return new DebrisSitePlan(
             true,
             serial,
-            serial % DynamicDebrisHostileInterval == 0);
+            dangerousContract && serial % DynamicDebrisHostileInterval == 0);
     }
 
     private static string AppendDebrisContext(string description, DebrisSitePlan debrisPlan)
@@ -2344,9 +2385,11 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         int conditionSeverity,
         LuaMSectorStatusSnapshot status,
         bool allowDirectSubmission,
-        out string routeCalibrationSource)
+        out string routeCalibrationSource,
+        out EntityUid markerUid)
     {
         routeCalibrationSource = string.Empty;
+        markerUid = EntityUid.Invalid;
 
         if (record == null)
             return false;
@@ -2358,6 +2401,7 @@ public sealed partial class LuaMSectorDynamicEventSystem : EntitySystem
         var marker = markerCoordinates == null
             ? Spawn(markerPrototype, MapCoordinates.Nullspace)
             : Spawn(markerPrototype, markerCoordinates.Value);
+        markerUid = marker;
 
         var markerComponent = AddComp<LuaMDynamicEventMarkerComponent>(marker);
         markerComponent.Story = record.Story;

@@ -2737,11 +2737,10 @@ public sealed class LuaMSectorStoryTest
             Assert.That(restored.Reputation.Single(entry => entry.Target == "Salvage").RewardBonus,
                 Is.EqualTo(blackBoxStory.ReputationDelta * LuaMSectorStorySystem.ReputationRewardStep));
 
-            var restoredContract = bountyContracts.GetContracts("Distress")
-                .Single(contract => contract.Name == blackBoxStory.ContractName);
-            Assert.That(restoredContract.Reward,
-                Is.EqualTo(blackBoxStory.ContractReward + blackBoxStory.HazardRewardBonus + blackBoxStory.ReputationDelta * LuaMSectorStorySystem.ReputationRewardStep));
-            Assert.That(restoredContract.Description, Does.Contain("[REP +"));
+            Assert.That(bountyContracts.GetContracts("Distress")
+                    .Any(contract => contract.Name == blackBoxStory.ContractName),
+                Is.False,
+                "A resolved story contract must not return to the board after service recreation.");
 
             var unlockedContract = bountyContracts.GetContracts("Distress")
                 .Single(contract => contract.Name == trustedStory.ContractName);

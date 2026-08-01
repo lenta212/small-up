@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Numerics;
 using Content.Server._NF.BountyContracts;
 using Content.Server._NF.SectorServices;
 using Content.Server.Mind;
@@ -41,6 +42,7 @@ public sealed class BountyContractPinpointerTest
             var testMap = await pair.CreateTestMap();
             EntityUid actor = default;
             EntityUid host = default;
+            EntityUid exactRouteTarget = default;
             var beforePinpointers = 0;
             uint contractId = 0;
 
@@ -52,6 +54,8 @@ public sealed class BountyContractPinpointerTest
                 entMan.AddComponent<BountyContractDataComponent>(host);
 
                 metaData.SetEntityName(testMap.Grid, "Test Contract Vessel");
+                exactRouteTarget = entMan.SpawnEntity(null, new MapCoordinates(new Vector2(8, 3), testMap.MapId));
+                metaData.SetEntityName(exactRouteTarget, "Exact Contract Beacon");
 
                 actor = entMan.SpawnEntity("MobHuman", testMap.GridCoords);
                 var mind = mindSystem.CreateMind(clientSession!.UserId, "BountyContractPinpointerTest");
@@ -79,6 +83,7 @@ public sealed class BountyContractPinpointerTest
 
                 Assert.That(contract, Is.Not.Null);
                 contractId = contract!.ContractId;
+                Assert.That(bountyContracts.TrySetGeneratedContractRouteTarget(contractId, exactRouteTarget), Is.True);
             });
 
             await pair.RunTicksSync(5);
@@ -100,7 +105,8 @@ public sealed class BountyContractPinpointerTest
 
                 Assert.That(pinpointer.IsActive, Is.True);
                 Assert.That(pinpointer.Target.HasValue, Is.True);
-                Assert.That(pinpointer.Target!.Value == testMap.Grid.Owner, Is.True);
+                Assert.That(pinpointer.Target!.Value, Is.EqualTo(exactRouteTarget),
+                    "The generated contract must target its exact beacon, not the decoy grid whose name matches Vessel.");
             });
 
             await server.WaitPost(() =>
