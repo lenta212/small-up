@@ -614,17 +614,19 @@ public sealed partial class LuaMSectorGenerateEventCommand : IConsoleCommand
 
     public string Command => "luam_sector_generate_event";
     public string Description => "Generates a weighted dynamic LuaM sector event as a runtime lead, news post, and PDA contract.";
-    public string Help => $"Usage: {Command} [templateId]";
+    public string Help => $"Usage: {Command} [templateId] [--dangerous]";
 
     public void Execute(IConsoleShell shell, string argStr, string[] args)
     {
-        if (args.Length > 1)
+        var dangerous = args.Any(arg => arg.Equals("--dangerous", StringComparison.OrdinalIgnoreCase));
+        var positional = args.Where(arg => !arg.Equals("--dangerous", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (positional.Length > 1 || args.Count(arg => arg.Equals("--dangerous", StringComparison.OrdinalIgnoreCase)) > 1)
         {
             shell.WriteError(Help);
             return;
         }
 
-        var templateId = args.Length == 1 ? args[0] : null;
+        var templateId = positional.Length == 1 ? positional[0] : null;
         var actor = shell.Player?.Name ?? "server-console";
         var generator = _entities.System<LuaMSectorDynamicEventSystem>();
 
@@ -633,7 +635,8 @@ public sealed partial class LuaMSectorGenerateEventCommand : IConsoleCommand
                 out var record,
                 out var error,
                 templateId,
-                ignorePlayerGate: true))
+                ignorePlayerGate: true,
+                dangerousContract: dangerous))
         {
             shell.WriteError(error);
             return;
@@ -644,11 +647,11 @@ public sealed partial class LuaMSectorGenerateEventCommand : IConsoleCommand
 
     public CompletionResult GetCompletion(IConsoleShell shell, string[] args)
     {
-        if (args.Length != 1)
+        if (args.Length > 1)
             return CompletionResult.Empty;
 
         var generator = _entities.System<LuaMSectorDynamicEventSystem>();
-        return CompletionResult.FromHintOptions(generator.GetTemplateIds(), "dynamic event template id");
+        return CompletionResult.FromHintOptions(generator.GetTemplateIds().Append("--dangerous"), "dynamic event template id or explicit dangerous mode");
     }
 }
 

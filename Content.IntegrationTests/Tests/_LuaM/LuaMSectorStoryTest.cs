@@ -4884,7 +4884,8 @@ public sealed class LuaMSectorStoryTest
                 out eventError,
                 templateId: "black-box-echo",
                 ignorePlayerGate: true,
-                markerCoordinates: new MapCoordinates(new Vector2(14.0f, -3.0f), mapId));
+                markerCoordinates: new MapCoordinates(new Vector2(14.0f, -3.0f), mapId),
+                dangerousContract: true);
         });
 
         await pair.RunTicksSync(5);
@@ -5066,7 +5067,8 @@ public sealed class LuaMSectorStoryTest
                 out calibratedEventError,
                 templateId: "field-repair",
                 ignorePlayerGate: true,
-                markerCoordinates: new MapCoordinates(new Vector2(17.0f, -1.5f), mapId));
+                markerCoordinates: new MapCoordinates(new Vector2(17.0f, -1.5f), mapId),
+                dangerousContract: true);
         });
 
         await pair.RunTicksSync(5);
@@ -5210,7 +5212,8 @@ public sealed class LuaMSectorStoryTest
                 out chainedEventError,
                 templateId: "quiet-distress",
                 ignorePlayerGate: true,
-                markerCoordinates: new MapCoordinates(new Vector2(19.0f, 2.0f), mapId));
+                markerCoordinates: new MapCoordinates(new Vector2(19.0f, 2.0f), mapId),
+                dangerousContract: true);
         });
 
         await pair.RunTicksSync(5);
@@ -5381,7 +5384,8 @@ public sealed class LuaMSectorStoryTest
                 out eventError,
                 templateId: "navigation-drift",
                 ignorePlayerGate: true,
-                markerCoordinates: new MapCoordinates(new Vector2(5.0f, 5.0f), mapId));
+                markerCoordinates: new MapCoordinates(new Vector2(5.0f, 5.0f), mapId),
+                dangerousContract: true);
         });
 
         await pair.RunTicksSync(5);
@@ -5510,7 +5514,8 @@ public sealed class LuaMSectorStoryTest
                 out calibratedEventError,
                 templateId: "quiet-distress",
                 ignorePlayerGate: true,
-                markerCoordinates: new MapCoordinates(new Vector2(7.0f, 4.0f), mapId));
+                markerCoordinates: new MapCoordinates(new Vector2(7.0f, 4.0f), mapId),
+                dangerousContract: true);
         });
 
         await pair.RunTicksSync(5);
