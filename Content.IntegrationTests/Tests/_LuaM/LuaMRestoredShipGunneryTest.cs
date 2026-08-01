@@ -4,6 +4,7 @@ using Content.Server._LuaM.ShipPersistence;
 using Content.Server._Mono.FireControl;
 using Content.Server.Power.Components;
 using Content.Shared._Mono.FireControl;
+using Content.Shared.Containers.ItemSlots;
 using Content.Shared.Maps;
 using Content.Shared.Power;
 using Content.Shared.Weapons.Ranged.Components;
@@ -28,6 +29,7 @@ public sealed class LuaMRestoredShipGunneryTest
         var transform = entities.System<SharedTransformSystem>();
         var persistence = entities.System<LuaMFullShipPersistenceSystem>();
         var fireControl = entities.System<FireControlSystem>();
+        var itemSlots = entities.System<ItemSlotsSystem>();
 
         MapId sourceMap = default;
         MapId targetMap = default;
@@ -57,6 +59,14 @@ public sealed class LuaMRestoredShipGunneryTest
                     "GunneryServerLow",
                     sourceGrid.Owner,
                     new Vector2(2.5f, 0.5f));
+                SpawnAnchored(
+                    "WeaponTurretL85Autocannon",
+                    sourceGrid.Owner,
+                    new Vector2(3.5f, 0.5f));
+                SpawnAnchored(
+                    "WeaponTurretVespera",
+                    sourceGrid.Owner,
+                    new Vector2(4.5f, 0.5f));
 
                 PowerOn(sourceServer);
                 PowerOn(sourceGun);
@@ -93,6 +103,8 @@ public sealed class LuaMRestoredShipGunneryTest
                 var restoredConsole = RequirePrototypeDescendant(restoredGrid, "ComputerGunneryConsole");
                 var restoredGun = RequirePrototypeDescendant(restoredGrid, "ShuttleGunKinetic");
                 var restoredServer = RequirePrototypeDescendant(restoredGrid, "GunneryServerLow");
+                var restoredAutocannon = RequirePrototypeDescendant(restoredGrid, "WeaponTurretL85Autocannon");
+                var restoredMissileRack = RequirePrototypeDescendant(restoredGrid, "WeaponTurretVespera");
                 var restoredGridControl = entities.EnsureComponent<FireControlGridComponent>(restoredGrid);
                 var restoredConsoleComponent = entities.GetComponent<FireControlConsoleComponent>(restoredConsole);
                 var restoredGunComponent = entities.GetComponent<FireControllableComponent>(restoredGun);
@@ -121,6 +133,9 @@ public sealed class LuaMRestoredShipGunneryTest
                         "A console powered before its GCS must be retried when that server claims the restored grid.");
                     Assert.That(restoredServerComponent.Consoles, Contains.Item(restoredConsole));
                 });
+
+                AssertRestoredMagazine(restoredAutocannon, "Magazine20mm");
+                AssertRestoredMagazine(restoredMissileRack, "MissileMagazine50mmHE");
 
                 Assert.That(
                     entities.RemoveComponent<RechargeBasicEntityAmmoComponent>(restoredGun),
@@ -193,6 +208,24 @@ public sealed class LuaMRestoredShipGunneryTest
             entities.GetComponent<ApcPowerReceiverComponent>(uid).Powered = true;
             var powerChanged = new PowerChangedEvent(true, 0f);
             entities.EventBus.RaiseLocalEvent(uid, ref powerChanged);
+        }
+
+        void AssertRestoredMagazine(EntityUid weapon, string expectedMagazinePrototype)
+        {
+            var magazine = itemSlots.GetItemOrNull(weapon, "gun_magazine");
+            Assert.That(magazine, Is.Not.Null,
+                $"Restored weapon {weapon} must keep its loaded magazine.");
+
+            var magazineUid = magazine!.Value;
+            Assert.Multiple(() =>
+            {
+                Assert.That(entities.GetComponent<MetaDataComponent>(magazineUid).EntityPrototype?.ID,
+                    Is.EqualTo(expectedMagazinePrototype),
+                    $"Restored weapon {weapon} must spawn compatible ammunition.");
+                Assert.That(entities.GetComponent<BallisticAmmoProviderComponent>(magazineUid).UnspawnedCount,
+                    Is.GreaterThan(0),
+                    $"Restored {expectedMagazinePrototype} must contain usable rounds.");
+            });
         }
 
         EntityUid RequirePrototypeDescendant(EntityUid root, string prototypeId)
