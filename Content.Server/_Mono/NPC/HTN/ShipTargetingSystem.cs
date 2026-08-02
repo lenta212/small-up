@@ -9,6 +9,7 @@ using Robust.Shared.Physics.Components;
 using Robust.Shared.Physics.Systems;
 using Robust.Shared.Spawners;
 using System.Numerics;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 namespace Content.Server._Mono.NPC.HTN;
 
@@ -25,6 +26,12 @@ public sealed partial class ShipTargetingSystem : EntitySystem
     [Dependency] private EntityQuery<PhysicsComponent> _physQuery;
 
     private HashSet<Entity<FireControllableComponent>> _cannons = new();
+    private long _updates;
+    private double _totalUpdateMilliseconds;
+    private double _maximumUpdateMilliseconds;
+    private int _lastControllers;
+    private int _lastFireControlPasses;
+    private int _lastCannonsInspected;
 
     public override void Initialize()
     {
@@ -41,10 +48,15 @@ public sealed partial class ShipTargetingSystem : EntitySystem
 
     public override void Update(float frameTime)
     {
+        var started = Stopwatch.GetTimestamp();
+        var controllers = 0;
+        var fireControlPasses = 0;
+        var cannonsInspected = 0;
         var query = EntityQueryEnumerator<ShipTargetingComponent>();
 
         while (query.MoveNext(out var uid, out var comp))
         {
+            controllers++;
             var pilotXform = Transform(uid);
 
             var shipUid = pilotXform.GridUid;
@@ -95,18 +107,27 @@ public sealed partial class ShipTargetingSystem : EntitySystem
                 ? comp.FireControlSpacing
                 : 0.05f;
             comp.FireControlAccum = fireControlSpacing + uid.Id % 5 * 0.002f;
-            FireWeapons(shipUid.Value, comp.Cannons, mapTarget, linVel, comp.CurrentLeadingVelocity);
+            fireControlPasses++;
+            cannonsInspected += FireWeapons(shipUid.Value, comp.Cannons, mapTarget, linVel, comp.CurrentLeadingVelocity);
         }
+
+        var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        _updates++;
+        _totalUpdateMilliseconds += elapsed;
+        _maximumUpdateMilliseconds = Math.Max(_maximumUpdateMilliseconds, elapsed);
+        _lastControllers = controllers;
+        _lastFireControlPasses = fireControlPasses;
+        _lastCannonsInspected = cannonsInspected;
     }
 
-    private void FireWeapons(EntityUid shipUid, List<EntityUid> cannons, MapCoordinates destMapPos, Vector2 ourVel, Vector2 otherVel)
+    private int FireWeapons(EntityUid shipUid, List<EntityUid> cannons, MapCoordinates destMapPos, Vector2 ourVel, Vector2 otherVel)
     {
         var shipXform = Transform(shipUid);
         if (!_physQuery.TryComp(shipUid, out var shipBody))
-            return;
+            return 0;
 
         if (!_cannon.CanFireWeapons(shipUid))
-            return;
+            return 0;
 
         var shipAngVel = shipBody.AngularVelocity;
         var shipCenter = shipBody.LocalCenter;
@@ -178,7 +199,17 @@ public sealed partial class ShipTargetingSystem : EntitySystem
 
             _cannon.AttemptFire(uid, uid, _transform.ToCoordinates(targetMapPos), noServer: true);
         }
+
+        return cannons.Count;
     }
+
+    public ShipTargetingTelemetry GetTelemetry() => new(
+        _updates,
+        _updates == 0 ? 0d : _totalUpdateMilliseconds / _updates,
+        _maximumUpdateMilliseconds,
+        _lastControllers,
+        _lastFireControlPasses,
+        _lastCannonsInspected);
 
     public Vector2 NormalizedOrZero(Vector2 vec)
     {
@@ -213,3 +244,11 @@ public sealed partial class ShipTargetingSystem : EntitySystem
         RemComp<ShipTargetingComponent>(ent);
     }
 }
+
+public sealed record ShipTargetingTelemetry(
+    long Updates,
+    double AverageUpdateMilliseconds,
+    double MaximumUpdateMilliseconds,
+    int LastControllers,
+    int LastFireControlPasses,
+    int LastCannonsInspected);

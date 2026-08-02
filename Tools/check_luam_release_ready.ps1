@@ -222,6 +222,8 @@ $requiredFiles = @(
     "Tools/test_local_frontier.ps1",
     "Tools/test_local_stack.ps1",
     "Tools/test_luam_ai_gateway.py",
+    "Tools/test_luam_post_deploy_smoke.ps1",
+    "Tools/verify_luam_production_candidate.ps1",
     "Tools/test_luam_ship_generator.py",
     "Tools/validate_luam_feature_pack.py"
 )

@@ -1,10 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Content.Server.Administration;
 using Content.Server._LuaM.ShipPersistence;
+using Content.Server._Mono.FireControl;
+using Content.Server.Power.Components;
+using Content.Shared._Crescent.ShipShields;
 using Content.Shared.Administration;
+using Content.Shared.Power.Components;
 using Robust.Shared.Console;
 
 namespace Content.Server._LuaM.Administration;
@@ -51,6 +56,85 @@ public sealed class LuaMShipStatusCommand : IConsoleCommand
         }
 
         shell.WriteLine(output.ToString().TrimEnd());
+    }
+}
+
+[AdminCommand(AdminFlags.Server)]
+public sealed class LuaMShipDiagnoseCommand : IConsoleCommand
+{
+    [Dependency] private readonly IEntityManager _entities = default!;
+
+    public string Command => "luam_ship_diagnose";
+    public string Description => "Read-only power, shield and gunnery diagnostics for an active persistent ship.";
+    public string Help => $"Usage: {Command} <shipId>";
+
+    public void Execute(IConsoleShell shell, string argStr, string[] args)
+    {
+        if (args.Length != 1 || !Guid.TryParse(args[0], out var shipId))
+        {
+            shell.WriteError(Help);
+            return;
+        }
+
+        var ship = _entities.System<LuaMShipPersistenceOrchestrator>()
+            .GetActiveShipDiagnostics(shipId)
+            .SingleOrDefault();
+        if (ship == null || !ship.GridExists)
+        {
+            shell.WriteError($"Persistent ship {shipId:D} is not active with a live grid.");
+            return;
+        }
+
+        var pending = new Stack<EntityUid>();
+        var visited = new HashSet<EntityUid>();
+        var receivers = 0;
+        var unpowered = 0;
+        var nonFinitePower = 0;
+        var shields = 0;
+        var fireControlServers = 0;
+        var controllableWeapons = 0;
+        pending.Push(ship.Grid);
+
+        while (pending.TryPop(out var uid))
+        {
+            if (!visited.Add(uid) || !_entities.EntityExists(uid))
+                continue;
+
+            if (_entities.TryGetComponent(uid, out ApcPowerReceiverComponent? receiver))
+            {
+                receivers++;
+                if (!receiver.Powered)
+                    unpowered++;
+            }
+
+            if (_entities.TryGetComponent(uid, out BatteryComponent? battery) && !float.IsFinite(battery.CurrentCharge))
+                nonFinitePower++;
+            if (_entities.TryGetComponent(uid, out PowerNetworkBatteryComponent? network))
+            {
+                var state = network.NetworkBattery;
+                if (!float.IsFinite(state.CurrentStorage) || !float.IsFinite(state.SupplyRampPosition) ||
+                    !float.IsFinite(state.CurrentSupply) || !float.IsFinite(state.CurrentReceiving) ||
+                    !float.IsFinite(state.LoadingNetworkDemand))
+                    nonFinitePower++;
+            }
+            if (_entities.TryGetComponent(uid, out PowerChargeComponent? charge) && !float.IsFinite(charge.Charge))
+                nonFinitePower++;
+            if (_entities.HasComponent<ShipShieldComponent>(uid))
+                shields++;
+            if (_entities.HasComponent<FireControlServerComponent>(uid))
+                fireControlServers++;
+            if (_entities.HasComponent<FireControllableComponent>(uid))
+                controllableWeapons++;
+
+            var children = _entities.GetComponent<TransformComponent>(uid).ChildEnumerator;
+            while (children.MoveNext(out var child))
+                pending.Push(child);
+        }
+
+        shell.WriteLine(
+            $"ship={ship.ShipId:D} grid={ship.Grid} entities={visited.Count}; " +
+            $"power-receivers={receivers}, unpowered={unpowered}, non-finite-power-components={nonFinitePower}; " +
+            $"shields={shields}; fire-control-servers={fireControlServers}, controllable-weapons={controllableWeapons}");
     }
 }
 

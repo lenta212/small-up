@@ -23,6 +23,7 @@
                                               "Tools/check_luam_release_ready.ps1",
                                               "Tools/build_luam_release_package.ps1",
                                               "Tools/verify_luam_release_package.ps1",
+                                              "Tools/verify_luam_production_candidate.ps1",
                                               "Tools/build_luam_server_release.ps1",
                                               "Tools/audit_release_surface.ps1",
                                               "Tools/luam_release_state.ps1",
@@ -114,6 +115,16 @@
                                                 "script":  "Tools/test_luam_ai_gateway.py",
                                                 "arguments":  [
 
+                                                              ],
+                                                "mode":  "always",
+                                                "requiredForProduction":  true
+                                            },
+                                            {
+                                                "name":  "critical-feature-smoke",
+                                                "runner":  "powershell",
+                                                "script":  "Tools/test_luam_post_deploy_smoke.ps1",
+                                                "arguments":  [
+                                                                  "-NoBuild"
                                                               ],
                                                 "mode":  "always",
                                                 "requiredForProduction":  true

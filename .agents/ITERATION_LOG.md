@@ -6067,3 +6067,12 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Added ServerNews entry `2026080204` as a complete Russian rollup of the release: safe exact contracts; restored ship access, controls, storage, expedition console, gunnery and compatible ammunition; shield and power recovery; combat load reduction; and Aibolit mission reliability.
 - Validation: `LuaMServerNewsChangelogTest` passes 1/1 (`servernews-rollup.trx`); scoped `git diff --check` passes with line-ending notices only.
 - Production impact: none. This updates release data only; remote deployment remains frozen.
+## 2026-08-02 — LuaM pre-deploy safety and combat diagnostics
+
+- Added bounded `ShipTargetingSystem` timing/load telemetry and the server-admin command `luam_combat_telemetry`.
+- Added read-only `luam_ship_diagnose <shipId>` reporting live-grid entity count, unpowered receivers, non-finite power state, shield count, and fire-control links.
+- Added `Tools/test_luam_post_deploy_smoke.ps1`: 9 critical feature groups covering restored power, shields, gunnery/ammunition, access, interactions, expedition console, contracts, and Aibolit; optional server-log scan rejects fatal/non-finite power signatures.
+- Added `Tools/verify_luam_production_candidate.ps1`, which verifies a package against its computed SHA-256 and states the mandatory backup/rollback deployment policy.
+- Registered critical-feature smoke in the release policy. Existing deploy logic was confirmed to back up server/config (and required data with `-RequireDataBackup`) and automatically roll back failed health checks.
+- Verification: `dotnet build Content.Server/Content.Server.csproj --no-restore` passed; critical smoke passed 92/92; release-contract validator passed with remote deployment frozen.
+- Cleanup note: three exact in-repository test artifact directories were resolved and verified, but the execution policy rejected native PowerShell recursive deletion. No production mutation or publication occurred.
