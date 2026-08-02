@@ -1086,7 +1086,6 @@ def main(argv: list[str] | None = None) -> int:
         "DynamicRewardMin",
         "DynamicRewardMax",
         "SpawnWorldMarker",
-        "SpawnConditionHazards",
     ]:
         assert_contains(ai_dynamic_event_system, required_api, "LuaMSectorDynamicEventSystem.Ai")
 
@@ -4443,7 +4442,12 @@ def main(argv: list[str] | None = None) -> int:
     assert_contains(rescue_agent_system, "stalled={rescue.TargetStallAccumulator:0.0}/{rescue.TargetStallSeconds:0.0}s", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryGetRescueTargetPriority", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "GetRescueTargetAcuity", "LuaMRescueAgentSystem")
-    assert_contains(rescue_agent_system, "candidatePriority <= currentPriority", "LuaMRescueAgentSystem")
+    assert_contains(
+        rescue_agent_system,
+        "candidatePriority - currentPriority < requiredPriorityAdvantage",
+        "LuaMRescueAgentSystem",
+    )
+    assert_contains(rescue_agent_system, "SameUrgencyPreemptionPriorityMargin", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "candidateDistance >= currentDistance", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "rerouting to closer higher-acuity patient", "LuaMRescueAgentSystem")
     assert_contains(rescue_agent_system, "TryFindEvacuationTarget", "LuaMRescueAgentSystem")
