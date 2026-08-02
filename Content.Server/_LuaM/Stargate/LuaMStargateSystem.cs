@@ -550,10 +550,10 @@ public sealed class LuaMStargateSystem : EntitySystem
 
     private EntityUid? FindSourceGate(EntityUid destination)
     {
-        var query = EntityQueryEnumerator<LuaMStargateComponent, LinkedEntityComponent>();
-        while (query.MoveNext(out var uid, out _, out var links))
+        var query = EntityQueryEnumerator<LuaMStargateComponent>();
+        while (query.MoveNext(out var uid, out _))
         {
-            if (uid != destination && links.LinkedEntities.Contains(destination))
+            if (uid != destination && _linkedEntity.GetLink(uid, out var linked) && linked == destination)
                 return uid;
         }
 
