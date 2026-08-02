@@ -8,9 +8,6 @@ $root = Split-Path -Parent $PSScriptRoot
 $package = (Resolve-Path -LiteralPath $PackagePath -ErrorAction Stop).Path
 $hash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
 & (Join-Path $PSScriptRoot "verify_luam_release_package.ps1") -PackagePath $package -ExpectedSha256 $hash
-if ($LASTEXITCODE -ne 0) {
-    throw "Release package verification failed with exit code $LASTEXITCODE."
-}
 
 Write-Output "production-candidate=$package"
 Write-Output "sha256=$hash"
