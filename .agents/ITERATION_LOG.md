@@ -6062,3 +6062,8 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Validation: all known regression cases pass 15/15. The complete stable `FullyQualifiedName~LuaM` integration gate passes 954/954 with one PostgreSQL-only test skipped (`luam-full-stable-final.trx`, 13m51s). Source timestamps remained unchanged throughout this final run.
 - Restored-ship focused gate remains 6/6 and exact restored ammunition remains verified for `Magazine20mm` and `MissileMagazine50mmHE`.
 - Production impact: none. Remote deployment remains frozen and no production host, service, database, package, round, publication, or restart state changed.
+## 2026-08-02T02:46:00+03:00 -- consolidated player-facing release notes
+
+- Added ServerNews entry `2026080204` as a complete Russian rollup of the release: safe exact contracts; restored ship access, controls, storage, expedition console, gunnery and compatible ammunition; shield and power recovery; combat load reduction; and Aibolit mission reliability.
+- Validation: `LuaMServerNewsChangelogTest` passes 1/1 (`servernews-rollup.trx`); scoped `git diff --check` passes with line-ending notices only.
+- Production impact: none. This updates release data only; remote deployment remains frozen.
