@@ -8,6 +8,7 @@
   contractName: "Проверить тихий буксир"
   contractVessel: "Край сектора"
   contractDescription: "Добраться до буксира, поставить маяк, описать состояние корпуса и оставить отчёт. Зачёт одиночным пилотом."
+  contractObjectivePrototype: LuaMSectorTrafficRecoveryEvidence
   contractReward: 57500
   hazard: "Нестабильный транспондер, возможная ложная метка маршрута."
   hazardSeverity: 2
@@ -29,6 +30,7 @@
   contractName: "Восстановить модуль"
   contractVessel: "Шахтёрская метка"
   contractDescription: "Проверить питание, шлюз и воздух. Итогом считается ремонт, маяк или письменное предупреждение для следующего пилота."
+  contractObjectivePrototype: LuaMSectorTrafficRecoveryEvidence
   contractReward: 59000
   hazard: "Риск разгерметизации и ложной телеметрии воздуха."
   hazardSeverity: 3
@@ -50,6 +52,7 @@
   contractName: "Доставить контейнер"
   contractVessel: "Торговый маршрут"
   contractDescription: "Сопроводить контейнер, не вскрывая пломбу. При угрозе оставить акт потери или координаты безопасного хранения."
+  contractObjectivePrototype: LuaMSectorTrafficRecoveryCargo
   contractReward: 56500
   hazard: "Закрытая зона маршрута и спорная пломба."
   hazardSeverity: 2
@@ -71,6 +74,7 @@
   contractName: "Проверить аванпост"
   contractVessel: "Безымянный аванпост"
   contractDescription: "Проверить источник сообщений, не отключая питание без отчёта. Успех: заметка, маяк или новый контракт."
+  contractObjectivePrototype: LuaMSectorTrafficRecoveryEvidence
   contractReward: 58000
   hazard: "Автоматические ответы могут скрывать опасность внутри."
   hazardSeverity: 2
@@ -92,6 +96,7 @@
   contractName: "Расшифровать ящик"
   contractVessel: "Пропавшее судно"
   contractDescription: "Найти регистратор или следы аварии, заполнить отчёт и указать вероятную причину. Подходит для одиночного поиска."
+  contractObjectivePrototype: LuaMBlackBoxRecorder
   contractReward: 60000
   hazard: "Возможны обломки с активными системами и неверные координаты."
   hazardSeverity: 4
@@ -112,6 +117,7 @@
   contractName: "Открыть доверенный схрон"
   contractVessel: "Зашифрованная метка схрона"
   contractDescription: "Добраться до зашифрованной метки, убедиться, что схрон не является активной ловушкой, и оставить короткую записку о восстановлении перед перемещением груза."
+  contractObjectivePrototype: PaperLuaMTrustedSalvageCacheManifest
   contractReward: 59000
   hazard: "Зашифрованная метка может быть устаревшей, приманкой или привязанной к активному полю обломков."
   hazardSeverity: 3
@@ -135,6 +141,7 @@
   contractName: "Проверить курьерский маршрут"
   contractVessel: "Метка приоритетного маршрута"
   contractDescription: "Проследовать по частной маршрутной метке, подтвердить безопасность точки передачи и оформить курьерскую квитанцию до приема повторного груза."
+  contractObjectivePrototype: PaperLuaMPreferredCourierRouteReceipt
   contractReward: 57000
   hazard: "Приоритетная метка может вывести курьера к засаде, ложным сборам или устаревшим координатам."
   hazardSeverity: 2
@@ -158,6 +165,7 @@
   contractName: "Проверить реестр станции"
   contractVessel: "Запись тихой станции"
   contractDescription: "Изучить фрагмент реестра, подтвердить, устарела запись станции или подделана, и оформить выписку без перезаписи локальных журналов."
+  contractObjectivePrototype: PaperLuaMGhostStationLedgerExtract
   contractReward: 58000
   hazard: "Координаты реестра могут вести к тихой станции с устаревшим владельцем, дубликатами регистрационных меток или активными автоответами."
   hazardSeverity: 3
@@ -181,6 +189,7 @@
   contractName: "Проверить спасательный коридор"
   contractVessel: "Приоритетная спасательная метка"
   contractDescription: "Проследовать по приоритетной спасательной метке, убедиться, что маршрут безопасен для следующих спасателей, и оформить квитанцию коридора до допуска повторного спасательного трафика."
+  contractObjectivePrototype: PaperLuaMPriorityRescueLaneReceipt
   contractReward: 57600
   hazard: "Приоритетная метка может притянуть ложные спасательные вызовы, повторы старых маяков или попытки засады рядом с маршрутом."
   hazardSeverity: 3

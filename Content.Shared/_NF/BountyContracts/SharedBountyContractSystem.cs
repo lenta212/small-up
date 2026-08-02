@@ -70,11 +70,17 @@ public sealed class BountyContract
     public readonly string? Author;
     public NetEntity RouteTarget;
     public NetEntity AcceptedByUid;
+    /// <summary>
+    /// The character that accepted the contract. <see cref="AcceptedByUid"/> identifies
+    /// the PDA/cartridge loader and is not sufficient to authorize a turn-in.
+    /// </summary>
+    public NetEntity AcceptedByActor;
     public string? AcceptedBy;
 
     public BountyContract(uint contractId, BountyContractCategory category, string name,
         int reward, NetEntity authorUid, string? dna, string? vessel, string? description, string? author,
-        NetEntity acceptedByUid = default, string? acceptedBy = null, NetEntity routeTarget = default)
+        NetEntity acceptedByUid = default, string? acceptedBy = null, NetEntity routeTarget = default,
+        NetEntity acceptedByActor = default)
     {
         ContractId = contractId;
         Category = category;
@@ -86,6 +92,7 @@ public sealed class BountyContract
         Description = description;
         Author = author;
         AcceptedByUid = acceptedByUid == default ? NetEntity.Invalid : acceptedByUid;
+        AcceptedByActor = acceptedByActor == default ? NetEntity.Invalid : acceptedByActor;
         AcceptedBy = acceptedBy;
         RouteTarget = routeTarget == default ? NetEntity.Invalid : routeTarget;
     }

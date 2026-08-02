@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -1438,6 +1439,7 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
                 ContractName = story.ContractName,
                 ContractVessel = story.ContractVessel,
                 ContractDescription = story.ContractDescription,
+                ContractObjectivePrototype = story.ContractObjectivePrototype,
                 Hazard = story.Hazard,
                 HazardSeverity = story.HazardSeverity,
                 HazardRewardBonus = story.HazardRewardBonus,
@@ -1557,6 +1559,30 @@ public sealed partial class LuaMSectorStorySystem : EntitySystem
         var record = memory.Records.FirstOrDefault(entry => entry.Story == story);
         return record?.ActiveContractId is { } contractId &&
                _bountyContracts.TrySetGeneratedContractRouteTarget(contractId, target);
+    }
+
+    public bool TryGetActiveContractId(ProtoId<LuaMSectorStoryPrototype> story, out uint contractId)
+    {
+        contractId = default;
+        if (!TryGetMemory(out var memory))
+            return false;
+
+        var record = memory.Records.FirstOrDefault(entry => entry.Story == story);
+        if (record?.ActiveContractId is not { } activeContractId)
+            return false;
+
+        contractId = activeContractId;
+        return true;
+    }
+
+    public bool TryGetStoryByActiveContractId(uint contractId, [NotNullWhen(true)] out LuaMSectorStoryRecord? record)
+    {
+        record = null;
+        if (!TryGetMemory(out var memory))
+            return false;
+
+        record = memory.Records.FirstOrDefault(entry => entry.ActiveContractId == contractId && !entry.Resolved);
+        return record != null;
     }
 
     private static bool IsStoryUnlocked(LuaMSectorStoryPrototype story, IReadOnlyDictionary<string, int> reputationLedger)

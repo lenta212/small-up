@@ -28,6 +28,16 @@ public sealed partial class SalvageSystem
 
     private void OnSalvageClaimMessage(EntityUid uid, SalvageExpeditionConsoleComponent component, ClaimSalvageMessage args)
     {
+        if (!component.Debug && !component.LegacyLaunchingEnabled)
+        {
+            PlayDenySound(uid, component);
+            _popupSystem.PopupEntity(
+                "Корабельные экспедиции закрыты. Соберите группу у портала экспедиционного аванпоста.",
+                uid,
+                PopupType.MediumCaution);
+            return;
+        }
+
         if (!TryEnsureConsoleExpeditionData(uid, out var station, out var data) || data.Claimed || data.Cooldown)
             return;
 
@@ -266,7 +276,7 @@ public sealed partial class SalvageSystem
         var state = GetState(component);
 
         var query = AllEntityQuery<SalvageExpeditionConsoleComponent, UserInterfaceComponent, TransformComponent>();
-        while (query.MoveNext(out var uid, out _, out var uiComp, out var xform))
+        while (query.MoveNext(out var uid, out var console, out var uiComp, out var xform))
         {
             var station = _station.GetOwningStation(uid, xform);
 
@@ -282,7 +292,19 @@ public sealed partial class SalvageSystem
             }
             // End Frontier
 
-            _ui.SetUiState((uid, uiComp), SalvageConsoleUiKey.Expedition, state);
+            var consoleState = state;
+            if (!console.Debug && !console.LegacyLaunchingEnabled)
+            {
+                consoleState = new SalvageExpeditionConsoleState(
+                    state.NextOffer,
+                    state.Claimed,
+                    true,
+                    false,
+                    state.ActiveMission,
+                    state.Missions);
+            }
+
+            _ui.SetUiState((uid, uiComp), SalvageConsoleUiKey.Expedition, consoleState);
         }
     }
 
@@ -313,6 +335,9 @@ public sealed partial class SalvageSystem
         {
             state = new SalvageExpeditionConsoleState(TimeSpan.Zero, false, true, false, 0, new List<SalvageMissionParams>()); // Frontier: add false as 4th param
         }
+
+        if (!component.Comp.Debug && !component.Comp.LegacyLaunchingEnabled)
+            state.Cooldown = true;
 
         // Frontier: if we have a lingering FTL component, we cannot start a new mission
         if (!TryComp<StationDataComponent>(station, out var stationData) ||

@@ -1,0 +1,9 @@
+- type: cargoProduct
+  id: LuaMRescueDispatchConsoleProduct
+  icon:
+    sprite: Structures/Machines/computers.rsi
+    state: computer
+  product: ComputerLuaMRescueDispatch
+  cost: 3000
+  category: cargoproduct-category-name-medical
+  group: market

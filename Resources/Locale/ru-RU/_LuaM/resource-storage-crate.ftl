@@ -1,0 +1,15 @@
+luam-resource-crate-ui-title = Ящик-хранилище ресурсов
+luam-resource-crate-ui-linked = Подключено к сило: {$silo}
+luam-resource-crate-ui-unlinked = Сило не подключено. Подключите ящик через интерфейс ресурсного сило.
+luam-resource-crate-ui-capacity = Заполнено: {$used} / {$capacity} единиц
+luam-resource-crate-ui-empty = В ящике и подключённом сило нет материалов.
+luam-resource-crate-ui-amount = Количество
+luam-resource-crate-ui-to-crate = В ящик
+luam-resource-crate-ui-to-silo = В сило
+luam-resource-crate-ui-material = {$material}: ящик {$crate}, сило {$silo}
+luam-resource-crate-status-no-silo = Перенос невозможен: рабочее сило не подключено.
+luam-resource-crate-status-invalid-material = Неизвестный материал.
+luam-resource-crate-status-nothing-to-transfer = Нет доступного материала или свободного места.
+luam-resource-crate-status-source-changed = Содержимое источника изменилось. Повторите операцию.
+luam-resource-crate-status-destination-changed = Содержимое назначения изменилось; списание отменено.
+luam-resource-crate-status-transferred = Перенесено {$amount} ед. материала «{$material}».

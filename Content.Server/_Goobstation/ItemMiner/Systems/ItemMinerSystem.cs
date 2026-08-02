@@ -64,6 +64,15 @@ public sealed partial class ItemMinerSystem : EntitySystem
 
             if (miner.NextAt > _timing.CurTime)
                 continue;
+
+            // Absolute game times can become stale when a map-savable miner is restored in a later round.
+            // Never replay the missed production window one stack per tick; resume from a fresh interval.
+            if (_timing.CurTime - miner.NextAt > miner.Interval)
+            {
+                miner.NextAt = _timing.CurTime + miner.Interval;
+                continue;
+            }
+
             miner.NextAt += miner.Interval;
 
             if (miner.SpawnChance < 1f && !_gambling.Prob(miner.SpawnChance))

@@ -2,9 +2,12 @@
 
 bank-atm-menu-title = Галактический Банк NT
 bank-atm-menu-balance-label = Баланс аккаунта:{ " " }
+bank-atm-menu-savings-label = Долгосрочный счёт:{ " " }
+bank-atm-menu-savings-description = Общий для всех ваших персонажей. Сюда сохраняется избыток крупных депозитов; эти средства оплачивают стартовое снаряжение будущих персонажей. Наличные в банкомате снимаются с баланса текущего персонажа.
 bank-atm-menu-no-bank = Нет аккаунта!
 bank-atm-menu-withdraw-button = Вывести
 bank-atm-menu-deposit-label = Внести сумму:{ " " }
+bank-atm-menu-deposit-label-ut = В долгосрочный счёт:{ " " }
 bank-atm-menu-no-deposit = Пусто
 bank-atm-menu-deposit-button = Внести
 bank-insufficient-funds = Неправильная сумма!

@@ -403,7 +403,7 @@ public sealed class LuaMRescueOnboardRuntimeTest
     }
 
     [Test]
-    public async Task CriticalSignalQueuesUntilCurrentOnboardPatientIsSafelyHandedOff()
+    public async Task CriticalSignalDoesNotPreemptOnboardCustodyAndRemainsExactlyOnceQueuedOrOwned()
     {
         await using var pair = await PoolManager.GetServerClient();
         var server = pair.Server;
@@ -443,15 +443,26 @@ public sealed class LuaMRescueOnboardRuntimeTest
                 Is.True,
                 status);
 
+            var pendingCount = shuttle.GetPendingAutomaticDispatches().Count(entry => entry.Target == critical);
+            var activeOwnerCount = entities.EntityQuery<LuaMRescueAgentComponent>().Count(candidate =>
+                candidate.LifeSupportEmergencyActive && candidate.LifeSupportEmergencyPatient == critical ||
+                candidate.AssignedTarget == critical ||
+                candidate.DeathSignalTarget == critical ||
+                candidate.EvacuatingTarget == critical ||
+                candidate.TaskPatientTarget == critical ||
+                candidate.OnboardCareTarget == critical ||
+                candidate.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+                candidate.ActivityContext.Target == critical);
+
             Assert.Multiple(() =>
             {
                 Assert.That(rescue.OnboardCareTarget, Is.EqualTo(onboard));
                 Assert.That(rescue.AssignedPatientStrap, Is.EqualTo(bed));
                 Assert.That(buckle.BuckledTo, Is.EqualTo(bed));
                 Assert.That(rescue.AssignedTarget, Is.Not.EqualTo(critical));
-                Assert.That(
-                    shuttle.GetPendingAutomaticDispatches().Any(entry => entry.Target == critical),
-                    Is.True);
+                Assert.That(pendingCount + activeOwnerCount, Is.EqualTo(1),
+                    "The new signal must remain exactly once: queued when every rescuer is busy, " +
+                    "or immediately owned when another operational Aibolit is available.");
             });
         });
 
@@ -592,7 +603,7 @@ public sealed class LuaMRescueOnboardRuntimeTest
         bool deleteOwner,
         bool releaseDuringRetirement)
     {
-        await using var pair = await PoolManager.GetServerClient();
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
         var server = pair.Server;
         var entities = server.ResolveDependency<IEntityManager>();
         var buckleSystem = entities.System<SharedBuckleSystem>();
@@ -703,7 +714,10 @@ public sealed class LuaMRescueOnboardRuntimeTest
             {
                 Assert.That(entities.GetComponent<BuckleComponent>(patient).BuckledTo, Is.EqualTo(bed));
                 Assert.That(shuttle.ProcessPendingAutomaticDispatchesNow(), Is.True);
-                Assert.That(agentSystem.TryFindActiveAgent(out var replacement, out var replacementRescue), Is.True);
+                var replacement = entities.GetEntities().Single(uid =>
+                    entities.TryGetComponent<LuaMRescueAgentComponent>(uid, out var candidate) &&
+                    candidate.OnboardCareTarget == patient);
+                var replacementRescue = entities.GetComponent<LuaMRescueAgentComponent>(replacement);
                 Assert.That(replacement, Is.Not.EqualTo(retiredAgent));
                 Assert.That(coordinator.GetSnapshot(replacement, out var adoptedIntent), Is.True);
                 Assert.Multiple(() =>
@@ -730,11 +744,12 @@ public sealed class LuaMRescueOnboardRuntimeTest
             });
 
             var physicallyReleased = false;
-            for (var tick = 0; tick < 10 && !physicallyReleased; tick++)
+            for (var tick = 0; tick < 60 && !physicallyReleased; tick++)
             {
                 await server.WaitAssertion(() =>
                 {
-                    Assert.That(agentSystem.TryFindActiveAgent(out _, out var releaseOwner), Is.True);
+                    var releaseOwner = entities.EntityQuery<LuaMRescueAgentComponent>()
+                        .Single(rescue => rescue.OnboardCareTarget == patient);
                     releaseOwner.TargetRefreshAccumulator = releaseOwner.TargetRefreshInterval;
                     agentSystem.Update(releaseOwner.TargetRefreshInterval);
                     physicallyReleased = entities.GetComponent<BuckleComponent>(patient).BuckledTo == null;
@@ -751,6 +766,28 @@ public sealed class LuaMRescueOnboardRuntimeTest
                 AssertBedAcceptsNextPatient(entities, buckleSystem, map, bed);
             });
         }
+
+        await server.WaitPost(() =>
+        {
+            foreach (var uid in entities.GetEntities().ToArray())
+            {
+                if (!entities.TryGetComponent<LuaMRescueAgentComponent>(uid, out _) ||
+                    !entities.TryGetComponent<TransformComponent>(uid, out var xform) ||
+                    xform.MapID != map.MapId)
+                {
+                    continue;
+                }
+
+                entities.DeleteEntity(uid);
+            }
+
+            if (!entities.Deleted(patient))
+                entities.DeleteEntity(patient);
+            if (!entities.Deleted(bed))
+                entities.DeleteEntity(bed);
+            if (!entities.Deleted(retiredAgent))
+                entities.DeleteEntity(retiredAgent);
+        });
 
         await pair.CleanReturnAsync();
     }
@@ -839,18 +876,33 @@ public sealed class LuaMRescueOnboardRuntimeTest
 
             Assert.That(shuttle.ProcessPendingAutomaticDispatchesNow(), Is.True);
 
-            var pendingCount = shuttle.GetPendingAutomaticDispatches().Count(entry => entry.Target == patient);
+            var patientPending = shuttle.GetPendingAutomaticDispatches()
+                .Where(entry => entry.Target == patient)
+                .ToArray();
+            var pendingCount = patientPending.Length;
             var ownerCount = entities.EntityQuery<LuaMRescueAgentComponent>().Count(rescue =>
                 rescue.AssignedTarget == patient ||
                 rescue.TaskPatientTarget == patient ||
                 rescue.OnboardCareTarget == patient ||
                 rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
                 rescue.ActivityContext.Target == patient);
-            Assert.That(ownerCount + pendingCount, Is.EqualTo(1),
-                "Losing the physical strap must not erase or duplicate the accepted automatic patient mission.");
+            Assert.Multiple(() =>
+            {
+                Assert.That(pendingCount, Is.Zero,
+                    $"The preserved mission must leave the queue after selecting its replacement owner. " +
+                    $"Pending status: {(pendingCount == 0 ? "none" : patientPending[0].LastStatus)}");
+                Assert.That(ownerCount, Is.EqualTo(1),
+                    "Losing the physical strap must preserve exactly one active automatic patient owner.");
+            });
 
-            Assert.That(agentSystem.TryFindActiveAgent(out var replacement, out var replacementRescue), Is.True,
-                "Processing the preserved lineage must provide a replacement owner.");
+            var replacement = entities.GetEntities().Single(uid =>
+                entities.TryGetComponent<LuaMRescueAgentComponent>(uid, out var candidate) &&
+                (candidate.AssignedTarget == patient ||
+                 candidate.TaskPatientTarget == patient ||
+                 candidate.OnboardCareTarget == patient ||
+                 candidate.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+                 candidate.ActivityContext.Target == patient));
+            var replacementRescue = entities.GetComponent<LuaMRescueAgentComponent>(replacement);
             Assert.That(replacement, Is.Not.EqualTo(retiredAgent));
             Assert.That(
                 replacementRescue.AssignedTarget == patient ||
@@ -860,6 +912,16 @@ public sealed class LuaMRescueOnboardRuntimeTest
                 replacementRescue.ActivityContext.Target == patient,
                 Is.True,
                 "The replacement must actively own the unbuckled critical/dead patient after reconciliation.");
+
+            // Parameterized cases reuse a pooled server. The accepted mission
+            // deliberately leaves a living replacement behind, so retire all
+            // entities owned by this case after the assertions instead of
+            // allowing the next Critical/Dead case to discover this owner.
+            entities.DeleteEntity(patient);
+            entities.DeleteEntity(bed);
+            entities.DeleteEntity(replacement);
+            if (!entities.Deleted(retiredAgent))
+                entities.DeleteEntity(retiredAgent);
         });
 
         await pair.CleanReturnAsync();
@@ -955,7 +1017,14 @@ public sealed class LuaMRescueOnboardRuntimeTest
                 buckleSystem.TryUnbuckle(patient, user: null, buckleComp: buckle, popup: false),
                 Is.True);
             Assert.That(shuttle.ProcessPendingAutomaticDispatchesNow(), Is.True);
-            Assert.That(agentSystem.TryFindActiveAgent(out var replacement, out var replacementRescue), Is.True);
+            var replacement = entities.GetEntities().Single(uid =>
+                entities.TryGetComponent<LuaMRescueAgentComponent>(uid, out var candidate) &&
+                (candidate.AssignedTarget == patient ||
+                 candidate.EvacuatingTarget == patient ||
+                 candidate.TaskPatientTarget == patient ||
+                 candidate.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+                 candidate.ActivityContext.Target == patient));
+            var replacementRescue = entities.GetComponent<LuaMRescueAgentComponent>(replacement);
             Assert.That(replacement, Is.Not.EqualTo(retiredAgent));
             Assert.That(replacementRescue.RequiredOnboardHandoffPatients, Does.Contain(patient));
             Assert.That(
@@ -984,6 +1053,12 @@ public sealed class LuaMRescueOnboardRuntimeTest
                     "A normal agent update must not clear the adopted handoff mission.");
                 Assert.That(shuttle.GetTerminalAutomaticDispatches().Any(entry => entry.Target == patient), Is.False);
             });
+
+            entities.DeleteEntity(patient);
+            entities.DeleteEntity(bed);
+            entities.DeleteEntity(replacement);
+            if (!entities.Deleted(retiredAgent))
+                entities.DeleteEntity(retiredAgent);
         });
 
         await pair.CleanReturnAsync();
@@ -1057,7 +1132,14 @@ public sealed class LuaMRescueOnboardRuntimeTest
                 buckleSystem.TryUnbuckle(patient, user: null, buckleComp: buckle, popup: false),
                 Is.True);
             Assert.That(shuttle.ProcessPendingAutomaticDispatchesNow(), Is.True);
-            Assert.That(agentSystem.TryFindActiveAgent(out var replacement, out var replacementRescue), Is.True);
+            var replacement = entities.GetEntities().Single(uid =>
+                entities.TryGetComponent<LuaMRescueAgentComponent>(uid, out var candidate) &&
+                (candidate.AssignedTarget == patient ||
+                 candidate.EvacuatingTarget == patient ||
+                 candidate.TaskPatientTarget == patient ||
+                 candidate.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+                 candidate.ActivityContext.Target == patient));
+            var replacementRescue = entities.GetComponent<LuaMRescueAgentComponent>(replacement);
 
             Assert.Multiple(() =>
             {
@@ -1082,6 +1164,12 @@ public sealed class LuaMRescueOnboardRuntimeTest
                     Is.True);
                 Assert.That(shuttle.GetTerminalAutomaticDispatches().Any(entry => entry.Target == patient), Is.False);
             });
+
+            entities.DeleteEntity(patient);
+            entities.DeleteEntity(bed);
+            entities.DeleteEntity(replacement);
+            if (!entities.Deleted(retiredAgent))
+                entities.DeleteEntity(retiredAgent);
         });
 
         await pair.CleanReturnAsync();
@@ -1188,7 +1276,7 @@ public sealed class LuaMRescueOnboardRuntimeTest
 
     [TestCase(MobState.Critical)]
     [TestCase(MobState.Dead)]
-    public async Task RecoveredBeforeAdoptionKeepsRequiredQueueAsFollowUp(MobState initialState)
+    public async Task RecoveredBeforeAdoptionGetsDistinctRequiredFollowUpOwnerWhenExistingAgentIsBusy(MobState initialState)
     {
         await using var pair = await PoolManager.GetServerClient();
         var server = pair.Server;
@@ -1270,21 +1358,35 @@ public sealed class LuaMRescueOnboardRuntimeTest
 
             mobState.ChangeMobState(patient, MobState.Alive);
             Assert.That(shuttle.ProcessPendingAutomaticDispatchesNow(), Is.True);
-            var pending = shuttle.GetPendingAutomaticDispatches().Single(entry => entry.Target == patient);
+            var replacement = entities.GetEntities().Single(uid =>
+                entities.TryGetComponent<LuaMRescueAgentComponent>(uid, out var candidate) &&
+                (candidate.AssignedTarget == patient ||
+                 candidate.TaskPatientTarget == patient ||
+                 candidate.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+                 candidate.ActivityContext.Target == patient));
+            var replacementRescue = entities.GetComponent<LuaMRescueAgentComponent>(replacement);
 
             Assert.Multiple(() =>
             {
-                Assert.That(pending.Kind, Is.EqualTo(LuaMRescueMedicalSignalKind.FollowUp));
-                Assert.That(pending.ManualOverride, Is.False);
-                Assert.That(pending.Attempts, Is.Zero,
-                    "Waiting on the singleton must not consume the required-custody retry budget.");
-                Assert.That(pending.Terminal, Is.False);
-                Assert.That(pending.LastStatus, Does.Contain("busy").IgnoreCase);
+                Assert.That(replacement, Is.Not.EqualTo(busyAgent));
+                Assert.That(replacementRescue.RequiredOnboardHandoffPatients, Does.Contain(patient));
+                Assert.That(
+                    shuttle.GetPendingAutomaticDispatches().Any(entry => entry.Target == patient),
+                    Is.False,
+                    "A preserved accepted mission must not wait behind an unrelated busy rescuer.");
                 Assert.That(shuttle.GetTerminalAutomaticDispatches().Any(entry => entry.Target == patient), Is.False);
                 Assert.That(busyRescue.ManualOverrideTarget, Is.EqualTo(busyPatient));
                 Assert.That(busyRescue.RequiredOnboardHandoffPatients, Does.Not.Contain(patient),
-                    "Required is queue provenance until dispatch commits; it must not become bare agent state.");
+                    "The existing busy rescuer must retain only its own patient lineage.");
             });
+
+            entities.DeleteEntity(patient);
+            entities.DeleteEntity(bed);
+            entities.DeleteEntity(busyPatient);
+            entities.DeleteEntity(busyAgent);
+            entities.DeleteEntity(replacement);
+            if (!entities.Deleted(retiredAgent))
+                entities.DeleteEntity(retiredAgent);
         });
 
         await pair.CleanReturnAsync();

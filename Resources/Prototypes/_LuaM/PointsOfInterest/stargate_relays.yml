@@ -1,0 +1,75 @@
+# Original Stargate installations from Lua-Frontier/sector-frontier-14-ds at
+# 276c4737c939b4c0793af12ce02466b86f64e67d. The maps already contain their
+# Stargate, DHD, address media, and station furnishings; do not install a
+# second gate through addComponents.
+
+# The Barrier Gate remains in the primary Colossus sector.
+- type: pointOfInterest
+  id: LuaMStargateRelayColossus
+  parent: BasePOI
+  name: 'Барьерные врата'
+  minimumDistance: 11000
+  maximumDistance: 12000
+  spawnGroup: Required
+  asteroidBelt: false
+  gridPath: /Maps/_LuaM/POI/StargateOriginal/BarrierGate2.yml
+  addComponents:
+  - type: SolarPoweredGrid
+    trackOnInit: true
+    doNotCull: true
+
+# The expeditionary Lodge is one of the two original gate stations moved to
+# the shared asteroid belt.
+- type: pointOfInterest
+  id: LuaMStargateRelayBeltAlpha
+  parent: BasePOI
+  name: 'Аванпост экспедиций'
+  minimumDistance: 2300
+  maximumDistance: 5400
+  spawnGroup: Required
+  asteroidBelt: true
+  gridPath: /Maps/_LuaM/POI/StargateOriginal/lodge.yml
+  addComponents:
+  - type: IFF
+    color: "#3737F8"
+
+# The authentic Taipan station contains the Syndicate controllable Stargate
+# and is the second original gate station moved to the asteroid belt.
+- type: pointOfInterest
+  id: LuaMStargateRelayBeltBeta
+  parent: BasePOI
+  name: 'ННКСС «Тайпан»'
+  minimumDistance: 7000
+  maximumDistance: 10000
+  spawnGroup: Required
+  asteroidBelt: true
+  gridPath: /Maps/_LuaM/POI/StargateOriginal/ds_typan.yml
+  addComponents:
+  - type: IFF
+    color: "#c00c0c"
+
+# Taipan's original cargo depot accompanies the station in the belt. It has no
+# Stargate of its own and remains a separate POI.
+- type: pointOfInterest
+  id: LuaMTypanCargoDepot
+  parent: BasePOI
+  name: 'Чёрный рынок Тайпана'
+  minimumDistance: 1500
+  maximumDistance: 2500
+  spawnGroup: Required
+  asteroidBelt: true
+  gridPath: /Maps/_LuaM/POI/StargateOriginal/typancargodepot.yml
+  addComponents:
+  - type: IFF
+    color: "#c00c0c"
+  - type: ProtectedGrid
+    preventArtifactTriggers: true
+  - type: SolarPoweredGrid
+    trackOnInit: true
+    doNotCull: true
+  - type: WorldGenDistanceCarver
+    distanceThresholds:
+    - maxDistance: 500
+      prob: 0.0
+    - maxDistance: 1000
+      prob: 0.3

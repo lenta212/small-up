@@ -1,0 +1,15 @@
+luam-resource-crate-ui-title = Resource storage crate
+luam-resource-crate-ui-linked = Connected silo: {$silo}
+luam-resource-crate-ui-unlinked = No silo connected. Link the crate through the ore silo interface.
+luam-resource-crate-ui-capacity = Used: {$used} / {$capacity} units
+luam-resource-crate-ui-empty = The crate and connected silo contain no materials.
+luam-resource-crate-ui-amount = Amount
+luam-resource-crate-ui-to-crate = To crate
+luam-resource-crate-ui-to-silo = To silo
+luam-resource-crate-ui-material = {$material}: crate {$crate}, silo {$silo}
+luam-resource-crate-status-no-silo = Transfer failed: no operational silo is connected.
+luam-resource-crate-status-invalid-material = Unknown material.
+luam-resource-crate-status-nothing-to-transfer = No material or free capacity is available.
+luam-resource-crate-status-source-changed = Source contents changed. Try again.
+luam-resource-crate-status-destination-changed = Destination contents changed; the debit was rolled back.
+luam-resource-crate-status-transferred = Transferred {$amount} units of {$material}.

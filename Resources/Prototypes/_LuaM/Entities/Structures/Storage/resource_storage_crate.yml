@@ -1,0 +1,33 @@
+- type: entity
+  parent: CrateGenericSteel
+  id: LuaMResourceStorageCrate
+  name: ящик-хранилище ресурсов
+  description: Герметичный транспортный модуль для безопасного переноса больших объёмов материалов между ресурсными сило. Обычным способом не открывается.
+  components:
+  - type: LuaMResourceStorageCrate
+  - type: OreSiloClient
+  - type: MaterialStorage
+    storageLimit: 1000000
+    insertOnInteract: false
+    canEjectStoredMaterials: false
+    dropOnDeconstruct: true
+    dropOnDestroy: true
+  - type: ActivatableUI
+    singleUser: true
+    key: enum.LuaMResourceStorageCrateUiKey.Key
+  - type: UserInterface
+    interfaces:
+      enum.LuaMResourceStorageCrateUiKey.Key:
+        type: LuaMResourceStorageCrateBoundUserInterface
+  - type: StaticPrice
+    price: 1000
+
+- type: cargoProduct
+  id: LuaMResourceStorageCrateProduct
+  icon:
+    sprite: Structures/Storage/Crates/generic.rsi
+    state: icon
+  product: LuaMResourceStorageCrate
+  cost: 1000
+  category: cargoproduct-category-name-shuttle
+  group: market

@@ -343,6 +343,14 @@ public sealed partial class LuaMRescueBehaviorAdapterSystem : EntitySystem
                            ValidTarget(rescue.AssignedShuttleAnchor) ??
                            ValidTarget(rescue.AssignedShuttle);
 
+        if (rescue.LifeSupportEmergencyActive)
+        {
+            activity = LuaMRescueActivity.ReturnToShuttle;
+            target = ValidTarget(rescue.AssignedShuttle) ??
+                     ValidTarget(rescue.AssignedShuttleAnchor);
+            return target != null;
+        }
+
         switch (decision.Intent)
         {
             case LuaMBehaviorIntent.AwaitRescue:
@@ -522,6 +530,9 @@ public sealed partial class LuaMRescueBehaviorAdapterSystem : EntitySystem
 
     private EntityUid? GetRescuePatient(LuaMRescueAgentComponent rescue)
     {
+        if (rescue.LifeSupportEmergencyActive)
+            return ValidTarget(rescue.LifeSupportEmergencyPatient);
+
         return ValidTarget(rescue.TaskPatientTarget) ??
                ValidTarget(rescue.EvacuatingTarget) ??
                ValidTarget(rescue.OnboardCareTarget) ??

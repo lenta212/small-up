@@ -131,6 +131,9 @@ public sealed partial class LuaMSectorStoryRecord
     public string ContractDescription = string.Empty;
 
     [DataField]
+    public EntProtoId? ContractObjectivePrototype;
+
+    [DataField]
     public string Hazard = string.Empty;
 
     [DataField]

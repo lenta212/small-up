@@ -1,0 +1,258 @@
+- type: soundCollection
+  id: StargateDhdPress
+  files:
+  - /Audio/_Lua/Effects/Stargate/pegasus_dhd_press.ogg
+
+- type: soundCollection
+  id: StargateChevronEngage
+  files:
+  - /Audio/_Lua/Effects/Stargate/pegasus_chevron_engage.ogg
+
+- type: soundCollection
+  id: StargateDialFail
+  files:
+  - /Audio/_Lua/Effects/Stargate/pegasus_dial_fail.ogg
+
+- type: font
+  id: StargateGlyphs
+  path: /Fonts/StarGate/stargatesg1addressglyphs.ttf
+
+- type: entity
+  abstract: true
+  parent: BaseGateway
+  id: LuaMStargateBase
+  name: stargate
+  description: An ancient ring device that opens a stable passage to another gate when its address is dialed.
+  components:
+  - type: Sprite
+    sprite: _Lua/Structures/Machines/gateway.rsi
+    noRot: true
+    layers:
+    - state: frame
+    - state: starting
+      shader: unshaded
+      # BaseGateway still drives GatewayVisuals.Active internally. Both visual
+      # keys intentionally address the same animated wormhole layer.
+      map: ["enum.LuaMStargateVisualLayers.Portal", "enum.GatewayVisualLayers.Portal"]
+      visible: false
+    - state: iris_closing
+      shader: unshaded
+      map: ["enum.LuaMStargateVisualLayers.Iris"]
+      visible: false
+  - type: GenericVisualizer
+    visuals:
+      enum.LuaMStargateVisuals.State:
+        enum.LuaMStargateVisualLayers.Portal:
+          Off: { visible: false }
+          Starting: { state: starting, visible: true }
+          Opening: { state: opening, visible: true }
+          Idle: { state: idle, visible: true }
+          Closing: { state: closing, visible: true }
+      enum.LuaMStargateVisuals.IrisState:
+        enum.LuaMStargateVisualLayers.Iris:
+          Open: { state: iris_open, visible: true }
+          Opening: { state: iris_opening, visible: true }
+          Closing: { state: iris_closing, visible: true }
+          Closed: { state: iris_closed, visible: true }
+  - type: Gateway
+    enabled: true
+    interactable: false
+    cooldown: 5
+    portalSound:
+      path: /Audio/_Lua/Effects/Stargate/pegasus_wormhole_open.ogg
+      params:
+        volume: -6.0206
+    closeSound:
+      path: /Audio/_Lua/Effects/Stargate/wormhole_close.ogg
+      params:
+        volume: -6.0206
+  - type: LuaMStargate
+  - type: Fixtures
+    fixtures:
+      portalFixture:
+        shape:
+          !type:PhysShapeCircle
+          radius: 0.99
+        mask:
+        - FullTileMask
+        layer:
+        - WallLayer
+        hard: false
+  - type: PointLight
+    radius: 4
+    energy: 0.6
+    castShadows: false
+    color: "#88aaff"
+    enabled: false
+
+# Exact entity IDs used by the recovered 276c maps.
+- type: entity
+  parent: LuaMStargateBase
+  id: Stargate
+
+- type: entity
+  parent: LuaMStargateBase
+  id: StargateControllableSyndicate
+  name: controllable stargate
+  suffix: Syndicate
+  components:
+  - type: LuaMStargateControllable
+    enabled: false
+
+- type: entity
+  parent: LuaMStargateBase
+  id: StargateControllableLuaTech
+  name: controllable stargate
+  suffix: LuaTech
+  components:
+  - type: LuaMStargateControllable
+    enabled: false
+  - type: LuaMStargate
+    addressPreset: ALUaTeh
+
+- type: entity
+  parent: BaseStructure
+  id: LuaMStargateConsole
+  name: DHD console
+  description: A control pedestal used to dial Stargate addresses and establish wormhole connections.
+  components:
+  - type: Sprite
+    sprite: _Lua/Structures/Machines/dhdconsole.rsi
+    noRot: true
+    layers:
+    - state: base
+    - state: base-unshaded
+      shader: unshaded
+  - type: InteractionOutline
+  - type: ActivatableUI
+    key: enum.LuaMStargateConsoleUiKey.Key
+  - type: UserInterface
+    interfaces:
+      enum.LuaMStargateConsoleUiKey.Key:
+        type: LuaMStargateConsoleBoundUserInterface
+  - type: LuaMStargateConsole
+  - type: Physics
+    bodyType: Static
+  - type: Transform
+    noRot: true
+  - type: Fixtures
+    fixtures:
+      fixture:
+        shape:
+          !type:PhysShapeAabb
+          bounds: "-0.25,-0.25,0.25,0.25"
+        density: 190
+        mask:
+        - MachineMask
+        layer:
+        - MachineLayer
+  - type: ItemSlots
+    slots:
+      disk_slot:
+        name: Disk
+        insertSound:
+          path: /Audio/Machines/terminal_insert_disc.ogg
+        ejectSound:
+          path: /Audio/Machines/terminal_insert_disc.ogg
+        whitelist:
+          components:
+          - LuaMStargateAddressDisk
+  - type: ContainerContainer
+    containers:
+      disk_slot: !type:ContainerSlot {}
+
+- type: entity
+  parent: LuaMStargateConsole
+  id: StargateConsole
+
+- type: entity
+  parent: BaseStructure
+  id: StargateAddressEditorConsole
+  name: address editor console
+  description: A workstation for copying, moving, and editing addresses on Stargate disks.
+  components:
+  - type: Sprite
+    sprite: Structures/Machines/computers.rsi
+    layers:
+    - map: ["computerLayerBody"]
+      state: computer
+    - map: ["computerLayerKeyboard"]
+      state: generic_keyboard
+    - map: ["computerLayerScreen"]
+      state: generic
+      shader: unshaded
+    - map: ["computerLayerKeys"]
+      state: generic_keys
+      shader: unshaded
+  - type: InteractionOutline
+  - type: ActivatableUI
+    key: enum.LuaMStargateAddressEditorUiKey.Key
+  - type: UserInterface
+    interfaces:
+      enum.LuaMStargateAddressEditorUiKey.Key:
+        type: LuaMStargateAddressEditorBoundUserInterface
+  - type: LuaMStargateAddressEditor
+  - type: Physics
+    bodyType: Static
+  - type: Transform
+    noRot: true
+  - type: Fixtures
+    fixtures:
+      fixture:
+        shape:
+          !type:PhysShapeAabb
+          bounds: "-0.25,-0.25,0.25,0.25"
+        density: 190
+        mask:
+        - MachineMask
+        layer:
+        - MachineLayer
+  - type: ItemSlots
+    slots:
+      left_disk_slot:
+        name: Left disk
+        whitelist:
+          components:
+          - LuaMStargateAddressDisk
+      right_disk_slot:
+        name: Right disk
+        whitelist:
+          components:
+          - LuaMStargateAddressDisk
+  - type: ContainerContainer
+    containers:
+      left_disk_slot: !type:ContainerSlot {}
+      right_disk_slot: !type:ContainerSlot {}
+
+- type: entity
+  parent: Paper
+  id: StargateAddressPaper
+  name: stargate coordinates
+  description: A paper copy of the address of the Stargate installed on this station.
+  components:
+  - type: LuaMStargateAddressPaper
+
+- type: entity
+  parent: MarkerBase
+  id: SpawnStargateAddressPaper
+  name: stargate address paper spawner
+  components:
+  - type: ConditionalSpawner
+    prototypes:
+    - StargateAddressPaper
+
+- type: entity
+  parent: BaseItem
+  id: StargateAddressDisk
+  name: stargate address disk
+  description: An encrypted data disk containing Stargate coordinates.
+  components:
+  - type: Sprite
+    sprite: Objects/Misc/module.rsi
+    layers:
+    - state: datadisk_base
+      color: "#4488cc"
+    - state: datadisk_label
+  - type: LuaMStargateAddressDisk
+  - type: StaticPrice
+    price: 3500

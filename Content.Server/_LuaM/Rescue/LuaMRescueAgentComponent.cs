@@ -250,6 +250,30 @@ public sealed partial class LuaMRescueAgentComponent : Component
     [DataField]
     public float AutoResupplyRange = 24f;
 
+    [DataField]
+    public bool AutoManageLifeSupport = true;
+
+    [DataField]
+    public float LifeSupportCheckInterval = 1f;
+
+    [DataField]
+    public float LifeSupportSwapPressure = 30f;
+
+    public float LifeSupportCheckAccumulator;
+
+    [DataField]
+    public string LastLifeSupportStatus = "not checked";
+
+    public int LifeSupportSwapCount;
+
+    public bool LifeSupportEmergencyActive;
+
+    public TimeSpan LifeSupportEmergencyStartedAt;
+
+    public EntityUid? LifeSupportEmergencyPatient;
+
+    public int LifeSupportEmergencyCount;
+
     public float TargetRefreshAccumulator;
 
     public readonly Dictionary<EntityUid, TimeSpan> SkippedTargets = new();
@@ -685,3 +709,13 @@ public readonly record struct LuaMRescueReliabilitySnapshot(
                $"custody={RequiredCustodyPatients},generation={Generation},terminal={TerminalStatus}";
     }
 }
+
+public readonly record struct LuaMRescueLifeSupportSnapshot(
+    bool Active,
+    bool Emergency,
+    float PressureKpa,
+    int ReserveTankCount,
+    float BestReservePressureKpa,
+    int AutomaticSwapCount,
+    int EmergencyCount,
+    string Status);

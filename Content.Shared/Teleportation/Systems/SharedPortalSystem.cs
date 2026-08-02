@@ -176,6 +176,49 @@ public abstract partial class SharedPortalSystem : EntitySystem
         }
     }
 
+    /// <summary>
+    /// Performs the same linked-portal traversal used by collision handling for a caller that has
+    /// already brought the subject to the portal. This is intended for coordinated transports
+    /// where several entities must cross in a controlled order (for example a medic and patient).
+    /// </summary>
+    public bool TryTeleportThroughLinkedPortal(EntityUid portal, EntityUid subject, bool ignoreTimeout = false)
+    {
+        if (TerminatingOrDeleted(portal) ||
+            TerminatingOrDeleted(subject) ||
+            Transform(subject).Anchored ||
+            _tags.HasTag(subject, PreventPortalCollisionTag) ||
+            !ignoreTimeout && HasComp<PortalTimeoutComponent>(subject) ||
+            !TryComp<PortalComponent>(portal, out var portalComponent) ||
+            !TryComp<LinkedEntityComponent>(portal, out var link) ||
+            link.LinkedEntities.Count != 1)
+        {
+            return false;
+        }
+
+        var target = link.LinkedEntities.First();
+        if (TerminatingOrDeleted(target))
+            return false;
+
+        var sourceCoordinates = Transform(portal).Coordinates;
+        var targetCoordinates = Transform(target).Coordinates;
+        var sameMap = sourceCoordinates.GetMapId(EntityManager) == targetCoordinates.GetMapId(EntityManager);
+        var distanceInvalid = portalComponent.MaxTeleportRadius != null &&
+                              sourceCoordinates.TryDistance(EntityManager, targetCoordinates, out var distance) &&
+                              distance > portalComponent.MaxTeleportRadius;
+        if (!sameMap && !portalComponent.CanTeleportToOtherMaps || distanceInvalid)
+            return false;
+
+        if (HasComp<PortalComponent>(target))
+        {
+            var timeout = EnsureComp<PortalTimeoutComponent>(subject);
+            timeout.EnteredPortal = portal;
+            Dirty(subject, timeout);
+        }
+
+        TeleportEntity(portal, subject, targetCoordinates, target);
+        return true;
+    }
+
     private void TeleportEntity(EntityUid portal, EntityUid subject, EntityCoordinates target, EntityUid? targetEntity=null, bool playSound=true,
         PortalComponent? portalComponent = null)
     {
@@ -223,6 +266,9 @@ public abstract partial class SharedPortalSystem : EntitySystem
 
         _transform.SetCoordinates(subject, target);
 
+        var teleported = new EntityTeleportedThroughPortalEvent(portal, subject, targetEntity);
+        RaiseLocalEvent(portal, ref teleported);
+
         if (!playSound)
             return;
 
@@ -256,3 +302,12 @@ public abstract partial class SharedPortalSystem : EntitySystem
     {
     }
 }
+
+/// <summary>
+/// Raised on a portal after an entity has successfully crossed it.
+/// </summary>
+[ByRefEvent]
+public readonly record struct EntityTeleportedThroughPortalEvent(
+    EntityUid Portal,
+    EntityUid Subject,
+    EntityUid? TargetEntity);

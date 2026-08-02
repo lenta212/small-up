@@ -148,6 +148,9 @@ public partial class MobStateSystem
             return;
         }
 
+        if (component.CurrentState == MobState.Dead && HasComp<DeadSpeechComponent>(uid))
+            return;
+
         CheckAct(uid, component, args);
     }
 

@@ -34,6 +34,13 @@ public sealed class SalvageExpeditionConsoleState : BoundUserInterfaceState
 public sealed partial class SalvageExpeditionConsoleComponent : Component
 {
     /// <summary>
+    /// Compatibility switch for admin/debug fixtures. Player consoles no longer launch a whole shuttle into an expedition;
+    /// expeditions are entered through the shared Frontier outpost gateway.
+    /// </summary>
+    [DataField]
+    public bool LegacyLaunchingEnabled;
+
+    /// <summary>
     /// The sound made when spawning a coordinates disk
     /// </summary>
     [DataField]

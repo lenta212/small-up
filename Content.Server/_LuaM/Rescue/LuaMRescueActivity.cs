@@ -93,6 +93,7 @@ public enum LuaMRescueFailureReason : byte
     ShuttleRouteFailed,
     TargetLost,
     ThreatTooHigh,
+    LifeSupportUnavailable,
 
     // Coordinator/state-machine failures.
     MissingActivityComponent,

@@ -199,6 +199,29 @@ public sealed class LuaMFrontierMapLoadTest
                 }
 
                 var destinationMapId = entManager.GetComponent<TransformComponent>(destinationUid).MapID;
+                Assert.That(profile.SuppressResourceLoot, Is.True,
+                    "Frontier gateway expeditions must not be bulk-resource destinations.");
+                Assert.That(profile.RewardCache, Is.Not.Null,
+                    "Every offered expedition profile must declare its technology cache tier.");
+                var rewardCaches = entManager.AllComponents<MetaDataComponent>()
+                    .Where(entry =>
+                        entry.Component.EntityPrototype?.ID == profile.RewardCache!.Value.Id &&
+                        entManager.GetComponent<TransformComponent>(entry.Uid).MapID == destinationMapId)
+                    .ToList();
+                Assert.That(rewardCaches, Has.Count.EqualTo(1),
+                    "Exactly one high-value cache must be placed inside the generated dungeon.");
+                var rewardChildren = entManager.AllComponents<TransformComponent>()
+                    .Where(entry => entry.Component.ParentUid == rewardCaches[0].Uid)
+                    .Select(entry => entManager.GetComponent<MetaDataComponent>(entry.Uid).EntityPrototype?.ID)
+                    .Where(id => id != null)
+                    .ToList();
+                Assert.Multiple(() =>
+                {
+                    Assert.That(rewardChildren.Any(id => id!.StartsWith("TechDisk")), Is.True,
+                        "The expedition cache must contain a technology unavailable through ordinary R&D progression.");
+                    Assert.That(rewardChildren.Any(id => id!.StartsWith("WeaponCase")), Is.True,
+                        "The expedition cache must contain one rare ready-to-transport weapon case.");
+                });
                 var destinationGateways = entManager.AllComponents<GatewayComponent>()
                     .Where(entry =>
                         entManager.TryGetComponent<TransformComponent>(entry.Uid, out var xform) &&

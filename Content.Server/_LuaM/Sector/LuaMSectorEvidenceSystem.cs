@@ -1,4 +1,5 @@
 using Content.Server.Popups;
+using Content.Server._NF.BountyContracts;
 using Content.Server.Power.Components;
 using Content.Shared.Damage;
 using Content.Shared.Item;
@@ -11,6 +12,7 @@ using Robust.Shared.Physics;
 using Robust.Shared.Physics.Components;
 using Robust.Shared.Localization;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace Content.Server._LuaM.Sector;
 
@@ -23,6 +25,7 @@ public sealed partial class LuaMSectorEvidenceSystem : EntitySystem
     [Dependency] private PopupSystem _popup = default!;
     [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private EntityLookupSystem _lookup = default!;
+    [Dependency] private BountyContractSystem _bountyContracts = default!;
 
     public override void Initialize()
     {
@@ -41,7 +44,7 @@ public sealed partial class LuaMSectorEvidenceSystem : EntitySystem
             IconEntity = GetNetEntity(uid),
             Text = Loc.GetString("luam-sector-evidence-file-verb"),
             Priority = 2,
-            Act = () => TryFileEvidence(uid, args.User, component),
+            Act = () => _ = TryFileEvidenceAndPayAsync(uid, args.User, component),
         };
 
         args.Verbs.Add(verb);
@@ -96,6 +99,47 @@ public sealed partial class LuaMSectorEvidenceSystem : EntitySystem
             user);
 
         return changed;
+    }
+
+    /// <summary>
+    /// Player-facing contract turn-in. Resolving evidence must belong to a contract
+    /// accepted by this character, and payment commits before the story is closed.
+    /// Non-resolving evidence keeps its existing filing behavior.
+    /// </summary>
+    public async Task<bool> TryFileEvidenceAndPayAsync(
+        EntityUid uid,
+        EntityUid user,
+        LuaMSectorEvidenceComponent? component = null)
+    {
+        if (!Resolve(uid, ref component, false))
+            return false;
+
+        // Validate spatial requirements before starting the durable bank mutation.
+        // Otherwise a remote invocation could be paid and remove its contract before
+        // TryFileEvidence rejects the turn-in for being away from a terminal.
+        if (component.RequireSectorTerminal && !IsNearSectorTerminal(user))
+        {
+            _popup.PopupEntity(
+                Loc.GetString("luam-sector-evidence-requires-terminal"),
+                uid,
+                user);
+            return false;
+        }
+
+        if (_stories.TryGetActiveContractId(component.Story, out var contractId) &&
+            (component.ContractId != contractId ||
+             component.AuthorizedActor != user ||
+             component.ResolveStory &&
+             !await _bountyContracts.TryCompleteGeneratedContractAsync(contractId, user)))
+        {
+            _popup.PopupEntity(
+                Loc.GetString("luam-sector-evidence-contract-not-payable"),
+                uid,
+                user);
+            return false;
+        }
+
+        return TryFileEvidence(uid, user, component);
     }
 
     private bool IsNearSectorTerminal(EntityUid user)

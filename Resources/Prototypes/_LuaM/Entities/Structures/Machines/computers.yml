@@ -66,3 +66,32 @@
       state: id_key
     - map: [ "enum.WiresVisualLayers.MaintenancePanel" ]
       state: generic_panel_open
+
+- type: entity
+  parent: ComputerMassMedia
+  id: ComputerLuaMRescueDispatch
+  name: диспетчерская консоль Айболита
+  description: Показывает очередь спасательных вызовов, назначенных пациентов и состояние всех активных Айболитов.
+  components:
+  - type: LuaMRescueDispatchConsole
+  - type: AccessReader
+    access: [[ "Medical" ], [ "ChiefMedicalOfficer" ]]
+  - type: ActivatableUI
+    singleUser: false
+    key: enum.LuaMRescueDispatchConsoleUiKey.Key
+  - type: UserInterface
+    interfaces:
+      enum.LuaMRescueDispatchConsoleUiKey.Key:
+        type: LuaMRescueDispatchConsoleBoundUserInterface
+  - type: Sprite
+    layers:
+    - map: ["computerLayerBody"]
+      state: computer
+    - map: ["computerLayerKeyboard"]
+      state: generic_keyboard
+    - map: ["computerLayerScreen"]
+      state: medical
+    - map: ["computerLayerKeys"]
+      state: medical_key
+    - map: ["enum.WiresVisualLayers.MaintenancePanel"]
+      state: generic_panel_open

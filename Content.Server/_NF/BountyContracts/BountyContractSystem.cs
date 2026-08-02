@@ -2,7 +2,9 @@ using System.Collections.Frozen;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using Content.Server._NF.Access;
+using Content.Server._NF.Bank;
 using Content.Server.Administration.Logs;
 using Content.Server.CartridgeLoader;
 using Content.Server.Chat.Managers;
@@ -10,6 +12,8 @@ using Content.Server.Chat.Systems;
 using Content.Server.Pinpointer;
 using Content.Server.StationRecords.Systems;
 using Content.Shared._NF.Bank;
+using Content.Shared._NF.Bank.BUI;
+using Content.Shared._NF.Bank.Components;
 using Content.Shared._NF.BountyContracts;
 using Content.Shared.Access.Systems;
 using Content.Shared.CartridgeLoader;
@@ -44,6 +48,7 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
     [Dependency] private IAdminLogManager _adminLog = default!;
     [Dependency] private SharedHandsSystem _hands = default!;
     [Dependency] private PinpointerSystem _pinpointer = default!;
+    [Dependency] private BankSystem _bank = default!;
 
     public override void Initialize()
     {
@@ -355,6 +360,9 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
             if (!collection.Remove(contractId))
                 continue;
 
+            DeleteContractPinpointers(contractId);
+            var removed = new BountyContractAcceptanceChangedEvent(contractId, EntityUid.Invalid, false);
+            RaiseLocalEvent(removed);
             _adminLog.Add(LogType.BountyContractRemoved, $"Resolved generated sector bounty with ID {contractId}");
             return true;
         }
@@ -376,14 +384,31 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
 
             var alreadyAccepted = contract.AcceptedByUid != NetEntity.Invalid;
             var acceptedByThisLoader = contract.AcceptedByUid == loaderNet;
+            var actorNet = GetNetEntity(actor);
+            var acceptedByThisActor = contract.AcceptedByActor == actorNet;
 
             if (accepted)
             {
-                if (alreadyAccepted && !acceptedByThisLoader)
+                if (alreadyAccepted && (!acceptedByThisLoader || !acceptedByThisActor))
                     return false;
 
+                // UI retries are idempotent. Do not create another objective or
+                // navigation device for the same accepted character.
+                if (alreadyAccepted)
+                    return true;
+
                 contract.AcceptedByUid = loaderNet;
+                contract.AcceptedByActor = actorNet;
                 contract.AcceptedBy = Identity.Name(actor, EntityManager);
+                var acceptance = new BountyContractAcceptanceChangedEvent(contractId, actor, true);
+                RaiseLocalEvent(acceptance);
+                if (acceptance.Relevant && !acceptance.Prepared)
+                {
+                    contract.AcceptedByUid = NetEntity.Invalid;
+                    contract.AcceptedByActor = NetEntity.Invalid;
+                    contract.AcceptedBy = null;
+                    return false;
+                }
                 if (_player.TryGetSessionByEntity(actor, out var session))
                 {
                     _chatManager.DispatchServerMessage(session, BuildAcceptedContractMessage(contract));
@@ -397,7 +422,11 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
                     return false;
 
                 contract.AcceptedByUid = NetEntity.Invalid;
+                contract.AcceptedByActor = NetEntity.Invalid;
                 contract.AcceptedBy = null;
+                DeleteContractPinpointers(contractId);
+                var release = new BountyContractAcceptanceChangedEvent(contractId, actor, false);
+                RaiseLocalEvent(release);
             }
 
             _adminLog.Add(LogType.BountyContractCreated, $"{ToPrettyString(actor):actor} {(accepted ? "accepted" : "released")} bounty contract ID {contractId}: {contract.Name}");
@@ -442,6 +471,9 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
         }
 
         _pinpointer.SetTarget(pinpointerUid, targetUid, pinpointer);
+        var contractPinpointer = EnsureComp<BountyContractPinpointerComponent>(pinpointerUid);
+        contractPinpointer.ContractId = contract.ContractId;
+        contractPinpointer.IssuedTo = GetNetEntity(actor);
         if (!pinpointer.IsActive)
             _pinpointer.TogglePinpointer(pinpointerUid, pinpointer);
 
@@ -656,6 +688,89 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
     }
 
     /// <summary>
+    /// Pays an accepted generated contract to the exact character that accepted it and
+    /// removes the contract as the bank transaction's world finalizer. The player credit
+    /// is rolled back by <see cref="BankSystem"/> if the sector budget cannot fund it.
+    /// </summary>
+    public async Task<bool> TryCompleteGeneratedContractAsync(uint contractId, EntityUid actor)
+    {
+        if (!TryFindContract(contractId, out var contracts, out var contract) ||
+            contract.AcceptedByActor == NetEntity.Invalid ||
+            contract.AcceptedByActor != GetNetEntity(actor))
+        {
+            return false;
+        }
+
+        var reward = contract.Reward;
+        return await _bank.TryBankPayoutAsync(actor, reward, FinalizeContract);
+
+        bool FinalizeContract()
+        {
+            // Revalidate after the durable bank write: another completion attempt may have
+            // crossed the await while this one was in flight.
+            if (!contracts.TryGetValue(contractId, out var current) ||
+                !ReferenceEquals(current, contract) ||
+                current.AcceptedByActor != GetNetEntity(actor))
+            {
+                return false;
+            }
+
+            // Remove first so a theoretically failed dictionary mutation can never
+            // charge the sector budget. The simulation thread cannot interleave here.
+            if (!contracts.Remove(contractId))
+                return false;
+
+            if (!_bank.TrySectorWithdraw(
+                    SectorBankAccount.Frontier,
+                    reward,
+                    LedgerEntryType.StationWithdrawalBounty))
+            {
+                contracts.Add(contractId, contract);
+                return false;
+            }
+
+            DeleteContractPinpointers(contractId);
+            _adminLog.Add(
+                LogType.BountyContractRemoved,
+                $"{ToPrettyString(actor):actor} completed generated bounty ID {contractId} for ${reward}");
+            return true;
+        }
+    }
+
+    private void DeleteContractPinpointers(uint contractId)
+    {
+        var query = EntityQueryEnumerator<BountyContractPinpointerComponent>();
+        while (query.MoveNext(out var uid, out var pinpointer))
+        {
+            if (pinpointer.ContractId == contractId)
+                QueueDel(uid);
+        }
+    }
+
+    private bool TryFindContract(
+        uint contractId,
+        [NotNullWhen(true)] out Dictionary<uint, BountyContract>? contracts,
+        [NotNullWhen(true)] out BountyContract? contract)
+    {
+        contracts = null;
+        contract = null;
+        var data = GetContracts();
+        if (data?.Contracts == null)
+            return false;
+
+        foreach (var collection in data.Contracts.Values)
+        {
+            if (!collection.TryGetValue(contractId, out contract))
+                continue;
+
+            contracts = collection;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     ///     Try to remove bounty contract by its id.
     /// </summary>
     /// <returns>True if contract was found and removed.</returns>
@@ -674,6 +789,9 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
                 return false;
 
             collection.Remove(contractId);
+            DeleteContractPinpointers(contractId);
+            var removed = new BountyContractAcceptanceChangedEvent(contractId, actor, false);
+            RaiseLocalEvent(removed);
             _adminLog.Add(LogType.BountyContractRemoved, $"{ToPrettyString(actor):actor} deleted bounty with ID {contractId}");
             return true;
         }
@@ -697,4 +815,24 @@ public sealed partial class BountyContractSystem : SharedBountyContractSystem
             }
         }
     }
+}
+
+public sealed class BountyContractAcceptanceChangedEvent(uint contractId, EntityUid actor, bool accepted)
+{
+    public readonly uint ContractId = contractId;
+    public readonly EntityUid Actor = actor;
+    public readonly bool Accepted = accepted;
+    public bool Relevant;
+    public bool Prepared;
+}
+
+[RegisterComponent]
+[Access(typeof(BountyContractSystem))]
+public sealed partial class BountyContractPinpointerComponent : Component
+{
+    [DataField(required: true)]
+    public uint ContractId;
+
+    [DataField]
+    public NetEntity IssuedTo = NetEntity.Invalid;
 }

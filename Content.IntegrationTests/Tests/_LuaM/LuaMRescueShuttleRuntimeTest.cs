@@ -25,6 +25,181 @@ namespace Content.IntegrationTests.Tests._LuaM;
 public sealed class LuaMRescueShuttleRuntimeTest
 {
     [Test]
+    public async Task DispatcherManualAssignmentConsumesQueueAndRejectsDuplicateOwner()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var shuttle = entities.System<LuaMRescueShuttleSystem>();
+        var mobState = entities.System<MobStateSystem>();
+        var damageable = entities.System<DamageableSystem>();
+        var map = await pair.CreateTestMap();
+
+        await server.WaitAssertion(() =>
+        {
+            var patient = entities.SpawnEntity("MobHuman", new EntityCoordinates(map.Grid, new Vector2(5f, 0f)));
+            var damage = new DamageSpecifier();
+            damage.DamageDict.Add("Blunt", 110);
+            damageable.TryChangeDamage(patient, damage, true);
+            mobState.ChangeMobState(patient, MobState.Critical);
+            entities.EnsureComponent<ActorComponent>(patient);
+            Assert.That(shuttle.TryQueueAutomaticMedicalSignal(
+                patient,
+                LuaMRescueMedicalSignalKind.Critical,
+                out var queueStatus), Is.True, queueStatus);
+            Assert.That(shuttle.GetPendingAutomaticDispatches().Any(entry => entry.Target == patient), Is.True);
+
+            var incapacitated = entities.SpawnEntity("LuaMRescueAgent", new EntityCoordinates(map.Grid, Vector2.Zero));
+            mobState.ChangeMobState(incapacitated, MobState.Critical);
+            Assert.That(shuttle.TryAssignQueuedDispatch(patient, incapacitated, out var incapacitatedStatus),
+                Is.False, incapacitatedStatus);
+
+            var assigned = entities.SpawnEntity("LuaMRescueAgent", new EntityCoordinates(map.Grid, Vector2.Zero));
+            var assignedRescue = entities.GetComponent<LuaMRescueAgentComponent>(assigned);
+            assignedRescue.AssignedShuttle = map.Grid;
+            assignedRescue.AutoAcquireTargets = false;
+            assignedRescue.EvacuateTargetsToShuttle = false;
+            assignedRescue.AutoAnalyzeBeforeTreatment = false;
+            assignedRescue.AutoTreatWithCarriedItems = false;
+            assignedRescue.AutoDefibDeadPatients = false;
+            Assert.That(shuttle.TryAssignQueuedDispatch(patient, assigned, out var assignedStatus),
+                Is.True, assignedStatus);
+            Assert.Multiple(() =>
+            {
+                Assert.That(
+                    assignedRescue.AssignedTarget == patient ||
+                    assignedRescue.TaskPatientTarget == patient ||
+                    assignedRescue.ActivityContext.Target == patient ||
+                    assignedRescue.ManualOverrideTarget == patient,
+                    Is.True);
+                Assert.That(shuttle.GetPendingAutomaticDispatches().Any(entry => entry.Target == patient), Is.False);
+                Assert.That(shuttle.GetTerminalAutomaticDispatches().Any(entry => entry.Target == patient), Is.False);
+            });
+
+            var second = entities.SpawnEntity("LuaMRescueAgent", new EntityCoordinates(map.Grid, Vector2.Zero));
+            Assert.That(shuttle.TryAssignQueuedDispatch(patient, second, out var duplicateStatus),
+                Is.False, duplicateStatus);
+            Assert.That(entities.GetComponent<LuaMRescueAgentComponent>(second).AssignedTarget, Is.Null);
+            Assert.That(entities.EntityQuery<LuaMRescueAgentComponent>().Count(rescue =>
+                rescue.AssignedTarget == patient ||
+                rescue.TaskPatientTarget == patient ||
+                rescue.ActivityContext.Target == patient ||
+                rescue.ManualOverrideTarget == patient), Is.EqualTo(1));
+
+            entities.DeleteEntity(second);
+            entities.DeleteEntity(assigned);
+            entities.DeleteEntity(incapacitated);
+            entities.DeleteEntity(patient);
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task MultipleAgentsSelectDeterministicDistinctPatientOwners()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var shuttle = entities.System<LuaMRescueShuttleSystem>();
+        var mobState = entities.System<MobStateSystem>();
+        var remoteMap = await pair.CreateTestMap();
+        var localMap = await pair.CreateTestMap();
+
+        await server.WaitAssertion(() =>
+        {
+            // Spawn an incapacitated local agent and then the remote agent first
+            // so raw entity-query order would choose the wrong owner.
+            var incapacitatedAgent = entities.SpawnEntity("LuaMRescueAgent", localMap.MapCoords);
+            mobState.ChangeMobState(incapacitatedAgent, MobState.Critical);
+            var remoteAgent = entities.SpawnEntity("LuaMRescueAgent", remoteMap.MapCoords);
+            var localAgent = entities.SpawnEntity("LuaMRescueAgent", localMap.MapCoords);
+            var remoteRescue = entities.GetComponent<LuaMRescueAgentComponent>(remoteAgent);
+            var localRescue = entities.GetComponent<LuaMRescueAgentComponent>(localAgent);
+            remoteRescue.AutoAcquireTargets = false;
+            localRescue.AutoAcquireTargets = false;
+            remoteRescue.EvacuateTargetsToShuttle = false;
+            localRescue.EvacuateTargetsToShuttle = false;
+
+            var firstPatient = entities.SpawnEntity("MobHuman", localMap.MapCoords);
+            mobState.ChangeMobState(firstPatient, MobState.Critical);
+            entities.EnsureComponent<ActorComponent>(firstPatient);
+            Assert.That(
+                shuttle.TryQueueAutomaticMedicalSignal(
+                    firstPatient,
+                    LuaMRescueMedicalSignalKind.Critical,
+                    out var firstStatus),
+                Is.True,
+                firstStatus);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(localRescue.AssignedTarget, Is.EqualTo(firstPatient),
+                    "An idle rescuer on the patient's map must outrank a remote first-enumerated rescuer.");
+                Assert.That(remoteRescue.AssignedTarget, Is.Null);
+                Assert.That(
+                    entities.GetComponent<LuaMRescueAgentComponent>(incapacitatedAgent).AssignedTarget,
+                    Is.Null,
+                    "A medically incapacitated rescuer must never block an operational owner.");
+            });
+
+            // A repeated signal must reconcile with the existing exact owner,
+            // never assigning the same patient to the second rescuer.
+            Assert.That(
+                shuttle.TryQueueAutomaticMedicalSignal(
+                    firstPatient,
+                    LuaMRescueMedicalSignalKind.Critical,
+                    out var repeatStatus),
+                Is.True,
+                repeatStatus);
+            Assert.Multiple(() =>
+            {
+                Assert.That(localRescue.AssignedTarget, Is.EqualTo(firstPatient));
+                Assert.That(remoteRescue.AssignedTarget, Is.Null);
+                Assert.That(
+                    entities.EntityQuery<LuaMRescueAgentComponent>().Count(rescue =>
+                        rescue.AssignedTarget == firstPatient ||
+                        rescue.TaskPatientTarget == firstPatient),
+                    Is.EqualTo(1));
+            });
+
+            // A separate patient may use the remaining idle rescuer instead of
+            // being incorrectly attached to the already busy owner.
+            var secondPatient = entities.SpawnEntity("MobHuman", localMap.MapCoords);
+            mobState.ChangeMobState(secondPatient, MobState.Critical);
+            entities.EnsureComponent<ActorComponent>(secondPatient);
+            Assert.That(
+                shuttle.TryQueueAutomaticMedicalSignal(
+                    secondPatient,
+                    LuaMRescueMedicalSignalKind.Critical,
+                    out var secondStatus),
+                Is.True,
+                secondStatus);
+            Assert.Multiple(() =>
+            {
+                Assert.That(localRescue.AssignedTarget, Is.EqualTo(firstPatient));
+                Assert.That(remoteRescue.AssignedTarget, Is.EqualTo(secondPatient));
+                Assert.That(
+                    entities.EntityQuery<LuaMRescueAgentComponent>().Count(rescue =>
+                        rescue.AssignedTarget == secondPatient ||
+                        rescue.TaskPatientTarget == secondPatient),
+                    Is.EqualTo(1));
+            });
+
+            // This class uses pooled server instances. Explicitly retire every
+            // test-created owner and target so the following randomized test
+            // cannot observe a valid rescuer from this two-map fixture.
+            entities.DeleteEntity(firstPatient);
+            entities.DeleteEntity(secondPatient);
+            entities.DeleteEntity(localAgent);
+            entities.DeleteEntity(remoteAgent);
+            entities.DeleteEntity(incapacitatedAgent);
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
     public async Task CorticalBorerSignalsAreRejectedForCriticalDeadAndContainedTargets()
     {
         await using var pair = await PoolManager.GetServerClient(new PoolSettings
@@ -453,7 +628,10 @@ public sealed class LuaMRescueShuttleRuntimeTest
                 Assert.That(displaced.ManualOverride, Is.True);
                 Assert.That(displaced.Terminal, Is.False);
                 Assert.That(displaced.Attempts, Is.Zero);
-                Assert.That(displaced.LastStatus, Does.Contain("busy"));
+                Assert.That(
+                    displaced.LastStatus,
+                    Does.Contain("busy").Or.Contain("preempted by higher-priority critical signal"),
+                    "The queued manual mission may retain its authoritative preemption reason until its retry clock is due.");
                 Assert.That(displaced.LastStatus, Does.Not.Contain("discarded"));
                 Assert.That(rescue.ManualOverrideTarget, Is.EqualTo(hostile));
                 Assert.That(rescue.AssignedTarget, Is.EqualTo(critical));

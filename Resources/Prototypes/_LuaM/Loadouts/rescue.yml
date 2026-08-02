@@ -19,15 +19,16 @@
   equipment:
     back: ClothingBackpackERTMedical
     shoes: LuaMClothingShoesBootsMagRescue
-    head: ClothingHeadHelmetBasic
+    head: ClothingHeadHelmetHardsuitDeathsquad
     mask: ClothingMaskBreathMedical
     eyes: ClothingEyesHudMedical
     gloves: ClothingHandsGlovesCombat
-    outerClothing: ClothingOuterArmorBasicSlim
+    outerClothing: ClothingOuterHardsuitDeathsquad
     suitstorage: OxygenTankFilled
     id: ParamedicPDA
     ears: ClothingHeadsetMedical
     belt: ClothingBeltMedicalEMTFilled
+    pocket1: DoubleEmergencyOxygenTankFilled
   inhand:
   - WeaponLaserCarbine
   storage:
@@ -42,22 +43,22 @@
     - BurnAutoInjector
     - OmnizineChemistryBottle
     - EpinephrineChemistryBottle
-    - DoubleEmergencyOxygenTankFilled
 
 - type: startingGear
   id: LuaMRescueEscortGear
   equipment:
     back: ClothingBackpackERTSecurity
     shoes: LuaMClothingShoesBootsMagSecurityRescue
-    head: ClothingHeadHelmetSwat
+    head: ClothingHeadHelmetHardsuitDeathsquad
     mask: ClothingMaskGasSecurity
     eyes: ClothingEyesGlassesSecurity
     gloves: ClothingHandsGlovesCombat
-    outerClothing: ClothingOuterArmorBPVestHeavy
+    outerClothing: ClothingOuterHardsuitDeathsquad
     suitstorage: OxygenTankFilled
     id: ParamedicPDA
     ears: ClothingHeadsetMedical
     belt: ClothingBeltSecurityFilled
+    pocket1: DoubleEmergencyOxygenTankFilled
   inhand:
   - WeaponLaserCarbine
   storage:
@@ -67,4 +68,3 @@
     - CombatMedipen
     - BruteAutoInjector
     - BurnAutoInjector
-    - DoubleEmergencyOxygenTankFilled

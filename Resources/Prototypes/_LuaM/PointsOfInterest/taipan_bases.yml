@@ -1,0 +1,43 @@
+# Salvaged Dead Space Taipan installations. These are generated only inside the
+# shared LuaM asteroid-belt world, never in the primary Colossus sector.
+- type: pointOfInterest
+  id: LuaMTaipanBluespaceScienceBase
+  parent: BasePOI
+  name: 'База Тайпана «Блюспейс»'
+  minimumDistance: 9000
+  maximumDistance: 14000
+  spawnGroup: Required
+  asteroidBelt: true
+  gridPath: /Maps/_LuaM/POI/Taipan/bluespace_science_grid.yml
+  addComponents:
+  - type: IFF
+    color: "#9f2525"
+    readOnly: true
+
+- type: pointOfInterest
+  id: LuaMTaipanColossalAsteroidBase
+  parent: BasePOI
+  name: 'База Тайпана «Колоссальный астероид»'
+  minimumDistance: 10000
+  maximumDistance: 15000
+  spawnGroup: Required
+  asteroidBelt: true
+  gridPath: /Maps/_LuaM/POI/Taipan/colossal_asteroid.yml
+  addComponents:
+  - type: IFF
+    color: "#9f2525"
+    readOnly: true
+
+- type: pointOfInterest
+  id: LuaMTaipanLincoreBase
+  parent: BasePOI
+  name: 'База Тайпана «Линкор»'
+  minimumDistance: 11000
+  maximumDistance: 16000
+  spawnGroup: Required
+  asteroidBelt: true
+  gridPath: /Maps/_LuaM/POI/Taipan/lincore_crush.yml
+  addComponents:
+  - type: IFF
+    color: "#9f2525"
+    readOnly: true

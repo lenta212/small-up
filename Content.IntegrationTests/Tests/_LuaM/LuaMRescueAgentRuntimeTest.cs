@@ -1464,6 +1464,9 @@ public sealed class LuaMRescueAgentRuntimeTest
                 "WallSolid",
                 GridCoordinates(map.Grid, 3.5f, 0.5f));
             var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            // This route-only fixture deliberately removes breathing systems;
+            // do not let the production oxygen policy replace its dormant-route intent.
+            rescue.AutoManageLifeSupport = false;
             rescue.AutoAcquireTargets = true;
             rescue.TargetRefreshInterval = 1_000f;
             rescue.TargetRefreshAccumulator = 0f;

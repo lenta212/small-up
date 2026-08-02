@@ -418,6 +418,7 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
                 }
 
                 AddWorldMarkerLayers(destinationUid, destination, profile);
+                SpawnExpeditionReward(dungeons, destinationUid, destination, profile);
                 destination.DungeonBoundsValidated = true;
                 destination.GenerationState = GatewayDestinationGenerationState.Ready;
                 destination.RetryAt = TimeSpan.Zero;
@@ -974,7 +975,9 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
         TryComp(destination.Generator, out GatewayGeneratorComponent? generator);
         var random = new Random(destination.Seed);
 
-        var lootLayers = profile.LootLayers.Count > 0
+        var lootLayers = profile.SuppressResourceLoot
+            ? new List<ProtoId<BiomeMarkerLayerPrototype>>()
+            : profile.LootLayers.Count > 0
             ? profile.LootLayers.ToList()
             : generator?.LootLayers.ToList() ?? new List<ProtoId<BiomeMarkerLayerPrototype>>();
         var lootLayerCount = Math.Min(
@@ -1007,6 +1010,33 @@ public sealed partial class GatewayGeneratorSystem : EntitySystem
             mobLayers.RemoveSwap(layerIdx);
             _biome.AddMarkerLayer(destinationUid, biome, layer.Id);
         }
+    }
+
+    private void SpawnExpeditionReward(
+        IReadOnlyCollection<Dungeon> dungeons,
+        EntityUid mapUid,
+        GatewayGeneratorDestinationComponent destination,
+        GatewayWorldProfilePrototype profile)
+    {
+        if (profile.RewardCache is not { } reward ||
+            !TryComp<MapGridComponent>(mapUid, out var grid))
+        {
+            return;
+        }
+
+        // Put the cache in the room furthest from the return portal. Reaching it therefore
+        // requires actually crossing the generated dungeon rather than farming the entrance.
+        var room = dungeons
+            .SelectMany(dungeon => dungeon.Rooms)
+            .OrderByDescending(candidate => Vector2.DistanceSquared(candidate.Center, destination.Origin))
+            .FirstOrDefault();
+        if (room == null || room.Tiles.Count == 0)
+            throw new InvalidOperationException("Generated expedition dungeon has no room for its reward cache.");
+
+        var tile = room.Tiles
+            .OrderBy(candidate => Vector2.DistanceSquared(candidate, room.Center))
+            .First();
+        Spawn(reward, _maps.GridTileToLocal(mapUid, grid, tile));
     }
 
     private bool TryPickWorldProfile(

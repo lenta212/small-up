@@ -41,6 +41,7 @@ public sealed class BountyContractPinpointerTest
 
             var testMap = await pair.CreateTestMap();
             EntityUid actor = default;
+            EntityUid outsider = default;
             EntityUid host = default;
             EntityUid exactRouteTarget = default;
             var beforePinpointers = 0;
@@ -58,6 +59,7 @@ public sealed class BountyContractPinpointerTest
                 metaData.SetEntityName(exactRouteTarget, "Exact Contract Beacon");
 
                 actor = entMan.SpawnEntity("MobHuman", testMap.GridCoords);
+                outsider = entMan.SpawnEntity("MobHuman", testMap.GridCoords);
                 var mind = mindSystem.CreateMind(clientSession!.UserId, "BountyContractPinpointerTest");
                 mindSystem.TransferTo(mind, actor);
                 playerMan.SetAttachedEntity(clientSession, actor);
@@ -91,6 +93,20 @@ public sealed class BountyContractPinpointerTest
             await server.WaitPost(() =>
             {
                 Assert.That(bountyContracts.TrySetBountyContractAccepted(host, actor, contractId, accepted: true), Is.True);
+                var accepted = bountyContracts.GetContracts("Distress").Single(contract => contract.ContractId == contractId);
+                Assert.That(accepted.AcceptedByActor, Is.EqualTo(entMan.GetNetEntity(actor)),
+                    "A contract must bind to the accepting character, not only to their PDA/loader.");
+            });
+
+            Assert.That(await bountyContracts.TryCompleteGeneratedContractAsync(contractId, outsider), Is.False,
+                "A different character must not be able to turn in or receive payment for the accepted contract.");
+
+            await server.WaitAssertion(() =>
+            {
+                Assert.That(bountyContracts.TrySetBountyContractAccepted(host, outsider, contractId, accepted: true), Is.False,
+                    "Reusing the same loader must not transfer an accepted contract to another character.");
+                Assert.That(bountyContracts.TrySetBountyContractAccepted(host, actor, contractId, accepted: true), Is.True,
+                    "Retrying acceptance for the same character should be idempotent.");
             });
 
             await pair.RunTicksSync(10);
@@ -107,6 +123,18 @@ public sealed class BountyContractPinpointerTest
                 Assert.That(pinpointer.Target.HasValue, Is.True);
                 Assert.That(pinpointer.Target!.Value, Is.EqualTo(exactRouteTarget),
                     "The generated contract must target its exact beacon, not the decoy grid whose name matches Vessel.");
+            });
+
+            await server.WaitPost(() =>
+            {
+                Assert.That(bountyContracts.TrySetBountyContractAccepted(host, actor, contractId, accepted: false), Is.True);
+            });
+            await pair.RunTicksSync(2);
+            await server.WaitAssertion(() =>
+            {
+                Assert.That(entMan.AllComponents<BountyContractPinpointerComponent>()
+                    .Any(component => component.Component.ContractId == contractId), Is.False,
+                    "Releasing a contract must remove its issued navigation device.");
             });
 
             await server.WaitPost(() =>

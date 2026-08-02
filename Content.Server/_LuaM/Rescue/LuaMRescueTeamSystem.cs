@@ -7,10 +7,12 @@ using Content.Shared._CorvaxNext.Silicons.Borgs.Components;
 using Content.Shared._Crescent.DroneControl;
 using Content.Shared._EinsteinEngines.Silicon.Components;
 using Content.Server.Chat.Systems;
+using Content.Server.Gateway.Components;
 using Content.Server.Hands.Systems;
 using Content.Server.NPC;
 using Content.Server.NPC.HTN;
 using Content.Server.NPC.Systems;
+using Content.Server.Teleportation;
 using Content.Shared.Buckle.Components;
 using Content.Shared.Chat;
 using Content.Shared.CombatMode;
@@ -28,6 +30,7 @@ using Content.Shared.Silicons.Borgs.Components;
 using Content.Shared.Storage;
 using Content.Shared.Storage.EntitySystems;
 using Content.Shared.Tag;
+using Content.Shared.Teleportation.Components;
 using Content.Shared.Weapons.Ranged.Components;
 using Robust.Server.GameObjects;
 using Robust.Shared.Containers;
@@ -108,6 +111,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
     [Dependency] private readonly ExamineSystemShared _examine = default!;
     [Dependency] private readonly LuaMRescueActivityCoordinatorSystem _activity = default!;
     [Dependency] private readonly LuaMRescueNavigationSystem _rescueNavigation = default!;
+    [Dependency] private readonly PortalSystem _portal = default!;
     [Dependency] private readonly SharedCombatModeSystem _combatMode = default!;
     [Dependency] private readonly SharedStorageSystem _storage = default!;
     [Dependency] private readonly LuaMSectorStorySystem _sectorStory = default!;
@@ -557,6 +561,8 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                 $"threat={FormatEntityRef(escort.ThreatTarget)}; crowdTarget={FormatEntityRef(escort.CrowdTarget)}; " +
                 $"blockerTarget={FormatEntityRef(escort.RouteBlockerTarget)}; " +
                 $"{activityTelemetry}; " +
+                $"lifeSupport={NormalizeHandoffValue(escort.LastLifeSupportStatus, "not checked")}; " +
+                $"lifeSupportSwaps={escort.LifeSupportSwapCount}; " +
                 $"scene={escort.LastSceneStatus}; weapon={escort.LastWeaponReadinessStatus}; action={escort.LastDutyActionStatus}; " +
                 $"crewHelp={escort.LastCrewHelpStatus}; memory={escort.LastMemoryDigest}; last={escort.LastDutyStatus}");
         }
@@ -917,7 +923,17 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             followTarget,
             out var primaryTarget);
         if (intentReplacement)
-            CancelEscortIntent(uid, htn, primaryTarget);
+        {
+            // GetEscortFollowTarget may have just completed an authoritative
+            // route probe for the replacement. Shut down the old HTN executor,
+            // but retain that new probe and cancel only the displaced target.
+            CancelEscortIntent(uid, htn, primaryTarget, cancelRoute: false);
+            if (escort.CurrentFollowTarget is { Valid: true } previousTarget &&
+                previousTarget != followTarget)
+            {
+                _rescueNavigation.CancelRoute(uid, previousTarget);
+            }
+        }
 
         UpdateEscortActivityCarrier(uid, escort, duty, followTarget);
         ResolveEscortActivityExecution(
@@ -936,7 +952,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
                     ? null
                     : carrier.ActivityContext.Target
                 : primaryTarget;
-            CancelEscortIntent(uid, htn, preservedPrimaryTarget);
+            CancelEscortIntent(uid, htn, preservedPrimaryTarget, cancelRoute: false);
+            if (escort.CurrentFollowTarget is { Valid: true } previousTarget &&
+                previousTarget != executionTarget)
+            {
+                _rescueNavigation.CancelRoute(uid, previousTarget);
+            }
         }
 
         escort.CurrentFollowTarget = executionTarget;
@@ -1206,7 +1227,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var wasTerminal = IsEscortActivityTerminal(current.TerminalStatus);
         if (routeTarget is { Valid: true } movementTarget)
         {
-            var actionRange = GetEscortActivityActionRange(uid, escort, duty);
+            var actionRange = GetEscortRouteProbeRange(uid, escort, duty, movementTarget);
             var route = _rescueNavigation.ProbeRoute(uid, movementTarget, actionRange);
             var distance = Math.Max(0f, route.Distance);
             current.RouteStatus = route.State switch
@@ -1460,7 +1481,7 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             carrier.TerminalRecoveryProbeStartedAt = now;
         }
 
-        var actionRange = GetEscortActivityActionRange(uid, escort, duty);
+        var actionRange = GetEscortRouteProbeRange(uid, escort, duty, target);
         var route = _rescueNavigation.ProbeRoute(uid, target, actionRange);
         if (route.State == LuaMRescuePathProbeState.Pending)
         {
@@ -1723,6 +1744,18 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         var profile = GetEscortRoleProfile(uid, escort);
         var activity = GetEscortActivity(profile.Role, duty);
         return profile.GetActionRange(activity, fallback);
+    }
+
+    private float GetEscortRouteProbeRange(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        LuaMRescueEscortDuty duty,
+        EntityUid target)
+    {
+        return duty == LuaMRescueEscortDuty.ReturnToShuttle &&
+               HasComp<GatewayComponent>(target)
+            ? SharedInteractionSystem.InteractionRange
+            : GetEscortActivityActionRange(uid, escort, duty);
     }
 
     private static bool EscortDutyRequiresActionCompletion(LuaMRescueEscortDuty duty)
@@ -2299,6 +2332,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         if (phase != LuaMRescueTeamPhase.ReturnOrExtract)
             return "none";
 
+        if (rescue.LifeSupportEmergencyActive)
+        {
+            return $"reason=life-support; detail=" +
+                   NormalizeHandoffValue(rescue.LastLifeSupportStatus, "life-support emergency");
+        }
+
         if (HasRouteBlockedStatus(rescue.LastRouteBlockHoldStatus))
             return $"reason=route-blocked; detail={NormalizeHandoffValue(rescue.LastRouteBlockHoldStatus, "route blocked")}";
 
@@ -2334,6 +2373,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
     private static string BuildReturnOrExtractLine(string returnOrExtractReason, bool somberScene)
     {
+        if (returnOrExtractReason.Contains("reason=life-support", StringComparison.OrdinalIgnoreCase))
+        {
+            return "\u041e\u0442\u0445\u043e\u0434\u0438\u043c: \u0430\u0432\u0430\u0440\u0438\u044f \u0436\u0438\u0437\u043d\u0435\u043e\u0431\u0435\u0441\u043f\u0435\u0447\u0435\u043d\u0438\u044f \u0410\u0439\u0431\u043e\u043b\u0438\u0442\u0430. " +
+                   "\u0413\u0440\u0443\u043f\u043f\u0430 \u0432\u043e\u0437\u0432\u0440\u0430\u0449\u0430\u0435\u0442\u0441\u044f \u043a \u0448\u0430\u0442\u0442\u043b\u0443.";
+        }
+
         if (returnOrExtractReason.Contains("reason=route-blocked", StringComparison.OrdinalIgnoreCase))
             return "\u041e\u0442\u0445\u043e\u0434\u0438\u043c: \u043c\u0430\u0440\u0448\u0440\u0443\u0442 \u0437\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d. \u041d\u0443\u0436\u0435\u043d \u043a\u043e\u0440\u0438\u0434\u043e\u0440 \u043a \u0448\u0430\u0442\u0442\u043b\u0443.";
 
@@ -4002,6 +4047,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         LuaMRescueTeamPhase phase,
         EntityUid? patient)
     {
+        if (phase == LuaMRescueTeamPhase.ReturnOrExtract)
+            return true;
+
         if (patient is not { Valid: true })
             return true;
 
@@ -4668,6 +4716,12 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         LuaMRescueTeamPhase phase,
         EntityUid? patient)
     {
+        if (phase == LuaMRescueTeamPhase.ReturnOrExtract)
+        {
+            return (LuaMRescueSortiePlan.ReturnToShuttle,
+                $"plan return-to-shuttle: authoritative extraction phase; {team.LastSceneStatus}");
+        }
+
         if (patient is not { Valid: true })
         {
             var returnPlan = team.ShuttleAnchor is { Valid: true } || team.Shuttle is { Valid: true }
@@ -4756,12 +4810,20 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             LuaMRescueSortiePlan.EvacuatePatient => escort.Role == LuaMRescueEscortRole.Kostyl
                 ? LuaMRescueEscortDuty.PatientSupport
                 : LuaMRescueEscortDuty.EvacuationCorridor,
+            LuaMRescueSortiePlan.ReturnToShuttle => LuaMRescueEscortDuty.ReturnToShuttle,
             _ => null,
         };
     }
 
     private LuaMRescueEscortDuty GetEscortDuty(EntityUid uid, LuaMRescueEscortComponent escort)
     {
+        if (escort.Leader is { Valid: true } emergencyLeader &&
+            TryComp<LuaMRescueAgentComponent>(emergencyLeader, out var emergencyRescue) &&
+            emergencyRescue.LifeSupportEmergencyActive)
+        {
+            return LuaMRescueEscortDuty.ReturnToShuttle;
+        }
+
         if (TryComp<LuaMRescueBehaviorAdapterComponent>(uid, out var behavior) &&
             behavior.EscortDutyOverride is { } behaviorDuty)
         {
@@ -4881,9 +4943,100 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
             LuaMRescueEscortDuty.EvacuationCorridor => escort.Role == LuaMRescueEscortRole.Zaslon
                 ? threat ?? patient ?? shuttleAnchor ?? leader ?? shuttle
                 : leader ?? patient ?? shuttleAnchor ?? shuttle,
-            LuaMRescueEscortDuty.ReturnToShuttle => shuttleAnchor ?? shuttle ?? leader,
+            LuaMRescueEscortDuty.ReturnToShuttle => GetEscortReturnFollowTarget(
+                uid,
+                leader,
+                shuttleAnchor,
+                shuttle),
             _ => leader ?? shuttleAnchor ?? shuttle,
         };
+    }
+
+    private EntityUid? GetEscortReturnFollowTarget(
+        EntityUid escort,
+        EntityUid? leader,
+        EntityUid? shuttleAnchor,
+        EntityUid? shuttle)
+    {
+        // ReturnToShuttle must keep the configured medical destination authoritative.
+        // The leader is only a fallback when the team has no usable shuttle anchor.
+        var destination = shuttleAnchor ?? shuttle ?? leader;
+        if (destination is not { Valid: true } target || Deleted(target))
+            return null;
+
+        var sourceMap = Transform(escort).MapID;
+        var destinationMap = Transform(target).MapID;
+        if (sourceMap == destinationMap)
+            return target;
+
+        if (sourceMap == MapId.Nullspace || destinationMap == MapId.Nullspace)
+            return null;
+
+        EntityUid? nearest = null;
+        var nearestDistance = float.PositiveInfinity;
+        var query = AllEntityQuery<GatewayComponent, PortalComponent, TransformComponent>();
+        while (query.MoveNext(out var gateway, out var gatewayComp, out var portalComp, out var gatewayXform))
+        {
+            if (!gatewayComp.Enabled ||
+                !portalComp.CanTeleportToOtherMaps ||
+                gatewayXform.MapID != sourceMap ||
+                !TryComp<LinkedEntityComponent>(gateway, out var sourceLinks) ||
+                sourceLinks.LinkedEntities.Count != 1)
+            {
+                continue;
+            }
+
+            var endpoint = sourceLinks.LinkedEntities.First();
+            if (!endpoint.Valid ||
+                Deleted(endpoint) ||
+                !TryComp<GatewayComponent>(endpoint, out var endpointGateway) ||
+                !endpointGateway.Enabled ||
+                !TryComp<PortalComponent>(endpoint, out var endpointPortal) ||
+                !endpointPortal.CanTeleportToOtherMaps ||
+                !TryComp<LinkedEntityComponent>(endpoint, out var endpointLinks) ||
+                endpointLinks.LinkedEntities.Count != 1 ||
+                endpointLinks.LinkedEntities.First() != gateway ||
+                Transform(endpoint).MapID != destinationMap)
+            {
+                continue;
+            }
+
+            // At the gateway's non-free navigation polygon stock steering can
+            // stop producing a 0.1 m route even though the escort is already
+            // physically close enough to enter the portal. Preserve that
+            // validated reciprocal endpoint when it is in unobstructed,
+            // fixture-aware interaction range so SetEscortFollowTarget can
+            // complete the controlled transfer instead of dropping the goal.
+            if (_interaction.InRangeUnobstructed(
+                    escort,
+                    gateway,
+                    SharedInteractionSystem.InteractionRange))
+            {
+                return gateway;
+            }
+
+            // Euclidean proximity is not enough: a closer reciprocal gateway
+            // behind a sealed wall must not permanently starve a farther,
+            // reachable return route.
+            // A gateway centre is not a free navigation point. Reachability only
+            // needs to prove that the escort can reach the controlled-transfer
+            // boundary; SetEscortFollowTarget still publishes a 0.1 m HTN goal.
+            var route = _rescueNavigation.ProbeRoute(
+                escort,
+                gateway,
+                SharedInteractionSystem.InteractionRange);
+            if (route.State != LuaMRescuePathProbeState.Reachable)
+                continue;
+
+            var distance = route.Distance;
+            if (distance >= nearestDistance)
+                continue;
+
+            nearest = gateway;
+            nearestDistance = distance;
+        }
+
+        return nearest;
     }
 
     private EntityUid? GetThreatScreenFollowTarget(
@@ -5046,6 +5199,32 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         };
 
         var followRange = GetEscortActivityActionRange(uid, escort, duty);
+        var returningThroughGateway = duty == LuaMRescueEscortDuty.ReturnToShuttle &&
+                                      HasComp<GatewayComponent>(target);
+        if (returningThroughGateway)
+        {
+            closeRange = 0.1f;
+            followRange = 0.1f;
+
+            // Use fixture-aware interaction range rather than center distance:
+            // the gateway's non-free navigation polygon stops stock steering
+            // before a 0.1 m center goal is possible. The unobstructed check
+            // also prevents this controlled hand-off through a wall.
+            if (_interaction.InRangeUnobstructed(
+                    uid,
+                    target,
+                    SharedInteractionSystem.InteractionRange) &&
+                _portal.TryTeleportThroughLinkedPortal(target, uid, ignoreTimeout: true))
+            {
+                // Shut down the old-map movement operator immediately. The
+                // next urgent ReturnToShuttle refresh will bind to the leader
+                // or shuttle anchor on the destination map.
+                CancelEscortIntent(uid, htn, target);
+                escort.LastDutyActionStatus =
+                    $"crossed reciprocal return gateway {FormatEntityRef(target)}";
+                return;
+            }
+        }
 
         if (IsDirectEscortActionDuty(duty) &&
             Transform(uid).Coordinates.TryDistance(EntityManager, Transform(target).Coordinates, out var directDistance) &&
@@ -5059,7 +5238,11 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         _npc.SetBlackboard(
             uid,
             NPCBlackboard.FollowTarget,
-            new EntityCoordinates(target, GetEscortFormationOffset(uid, escort, duty, target)),
+            new EntityCoordinates(
+                target,
+                returningThroughGateway
+                    ? Vector2.Zero
+                    : GetEscortFormationOffset(uid, escort, duty, target)),
             htn);
         _npc.SetBlackboard(uid, "FollowCloseRange", closeRange, htn);
         _npc.SetBlackboard(uid, "FollowRange", followRange, htn);
@@ -5110,6 +5293,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
         LuaMRescueAgentComponent rescue,
         EntityUid? patient)
     {
+        if (rescue.LifeSupportEmergencyActive)
+            return LuaMRescueTeamPhase.ReturnOrExtract;
+
         if (patient is not { Valid: true } patientUid ||
             Deleted(patientUid))
         {
@@ -5300,6 +5486,9 @@ public sealed class LuaMRescueTeamSystem : EntitySystem
 
     private EntityUid? GetActiveRescuePatient(LuaMRescueAgentComponent rescue)
     {
+        if (rescue.LifeSupportEmergencyActive)
+            return ValidOrNull(rescue.LifeSupportEmergencyPatient);
+
         return ValidOrNull(rescue.EvacuatingTarget ?? rescue.AssignedTarget ?? rescue.TaskPatientTarget);
     }
 

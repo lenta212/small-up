@@ -437,6 +437,10 @@ public sealed class LuaMRescueActivityRuntimeTest
 
             Assert.That(rescueSystem.TryOrderAgent(agent, dead, out var status), Is.True, status);
             Assert.That(rescue.AssignedTarget, Is.EqualTo(dead));
+            // TryOrderAgent establishes explicit manual ownership. This fixture
+            // exercises automatic urgency preemption and deferred resumption,
+            // so retain the accepted patient while releasing only that marker.
+            rescue.ManualOverrideTarget = null;
         });
 
         await pair.RunSeconds(0.5f);

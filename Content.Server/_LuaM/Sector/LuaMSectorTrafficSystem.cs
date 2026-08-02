@@ -96,6 +96,7 @@ public sealed class LuaMSectorTrafficSystem : EntitySystem
     [Dependency] private readonly SharedPhysicsSystem _physics = default!;
     [Dependency] private readonly SharedTransformSystem _transform = default!;
     [Dependency] private readonly LuaMSectorDynamicEventSystem _dynamicEvents = default!;
+    [Dependency] private readonly LuaMSectorStorySystem _stories = default!;
     [Dependency] private readonly MetaDataSystem _metaData = default!;
 
     private readonly List<Vector2> _playerAnchors = new();
@@ -421,7 +422,7 @@ public sealed class LuaMSectorTrafficSystem : EntitySystem
         }
 
         if (record != null)
-            SpawnRecovery(profile, record, markerCoordinates);
+            SpawnRecovery(profile, record, markerCoordinates, actor);
 
         QueueDel(uid);
         RaiseLocalEvent(new LuaMSectorTrafficChangedEvent());
@@ -473,7 +474,8 @@ public sealed class LuaMSectorTrafficSystem : EntitySystem
     private void SpawnRecovery(
         TrafficProfileDefinition profile,
         LuaMSectorStoryRecord record,
-        MapCoordinates coordinates)
+        MapCoordinates coordinates,
+        EntityUid actor)
     {
         if (profile.RecoveryPrototype == null)
             return;
@@ -493,6 +495,11 @@ public sealed class LuaMSectorTrafficSystem : EntitySystem
 
         var evidence = EnsureComp<LuaMSectorEvidenceComponent>(recoveryUid);
         evidence.Story = record.Story;
+        if (_stories.TryGetActiveContractId(record.Story, out var contractId))
+        {
+            evidence.ContractId = contractId;
+            evidence.AuthorizedActor = actor;
+        }
         evidence.AcknowledgeHazard = true;
         evidence.ResolveStory = true;
         evidence.RequireSectorTerminal = true;

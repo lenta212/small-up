@@ -47,6 +47,7 @@ public sealed class LuaMOreSiloShipPersistenceRuntimeTest
     range: 125
   - type: MaterialStorage
     storageLimit: 10000
+  - type: MaterialStorageMagnetPickup
 
 - type: entity
   id: LuaMOreSiloPersistenceClient
@@ -93,6 +94,8 @@ public sealed class LuaMOreSiloShipPersistenceRuntimeTest
                     ClientPrototype,
                     new EntityCoordinates(sourceGrid, new Vector2(0.75f, 0.5f)));
                 Link(entities, silo, client);
+                entities.GetComponent<Content.Server.Storage.Components.MaterialStorageMagnetPickupComponent>(silo)
+                    .MagnetEnabled = true;
 
                 Assert.Multiple(() =>
                 {
@@ -125,6 +128,11 @@ public sealed class LuaMOreSiloShipPersistenceRuntimeTest
                     Assert.That(materials.GetMaterialAmount(restoredSilo, "Glass", localOnly: true), Is.EqualTo(700));
                     Assert.That(materials.GetMaterialAmount(restoredClient, "Steel"), Is.EqualTo(1200));
                     Assert.That(materials.GetMaterialAmount(restoredClient, "Glass"), Is.EqualTo(700));
+                    Assert.That(
+                        entities.GetComponent<Content.Server.Storage.Components.MaterialStorageMagnetPickupComponent>(restoredSilo)
+                            .MagnetEnabled,
+                        Is.True,
+                        "An enabled fabrication/storage magnet must remain enabled after a ship round-trip.");
                 });
 
                 Assert.That(materials.TryChangeMaterialAmount(restoredClient, "Steel", -200), Is.True);

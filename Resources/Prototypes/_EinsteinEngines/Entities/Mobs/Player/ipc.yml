@@ -91,6 +91,9 @@
       115: 0.5 # LuaM 90 -> 115
       140: 0.3 # LuaM 120 -> 140
   - type: SiliconDownOnDead
+  # The chassis is inoperable after death, but the independent positronic brain
+  # can still use its speaker and internal radio.
+  - type: DeadSpeech
   - type: Inventory
     templateId: ipc
   - type: GuideHelp

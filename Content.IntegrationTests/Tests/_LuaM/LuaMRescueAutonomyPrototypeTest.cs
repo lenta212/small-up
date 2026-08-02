@@ -17,11 +17,12 @@ public sealed class LuaMRescueAutonomyPrototypeTest
             "LuaMRescueAgentGear");
         var agentEquipment = Mapping(agentGear, "equipment");
 
-        Assert.That(ScalarValue(agentEquipment, "outerClothing"), Is.EqualTo("ClothingOuterArmorBasicSlim"));
-        Assert.That(ScalarValue(agentEquipment, "head"), Is.EqualTo("ClothingHeadHelmetBasic"));
+        Assert.That(ScalarValue(agentEquipment, "outerClothing"), Is.EqualTo("ClothingOuterHardsuitDeathsquad"));
+        Assert.That(ScalarValue(agentEquipment, "head"), Is.EqualTo("ClothingHeadHelmetHardsuitDeathsquad"));
         Assert.That(ScalarValue(agentEquipment, "mask"), Is.EqualTo("ClothingMaskBreathMedical"));
         Assert.That(ScalarValue(agentEquipment, "shoes"), Is.EqualTo("LuaMClothingShoesBootsMagRescue"));
         Assert.That(ScalarValue(agentEquipment, "suitstorage"), Is.EqualTo("OxygenTankFilled"));
+        Assert.That(ScalarValue(agentEquipment, "pocket1"), Is.EqualTo("DoubleEmergencyOxygenTankFilled"));
         Assert.That(ScalarValue(agentEquipment, "eyes"), Is.EqualTo("ClothingEyesHudMedical"));
         Assert.That(ScalarValue(agentEquipment, "gloves"), Is.EqualTo("ClothingHandsGlovesCombat"));
         Assert.That(SequenceValues(Sequence(agentGear, "inhand")), Does.Contain("WeaponLaserCarbine"));
@@ -31,24 +32,25 @@ public sealed class LuaMRescueAutonomyPrototypeTest
         Assert.That(agentBackpack, Does.Contain("CombatMedipen"));
         Assert.That(agentBackpack, Does.Contain("BruteAutoInjector"));
         Assert.That(agentBackpack, Does.Contain("BurnAutoInjector"));
-        Assert.That(agentBackpack, Does.Contain("DoubleEmergencyOxygenTankFilled"));
+        Assert.That(agentBackpack, Does.Not.Contain("DoubleEmergencyOxygenTankFilled"));
 
         var escortGear = FindPrototype(
             rescueLoadouts,
             "LuaMRescueEscortGear");
         var escortEquipment = Mapping(escortGear, "equipment");
 
-        Assert.That(ScalarValue(escortEquipment, "outerClothing"), Is.EqualTo("ClothingOuterArmorBPVestHeavy"));
-        Assert.That(ScalarValue(escortEquipment, "head"), Is.EqualTo("ClothingHeadHelmetSwat"));
+        Assert.That(ScalarValue(escortEquipment, "outerClothing"), Is.EqualTo("ClothingOuterHardsuitDeathsquad"));
+        Assert.That(ScalarValue(escortEquipment, "head"), Is.EqualTo("ClothingHeadHelmetHardsuitDeathsquad"));
         Assert.That(ScalarValue(escortEquipment, "mask"), Is.EqualTo("ClothingMaskGasSecurity"));
         Assert.That(ScalarValue(escortEquipment, "shoes"), Is.EqualTo("LuaMClothingShoesBootsMagSecurityRescue"));
         Assert.That(ScalarValue(escortEquipment, "suitstorage"), Is.EqualTo("OxygenTankFilled"));
+        Assert.That(ScalarValue(escortEquipment, "pocket1"), Is.EqualTo("DoubleEmergencyOxygenTankFilled"));
         Assert.That(ScalarValue(escortEquipment, "eyes"), Is.EqualTo("ClothingEyesGlassesSecurity"));
         Assert.That(ScalarValue(escortEquipment, "belt"), Is.EqualTo("ClothingBeltSecurityFilled"));
         Assert.That(SequenceValues(Sequence(escortGear, "inhand")), Does.Contain("WeaponLaserCarbine"));
         Assert.That(SequenceValues(Sequence(Mapping(escortGear, "storage"), "back")), Does.Contain("WeaponDisablerSMG"));
         Assert.That(SequenceValues(Sequence(Mapping(escortGear, "storage"), "back")), Does.Contain("CombatMedipen"));
-        Assert.That(SequenceValues(Sequence(Mapping(escortGear, "storage"), "back")), Does.Contain("DoubleEmergencyOxygenTankFilled"));
+        Assert.That(SequenceValues(Sequence(Mapping(escortGear, "storage"), "back")), Does.Not.Contain("DoubleEmergencyOxygenTankFilled"));
 
         var agentMagboots = FindPrototype(rescueLoadouts, "LuaMClothingShoesBootsMagRescue");
         Assert.That(ScalarValue(FindComponent(agentMagboots, "ItemToggle"), "activated"), Is.EqualTo("true"));

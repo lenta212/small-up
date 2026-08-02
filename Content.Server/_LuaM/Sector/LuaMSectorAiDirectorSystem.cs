@@ -8660,11 +8660,98 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return;
 
         _nextWorldPulse = _timing.CurTime + GetWorldPulseDelay();
+        var gatewayUrl = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl).Trim();
+        if (!string.IsNullOrWhiteSpace(gatewayUrl) && _requestGate.TryAcquire(out var requestLease))
+        {
+            _ = RequestAndApplyWorldPulseAsync(requestLease!);
+            return;
+        }
+
         var result = ApplyLocalWorldPulse($"{DirectorActor} / local world pulse", forceEvent: false, maxDangerOverride: false);
         _sawmill.Info(result);
     }
 
-    private string ApplyLocalWorldPulse(string actor, bool forceEvent, bool maxDangerOverride)
+    private async Task RequestAndApplyWorldPulseAsync(LuaMAiDirectorRequestGate.Lease requestLease)
+    {
+        LuaMAiGatewayChatResponse? decision = null;
+        try
+        {
+            decision = await RequestGatewayWorldPulseAsync();
+        }
+        catch (Exception e)
+        {
+            _sawmill.Warning($"AI world-pulse decision unavailable ({e.GetType().Name}); using local fallback.");
+        }
+        finally
+        {
+            requestLease.Dispose();
+        }
+
+        await RunOnMainThread(() =>
+        {
+            if (!_cfg.GetCVar(CCVars.LuaMAiDirectorEnabled) || _ticker.RunLevel != GameRunLevel.InRound)
+                return;
+
+            var announcedByModel = ApplyGatewayWorldPulseDecision(decision);
+            var result = ApplyLocalWorldPulse(
+                $"{DirectorActor} / AI-guided world pulse",
+                forceEvent: false,
+                maxDangerOverride: false,
+                announce: !announcedByModel);
+            _sawmill.Info($"{result}; gatewayDecision={(decision == null ? "fallback" : decision.Action)}");
+        });
+    }
+
+    private bool ApplyGatewayWorldPulseDecision(LuaMAiGatewayChatResponse? decision)
+    {
+        if (decision == null)
+            return false;
+
+        switch (decision.Action.Trim().ToLowerInvariant())
+        {
+            case "send_sector_message":
+            {
+                var message = TrimForChat(decision.SectorMessage, 240);
+                if (string.IsNullOrWhiteSpace(message))
+                    message = TrimForChat(decision.Instruction, 240);
+                if (string.IsNullOrWhiteSpace(message))
+                    return false;
+
+                SendAiChatMessage(message, $"{DirectorActor} / autonomous world pulse");
+                return true;
+            }
+            case "set_sector_condition":
+            {
+                var id = NormalizeConditionId(decision.ConditionId);
+                if (id != "ai-world-pressure" &&
+                    !LocalPressureConditionRotation.Contains(id, StringComparer.Ordinal))
+                    return false;
+
+                var title = TrimForChat(decision.ConditionTitle, 96);
+                var summary = TrimForChat(decision.ConditionSummary, 256);
+                var severity = Math.Clamp(decision.ConditionSeverity, 1, 4);
+                ApplyConditionDefaults(id, $"{title} {summary}", ref title, ref severity, ref summary);
+                return _stories.TrySeedSectorCondition(
+                    id,
+                    title,
+                    severity,
+                    summary,
+                    $"{DirectorActor} / autonomous gateway decision",
+                    out _,
+                    out _);
+            }
+            case "none":
+            case "":
+                return false;
+            default:
+                RecordGatewayProviderOutputBlock(
+                    GatewayBlockCategoryForbiddenAction,
+                    $"autonomous world pulse selected forbidden action: {decision.Action}");
+                return false;
+        }
+    }
+
+    private string ApplyLocalWorldPulse(string actor, bool forceEvent, bool maxDangerOverride, bool announce = true)
     {
         var activePlayers = CountActivePlayers();
         if (activePlayers <= 0)
@@ -8691,11 +8778,14 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         var announcementId = LocalWorldPulseAnnouncementIds[_worldPulseCount % LocalWorldPulseAnnouncementIds.Length];
         _worldPulseCount++;
-        _chat.DispatchServerAnnouncement(Loc.GetString(
-            announcementId,
-            ("severity", severity),
-            ("players", activePlayers),
-            ("conditions", _stories.GetStatusSnapshot().ActiveConditions)));
+        if (announce)
+        {
+            _chat.DispatchServerAnnouncement(Loc.GetString(
+                announcementId,
+                ("severity", severity),
+                ("players", activePlayers),
+                ("conditions", _stories.GetStatusSnapshot().ActiveConditions)));
+        }
 
         var eventSummary = TryApplyPulseEvent(actor, forceEvent, maxDangerOverride, maxDanger, severity);
         var logisticsSummary = _aiBaseOperationGate.IsActive
@@ -11655,6 +11745,38 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             cts.Token);
     }
 
+    private async Task<LuaMAiGatewayChatResponse?> RequestGatewayWorldPulseAsync()
+    {
+        var gatewayUrl = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayUrl).Trim();
+        if (string.IsNullOrWhiteSpace(gatewayUrl))
+            return null;
+
+        if (!TryConsumeGatewayBudget("autonomous world pulse", out var budgetReason))
+            throw new GatewayBudgetRejectedException(budgetReason);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(GetTimeout()));
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildGatewayChatUri(gatewayUrl));
+        var token = _cfg.GetCVar(CCVars.LuaMAiDirectorGatewayToken).Trim();
+        if (!string.IsNullOrWhiteSpace(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var gatewayRequest = BuildGatewayWorldPulseRequest();
+        RecordGatewayRequestShape("autonomous world pulse", "/chat", gatewayRequest);
+        request.Content = JsonContent.Create(gatewayRequest, options: JsonOptions);
+
+        using var response = await SendGatewayRequestAsync(request, cts, "autonomous world pulse");
+        if (!response.IsSuccessStatusCode)
+        {
+            RecordGatewayTransportFailure("autonomous world pulse", $"http {(int) response.StatusCode}");
+            return null;
+        }
+
+        return await ReadGatewayJsonAsync<LuaMAiGatewayChatResponse>(
+            response.Content,
+            "autonomous world pulse",
+            cts.Token);
+    }
+
     private async Task<LuaMAiGatewayChatResponse> RequestGatewayChatAsync(
         ICommonSession admin,
         string message,
@@ -12119,6 +12241,49 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 .ToArray(),
             Target = BuildGatewayPlayerContext(PickTarget(targetUserId)),
             Sector = BuildGatewaySectorContext(status, mapNodes, synthetic, activePlayers, hasOpenLead, openLead, mapNodes.Length),
+        };
+    }
+
+    private LuaMAiGatewayChatRequest BuildGatewayWorldPulseRequest()
+    {
+        var status = _stories.GetStatusSnapshot();
+        var mapNodes = _dynamicEvents.BuildSectorMapUiEntries();
+        var synthetic = BuildSyntheticControlSnapshot(arm: false);
+        var hasOpenLead = _stories.TryGetOpenRuntimeDistressStory(out var openStory) && openStory != null;
+        var openLead = hasOpenLead
+            ? $"{openStory!.Title}: {openStory.Hazard}"
+            : string.Empty;
+        var activePlayers = CountActivePlayers();
+
+        return new LuaMAiGatewayChatRequest
+        {
+            Version = 1,
+            Goal = "Act as the autonomous LuaM sector dispatcher. Assess the bounded current sector context and choose at most one subtle Russian-language world-pulse action. Prefer send_sector_message with a concise, specific operational update; use set_sector_condition only when the context clearly justifies one AI-prefixed condition at severity 1-4. Never invent casualties or facts absent from context. Return only JSON matching the chat schema.",
+            Language = "ru-RU",
+            AdminName = "autonomous director",
+            Message = $"Scheduled world pulse; activePlayers={activePlayers}; activeConditions={status.ActiveConditions}; activeHazards={status.ActiveHazards}; openLead={hasOpenLead}.",
+            AdminModeEnabled = false,
+            AllowedActions = ["none", "send_sector_message", "set_sector_condition"],
+            AllowedAdminCommandNames = [],
+            AllowedTemplateIds = [],
+            AllowedEntityPrototypeIds = [],
+            AllowedSectorCommandIds = [],
+            AllowedRadioChannelIds = [],
+            ActiveConditionIds = status.Conditions
+                .Where(condition => condition.Active)
+                .OrderByDescending(condition => condition.Severity)
+                .ThenBy(condition => condition.ConditionId)
+                .Select(condition => condition.ConditionId)
+                .ToArray(),
+            Target = BuildGatewayPlayerContext(PickTarget()),
+            Sector = BuildGatewaySectorContext(
+                status,
+                mapNodes,
+                synthetic,
+                activePlayers,
+                hasOpenLead,
+                openLead,
+                mapNodes.Length),
         };
     }
 

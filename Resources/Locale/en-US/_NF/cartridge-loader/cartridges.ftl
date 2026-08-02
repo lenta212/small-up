@@ -320,6 +320,7 @@ luam-sector-terminal-sector-map-detail-field-packet-printed = field report print
 luam-sector-evidence-file-verb = File LuaM evidence
 luam-sector-evidence-filed = LuaM evidence accepted. The task/route has been updated.
 luam-sector-evidence-already-filed = This evidence is already filed or the task is already closed.
+luam-sector-evidence-contract-not-payable = Accept this contract on your PDA before filing its completion item. Payment and closure were not performed.
 luam-sector-terminal-next-round-inactive = round not active
 luam-sector-terminal-next-disabled = dynamic events disabled
 luam-sector-terminal-next-initial-delay = initial delay {$minutes} min after round start

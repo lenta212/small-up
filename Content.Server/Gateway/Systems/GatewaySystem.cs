@@ -107,7 +107,9 @@ public sealed partial class GatewaySystem : EntitySystem
 
         while (query.MoveNext(out var destUid, out var dest, out var destXform))
         {
-            if (!dest.Enabled || destUid == uid)
+            // Controller-only gateways (for example a Stargate operated by its
+            // DHD) must not leak into the stock destination picker.
+            if (!dest.Enabled || !dest.Interactable || destUid == uid)
                 continue;
 
             // Show destination if either no destination comp on the map or it's ours.
@@ -188,23 +190,40 @@ public sealed partial class GatewaySystem : EntitySystem
 
     private void OnOpenPortal(EntityUid uid, GatewayComponent comp, GatewayOpenPortalMessage args)
     {
-        if (GetNetEntity(uid) == args.Destination ||
-            !comp.Enabled || !comp.Interactable)
+        TryOpenPortal(uid, GetEntity(args.Destination), args.Actor, comp);
+    }
+
+    /// <summary>
+    /// Opens a gateway through an authenticated server-side controller such as a DHD.
+    /// The same readiness, access, destination and generated-world checks as the stock
+    /// gateway UI are retained. Non-interactable source gateways are allowed only when
+    /// the caller explicitly opts in; this keeps ordinary direct interaction disabled.
+    /// </summary>
+    public bool TryOpenPortal(
+        EntityUid uid,
+        EntityUid desto,
+        EntityUid user,
+        GatewayComponent? comp = null,
+        bool allowController = false,
+        bool playSound = true)
+    {
+        if (!Resolve(uid, ref comp) ||
+            uid == desto ||
+            !comp.Enabled ||
+            !comp.Interactable && !allowController)
         {
-            return;
+            return false;
         }
 
         // if the gateway has an access reader check it before allowing opening
-        var user = args.Actor;
         if (CheckAccess(user, uid, comp))
-            return;
+            return false;
 
         // can't link if portal is already open on either side, the destination is invalid or on cooldown
-        var desto = GetEntity(args.Destination);
-
         // If it's already open / not enabled / we're not ready DENY.
         if (!TryComp<GatewayComponent>(desto, out var dest) ||
             !dest.Enabled ||
+            (!dest.Interactable && !allowController) ||
             !TryComp(desto, out TransformComponent? destXform) ||
             destXform.MapUid == null ||
             HasComp<PortalComponent>(desto) ||
@@ -212,13 +231,13 @@ public sealed partial class GatewaySystem : EntitySystem
             _timing.CurTime < _metadata.GetPauseTime(uid) + comp.NextReady ||
             _timing.CurTime < _metadata.GetPauseTime(desto) + dest.NextReady)
         {
-            return;
+            return false;
         }
 
         var attempt = new AttemptGatewayOpenEvent(destXform.MapUid.Value, desto);
         RaiseLocalEvent(destXform.MapUid.Value, ref attempt);
         if (attempt.Cancelled)
-            return;
+            return false;
 
         ClosePortal(
             uid,
@@ -226,7 +245,7 @@ public sealed partial class GatewaySystem : EntitySystem
             false,
             user,
             GatewayPortalCloseReason.SwitchDestination);
-        OpenPortal(uid, comp, desto, dest, user, destXform);
+        return OpenPortal(uid, comp, desto, dest, user, destXform, playSound);
     }
 
     private bool OpenPortal(
@@ -235,7 +254,8 @@ public sealed partial class GatewaySystem : EntitySystem
         EntityUid dest,
         GatewayComponent destComp,
         EntityUid user,
-        TransformComponent? destXform = null)
+        TransformComponent? destXform = null,
+        bool playSound = true)
     {
         if (!Resolve(dest, ref destXform) || destXform.MapUid == null)
             return false;
@@ -260,8 +280,11 @@ public sealed partial class GatewaySystem : EntitySystem
         // for ui
         comp.NextReady = _timing.CurTime + comp.Cooldown;
 
-        _audio.PlayPvs(comp.OpenSound, uid);
-        _audio.PlayPvs(comp.OpenSound, dest);
+        if (playSound)
+        {
+            _audio.PlayPvs(comp.OpenSound, uid);
+            _audio.PlayPvs(comp.OpenSound, dest);
+        }
 
         UpdateUserInterface(uid, comp);
         UpdateAppearance(uid);
@@ -437,4 +460,5 @@ public enum GatewayPortalCloseReason : byte
     Manual,
     SwitchDestination,
     AutomaticRotation,
+    AutomaticTimeout,
 }

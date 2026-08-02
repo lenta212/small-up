@@ -1603,6 +1603,22 @@ public sealed partial class BankSystem : SharedBankSystem
     }
 
     /// <summary>
+    /// Durably credits a server-authoritative payout and finalizes the matching world
+    /// transaction under the same profile lease. Administrative disabling of voluntary
+    /// cash deposits does not disable earned contract and service payouts.
+    /// </summary>
+    public Task<bool> TryBankPayoutAsync(EntityUid mobUid, int amount, Func<bool> finalizeAfterCommit)
+    {
+        ArgumentNullException.ThrowIfNull(finalizeAfterCommit);
+        return TryBankDepositCoreAsync(
+            mobUid,
+            amount,
+            tax: false,
+            () => Task.FromResult(finalizeAfterCommit()),
+            enforceDepositCVar: false);
+    }
+
+    /// <summary>
     /// Durably credits a deposit and runs a synchronous world finalizer
     /// while the same profile lease is still held. If finalization fails, the
     /// original profile balance is restored durably before the lease is released.

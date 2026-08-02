@@ -1,0 +1,109 @@
+- type: entity
+  id: ActionLuaMSlimeVentCrawl
+  name: Проползти по вентиляции
+  description: Выберите выходной вент той же трубной сети. Руки, карманы и вся экипировка должны быть пусты.
+  components:
+  - type: EntityTargetAction
+    itemIconStyle: NoItem
+    checkCanAccess: false
+    range: 1000
+    useDelay: 8
+    canTargetSelf: false
+    whitelist:
+      tags:
+      - GasVent
+    icon:
+      sprite: _NF/Structures/Piping/Atmospherics/vent.rsi
+      state: vent_off
+    event: !type:LuaMSlimeVentCrawlActionEvent
+
+- type: entity
+  id: ActionLuaMSlimeSurvivalForm
+  name: Сжаться в мини-слайма
+  description: Сбросьте всё снаряжение и спасите ядро в маленькой форме. Чтобы вырасти обратно, придётся наесться.
+  components:
+  - type: InstantAction
+    itemIconStyle: NoItem
+    checkCanInteract: false
+    checkConsciousness: false
+    icon:
+      sprite: Mobs/Aliens/slimes.rsi
+      state: blue_adult_slime
+    event: !type:PolymorphActionEvent
+      protoId: LuaMSlimeSurvivalForm
+
+- type: polymorph
+  id: LuaMSlimeSurvivalForm
+  configuration:
+    entity: LuaMMobMiniSlimePerson
+    forced: true
+    inventory: Drop
+    transferName: true
+    polymorphTheLiving: false
+    polymorphTheCritical: true
+    polymorphTheDead: false
+    transferDamage: false
+    revertOnCrit: false
+    revertOnDeath: true
+    cooldown: 120
+    polymorphSound: /Audio/Effects/Fluids/splat.ogg
+    exitPolymorphSound: /Audio/Effects/Fluids/glug.ogg
+
+- type: entity
+  id: LuaMMobMiniSlimePerson
+  parent: MobMouse
+  name: мини-слаймолюд
+  description: Уцелевшее ядро слаймолюда. Оно должно поглотить достаточно еды, чтобы восстановить тело.
+  components:
+  - type: Sprite
+    sprite: Mobs/Aliens/slimes.rsi
+    layers:
+    - map: [ "enum.DamageStateVisualLayers.Base" ]
+      state: blue_adult_slime
+    scale: 0.55, 0.55
+  - type: DamageStateVisuals
+    states:
+      Alive:
+        Base: blue_adult_slime
+      Critical:
+        Base: blue_adult_slime_dead
+      Dead:
+        Base: blue_adult_slime_dead
+  - type: Fixtures
+    fixtures:
+      fix1:
+        shape:
+          !type:PhysShapeCircle
+          radius: 0.18
+        density: 45
+        mask:
+        - SmallMobMask
+        layer:
+        - SmallMobLayer
+  - type: Hands
+  - type: Hunger
+    baseDecayRate: 0
+    thresholds:
+      Overfed: 150
+      Okay: 100
+      Peckish: 60
+      Starving: 20
+      Dead: 0
+  - type: LuaMMiniSlime
+    growthHunger: 100
+  - type: LuaMSlimeVentCrawler
+  - type: ActionGrant
+    actions:
+    - ActionLuaMSlimeVentCrawl
+  - type: MovementSpeedModifier
+    baseWalkSpeed: 2.2
+    baseSprintSpeed: 3.6
+  - type: MobThresholds
+    thresholds:
+      0: Alive
+      20: Critical
+      30: Dead
+  - type: MeleeWeapon
+    damage:
+      types:
+        Blunt: 1

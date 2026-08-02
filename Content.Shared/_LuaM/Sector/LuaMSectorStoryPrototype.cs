@@ -34,6 +34,13 @@ public sealed partial class LuaMSectorStoryPrototype : IPrototype
     [DataField]
     public string ContractDescription = string.Empty;
 
+    /// <summary>
+    /// Physical item created when this contract is accepted. Its runtime evidence
+    /// component is bound to the exact contract and accepting character.
+    /// </summary>
+    [DataField]
+    public EntProtoId? ContractObjectivePrototype;
+
     [DataField]
     public int ContractReward;
 

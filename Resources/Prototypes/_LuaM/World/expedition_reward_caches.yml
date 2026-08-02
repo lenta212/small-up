@@ -1,0 +1,100 @@
+- type: entityTable
+  id: LuaMExpeditionTechnologyModerate
+  table: !type:GroupSelector
+    children:
+    - id: TechDiskM90
+    - id: TechDiskRogueTools
+    - id: TechDiskTSFAnnie
+    - id: TechDiskBulldog
+    - id: TechDiskShields
+    - id: TechDiskFtl
+
+- type: entityTable
+  id: LuaMExpeditionTechnologyHigh
+  table: !type:GroupSelector
+    children:
+    - id: TechDiskTSFICWS
+    - id: TechDiskEnergyWeapons
+    - id: TechDiskHristov
+    - id: TechDiskMla73
+    - id: TechDiskUniversalShipAmmoAdvanced
+
+- type: entityTable
+  id: LuaMExpeditionTechnologyExtreme
+  table: !type:GroupSelector
+    children:
+    - id: TechDiskBluespaceBags
+    - id: TechDiskSpeedBoots
+    - id: TechDiskShields
+    - id: TechDiskFtl
+
+- type: entityTable
+  id: LuaMExpeditionWeaponModerate
+  table: !type:GroupSelector
+    children:
+    - id: WeaponCaseLongLecterExpedition
+    - id: WeaponCaseLongIrohExpedition
+    - id: WeaponCaseLongM90Expedition
+    - id: WeaponCaseLongVulcanExpedition
+
+- type: entityTable
+  id: LuaMExpeditionWeaponHigh
+  table: !type:GroupSelector
+    children:
+    - id: WeaponCaseShortAdvancedLaserExpedition
+    - id: WeaponCaseLongLaserCannonExpedition
+    - id: WeaponCaseLongXrayCannonExpedition
+    - id: WeaponCaseLongLauncherRocketExpedition
+
+- type: entityTable
+  id: LuaMExpeditionWeaponExtreme
+  table: !type:GroupSelector
+    children:
+    - id: WeaponCaseShortEnergySwordExpedition
+    - id: WeaponCaseShortEnergySwordDoubleExpedition
+    - id: WeaponCaseHeavyAsmgtExpeditions
+
+- type: entity
+  id: LuaMExpeditionRewardCacheModerate
+  parent: CrateGenericSteel
+  name: экспедиционный технологический тайник
+  description: Защищённый контейнер аванпоста. Внутри находится технология и редкое вооружение, но не сырьё.
+  components:
+  - type: EntityTableContainerFill
+    containers:
+      entity_storage: !type:AllSelector
+        children:
+        - !type:NestedSelector
+          tableId: LuaMExpeditionTechnologyModerate
+        - !type:NestedSelector
+          tableId: LuaMExpeditionWeaponModerate
+
+- type: entity
+  id: LuaMExpeditionRewardCacheHigh
+  parent: CrateGenericSteel
+  name: опасный экспедиционный технологический тайник
+  description: Защищённый контейнер аванпоста с продвинутой технологией и редким вооружением.
+  components:
+  - type: EntityTableContainerFill
+    containers:
+      entity_storage: !type:AllSelector
+        children:
+        - !type:NestedSelector
+          tableId: LuaMExpeditionTechnologyHigh
+        - !type:NestedSelector
+          tableId: LuaMExpeditionWeaponHigh
+
+- type: entity
+  id: LuaMExpeditionRewardCacheExtreme
+  parent: CrateGenericSteel
+  name: экстремальный экспедиционный технологический тайник
+  description: 'Главный трофей наиболее опасного направления: исключительная технология и тяжёлое редкое вооружение.'
+  components:
+  - type: EntityTableContainerFill
+    containers:
+      entity_storage: !type:AllSelector
+        children:
+        - !type:NestedSelector
+          tableId: LuaMExpeditionTechnologyExtreme
+        - !type:NestedSelector
+          tableId: LuaMExpeditionWeaponExtreme

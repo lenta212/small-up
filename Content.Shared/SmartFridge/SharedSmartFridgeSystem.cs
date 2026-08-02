@@ -29,6 +29,7 @@ public abstract partial class SharedSmartFridgeSystem : EntitySystem
         base.Initialize();
 
         SubscribeLocalEvent<SmartFridgeComponent, InteractUsingEvent>(OnInteractUsing, after: [typeof(AnchorableSystem)]);
+        SubscribeLocalEvent<SmartFridgeComponent, MapInitEvent>(OnMapInit);
         SubscribeLocalEvent<SmartFridgeComponent, EntInsertedIntoContainerMessage>(OnItemInserted);
         SubscribeLocalEvent<SmartFridgeComponent, EntRemovedFromContainerMessage>(OnItemRemoved);
         SubscribeLocalEvent<SmartFridgeComponent, AfterAutoHandleStateEvent>(OnAfterAutoHandleState);
@@ -43,6 +44,38 @@ public abstract partial class SharedSmartFridgeSystem : EntitySystem
                 sub.Event<SmartFridgeDispenseItemMessage>(OnDispenseItem);
                 sub.Event<SmartFridgeRemoveEntryMessage>(OnRemoveEntry);
             });
+    }
+
+    private void OnMapInit(Entity<SmartFridgeComponent> ent, ref MapInitEvent args)
+    {
+        RebuildContentsIndex(ent);
+    }
+
+    /// <summary>
+    /// Reconstructs the UI index from the authoritative physical container.
+    /// The index deliberately remains derived state: portable ship snapshots can
+    /// restore container entities with different network identifiers.
+    /// </summary>
+    public void RebuildContentsIndex(Entity<SmartFridgeComponent> ent)
+    {
+        ent.Comp.Entries.Clear();
+        ent.Comp.ContainedEntries.Clear();
+
+        if (!_container.TryGetContainer(ent, ent.Comp.Container, out var container))
+            return;
+
+        foreach (var item in container.ContainedEntities)
+        {
+            var key = new SmartFridgeEntry(Identity.Name(item, EntityManager));
+            if (!ent.Comp.Entries.Contains(key))
+                ent.Comp.Entries.Add(key);
+
+            ent.Comp.ContainedEntries.TryAdd(key, new());
+            ent.Comp.ContainedEntries[key].Add(GetNetEntity(item));
+        }
+
+        Dirty(ent);
+        UpdateUI(ent);
     }
 
     private bool DoInsert(Entity<SmartFridgeComponent> ent, EntityUid user, IEnumerable<EntityUid> usedItems, bool playSound)

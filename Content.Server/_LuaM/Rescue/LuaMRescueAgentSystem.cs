@@ -2,12 +2,15 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using Content.Server.Administration;
+using Content.Server.Atmos.EntitySystems;
 using Content.Server.PowerCell;
 using Content.Server.Bed.Components;
 using Content.Server.Body.Components;
+using Content.Server.Body.Systems;
 using Content.Server.Buckle.Systems;
 using Content.Server.Chemistry.EntitySystems;
 using Content.Server.Chat.Systems;
+using Content.Server.Gateway.Components;
 using Content.Server.Hands.Systems;
 using Content.Server.Interaction;
 using Content.Server.Medical;
@@ -19,10 +22,14 @@ using Content.Server.NPC.Systems;
 using Content.Server.Radio.EntitySystems;
 using Content.Server.Shuttles.Components;
 using Content.Server.Shuttles.Systems;
+using Content.Server.Teleportation;
 using Content.Server.VendingMachines;
 using Content.Shared.ActionBlocker;
 using Content.Shared._Goobstation.DoAfter;
+using Content.Shared.Atmos.Components;
+using Content.Shared.Atmos.EntitySystems;
 using Content.Shared.Atmos.Rotting;
+using Content.Shared.Body.Components;
 using Content.Shared.Buckle.Components;
 using Content.Shared.Body.Systems;
 using Content.Shared.Chemistry.Components;
@@ -50,6 +57,8 @@ using Content.Shared.Administration;
 using Content.Shared.Stacks;
 using Content.Shared.Storage;
 using Content.Shared.Storage.EntitySystems;
+using Content.Shared.Teleportation.Components;
+using Content.Shared.Teleportation.Systems;
 using Content.Shared.Traits.Assorted;
 using Content.Shared.VendingMachines;
 using Robust.Server.Player;
@@ -65,8 +74,18 @@ namespace Content.Server._LuaM.Rescue;
 
 public sealed class LuaMRescueAgentSystem : EntitySystem
 {
+    public readonly record struct MedicalSupplySnapshot(
+        int MedicalUnits,
+        int EffectiveMedicalUnits,
+        int TopicalUnits,
+        int InjectorUnits,
+        int BloodUnits,
+        int DiagnosticUnits,
+        string Status);
+
     // LuaM rescue state is server-only; status commands query it directly.
     private static void Dirty(EntityUid _, LuaMRescueAgentComponent __) { }
+    private static void Dirty(EntityUid _, LuaMRescueEscortComponent __) { }
 
     private enum PullStartResult : byte
     {
@@ -165,6 +184,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly BuckleSystem _buckle = default!;
     [Dependency] private readonly HandsSystem _hands = default!;
     [Dependency] private readonly InventorySystem _inventory = default!;
+    [Dependency] private readonly InternalsSystem _internals = default!;
+    [Dependency] private readonly SharedGasTankSystem _gasTank = default!;
+    [Dependency] private readonly RespiratorSystem _respirator = default!;
+    [Dependency] private readonly AtmosphereSystem _atmosphere = default!;
     [Dependency] private readonly InteractionSystem _interaction = default!;
     [Dependency] private readonly ExamineSystemShared _examine = default!;
     [Dependency] private readonly ChatSystem _chat = default!;
@@ -178,6 +201,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     [Dependency] private readonly ItemToggleSystem _itemToggle = default!;
     [Dependency] private readonly SharedContainerSystem _container = default!;
     [Dependency] private readonly ActionBlockerSystem _actionBlocker = default!;
+    [Dependency] private readonly LinkedEntitySystem _linkedEntity = default!;
+    [Dependency] private readonly PortalSystem _portal = default!;
     [Dependency] private readonly SharedDoAfterSystem _doAfter = default!;
     [Dependency] private readonly IGameTiming _timing = default!;
     [Dependency] private readonly VendingMachineSystem _vending = default!;
@@ -347,6 +372,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (rescue.OnboardCareTarget == target)
         {
             rescue.OnboardCareTarget = null;
+            changed = true;
+        }
+
+        if (rescue.LifeSupportEmergencyPatient == target)
+        {
+            rescue.LifeSupportEmergencyPatient = null;
             changed = true;
         }
 
@@ -658,6 +689,18 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             // control or self-incapacitation gates.
             PruneDeletedRequiredHandoffPatients(uid, rescue, htn);
 
+            // Life-support preemption owns the still-current patient before any
+            // terminal/compatibility reconciliation is allowed to retire its
+            // mirrors. Otherwise an arrival or transition on the same tick as
+            // oxygen exhaustion can erase the exact mission we must resume.
+            if (!HasComp<ActorComponent>(uid) &&
+                (!TryComp<MobStateComponent>(uid, out var lifeSupportMob) ||
+                 lifeSupportMob.CurrentState is not (MobState.Dead or MobState.Critical)) &&
+                UpdateLifeSupport(uid, rescue, htn, frameTime))
+            {
+                continue;
+            }
+
             ReconcileTerminalPatientIntentOwnership(uid, rescue, htn);
             ReconcileActivePatientIntentOwnership(uid, rescue, htn);
 
@@ -702,6 +745,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 continue;
             }
 
+            if (TryRefreshPatientGoalAfterGatewayTraversal(uid, rescue, htn))
+                continue;
+
+            if (TryContinueOwnedPatientRoute(uid, rescue, htn))
+                continue;
+
             if (!rescue.AutoAcquireTargets)
                 continue;
 
@@ -712,6 +761,637 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue.TargetRefreshAccumulator = 0f;
             UpdateAssignedTarget(uid, rescue, htn);
         }
+
+        var escortQuery = EntityQueryEnumerator<LuaMRescueEscortComponent>();
+        while (escortQuery.MoveNext(out var escortUid, out var escort))
+        {
+            if (HasComp<ActorComponent>(escortUid) ||
+                TryComp<MobStateComponent>(escortUid, out var mobState) &&
+                mobState.CurrentState is MobState.Dead or MobState.Critical)
+            {
+                continue;
+            }
+
+            UpdateEscortLifeSupport(escortUid, escort, frameTime);
+        }
+    }
+
+    private bool TryRefreshPatientGoalAfterGatewayTraversal(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (rescue.LifeSupportEmergencyActive ||
+            rescue.TaskStage != LuaMRescueTaskStage.FollowingPatient ||
+            rescue.AssignedTarget is not { Valid: true } patient ||
+            rescue.TaskPatientTarget != patient ||
+            rescue.ActivityContext.TerminalStatus != LuaMRescueTerminalStatus.Active ||
+            rescue.ActivityContext.Target != patient ||
+            Deleted(patient) ||
+            Transform(uid).MapID != Transform(patient).MapID ||
+            rescue.PendingMedicalDoAfterTarget is { Valid: true })
+        {
+            return false;
+        }
+
+        var agentMap = Transform(uid).MapID;
+        var staleGatewayGoal = false;
+        if (htn.Blackboard.TryGetValue<EntityCoordinates>(
+                NPCBlackboard.FollowTarget,
+                out var follow,
+                EntityManager))
+        {
+            if (follow.EntityId == patient)
+                return false;
+
+            if (follow.EntityId is { Valid: true } previous &&
+                !Deleted(previous) &&
+                HasComp<GatewayComponent>(previous) &&
+                Transform(previous).MapID != agentMap)
+            {
+                staleGatewayGoal = true;
+            }
+        }
+        else if (rescue.ActivityContext.Destination is { EntityId: { Valid: true } previous } &&
+                 !Deleted(previous) &&
+                 HasComp<GatewayComponent>(previous) &&
+                 Transform(previous).MapID != agentMap)
+        {
+            staleGatewayGoal = true;
+        }
+
+        if (!staleGatewayGoal)
+            return false;
+
+        SetFollowTarget(uid, rescue, htn, patient);
+        rescue.LastTargetTrackingStatus =
+            $"gateway traversal complete; restored patient goal {FormatEntityRef(patient)}";
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool TryContinueOwnedPatientRoute(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (rescue.LifeSupportEmergencyActive ||
+            rescue.PendingPlayerAction != LuaMRescuePlayerActionKind.None ||
+            rescue.PendingMedicalDoAfterTarget is { Valid: true } ||
+            rescue.AssignedTarget is not { Valid: true } patient ||
+            Deleted(patient) ||
+            rescue.TaskPatientTarget != patient ||
+            rescue.TaskStage is not (LuaMRescueTaskStage.FollowingPatient or LuaMRescueTaskStage.ManualAction) ||
+            rescue.ActivityContext.TerminalStatus != LuaMRescueTerminalStatus.Active ||
+            rescue.ActivityContext.Target != patient ||
+            rescue.ActivityContext.Activity is not (LuaMRescueActivity.PlanningRoute or
+                LuaMRescueActivity.ApproachPatient or LuaMRescueActivity.ManualAction) ||
+            HasUsablePatientMovementGoal(uid, htn, patient))
+        {
+            return false;
+        }
+
+        // Route probes are asynchronous. AutoAcquireTargets may deliberately be disabled for
+        // an explicitly owned mission, so the ownership loop must still poll a pending route
+        // after HoldMovementForRoute removed the old HTN executor.
+        SetFollowTarget(uid, rescue, htn, patient);
+        return true;
+    }
+
+    private bool HasUsablePatientMovementGoal(EntityUid uid, HTNComponent htn, EntityUid patient)
+    {
+        if (!htn.Blackboard.TryGetValue<EntityCoordinates>(
+                NPCBlackboard.FollowTarget,
+                out var follow,
+                EntityManager))
+        {
+            return false;
+        }
+
+        var sourceMap = Transform(uid).MapID;
+        var targetMap = Transform(patient).MapID;
+        if (follow.EntityId == patient)
+            return sourceMap == targetMap;
+
+        if (sourceMap == targetMap ||
+            sourceMap == MapId.Nullspace ||
+            targetMap == MapId.Nullspace ||
+            follow.EntityId is not { Valid: true } gateway ||
+            Deleted(gateway) ||
+            !TryComp<GatewayComponent>(gateway, out var gatewayComp) ||
+            !TryComp<PortalComponent>(gateway, out var portalComp) ||
+            !TryComp<TransformComponent>(gateway, out var gatewayXform) ||
+            _interaction.InRangeUnobstructed(
+                uid,
+                gateway,
+                SharedInteractionSystem.InteractionRange))
+        {
+            return false;
+        }
+
+        return TryResolveSingleReciprocalGatewayEndpoint(
+            gateway,
+            gatewayComp,
+            portalComp,
+            gatewayXform,
+            sourceMap,
+            targetMap,
+            out _);
+    }
+
+    private void UpdateEscortLifeSupport(
+        EntityUid uid,
+        LuaMRescueEscortComponent escort,
+        float frameTime)
+    {
+        if (!escort.AutoManageLifeSupport)
+            return;
+
+        escort.LifeSupportCheckAccumulator += frameTime;
+        if (escort.LifeSupportCheckAccumulator < escort.LifeSupportCheckInterval)
+            return;
+
+        escort.LifeSupportCheckAccumulator = 0f;
+        if (!TryComp<InternalsComponent>(uid, out var internals) ||
+            internals.GasTankEntity is not { Valid: true } activeTank ||
+            Deleted(activeTank) ||
+            !TryComp<GasTankComponent>(activeTank, out var activeGasTank) ||
+            !_internals.AreInternalsWorking(uid, internals))
+        {
+            if (CanBreatheAmbientAir(uid))
+            {
+                escort.LastLifeSupportStatus =
+                    "standby; internals are not active; ambient atmosphere breathable";
+                Dirty(uid, escort);
+                return;
+            }
+
+            var reserve = FindAccessibleLifeSupportReserve(uid, EntityUid.Invalid);
+            if (reserve is { } available && _gasTank.ConnectToInternals(available, uid))
+            {
+                var reservePressure = Math.Max(0f, available.Comp.Air.Pressure);
+                escort.LifeSupportSwapCount++;
+                escort.LastLifeSupportStatus = reservePressure > escort.LifeSupportSwapPressure
+                    ? $"automatic compatible oxygen reconnection succeeded; pressure={reservePressure:0} kPa; swaps={escort.LifeSupportSwapCount}"
+                    : $"last compatible oxygen supply connected; pressure={reservePressure:0} kPa; swaps={escort.LifeSupportSwapCount}";
+                Dirty(uid, escort);
+                return;
+            }
+
+            escort.LastLifeSupportStatus =
+                "life-support unavailable; no accessible compatible gas reserve in unbreathable atmosphere";
+            Dirty(uid, escort);
+            return;
+        }
+
+        var activePressure = Math.Max(0f, activeGasTank.Air.Pressure);
+        if (activePressure > escort.LifeSupportSwapPressure)
+        {
+            escort.LastLifeSupportStatus = $"primary supply nominal; pressure={activePressure:0} kPa";
+            Dirty(uid, escort);
+            return;
+        }
+
+        if (CanBreatheAmbientAir(uid))
+        {
+            var disconnected = _gasTank.DisconnectFromInternals((activeTank, activeGasTank), uid, forced: true);
+            if (disconnected &&
+                internals.GasTankEntity == null &&
+                _respirator.CanMetabolizeInhaledAir(uid))
+            {
+                escort.LastLifeSupportStatus =
+                    $"low oxygen tank disconnected; breathing verified from ambient atmosphere; pressure={activePressure:0} kPa";
+                Dirty(uid, escort);
+                return;
+            }
+        }
+
+        var replacement = FindAccessibleLifeSupportReserve(uid, activeTank);
+        var replacementPressure = replacement is { } candidate
+            ? Math.Max(0f, candidate.Comp.Air.Pressure)
+            : 0f;
+        if (replacement is not { } compatible || replacementPressure <= activePressure)
+        {
+            escort.LastLifeSupportStatus =
+                $"critical oxygen reserve; no better accessible compatible replacement; pressure={activePressure:0} kPa";
+            Dirty(uid, escort);
+            return;
+        }
+
+        if (!_gasTank.ConnectToInternals(compatible, uid))
+        {
+            escort.LastLifeSupportStatus =
+                $"critical oxygen reserve; automatic compatible replacement failed; pressure={activePressure:0} kPa";
+            Dirty(uid, escort);
+            return;
+        }
+
+        escort.LifeSupportSwapCount++;
+        escort.LastLifeSupportStatus = replacementPressure > escort.LifeSupportSwapPressure
+            ? $"automatic compatible oxygen replacement connected; pressure={replacementPressure:0} kPa; swaps={escort.LifeSupportSwapCount}"
+            : $"last compatible oxygen replacement connected; pressure={replacementPressure:0} kPa; swaps={escort.LifeSupportSwapCount}";
+        Dirty(uid, escort);
+    }
+
+    private bool UpdateLifeSupport(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        float frameTime)
+    {
+        if (!rescue.AutoManageLifeSupport)
+            return false;
+
+        rescue.LifeSupportCheckAccumulator += frameTime;
+        if (rescue.LifeSupportCheckAccumulator < rescue.LifeSupportCheckInterval)
+            return rescue.LifeSupportEmergencyActive;
+
+        rescue.LifeSupportCheckAccumulator = 0f;
+        if (!TryComp<InternalsComponent>(uid, out var internals) ||
+            internals.GasTankEntity is not { Valid: true } activeTank ||
+            Deleted(activeTank) ||
+            !TryComp<GasTankComponent>(activeTank, out var activeGasTank) ||
+            !_internals.AreInternalsWorking(uid, internals))
+        {
+            if (CanBreatheAmbientAir(uid))
+            {
+                ResolveLifeSupportEmergency(uid, rescue, htn);
+                rescue.LastLifeSupportStatus = "standby; internals are not active; ambient atmosphere breathable";
+                Dirty(uid, rescue);
+                return false;
+            }
+
+            var lastChance = FindAccessibleLifeSupportReserve(uid, EntityUid.Invalid);
+            if (lastChance is { } available &&
+                _respirator.CanMetabolizeGas(uid, available.Comp.Air) &&
+                _gasTank.ConnectToInternals(available, uid))
+            {
+                var lastChancePressure = Math.Max(0f, available.Comp.Air.Pressure);
+                rescue.LifeSupportSwapCount++;
+                if (lastChancePressure > rescue.LifeSupportSwapPressure)
+                {
+                    ResolveLifeSupportEmergency(uid, rescue, htn);
+                    rescue.LastLifeSupportStatus =
+                        $"automatic oxygen reconnection succeeded; pressure={lastChancePressure:0} kPa; swaps={rescue.LifeSupportSwapCount}";
+                    Dirty(uid, rescue);
+                    return false;
+                }
+
+                rescue.LastLifeSupportStatus =
+                    $"last oxygen supply connected; pressure={lastChancePressure:0} kPa; emergency return active";
+                ActivateOrMaintainLifeSupportEmergency(
+                    uid,
+                    rescue,
+                    htn,
+                    $"only low-pressure oxygen remains; pressure={lastChancePressure:0} kPa");
+                Dirty(uid, rescue);
+                return true;
+            }
+
+            rescue.LastLifeSupportStatus = "life-support emergency; internals unavailable in unbreathable atmosphere";
+            ActivateOrMaintainLifeSupportEmergency(uid, rescue, htn, "internals unavailable");
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        var activePressure = Math.Max(0f, activeGasTank.Air.Pressure);
+        if (activePressure > rescue.LifeSupportSwapPressure)
+        {
+            ResolveLifeSupportEmergency(uid, rescue, htn);
+            rescue.LastLifeSupportStatus = $"primary supply nominal; pressure={activePressure:0} kPa";
+            Dirty(uid, rescue);
+            return false;
+        }
+
+        if (CanBreatheAmbientAir(uid))
+        {
+            var disconnected = _gasTank.DisconnectFromInternals((activeTank, activeGasTank), uid, forced: true);
+            var internalsReleased = internals.GasTankEntity == null;
+            if (disconnected && internalsReleased && _respirator.CanMetabolizeInhaledAir(uid))
+            {
+                ResolveLifeSupportEmergency(uid, rescue, htn);
+                rescue.LastLifeSupportStatus =
+                    $"low oxygen tank disconnected; breathing verified from ambient atmosphere; pressure={activePressure:0} kPa";
+                Dirty(uid, rescue);
+                return false;
+            }
+        }
+
+        var reserve = FindAccessibleLifeSupportReserve(uid, activeTank);
+        if (reserve == null || reserve.Value.Owner == activeTank)
+        {
+            rescue.LastLifeSupportStatus = $"critical oxygen reserve; no accessible replacement; pressure={activePressure:0} kPa";
+            return HandleCriticalLifeSupportWithoutReplacement(
+                uid,
+                rescue,
+                htn,
+                (activeTank, activeGasTank),
+                $"no accessible replacement; pressure={activePressure:0} kPa");
+        }
+
+        var reservePressure = Math.Max(0f, reserve.Value.Comp.Air.Pressure);
+        if (reservePressure <= 0f ||
+            !_respirator.CanMetabolizeGas(uid, reserve.Value.Comp.Air))
+        {
+            rescue.LastLifeSupportStatus = $"critical oxygen reserve; replacement unusable; pressure={activePressure:0} kPa";
+            return HandleCriticalLifeSupportWithoutReplacement(
+                uid,
+                rescue,
+                htn,
+                (activeTank, activeGasTank),
+                $"replacement unusable; pressure={activePressure:0} kPa");
+        }
+
+        if (!_gasTank.ConnectToInternals(reserve.Value, uid))
+        {
+            rescue.LastLifeSupportStatus = $"critical oxygen reserve; automatic replacement failed; pressure={activePressure:0} kPa";
+            return HandleCriticalLifeSupportWithoutReplacement(
+                uid,
+                rescue,
+                htn,
+                (activeTank, activeGasTank),
+                $"automatic replacement failed; pressure={activePressure:0} kPa");
+        }
+
+        rescue.LifeSupportSwapCount++;
+        if (reservePressure <= rescue.LifeSupportSwapPressure)
+        {
+            rescue.LastLifeSupportStatus =
+                $"last oxygen replacement connected; pressure={reservePressure:0} kPa; emergency return active";
+            ActivateOrMaintainLifeSupportEmergency(
+                uid,
+                rescue,
+                htn,
+                $"only low-pressure oxygen remains; pressure={reservePressure:0} kPa");
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        ResolveLifeSupportEmergency(uid, rescue, htn);
+        rescue.LastLifeSupportStatus =
+            $"automatic oxygen replacement connected; pressure={reservePressure:0} kPa; swaps={rescue.LifeSupportSwapCount}";
+        Dirty(uid, rescue);
+        return false;
+    }
+
+    private bool HandleCriticalLifeSupportWithoutReplacement(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        Entity<GasTankComponent> reserveActiveTank,
+        string reason)
+    {
+        if (CanBreatheAmbientAir(uid))
+        {
+            var disconnected = _gasTank.DisconnectFromInternals(reserveActiveTank, uid, forced: true);
+            var internalsReleased = TryComp<InternalsComponent>(uid, out var releasedInternals) &&
+                                    releasedInternals.GasTankEntity == null;
+            if (disconnected && internalsReleased && _respirator.CanMetabolizeInhaledAir(uid))
+            {
+                ResolveLifeSupportEmergency(uid, rescue, htn);
+                rescue.LastLifeSupportStatus +=
+                    "; depleted tank disconnected; breathing verified from ambient atmosphere";
+                Dirty(uid, rescue);
+                return false;
+            }
+
+            reason = $"{reason}; failed to release depleted tank for ambient breathing";
+        }
+
+        rescue.LastLifeSupportStatus += "; unbreathable atmosphere; emergency return active";
+        ActivateOrMaintainLifeSupportEmergency(uid, rescue, htn, reason);
+        Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool CanBreatheAmbientAir(EntityUid uid)
+    {
+        var mixture = _atmosphere.GetContainingMixture(uid);
+        return mixture != null && _respirator.CanMetabolizeGas(uid, mixture);
+    }
+
+    private void ActivateOrMaintainLifeSupportEmergency(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        string reason)
+    {
+        var carryingEmergencyPatient = false;
+        if (!rescue.LifeSupportEmergencyActive)
+        {
+            rescue.LifeSupportEmergencyActive = true;
+            rescue.LifeSupportEmergencyStartedAt = _timing.CurTime;
+            rescue.LifeSupportEmergencyCount++;
+
+            if (TryGetActivePatientTarget(rescue, out var patient) && !Deleted(patient))
+            {
+                rescue.LifeSupportEmergencyPatient = patient;
+                carryingEmergencyPatient = IsPullingTarget(uid, patient) ||
+                                           IsBuckledToAssignedShuttlePatientStrap(patient, rescue);
+
+                // Automatic ownership must remain durable even when the patient
+                // is already being carried or is buckled onboard. Manual lineage
+                // has its own stronger owner and is resumed before this queue.
+                if (!IsManualPatientIntent(rescue, patient))
+                    rescue.DeferredPatientTargets.TryAdd(patient, _timing.CurTime);
+
+                if (!carryingEmergencyPatient)
+                {
+                    PrepareForExternalIntentReplacement(uid, EntityUid.Invalid);
+                    rescue.AssignedTarget = null;
+                    rescue.EvacuatingTarget = null;
+                    rescue.DeathSignalTarget = null;
+                    ClearRescueTask(uid, rescue, $"life-support emergency deferred {FormatEntityRef(patient)}");
+                    ClearPendingPlayerAction(rescue, "cancelled by life-support emergency");
+                }
+            }
+
+            if (!carryingEmergencyPatient)
+                BeginLifeSupportReturnActivity(uid, rescue);
+        }
+
+        var patientStatus = rescue.LifeSupportEmergencyPatient is { Valid: true } patientUid && !Deleted(patientUid)
+            ? $"; patient={FormatEntityRef(patientUid)}"
+            : string.Empty;
+        TrySendRescueStatusComms(
+            uid,
+            rescue,
+            $"life-support-emergency:{rescue.LifeSupportEmergencyCount}",
+            $"Авария жизнеобеспечения: {reason}. Отхожу к спасательному шаттлу{patientStatus}.");
+
+        if (!CanUseAssignedShuttleForLifeSupport(rescue))
+        {
+            BeginLifeSupportReturnActivity(uid, rescue);
+            HoldMovementForRoute(uid, htn);
+            _activity.Block(
+                uid,
+                LuaMRescueFailureReason.LifeSupportUnavailable,
+                LuaMRescueActivity.ReturnToShuttle,
+                out _);
+            rescue.LastShuttleReturnStatus =
+                $"LifeSupportUnavailable: no assigned rescue shuttle; {reason}";
+            rescue.LastLifeSupportStatus += "; no assigned shuttle; holding position and requesting assistance";
+            return;
+        }
+
+        if (IsOnAssignedShuttle(uid, rescue))
+        {
+            BeginLifeSupportReturnActivity(uid, rescue);
+            HoldMovementForRoute(uid, htn);
+            if (TryRouteShuttleHome(uid, rescue))
+            {
+                rescue.LastShuttleReturnStatus =
+                    $"life-support emergency onboard; {rescue.LastShuttleReturnStatus}; {reason}";
+            }
+            return;
+        }
+
+        SetFollowShuttle(uid, rescue, htn);
+    }
+
+    private void BeginLifeSupportReturnActivity(EntityUid uid, LuaMRescueAgentComponent rescue)
+    {
+        EntityUid? returnTarget = rescue.AssignedShuttle is { Valid: true } shuttle && !Deleted(shuttle)
+            ? shuttle
+            : rescue.AssignedShuttleAnchor is { Valid: true } anchor && !Deleted(anchor)
+                ? anchor
+                : null;
+        EntityCoordinates? destination = TryGetShuttleAnchorCoordinates(rescue, out var coordinates)
+            ? coordinates
+            : null;
+        BeginPatientActivity(
+            uid,
+            rescue,
+            LuaMRescueActivity.ReturnToShuttle,
+            returnTarget,
+            destination);
+    }
+
+    private void ResolveLifeSupportEmergency(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn)
+    {
+        if (!rescue.LifeSupportEmergencyActive)
+            return;
+
+        var duration = Math.Max(0d, (_timing.CurTime - rescue.LifeSupportEmergencyStartedAt).TotalSeconds);
+        var interruptedPatient = rescue.LifeSupportEmergencyPatient;
+        rescue.LifeSupportEmergencyActive = false;
+        rescue.LastLifeSupportStatus =
+            $"life-support emergency cleared after {duration:0.0}s; patient mission queued for recovery";
+        rescue.LastTargetTrackingStatus =
+            $"life-support recovered; deferred={FormatEntityRef(interruptedPatient)}";
+        rescue.LifeSupportEmergencyPatient = null;
+        rescue.TargetRefreshAccumulator = rescue.TargetRefreshInterval;
+        TryResumeManualOverrideTarget(uid, rescue, htn);
+        if (rescue.AssignedTarget == null)
+            TryResumeDeferredPatientTask(uid, rescue, htn, interruptedPatient);
+        Dirty(uid, rescue);
+    }
+
+    private Entity<GasTankComponent>? FindAccessibleLifeSupportReserve(EntityUid uid, EntityUid activeTank)
+    {
+        Entity<GasTankComponent>? best = null;
+        var bestPressure = 0f;
+
+        void Consider(EntityUid candidate)
+        {
+            if (candidate == activeTank ||
+                Deleted(candidate) ||
+                !TryComp<GasTankComponent>(candidate, out var tank) ||
+                !_gasTank.CanConnectToInternals((candidate, tank)) ||
+                !_respirator.CanMetabolizeGas(uid, tank.Air))
+                return;
+
+            var pressure = Math.Max(0f, tank.Air.Pressure);
+            if (pressure <= bestPressure)
+                return;
+
+            best = (candidate, tank);
+            bestPressure = pressure;
+        }
+
+        if (TryComp<HandsComponent>(uid, out var hands))
+        {
+            foreach (var hand in hands.Hands.Values)
+            {
+                if (hand.HeldEntity is { Valid: true } held)
+                    Consider(held);
+            }
+        }
+
+        if (TryComp<InventoryComponent>(uid, out var inventory))
+        {
+            foreach (var slot in inventory.Slots)
+            {
+                if (_inventory.TryGetSlotEntity(uid, slot.Name, out var item, inventory) &&
+                    item is { Valid: true } equipped)
+                    Consider(equipped);
+            }
+        }
+
+        return best;
+    }
+
+    public LuaMRescueLifeSupportSnapshot GetLifeSupportSnapshot(EntityUid uid)
+    {
+        TryComp<LuaMRescueAgentComponent>(uid, out var rescue);
+        if (!TryComp<InternalsComponent>(uid, out var internals) ||
+            internals.GasTankEntity is not { Valid: true } tank ||
+            Deleted(tank) ||
+            !TryComp<GasTankComponent>(tank, out var gasTank))
+        {
+            return new LuaMRescueLifeSupportSnapshot(
+                false,
+                rescue?.LifeSupportEmergencyActive ?? false,
+                0f,
+                0,
+                0f,
+                rescue?.LifeSupportSwapCount ?? 0,
+                rescue?.LifeSupportEmergencyCount ?? 0,
+                rescue?.LastLifeSupportStatus ?? "internals disconnected; no active gas tank");
+        }
+
+        var reserveCount = 0;
+        var bestReservePressure = 0f;
+        var seen = new HashSet<EntityUid> { tank };
+        if (TryComp<InventoryComponent>(uid, out var inventory))
+        {
+            foreach (var slot in inventory.Slots)
+            {
+                if (!_inventory.TryGetSlotEntity(uid, slot.Name, out var item, inventory) ||
+                    item is not { Valid: true } candidate ||
+                    !seen.Add(candidate) ||
+                    !TryComp<GasTankComponent>(candidate, out var candidateTank))
+                    continue;
+
+                reserveCount++;
+                bestReservePressure = Math.Max(bestReservePressure, Math.Max(0f, candidateTank.Air.Pressure));
+            }
+        }
+
+        var active = _internals.AreInternalsWorking(uid, internals);
+        var pressure = Math.Max(0f, gasTank.Air.Pressure);
+        var status = rescue?.LastLifeSupportStatus;
+        if (string.IsNullOrWhiteSpace(status) || status == "not checked")
+        {
+            status = !active
+                ? $"internals unavailable; tank pressure={pressure:0} kPa"
+                : gasTank.IsLowPressure
+                    ? $"oxygen reserve low; pressure={pressure:0} kPa"
+                    : $"internals active; pressure={pressure:0} kPa";
+        }
+
+        return new LuaMRescueLifeSupportSnapshot(
+            active,
+            rescue?.LifeSupportEmergencyActive ?? false,
+            pressure,
+            reserveCount,
+            bestReservePressure,
+            rescue?.LifeSupportSwapCount ?? 0,
+            rescue?.LifeSupportEmergencyCount ?? 0,
+            status);
     }
 
     public EntityUid SpawnAgent(EntityUid anchor, EntityUid? followTarget, ICommonSession? controller, bool control)
@@ -756,6 +1436,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
     public bool TryFindActiveAgent(out EntityUid agent, out LuaMRescueAgentComponent rescue)
     {
+        agent = default;
+        rescue = default!;
+        var bestScore = int.MaxValue;
         var query = EntityQueryEnumerator<LuaMRescueAgentComponent>();
         while (query.MoveNext(out var uid, out var rescueComp))
         {
@@ -764,14 +1447,27 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 mobState.CurrentState == MobState.Dead)
                 continue;
 
+            var ownsMission = rescueComp.LifeSupportEmergencyActive ||
+                              rescueComp.AssignedTarget is { Valid: true } ||
+                              rescueComp.DeathSignalTarget is { Valid: true } ||
+                              rescueComp.EvacuatingTarget is { Valid: true } ||
+                              rescueComp.OnboardCareTarget is { Valid: true } ||
+                              rescueComp.TaskPatientTarget is { Valid: true } ||
+                              rescueComp.ActivityContext.Target is { Valid: true } &&
+                              rescueComp.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active;
+            var score = ownsMission ? 0 : 1;
+            if (score > bestScore ||
+                score == bestScore && agent.Valid && uid.Id >= agent.Id)
+            {
+                continue;
+            }
+
+            bestScore = score;
             agent = uid;
             rescue = rescueComp;
-            return true;
         }
 
-        agent = default;
-        rescue = default!;
-        return false;
+        return agent.Valid;
     }
 
     private bool TryHandleRescueAgentMobState(EntityUid uid, LuaMRescueAgentComponent rescue, HTNComponent htn)
@@ -915,7 +1611,10 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             if (summaries.Count >= 2)
                 continue;
 
-            var patient = rescue.EvacuatingTarget ??
+            var patient = rescue.LifeSupportEmergencyActive
+                ? rescue.LifeSupportEmergencyPatient
+                : null;
+            patient ??= rescue.EvacuatingTarget ??
                           rescue.AssignedTarget ??
                           rescue.DeathSignalTarget ??
                           rescue.TaskPatientTarget;
@@ -924,6 +1623,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 ? "медборт назначен"
                 : "медборт не назначен";
             var status = SelectRadioStatus(
+                rescue.LifeSupportEmergencyActive ? rescue.LastLifeSupportStatus : string.Empty,
                 rescue.LastOnboardCareStatus,
                 rescue.LastAutoTreatmentStatus,
                 rescue.LastAutoDefibStatus,
@@ -956,6 +1656,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             !TryComp<HTNComponent>(agent, out _))
         {
             status = $"{FormatEntityRef(agent)} is not a LuaM rescue agent.";
+            return false;
+        }
+
+        if (rescue.LifeSupportEmergencyActive)
+        {
+            status =
+                $"{FormatEntityRef(agent)} is returning during a life-support emergency and cannot accept a radio dispatch.";
             return false;
         }
 
@@ -1005,6 +1712,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         currentPatient = default;
         EntityUid?[] ownedPatients =
         [
+            rescue.LifeSupportEmergencyActive ? rescue.LifeSupportEmergencyPatient : null,
             rescue.AssignedTarget,
             rescue.EvacuatingTarget,
             rescue.OnboardCareTarget,
@@ -1067,6 +1775,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (HasComp<ActorComponent>(agent))
         {
             status = $"{FormatEntityRef(agent)} is under manual player control.";
+            return false;
+        }
+
+        if (rescue.LifeSupportEmergencyActive)
+        {
+            status = rescue.LifeSupportEmergencyPatient is { Valid: true } emergencyPatient
+                ? $"Aibolit is returning for life support; patient {FormatEntityRef(emergencyPatient)} remains reserved."
+                : "Aibolit is returning for life support and cannot accept a new patient order.";
             return false;
         }
 
@@ -2074,7 +2790,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                     // patient and Resupply activity remain the authoritative intent.
                     SetTaskMovementTarget(uid, rescue, htn, targetUid);
                 }
-                else if (rescue.AssignedTarget != targetUid)
+                else if (rescue.AssignedTarget != targetUid ||
+                         !HasUsablePatientMovementGoal(uid, htn, targetUid))
                 {
                     SetFollowTarget(uid, rescue, htn, targetUid);
                 }
@@ -3772,6 +4489,88 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return true;
     }
 
+    public MedicalSupplySnapshot GetMedicalSupplySnapshot(EntityUid uid, EntityUid? patient)
+    {
+        var seen = new HashSet<EntityUid>();
+        var medicalUnits = 0;
+        var effectiveUnits = 0;
+        var topicalUnits = 0;
+        var injectorUnits = 0;
+        var bloodUnits = 0;
+        var diagnosticUnits = 0;
+
+        void CountItem(EntityUid item, int depth = 0)
+        {
+            if (!item.Valid || Deleted(item) || !seen.Add(item))
+                return;
+
+            var units = TryComp<StackComponent>(item, out var stack) ? Math.Max(0, stack.Count) : 1;
+            var medical = false;
+            if (HasComp<HealingComponent>(item))
+            {
+                topicalUnits += units;
+                medical = true;
+            }
+            if (HasComp<HyposprayComponent>(item) || HasComp<InjectorComponent>(item))
+            {
+                injectorUnits += units;
+                medical = true;
+            }
+            if (MetaData(item).EntityPrototype?.ID?.Equals("Bloodpack", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                bloodUnits += units;
+                medical = true;
+            }
+            if (HasComp<HealthAnalyzerComponent>(item) || HasComp<DefibrillatorComponent>(item))
+            {
+                diagnosticUnits += units;
+                medical = true;
+            }
+
+            if (medical && AllowsTreatmentEquipment(uid, item))
+            {
+                medicalUnits += units;
+                if (patient is { Valid: true } target && !Deleted(target) &&
+                    GetTreatmentItemScore(item, target, null, includeDiagnosticItems: false) > 0f)
+                    effectiveUnits += units;
+            }
+
+            if (depth >= 2 || !TryComp<StorageComponent>(item, out var nested))
+                return;
+            foreach (var contained in nested.Container.ContainedEntities)
+                CountItem(contained, depth + 1);
+        }
+
+        if (TryComp<HandsComponent>(uid, out var hands))
+        {
+            foreach (var hand in hands.Hands.Values)
+            {
+                if (hand.HeldEntity is { Valid: true } held)
+                    CountItem(held);
+            }
+        }
+
+        foreach (var slot in GetTreatmentStorageSlots(uid))
+        {
+            if (TryResolveStorageSlot(uid, slot, out var storageUid, out _, out _))
+                CountItem(storageUid);
+        }
+
+        var status = patient is not { Valid: true }
+            ? $"medical={medicalUnits}; no active patient"
+            : effectiveUnits > 0
+                ? $"ready; effective={effectiveUnits}; total={medicalUnits}"
+                : $"depleted for active patient; total medical={medicalUnits}";
+        return new MedicalSupplySnapshot(
+            medicalUnits,
+            effectiveUnits,
+            topicalUnits,
+            injectorUnits,
+            bloodUnits,
+            diagnosticUnits,
+            status);
+    }
+
     private bool TrySelectTreatmentItem(
         EntityUid user,
         EntityUid storageUid,
@@ -4838,7 +5637,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         if (rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
-            TryGetActivePatientTarget(rescue, out var current) &&
+            TryGetActivePatientTarget(rescue, out var current, includeManualOverride: false) &&
             current == newTarget &&
             sameTrackedTarget)
         {
@@ -4847,7 +5646,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         CancelMedicalDoAftersForIntentReplacement(uid, rescue, $"newTarget={FormatEntityRef(newTarget)}");
         var replacedRouteTargets = new HashSet<EntityUid>();
-        if (TryGetActivePatientTarget(rescue, out current) && current != newTarget)
+        if (TryGetActivePatientTarget(rescue, out current, includeManualOverride: false) && current != newTarget)
         {
             StopPullingTarget(uid, current);
             replacedRouteTargets.Add(current);
@@ -6131,11 +6930,42 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return LuaMRescueActivity.ApproachPatient;
     }
 
-    private bool TryGetActivePatientTarget(LuaMRescueAgentComponent rescue, out EntityUid target)
+    private bool TryGetActivePatientTarget(
+        LuaMRescueAgentComponent rescue,
+        out EntityUid target,
+        bool includeManualOverride = true)
     {
+        if (rescue.LifeSupportEmergencyActive &&
+            rescue.LifeSupportEmergencyPatient is { Valid: true } emergencyPatient)
+        {
+            target = emergencyPatient;
+            return true;
+        }
+
+        // ActivityContext is the authoritative owner; the fields below are
+        // compatibility mirrors and can already have been cleared by another
+        // system on this tick. Restrict the fallback to actual medical bodies so
+        // PlanningRoute/Returning targets such as a shuttle grid never become a
+        // synthetic patient.
+        if (rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+            rescue.ActivityContext.Target is { Valid: true } activityTarget &&
+            !Deleted(activityTarget) &&
+            HasComp<MobStateComponent>(activityTarget) &&
+            HasComp<DamageableComponent>(activityTarget))
+        {
+            target = activityTarget;
+            return true;
+        }
+
         if (rescue.EvacuatingTarget is { Valid: true } evacuating)
         {
             target = evacuating;
+            return true;
+        }
+
+        if (rescue.OnboardCareTarget is { Valid: true } onboard)
+        {
+            target = onboard;
             return true;
         }
 
@@ -6145,9 +6975,22 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
         }
 
+        if (rescue.DeathSignalTarget is { Valid: true } deathSignal)
+        {
+            target = deathSignal;
+            return true;
+        }
+
         if (rescue.TaskPatientTarget is { Valid: true } remembered)
         {
             target = remembered;
+            return true;
+        }
+
+        if (includeManualOverride &&
+            rescue.ManualOverrideTarget is { Valid: true } manual)
+        {
+            target = manual;
             return true;
         }
 
@@ -6456,7 +7299,8 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
     private bool TryResumeDeferredPatientTask(
         EntityUid uid,
         LuaMRescueAgentComponent rescue,
-        HTNComponent htn)
+        HTNComponent htn,
+        EntityUid? preferredTarget = null)
     {
         if (rescue.DeferredPatientTargets.Count == 0 ||
             TryGetActivePatientTarget(rescue, out _) ||
@@ -6501,6 +7345,14 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
                 continue;
             }
 
+            if (candidate == preferredTarget)
+            {
+                selected = candidate;
+                selectedPriority = priority;
+                selectedEnqueuedAt = enqueuedAt;
+                break;
+            }
+
             if (priority < selectedPriority ||
                 priority == selectedPriority &&
                 (enqueuedAt > selectedEnqueuedAt ||
@@ -6528,7 +7380,9 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         rescue.DeferredPatientTargets.Remove(selected);
-        rescue.LastDeferredPatientStatus = $"resuming deferred {FormatEntityRef(selected)}";
+        rescue.LastDeferredPatientStatus = selected == preferredTarget
+            ? $"resuming deferred exact interrupted patient {FormatEntityRef(selected)}"
+            : $"resuming deferred {FormatEntityRef(selected)}";
         rescue.SkippedTargets.Remove(selected);
         SetRescueTask(
             uid,
@@ -6556,7 +7410,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (rescue.ManualOverrideTarget is not { Valid: true } target ||
             Deleted(target) ||
             rescue.PendingPlayerAction != LuaMRescuePlayerActionKind.None ||
-            TryGetActivePatientTarget(rescue, out _) ||
+            TryGetActivePatientTarget(rescue, out _, includeManualOverride: false) ||
             rescue.OnboardCareTarget is { Valid: true } ||
             rescue.DeathSignalTarget is { Valid: true } ||
             rescue.DormantRouteTarget == target ||
@@ -6611,6 +7465,29 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             rescue.ActivityContext.Target is not { Valid: true } authoritativeTarget ||
             Deleted(authoritativeTarget))
         {
+            return;
+        }
+
+        // Returning owns a navigation destination, not a patient. During a
+        // life-support retreat the interrupted patient remains in the dedicated
+        // emergency owner while FollowTarget must stay on the route destination.
+        if (rescue.LifeSupportEmergencyActive &&
+            (rescue.ActivityContext.Activity == LuaMRescueActivity.Returning ||
+             authoritativeTarget == rescue.AssignedShuttle ||
+             authoritativeTarget == rescue.AssignedShuttleAnchor))
+        {
+            if (rescue.AssignedTarget == authoritativeTarget)
+            {
+                rescue.AssignedTarget = null;
+                Dirty(uid, rescue);
+            }
+
+            if (rescue.TaskPatientTarget == authoritativeTarget)
+            {
+                rescue.TaskPatientTarget = null;
+                Dirty(uid, rescue);
+            }
+
             return;
         }
 
@@ -6762,6 +7639,17 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         if (rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active ||
             rescue.ActivityContext.Target is not { Valid: true } terminalTarget ||
             Deleted(terminalTarget))
+        {
+            return;
+        }
+
+        // Cancelling the patient generation is how a life-support retreat
+        // releases its old steering. The dedicated emergency owner keeps that
+        // exact mission alive until breathing is restored, so terminal cleanup
+        // must not revoke a manual lineage (or otherwise reinterpret it as a
+        // completed patient episode) while the retreat is authoritative.
+        if (rescue.LifeSupportEmergencyActive &&
+            rescue.LifeSupportEmergencyPatient == terminalTarget)
         {
             return;
         }
@@ -8946,6 +9834,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         return rescue.EvacuateTargetsToShuttle &&
                rescue.AssignedShuttle is { Valid: true } shuttle &&
                !Deleted(shuttle);
+    }
+
+    private bool CanUseAssignedShuttleForLifeSupport(LuaMRescueAgentComponent rescue)
+    {
+        return rescue.AssignedShuttle is { Valid: true } shuttle &&
+               !Deleted(shuttle) &&
+               TryGetShuttleAnchorCoordinates(rescue, out _);
     }
 
     private bool IsOnAssignedShuttle(EntityUid target, LuaMRescueAgentComponent rescue)
@@ -12047,6 +12942,12 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var crossGrid = agentGrid != targetGrid;
         var dockedForTarget = false;
         LuaMRescueShuttleLifecycleComponent? lifecycle = null;
+        if (TryRouteThroughGateway(uid, rescue, htn, target, manual))
+        {
+            Dirty(uid, rescue);
+            return;
+        }
+
         if (crossGrid &&
             rescue.AssignedShuttle is { Valid: true } shuttle &&
             !Deleted(shuttle))
@@ -12209,6 +13110,184 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             new EntityCoordinates(target, Vector2.Zero),
             actionRange);
         Dirty(uid, rescue);
+    }
+
+    /// <summary>
+    /// Routes a rescuer through a currently open, reciprocal expedition gateway when its linked
+    /// endpoint is on the patient's map. NPC steering stops at the gateway's non-free navigation
+    /// polygon, so a rescuer already within unobstructed interaction range uses the linked-portal
+    /// transfer contract explicitly and immediately receives the patient goal on the far side.
+    /// </summary>
+    private bool TryRouteThroughGateway(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid target,
+        bool manual)
+    {
+        var agentMap = Transform(uid).MapID;
+        var targetMap = Transform(target).MapID;
+        if (agentMap == targetMap || agentMap == MapId.Nullspace || targetMap == MapId.Nullspace)
+            return false;
+
+        EntityUid? bestGateway = null;
+        LuaMRescuePathProbeSnapshot bestRoute = default;
+        EntityUid? pendingGateway = null;
+        LuaMRescuePathProbeSnapshot pendingRoute = default;
+        var query = AllEntityQuery<GatewayComponent, PortalComponent, TransformComponent>();
+        while (query.MoveNext(out var gateway, out var gatewayComp, out var portalComp, out var gatewayXform))
+        {
+            if (!TryResolveSingleReciprocalGatewayEndpoint(
+                    gateway,
+                    gatewayComp,
+                    portalComp,
+                    gatewayXform,
+                    agentMap,
+                    targetMap,
+                    out _))
+            {
+                continue;
+            }
+
+            // Gateway fixtures are intentionally non-free navigation polygons. Stock NPC
+            // steering considers that boundary arrived at interaction range, while the strict
+            // 0.1 route probe may already report NoPath. Retain the fully validated endpoint so
+            // the controlled transfer below can finish the crossing.
+            if (_interaction.InRangeUnobstructed(
+                    uid,
+                    gateway,
+                    SharedInteractionSystem.InteractionRange))
+            {
+                bestGateway = gateway;
+                bestRoute = default;
+                break;
+            }
+
+            // The controlled transfer below fires from fixture-aware interaction
+            // range. Probe for that reachable boundary instead of the blocked
+            // gateway centre; the published HTN goal remains 0.1 m so ordinary
+            // steering still enters the fixture when it can.
+            var route = _rescueNavigation.ProbeRoute(
+                uid,
+                gateway,
+                SharedInteractionSystem.InteractionRange);
+            if (route.State == LuaMRescuePathProbeState.Pending)
+            {
+                if (pendingGateway == null || route.Distance < pendingRoute.Distance)
+                {
+                    pendingGateway = gateway;
+                    pendingRoute = route;
+                }
+                continue;
+            }
+
+            if (route.State != LuaMRescuePathProbeState.Reachable ||
+                bestGateway != null && route.Distance >= bestRoute.Distance)
+            {
+                continue;
+            }
+
+            bestGateway = gateway;
+            bestRoute = route;
+        }
+
+        if (bestGateway == null && pendingGateway is { } planningGateway)
+        {
+            if (!BeginPatientActivity(
+                    uid,
+                    rescue,
+                    LuaMRescueActivity.PlanningRoute,
+                    target,
+                    new EntityCoordinates(planningGateway, Vector2.Zero)))
+            {
+                HandlePatientRouteFailure(
+                    uid,
+                    rescue,
+                    htn,
+                    target,
+                    manual,
+                    rescue.ActivityContext.FailureReason == LuaMRescueFailureReason.None
+                        ? LuaMRescueFailureReason.DeadlineExceeded
+                        : rescue.ActivityContext.FailureReason,
+                    "gateway planning activity reached a terminal state");
+                return true;
+            }
+
+            HoldMovementForRoute(uid, htn);
+            rescue.LastTargetTrackingStatus =
+                $"planning gateway route via {FormatEntityRef(planningGateway)} to map {targetMap}";
+            _activity.RecordProgress(
+                uid,
+                new EntityCoordinates(planningGateway, Vector2.Zero),
+                pendingRoute.Distance,
+                LuaMRescueRouteStatus.Planning,
+                LuaMRescueDoAfterStatus.None,
+                out _);
+            return true;
+        }
+
+        if (bestGateway is not { } portal)
+            return false;
+
+        if (!BeginPatientActivity(
+                uid,
+                rescue,
+                manual ? LuaMRescueActivity.ManualAction : LuaMRescueActivity.ApproachPatient,
+                target,
+                new EntityCoordinates(portal, Vector2.Zero)))
+        {
+            HandlePatientRouteFailure(
+                uid,
+                rescue,
+                htn,
+                target,
+                manual,
+                rescue.ActivityContext.FailureReason == LuaMRescueFailureReason.None
+                    ? LuaMRescueFailureReason.DeadlineExceeded
+                    : rescue.ActivityContext.FailureReason,
+                "gateway approach activity reached a terminal state");
+            return true;
+        }
+
+        if (_interaction.InRangeUnobstructed(
+                uid,
+                portal,
+                SharedInteractionSystem.InteractionRange))
+        {
+            // Cancel the old near-zero gateway executor before teleporting. Otherwise it can
+            // survive on the far side and steer the rescuer back into the arrival gateway.
+            HoldMovementForRoute(uid, htn);
+            if (_portal.TryTeleportThroughLinkedPortal(portal, uid, ignoreTimeout: true))
+            {
+                rescue.LastTargetTrackingStatus =
+                    $"crossed open gateway {FormatEntityRef(portal)} to patient {FormatEntityRef(target)}";
+                _activity.RecordProgress(
+                    uid,
+                    new EntityCoordinates(target, Vector2.Zero),
+                    null,
+                    LuaMRescueRouteStatus.Moving,
+                    LuaMRescueDoAfterStatus.None,
+                    out _);
+                SetFollowTarget(uid, rescue, htn, target);
+                return true;
+            }
+
+            rescue.LastTargetTrackingStatus =
+                $"gateway transfer failed at {FormatEntityRef(portal)}; reassessing patient route";
+            return true;
+        }
+
+        rescue.LastTargetTrackingStatus =
+            $"approaching open gateway {FormatEntityRef(portal)} to patient map {targetMap}";
+        _activity.RecordProgress(
+            uid,
+            new EntityCoordinates(portal, Vector2.Zero),
+            bestRoute.Distance,
+            LuaMRescueRouteStatus.Moving,
+            LuaMRescueDoAfterStatus.None,
+            out _);
+        SetMovementGoal(uid, rescue, htn, new EntityCoordinates(portal, Vector2.Zero), 0.1f);
+        return true;
     }
 
     private void HoldMovementForRoute(EntityUid uid, HTNComponent htn)
@@ -12442,7 +13521,11 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return false;
         }
 
-        if (TryGetActivePatientTarget(rescue, out var activeTarget))
+        // ManualOverrideTarget is durable provenance, not an executing owner.
+        // It must survive while this dormant observer owns the failed route,
+        // but must not cancel that observer and immediately recreate the same
+        // exhausted intent every update.
+        if (TryGetActivePatientTarget(rescue, out var activeTarget, includeManualOverride: false))
         {
             if (activeTarget == target)
             {
@@ -12517,26 +13600,30 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         }
 
         // The route result is authoritative. Cancel fallback movement before the
-        // sole BeginOrReplaceIntent call so no old HTN operator survives this
-        // generation change.
+        // normal patient-activity transition so no old HTN operator survives the
+        // generation change. Dormant recovery can begin from Standby, therefore it
+        // must use the bounded transition helper instead of attempting the invalid
+        // Standby -> ApproachPatient edge directly.
         PrepareForExternalIntentReplacement(uid, target);
         var destination = new EntityCoordinates(target, Vector2.Zero);
-        if (!_activity.BeginOrReplaceIntent(
+        if (!BeginPatientActivity(
                 uid,
-                rescue.ActivityRole,
+                rescue,
                 LuaMRescueActivity.ApproachPatient,
                 target,
-                destination,
-                out var resumed))
+                destination))
         {
             _rescueNavigation.CancelRoute(uid, target);
             rescue.NextDormantRouteProbeAt = now +
                 TimeSpan.FromSeconds(Math.Max(0.1f, rescue.DormantRouteObservationSeconds));
             rescue.LastDormantRouteStatus =
-                $"reachable target={FormatEntityRef(target)} but intent replacement failed: {resumed.FailureReason}";
+                $"reachable target={FormatEntityRef(target)} but intent replacement failed: " +
+                $"{rescue.ActivityContext.FailureReason}";
             Dirty(uid, rescue);
             return false;
         }
+
+        var resumedGeneration = rescue.ActivityContext.Generation;
 
         rescue.AssignedTarget = target;
         SetRescueTask(
@@ -12560,7 +13647,7 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
         var probeCount = rescue.DormantRouteProbeCount;
         ClearDormantRouteRecovery(rescue, "recovered", clearFailureBudget: true);
         rescue.LastDormantRouteStatus =
-            $"recovered target={FormatEntityRef(target)}; generation={resumed.Generation}; " +
+            $"recovered target={FormatEntityRef(target)}; generation={resumedGeneration}; " +
             $"resume={resumeCount}; probes={probeCount}";
         Dirty(uid, rescue);
         return true;
@@ -12728,6 +13815,22 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
 
         var patient = rescue.EvacuatingTarget ?? rescue.TaskPatientTarget;
         var delivering = patient is { Valid: true } patientUid && IsPullingTarget(uid, patientUid);
+        if (delivering &&
+            patient is { Valid: true } portalPatient &&
+            TryReturnPatientThroughGateway(uid, portalPatient, rescue, htn, coordinates.EntityId))
+        {
+            Dirty(uid, rescue);
+            return true;
+        }
+
+        if (!delivering &&
+            rescue.LifeSupportEmergencyActive &&
+            TryReturnAgentThroughGateway(uid, rescue, htn, coordinates.EntityId))
+        {
+            Dirty(uid, rescue);
+            return true;
+        }
+
         if (!EnsureConfirmedShuttleTraversal(
                 uid,
                 rescue,
@@ -12801,6 +13904,322 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             out _);
         SetMovementGoal(uid, rescue, htn, coordinates, rescue.EvacuationArrivalRange);
         Dirty(uid, rescue);
+        return true;
+    }
+
+    private bool TryReturnPatientThroughGateway(
+        EntityUid uid,
+        EntityUid patient,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid destination)
+    {
+        if (Deleted(patient) || Deleted(destination) || !IsPullingTarget(uid, patient))
+            return false;
+
+        var agentMap = Transform(uid).MapID;
+        var patientMap = Transform(patient).MapID;
+        var destinationMap = Transform(destination).MapID;
+        if (agentMap != patientMap || agentMap == destinationMap ||
+            agentMap == MapId.Nullspace || destinationMap == MapId.Nullspace)
+        {
+            return false;
+        }
+
+        EntityUid? bestGateway = null;
+        LuaMRescuePathProbeSnapshot bestRoute = default;
+        var query = AllEntityQuery<GatewayComponent, PortalComponent, TransformComponent>();
+        while (query.MoveNext(out var gateway, out var gatewayComp, out var portalComp, out var gatewayXform))
+        {
+            if (!TryResolveSingleReciprocalGatewayEndpoint(
+                    gateway,
+                    gatewayComp,
+                    portalComp,
+                    gatewayXform,
+                    agentMap,
+                    destinationMap,
+                    out _))
+            {
+                continue;
+            }
+
+            var route = _rescueNavigation.ProbeRoute(uid, gateway, 1f);
+            if (route.State == LuaMRescuePathProbeState.Pending)
+            {
+                HoldMovementForRoute(uid, htn);
+                rescue.LastShuttleReturnStatus =
+                    $"planning patient return through gateway {FormatEntityRef(gateway)}";
+                _activity.RecordProgress(
+                    uid,
+                    new EntityCoordinates(gateway, Vector2.Zero),
+                    route.Distance,
+                    LuaMRescueRouteStatus.Planning,
+                    LuaMRescueDoAfterStatus.None,
+                    out _);
+                return true;
+            }
+
+            if (route.State != LuaMRescuePathProbeState.Reachable ||
+                bestGateway != null && route.Distance >= bestRoute.Distance)
+            {
+                continue;
+            }
+
+            bestGateway = gateway;
+            bestRoute = route;
+        }
+
+        if (bestGateway is not { } portal)
+            return false;
+
+        if (!BeginPatientActivity(
+                uid,
+                rescue,
+                LuaMRescueActivity.DeliverPatient,
+                patient,
+                new EntityCoordinates(portal, Vector2.Zero)))
+        {
+            return true;
+        }
+
+        var agentAtPortal = IsWithinRange(uid, portal, 1.05f);
+        var patientAtPortal = IsWithinRange(patient, portal, 2.25f);
+        if (agentAtPortal && patientAtPortal)
+        {
+            // The generic collision path deliberately breaks pulling. Move the patient first and
+            // the rescuer second through the same validated link, then reacquire custody on the
+            // destination side during the next rescue update.
+            StopPullingTarget(uid, patient);
+            if (_portal.TryTeleportThroughLinkedPortal(portal, patient, ignoreTimeout: true) &&
+                _portal.TryTeleportThroughLinkedPortal(portal, uid, ignoreTimeout: true))
+            {
+                rescue.LastShuttleReturnStatus =
+                    $"patient and rescuer crossed gateway {FormatEntityRef(portal)}; reacquiring custody";
+                _activity.RecordProgress(
+                    uid,
+                    new EntityCoordinates(destination, Vector2.Zero),
+                    null,
+                    LuaMRescueRouteStatus.Moving,
+                    LuaMRescueDoAfterStatus.None,
+                    out _);
+                return true;
+            }
+
+            rescue.LastShuttleReturnStatus =
+                $"gateway transfer failed at {FormatEntityRef(portal)}; reassessing route";
+            return true;
+        }
+
+        rescue.LastShuttleReturnStatus =
+            $"bringing {FormatEntityRef(patient)} to return gateway {FormatEntityRef(portal)}";
+        _activity.RecordProgress(
+            uid,
+            new EntityCoordinates(portal, Vector2.Zero),
+            bestRoute.Distance,
+            LuaMRescueRouteStatus.Moving,
+            LuaMRescueDoAfterStatus.None,
+            out _);
+        SetMovementGoal(uid, rescue, htn, new EntityCoordinates(portal, Vector2.Zero), 1f);
+        return true;
+    }
+
+    /// <summary>
+    /// A lone rescuer has no pulled patient to drive the expedition return path.
+    /// Move it to the nearest safe reciprocal gateway and explicitly cross once
+    /// the fixture is within unobstructed interaction range.
+    /// </summary>
+    private bool TryReturnAgentThroughGateway(
+        EntityUid uid,
+        LuaMRescueAgentComponent rescue,
+        HTNComponent htn,
+        EntityUid destination)
+    {
+        if (Deleted(destination) ||
+            rescue.AssignedShuttle is not { Valid: true } shuttle ||
+            Deleted(shuttle))
+        {
+            return false;
+        }
+
+        var agentMap = Transform(uid).MapID;
+        var destinationMap = Transform(destination).MapID;
+        if (agentMap == destinationMap ||
+            agentMap == MapId.Nullspace ||
+            destinationMap == MapId.Nullspace)
+        {
+            return false;
+        }
+
+        EntityUid? bestGateway = null;
+        LuaMRescuePathProbeSnapshot bestRoute = default;
+        EntityUid? pendingGateway = null;
+        LuaMRescuePathProbeSnapshot pendingRoute = default;
+        var query = AllEntityQuery<GatewayComponent, PortalComponent, TransformComponent>();
+        while (query.MoveNext(out var gateway, out var gatewayComp, out var portalComp, out var gatewayXform))
+        {
+            if (!TryResolveSingleReciprocalGatewayEndpoint(
+                    gateway,
+                    gatewayComp,
+                    portalComp,
+                    gatewayXform,
+                    agentMap,
+                    destinationMap,
+                    out _))
+            {
+                continue;
+            }
+
+            if (_interaction.InRangeUnobstructed(
+                    uid,
+                    gateway,
+                    SharedInteractionSystem.InteractionRange))
+            {
+                bestGateway = gateway;
+                bestRoute = default;
+                break;
+            }
+
+            // Match the controlled-transfer boundary used above. A 0.1 m
+            // pathfinding probe targets the gateway's blocked centre and can
+            // oscillate between Pending and NoPath even though the entrance is
+            // safely reachable.
+            var route = _rescueNavigation.ProbeRoute(
+                uid,
+                gateway,
+                SharedInteractionSystem.InteractionRange);
+            if (route.State == LuaMRescuePathProbeState.Pending)
+            {
+                if (pendingGateway == null || route.Distance < pendingRoute.Distance)
+                {
+                    pendingGateway = gateway;
+                    pendingRoute = route;
+                }
+                continue;
+            }
+
+            if (route.State != LuaMRescuePathProbeState.Reachable ||
+                bestGateway != null && route.Distance >= bestRoute.Distance)
+            {
+                continue;
+            }
+
+            bestGateway = gateway;
+            bestRoute = route;
+        }
+
+        if (bestGateway == null && pendingGateway is { } planningGateway)
+        {
+            BeginPatientActivity(
+                uid,
+                rescue,
+                LuaMRescueActivity.ReturnToShuttle,
+                shuttle,
+                new EntityCoordinates(planningGateway, Vector2.Zero));
+            HoldMovementForRoute(uid, htn);
+            rescue.LastShuttleReturnStatus =
+                $"planning life-support return through gateway {FormatEntityRef(planningGateway)}";
+            _activity.RecordProgress(
+                uid,
+                new EntityCoordinates(planningGateway, Vector2.Zero),
+                pendingRoute.Distance,
+                LuaMRescueRouteStatus.Planning,
+                LuaMRescueDoAfterStatus.None,
+                out _);
+            return true;
+        }
+
+        if (bestGateway is not { } portal)
+            return false;
+
+        if (!BeginPatientActivity(
+                uid,
+                rescue,
+                LuaMRescueActivity.ReturnToShuttle,
+                shuttle,
+                new EntityCoordinates(portal, Vector2.Zero)))
+        {
+            return true;
+        }
+
+        if (_interaction.InRangeUnobstructed(
+                uid,
+                portal,
+                SharedInteractionSystem.InteractionRange))
+        {
+            // Crossing by collision alone can leave the old HTN operator
+            // steering into the arrival portal until its timeout expires,
+            // causing a delayed bounce back to the expedition. Stop that
+            // executor, use the stock linked-portal transfer contract, then
+            // immediately publish the real shuttle-anchor goal on the far side.
+            HoldMovementForRoute(uid, htn);
+            if (_portal.TryTeleportThroughLinkedPortal(portal, uid, ignoreTimeout: true))
+            {
+                rescue.LastShuttleReturnStatus =
+                    $"rescuer crossed life-support return gateway {FormatEntityRef(portal)}";
+                _activity.RecordProgress(
+                    uid,
+                    new EntityCoordinates(destination, Vector2.Zero),
+                    null,
+                    LuaMRescueRouteStatus.Moving,
+                    LuaMRescueDoAfterStatus.None,
+                    out _);
+                SetFollowShuttle(uid, rescue, htn);
+                return true;
+            }
+
+            rescue.LastShuttleReturnStatus =
+                $"life-support gateway transfer failed at {FormatEntityRef(portal)}; reassessing route";
+            return true;
+        }
+
+        rescue.LastShuttleReturnStatus =
+            $"returning through gateway {FormatEntityRef(portal)} during life-support emergency";
+        _activity.RecordProgress(
+            uid,
+            new EntityCoordinates(portal, Vector2.Zero),
+            bestRoute.Distance,
+            LuaMRescueRouteStatus.Moving,
+            LuaMRescueDoAfterStatus.None,
+            out _);
+        SetMovementGoal(uid, rescue, htn, new EntityCoordinates(portal, Vector2.Zero), 0.1f);
+        return true;
+    }
+
+    private bool TryResolveSingleReciprocalGatewayEndpoint(
+        EntityUid source,
+        GatewayComponent sourceGateway,
+        PortalComponent sourcePortal,
+        TransformComponent sourceTransform,
+        MapId sourceMap,
+        MapId destinationMap,
+        out EntityUid destination)
+    {
+        destination = default;
+        if (!sourceGateway.Enabled ||
+            !sourcePortal.CanTeleportToOtherMaps ||
+            sourceTransform.MapID != sourceMap ||
+            !TryComp<LinkedEntityComponent>(source, out var sourceLinks) ||
+            sourceLinks.LinkedEntities.Count != 1)
+        {
+            return false;
+        }
+
+        var candidate = sourceLinks.LinkedEntities.First();
+        if (!candidate.Valid ||
+            Deleted(candidate) ||
+            !TryComp<GatewayComponent>(candidate, out var destinationGateway) ||
+            !destinationGateway.Enabled ||
+            !TryComp<PortalComponent>(candidate, out var destinationPortal) ||
+            !destinationPortal.CanTeleportToOtherMaps ||
+            !TryComp<LinkedEntityComponent>(candidate, out var destinationLinks) ||
+            destinationLinks.LinkedEntities.Count != 1 ||
+            destinationLinks.LinkedEntities.First() != source ||
+            Transform(candidate).MapID != destinationMap)
+        {
+            return false;
+        }
+
+        destination = candidate;
         return true;
     }
 
@@ -12920,10 +14339,13 @@ public sealed class LuaMRescueAgentSystem : EntitySystem
             return true;
 
         HoldMovementForRoute(uid, htn);
+        var traversalActivity = rescue.LifeSupportEmergencyActive && patient == null
+            ? LuaMRescueActivity.ReturnToShuttle
+            : LuaMRescueActivity.PlanningRoute;
         BeginPatientActivity(
             uid,
             rescue,
-            LuaMRescueActivity.PlanningRoute,
+            traversalActivity,
             patient ?? shuttle,
             new EntityCoordinates(destination, Vector2.Zero));
 

@@ -1,8 +1,8 @@
 <controls:FancyWindow xmlns="https://spacestation14.io"
             xmlns:gfx="clr-namespace:Robust.Client.Graphics;assembly=Robust.Client"
             xmlns:controls="clr-namespace:Content.Client.UserInterface.Controls"
-            SetSize="300 350"
-            MinSize="300 350"
+            SetSize="360 410"
+            MinSize="360 410"
             Resizable="False">
     <BoxContainer Margin="10 2 10 2" Orientation="Vertical">
         <PanelContainer VerticalExpand="True" HorizontalExpand="True">
@@ -40,6 +40,10 @@
                         </BoxContainer>
                     </PanelContainer>
                 </BoxContainer>
+                <RichTextLabel Text="{Loc 'bank-atm-menu-savings-description'}"
+                               HorizontalExpand="True"
+                               MaxWidth="330"
+                               Margin="6 2 6 6"/>
                 <LineEdit Name="WithdrawEdit" MinSize="80 0"
                         PlaceHolder="{Loc 'bank-atm-menu-withdraw-amount'}" Margin="2 2"/>
                 <PanelContainer VerticalExpand="False" HorizontalExpand="True" Margin="2 2">

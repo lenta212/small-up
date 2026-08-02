@@ -135,6 +135,15 @@
   - type: Carriable # Carrying system from nyanotrasen.
   - type: ProtectedFromStepTriggers # Frontier
   - type: FTLKnockdownImmune # Frontier
+  - type: LuaMDionaRooting
+    healing:
+      types:
+        Blunt: -1.5
+        Slash: -1.5
+        Piercing: -1
+  - type: ActionGrant
+    actions:
+    - ActionLuaMDionaToggleRooting
 
 - type: entity
   parent: BaseSpeciesDummy

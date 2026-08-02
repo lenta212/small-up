@@ -13,6 +13,7 @@ using Content.Server.Power.EntitySystems;
 using Content.Server.Salvage;
 using Content.Server.Shuttles.Components;
 using Content.Server.Shuttles.Systems;
+using Content.Server.SmartFridge;
 using Content.Server.Station.Systems;
 using Content.Server.Mind;
 using Content.Server.Weapons.Ranged.Systems;
@@ -199,6 +200,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     [Dependency] private StationSystem _stations = default!;
     [Dependency] private BatterySystem _battery = default!;
     [Dependency] private PowerChargeSystem _powerCharge = default!;
+    [Dependency] private SmartFridgeSystem _smartFridges = default!;
 
     private readonly HashSet<Guid> _busyShips = [];
 
@@ -759,6 +761,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
 
             // Player minds are runtime ownership, not portable ship content.
             SanitizeRestoredMinds(createdEntities);
+            RebuildRestoredSmartStorageIndexes(createdEntities);
             _shipShields.ReconcileRestoredShipShields(restoredGrid, createdEntities);
             createdEntities.RemoveWhere(uid => !Exists(uid));
             ExpireImpossibleRestoredUseDelays(createdEntities);
@@ -892,6 +895,15 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         {
             Log.Warning(
                 $"Expired {expiredEntries} impossible battery self-recharge timestamp(s) while restoring a persistent ship.");
+        }
+    }
+
+    private void RebuildRestoredSmartStorageIndexes(IEnumerable<EntityUid> createdEntities)
+    {
+        foreach (var uid in createdEntities)
+        {
+            if (TryComp<Content.Shared.SmartFridge.SmartFridgeComponent>(uid, out var smartFridge))
+                _smartFridges.RebuildContentsIndex((uid, smartFridge));
         }
     }
 
@@ -1311,6 +1323,14 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     if (TryGetMapping(component, "storedItems", out var storedItems))
                         changed |= RemoveInvalidMappingKeys(storedItems);
                     break;
+                case "SmartFridge":
+                    // These fields are a UI index derived from the physical
+                    // smart_fridge_inventory container. NetEntity values cannot
+                    // survive a portable map round-trip and previously made a
+                    // non-empty smart storage reject the whole ship snapshot.
+                    changed |= RemoveMappingField(component, "entries");
+                    changed |= RemoveMappingField(component, "containedEntries");
+                    break;
                 case "Puller":
                     changed |= ReplaceInvalidReferenceWithNull(component, "pulling");
                     break;
@@ -1378,6 +1398,19 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         }
 
         return changed;
+    }
+
+    private static bool RemoveMappingField(YamlMappingNode mapping, string key)
+    {
+        foreach (var keyNode in mapping.Children.Keys)
+        {
+            if (keyNode is not YamlScalarNode scalar || scalar.Value != key)
+                continue;
+
+            return mapping.Children.Remove(keyNode);
+        }
+
+        return false;
     }
 
     private static bool RemoveInvalidReferences(YamlNode node)

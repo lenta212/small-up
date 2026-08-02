@@ -282,6 +282,22 @@ public sealed partial class LuaMRescueEscortComponent : Component
 
     public float DutyRefreshAccumulator;
 
+    [DataField]
+    public bool AutoManageLifeSupport = true;
+
+    [DataField]
+    public float LifeSupportCheckInterval = 1f;
+
+    [DataField]
+    public float LifeSupportSwapPressure = 30f;
+
+    public float LifeSupportCheckAccumulator;
+
+    [DataField]
+    public string LastLifeSupportStatus = "not checked";
+
+    public int LifeSupportSwapCount;
+
     public TimeSpan NextDutyActionAt;
 
     public TimeSpan NextSpeechTime;

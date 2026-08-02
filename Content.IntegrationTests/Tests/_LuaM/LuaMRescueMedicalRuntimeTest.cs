@@ -264,6 +264,12 @@ public sealed class LuaMRescueMedicalRuntimeTest
                     out _),
                 Is.True,
                 "The autonomous resupply path requires an active treatment intent.");
+            var depleted = rescueSystem.GetMedicalSupplySnapshot(agent, patient);
+            Assert.Multiple(() =>
+            {
+                Assert.That(depleted.EffectiveMedicalUnits, Is.EqualTo(0));
+                Assert.That(depleted.Status, Does.Contain("depleted"));
+            });
         });
 
         EntityUid selectedMedicine = default;
@@ -290,6 +296,7 @@ public sealed class LuaMRescueMedicalRuntimeTest
         await server.WaitAssertion(() =>
         {
             var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+            var supplies = rescueSystem.GetMedicalSupplySnapshot(agent, patient);
             Assert.Multiple(() =>
             {
                 Assert.That(verifiedTreatmentStarted, Is.True,
@@ -304,6 +311,9 @@ public sealed class LuaMRescueMedicalRuntimeTest
                 Assert.That(rescue.PendingVendingProduct, Is.Null);
                 Assert.That(rescue.PendingVendingDispensedItem, Is.Null);
                 Assert.That(rescue.TaskPatientTarget, Is.EqualTo(patient));
+                Assert.That(supplies.MedicalUnits, Is.GreaterThan(0));
+                Assert.That(supplies.EffectiveMedicalUnits, Is.GreaterThan(0));
+                Assert.That(supplies.Status, Does.StartWith("ready"));
             });
         });
 
@@ -1730,6 +1740,10 @@ public sealed class LuaMRescueMedicalRuntimeTest
     {
         var agent = entities.SpawnEntity(TestAgent, Coordinates(mapId, position));
         var rescue = entities.GetComponent<LuaMRescueAgentComponent>(agent);
+        // This deliberately minimal medical fixture has no rescue loadout or
+        // internals and runs on a map-root coordinate. Its tests exercise
+        // treatment state, not the production agent's vacuum survival policy.
+        rescue.AutoManageLifeSupport = false;
         rescue.AutoAcquireTargets = false;
         rescue.AutoAnalyzeBeforeTreatment = false;
         rescue.AutoPickupNearbyMedicalSupplies = false;

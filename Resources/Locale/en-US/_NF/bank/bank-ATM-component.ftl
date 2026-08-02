@@ -1,11 +1,12 @@
 ## UI
 bank-atm-menu-title = Colossus Central Bank
 bank-atm-menu-balance-label = Balance:{" "}
-bank-atm-menu-savings-label = Savings:{" "}
+bank-atm-menu-savings-label = Long-term account:{" "}
+bank-atm-menu-savings-description = Shared by all your characters. Excess deposits are saved here and can pay for future spawn loadouts; ATM cash withdrawals use the current character balance.
 bank-atm-menu-no-bank = No Bank Account!
 bank-atm-menu-withdraw-button = Withdraw
 bank-atm-menu-deposit-label = Deposit (Sector):{" "}
-bank-atm-menu-deposit-label-ut = Deposit (Savings):{" "}
+bank-atm-menu-deposit-label-ut = To long-term account:{" "}
 bank-atm-menu-amount-label = Withdraw:{" "}
 bank-atm-menu-no-deposit = Empty
 bank-atm-menu-deposit-button = Deposit

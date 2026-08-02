@@ -322,6 +322,7 @@ luam-sector-terminal-sector-map-detail-field-packet-printed = полевой а�
 luam-sector-evidence-file-verb = Подать доказательство LuaM
 luam-sector-evidence-filed = Доказательство LuaM принято. Задание/маршрут обновлены.
 luam-sector-evidence-already-filed = Это доказательство уже подано или задание уже закрыто.
+luam-sector-evidence-contract-not-payable = Сначала примите этот контракт на КПК. Предмет не сдан, награда не выплачена и задание не закрыто.
 luam-sector-terminal-next-round-inactive = смена не активна
 luam-sector-terminal-next-disabled = динамические события отключены
 luam-sector-terminal-next-initial-delay = начальная задержка {$minutes} мин после старта смены

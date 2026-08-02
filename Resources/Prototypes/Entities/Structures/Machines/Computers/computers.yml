@@ -1182,8 +1182,8 @@
 - type: entity
   id: ComputerSalvageExpedition
   parent: BaseComputerAiAccess
-  name: salvage expeditions computer
-  description: Used to accept salvage missions, if you're tough enough.
+  name: архивный экспедиционный компьютер
+  description: Корабельный запуск экспедиций выведен из эксплуатации. Действующий портал находится на центральном экспедиционном аванпосте.
   components:
     - type: Sprite
       layers:

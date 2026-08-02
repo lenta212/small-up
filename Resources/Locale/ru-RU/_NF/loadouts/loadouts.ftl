@@ -1,5 +1,5 @@
 frontier-loadout-cost = Стоимость Снаряжения: {$cost}
-frontier-loadout-balance = Доступный Баланс: {$balance}
+frontier-loadout-balance = Доступно для снаряжения: долгосрочный счёт {$savings} + баланс персонажа {$balance}
 loadout-contractor-clothing-eyes-punk-goggles = панк-очки (случайные)
 loadout-contractor-clothing-eyes-punk-infoshades = панк-инфоочки (случайные)
 loadout-contractor-belt-plant-empty = пояс ботаника (пустой)

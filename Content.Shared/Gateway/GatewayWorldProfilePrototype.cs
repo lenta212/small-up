@@ -79,4 +79,13 @@ public sealed partial class GatewayWorldProfilePrototype : IPrototype
 
     [DataField]
     public List<ProtoId<BiomeMarkerLayerPrototype>> MobLayers = new();
+
+    /// <summary>
+    /// Replaces bulk ore layers with a single high-value expedition cache inside the dungeon.
+    /// </summary>
+    [DataField]
+    public bool SuppressResourceLoot;
+
+    [DataField]
+    public EntProtoId? RewardCache;
 }

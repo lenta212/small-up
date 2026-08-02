@@ -1,0 +1,11 @@
+- type: entity
+  id: ActionLuaMDionaToggleRooting
+  name: Укорениться
+  description: Укоренитесь на твёрдой поверхности, чтобы восстанавливать физические повреждения за счёт питания. Пока корни выпущены, двигаться нельзя, а полученный урон прерывает восстановление.
+  components:
+  - type: InstantAction
+    icon:
+      sprite: Mobs/Species/Diona/parts.rsi
+      state: l_leg
+    event: !type:LuaMDionaToggleRootingActionEvent
+    useDelay: 2

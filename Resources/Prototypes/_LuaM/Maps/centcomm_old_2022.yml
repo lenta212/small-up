@@ -1,0 +1,15 @@
+- type: gameMap
+  id: CentCommOld2022
+  isGrid: true
+  mapName: 'Central Command (2022)'
+  mapPath: /Maps/_LuaM/Stations/centcomm_old_2022.yml
+  minPlayers: 0
+  stations:
+    centcomm:
+      stationProto: NanotrasenCentralCommand
+      components:
+        - type: StationNameSetup
+          mapNameTemplate: '{0} Central Command 2022 {1}'
+          nameGenerator:
+            !type:NanotrasenNameGenerator
+            prefixCreator: 'TG'

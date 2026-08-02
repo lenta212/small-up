@@ -301,6 +301,8 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         targets.UnionWith(rescue.OnboardHandoffAttempts.Keys);
         targets.UnionWith(rescue.IgnoredOnboardPatients);
         targets.UnionWith(rescue.RequiredOnboardHandoffPatients);
+        if (rescue.LifeSupportEmergencyPatient is { Valid: true } emergencyPatient)
+            targets.Add(emergencyPatient);
 
         foreach (var target in targets)
         {
@@ -451,12 +453,17 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         string reason)
     {
         var candidates = new HashSet<EntityUid>();
+        AddCandidate(rescue.LifeSupportEmergencyPatient);
         AddCandidate(rescue.AssignedTarget);
         AddCandidate(rescue.DeathSignalTarget);
         AddCandidate(rescue.EvacuatingTarget);
         AddCandidate(rescue.OnboardCareTarget);
         AddCandidate(rescue.TaskPatientTarget);
-        if (rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active)
+        if (rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active &&
+            !(rescue.LifeSupportEmergencyActive &&
+              (rescue.ActivityContext.Activity == LuaMRescueActivity.Returning ||
+               rescue.ActivityContext.Target == rescue.AssignedShuttle ||
+               rescue.ActivityContext.Target == rescue.AssignedShuttleAnchor)))
             AddCandidate(rescue.ActivityContext.Target);
         foreach (var deferred in rescue.DeferredPatientTargets.Keys)
             AddCandidate(deferred);
@@ -1009,6 +1016,48 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         return true;
     }
 
+    public bool TryAssignQueuedDispatch(EntityUid target, EntityUid agent, out string status)
+    {
+        if (!_pendingDispatches.ContainsKey(target) && !_terminalDispatches.ContainsKey(target))
+        {
+            status = "target has no queued or terminal medical dispatch";
+            return false;
+        }
+
+        if (!TryComp<LuaMRescueAgentComponent>(agent, out var rescue) ||
+            !TryComp<MobStateComponent>(agent, out var mob) ||
+            mob.CurrentState is MobState.Dead or MobState.Critical ||
+            (!IsRescueAvailableForDispatch(rescue) && !IsRescueAssignedToTarget(rescue, target)))
+        {
+            status = "selected Aibolit is unavailable or incapacitated";
+            return false;
+        }
+
+        var query = EntityQueryEnumerator<LuaMRescueAgentComponent>();
+        while (query.MoveNext(out var other, out var otherRescue))
+        {
+            if (other != agent && IsRescueAssignedToTarget(otherRescue, target))
+            {
+                status = $"target already belongs to Aibolit #{other.Id}";
+                return false;
+            }
+        }
+
+        if (!_rescueAgent.TryOrderAgent(agent, target, out status))
+            return false;
+
+        if (!IsRescueAssignedToTarget(rescue, target))
+        {
+            status = $"Aibolit #{agent.Id} accepted the command but did not retain authoritative patient ownership";
+            return false;
+        }
+
+        _pendingDispatches.Remove(target);
+        _terminalDispatches.Remove(target);
+        status = $"queued dispatch assigned to Aibolit #{agent.Id}; {status}";
+        return true;
+    }
+
     /// <summary>
     /// Runtime/test surface for feeding an automatic signal through the same strict gate as MobState events.
     /// A successful result means the dispatch was either launched or durably queued.
@@ -1066,7 +1115,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             if (_patientRecoveryTransfers.TryGetValue(target, out var earlyRecovery))
                 MergeRecoveryProvenance(pending, earlyRecovery);
 
-            if (TryFindLivingActiveRescueAgent(out var activeAgent, out var activeRescue) &&
+            if (TryFindLivingActiveRescueAgentForTarget(target, out var activeAgent, out var activeRescue) &&
                 IsRescueAgentOperational(activeAgent) &&
                 activeRescue.ActivityContext.Target == target &&
                 activeRescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active)
@@ -1107,8 +1156,15 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             }
 
             var eligibilityRescuer = EntityUid.Invalid;
+            var hasEligibilityRescuer = TryFindLivingActiveRescueAgentForTarget(
+                target,
+                out eligibilityRescuer,
+                out var eligibilityRescue);
             if (pending.PreservedOwnerLineage &&
-                !TryFindLivingActiveRescueAgent(out eligibilityRescuer, out _))
+                (!hasEligibilityRescuer ||
+                 !IsRescueAgentOperational(eligibilityRescuer) ||
+                 !IsRescueAvailableForDispatch(eligibilityRescue) &&
+                 !IsRescueAssignedToTarget(eligibilityRescue, target)))
             {
                 if (!TrySpawnReplacementAgent(
                         pending.ReplacementAnchor,
@@ -1180,7 +1236,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             if (dispatchResult == AutomaticDispatchAttemptResult.Dispatched)
             {
                 if (pending.PreservedOwnerLineage &&
-                    TryFindLivingActiveRescueAgent(out var dispatchedAgent, out var dispatchedRescue) &&
+                    TryFindLivingActiveRescueAgentForTarget(target, out var dispatchedAgent, out var dispatchedRescue) &&
                     IsRescueAssignedToTarget(dispatchedRescue, target))
                 {
                     ApplyDispatchProvenance(dispatchedAgent, dispatchedRescue, pending, target);
@@ -1284,7 +1340,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
                 out var dispatchStatus);
             if (dispatchResult == AutomaticDispatchAttemptResult.Dispatched)
             {
-                if (TryFindLivingActiveRescueAgent(out var dispatchedAgent, out var dispatchedRescue) &&
+                if (TryFindLivingActiveRescueAgentForTarget(target, out var dispatchedAgent, out var dispatchedRescue) &&
                     IsRescueAssignedToTarget(dispatchedRescue, target))
                 {
                     ApplyDispatchProvenance(dispatchedAgent, dispatchedRescue, existingPending, target);
@@ -1599,6 +1655,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         }
 
         if (TryResolveDispatchAgent(
+                target,
                 manualOverride,
                 manualOverrideOwner,
                 out var activeAgent,
@@ -1616,6 +1673,20 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             if (!IsRescueAgentOperational(activeAgent))
             {
                 status = $"active rescue agent {GetNetEntity(activeAgent)} is medically incapacitated";
+                return AutomaticDispatchAttemptResult.Waiting;
+            }
+
+            if (activeRescue.LifeSupportEmergencyActive)
+            {
+                if (activeRescue.LifeSupportEmergencyPatient == target)
+                {
+                    status =
+                        $"target {GetNetEntity(target)} remains reserved by rescue agent {GetNetEntity(activeAgent)} " +
+                        "during life-support return";
+                    return AutomaticDispatchAttemptResult.Dispatched;
+                }
+
+                status = $"active rescue agent {GetNetEntity(activeAgent)} is returning for life support";
                 return AutomaticDispatchAttemptResult.Waiting;
             }
 
@@ -1643,7 +1714,8 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
 
             if (!IsRescueAvailableForDispatch(activeRescue))
             {
-                if (kind == LuaMRescueMedicalSignalKind.Critical &&
+                if (!activeRescue.LifeSupportEmergencyActive &&
+                    kind == LuaMRescueMedicalSignalKind.Critical &&
                     TryGetAssignedPatient(activeRescue, out var currentTarget) &&
                     ShouldPreemptForCriticalSignal(activeAgent, currentTarget, target, manualOverride))
                 {
@@ -1836,6 +1908,9 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
                      .ToArray())
         {
             var target = transfer.Target;
+            if (!TryFindLivingActiveRescueAgentForTarget(target, out activeAgent, out activeRescue))
+                continue;
+
             ApplyReplacementInfrastructure(
                 activeRescue,
                 transfer.AssignedShuttle,
@@ -1969,7 +2044,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
                 continue;
             }
 
-            if (!TryFindLivingActiveRescueAgent(out var activeAgent, out var activeRescue) &&
+            if (!TryFindLivingActiveRescueAgentForTarget(patient, out var activeAgent, out var activeRescue) &&
                 !TrySpawnReplacementAgent(
                     transfer.ReplacementAnchor,
                     patient,
@@ -2050,12 +2125,12 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         if (_patientRecoveryTransfers.Count == 0)
             return changed;
 
-        if (!TryFindLivingActiveRescueAgent(out var activeAgent, out var activeRescue))
-            return changed;
-
         foreach (var transfer in _patientRecoveryTransfers.Values.ToArray())
         {
             var target = transfer.Target;
+            if (!TryFindLivingActiveRescueAgentForTarget(target, out var activeAgent, out var activeRescue))
+                continue;
+
             var authoritativeOwner = activeRescue.ActivityContext.Target == target &&
                                      activeRescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active;
             if (transfer.RequiredOnboardHandoff)
@@ -2184,6 +2259,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
                 activeRescue.TerminalPatientBuckleFailures.TryAdd((target, strap), failure);
             }
 
+            Dirty(activeAgent, activeRescue);
             _patientRecoveryTransfers.Remove(target);
             changed++;
 
@@ -2208,7 +2284,6 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             }
         }
 
-        Dirty(activeAgent, activeRescue);
         return changed;
     }
 
@@ -2242,7 +2317,9 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
                 out agent,
                 out status))
         {
-            if (TryFindLivingActiveRescueAgent(out agent, out rescue))
+            if (TryFindLivingActiveRescueAgentForTarget(fallbackTarget, out agent, out rescue) &&
+                IsRescueAgentOperational(agent) &&
+                (IsRescueAvailableForDispatch(rescue) || IsRescueAssignedToTarget(rescue, fallbackTarget)))
             {
                 ApplyReplacementInfrastructure(
                     rescue,
@@ -2253,8 +2330,20 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
                 return true;
             }
 
-            rescue = default!;
-            return false;
+            // An accepted ownership lineage may not be parked behind an
+            // unrelated busy rescuer. Spawn a distinct replacement for this
+            // patient; target-aware dispatch keeps the two missions exclusive.
+            agent = _rescueAgent.SpawnAgent(anchor, followTarget: null, controller: null, control: false);
+            rescue = Comp<LuaMRescueAgentComponent>(agent);
+            ApplyReplacementInfrastructure(
+                rescue,
+                assignedShuttle,
+                assignedShuttleAnchor,
+                assignedShuttleConsole,
+                assignedReturnTarget);
+            status =
+                $"replacement rescue agent {GetNetEntity(agent)} spawned because all existing rescuers own other missions";
+            return true;
         }
 
         rescue = Comp<LuaMRescueAgentComponent>(agent);
@@ -2499,6 +2588,8 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         out EntityUid agent,
         out LuaMRescueAgentComponent rescue)
     {
+        agent = default;
+        rescue = default!;
         var query = EntityQueryEnumerator<LuaMRescueAgentComponent>();
         while (query.MoveNext(out var uid, out var rescueComp))
         {
@@ -2509,17 +2600,70 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
                 mobState.CurrentState == MobState.Dead)
                 continue;
 
+            if (agent.Valid && uid.Id >= agent.Id)
+                continue;
+
             agent = uid;
             rescue = rescueComp;
-            return true;
         }
 
+        return agent.Valid;
+    }
+
+    /// <summary>
+    /// Selects a deterministic owner for one patient. Existing ownership wins,
+    /// followed by an idle rescuer on the patient's map. A pooled or manually
+    /// spawned rescuer on another map therefore cannot steal a dispatch merely
+    /// because entity-query order changed.
+    /// </summary>
+    private bool TryFindLivingActiveRescueAgentForTarget(
+        EntityUid target,
+        out EntityUid agent,
+        out LuaMRescueAgentComponent rescue)
+    {
         agent = default;
         rescue = default!;
-        return false;
+        var bestScore = int.MaxValue;
+        var targetMap = Deleted(target) ? MapId.Nullspace : Transform(target).MapID;
+        var query = EntityQueryEnumerator<LuaMRescueAgentComponent>();
+        while (query.MoveNext(out var uid, out var rescueComp))
+        {
+            if (Deleted(uid) ||
+                TryComp<MobStateComponent>(uid, out var mobState) &&
+                mobState.CurrentState == MobState.Dead)
+            {
+                continue;
+            }
+
+            var ownsTarget = HasActivePatientOwnershipForTarget(rescueComp, target);
+            var sameMap = targetMap != MapId.Nullspace && Transform(uid).MapID == targetMap;
+            var available = IsRescueAvailableForDispatch(rescueComp);
+            var operationalPenalty = IsRescueAgentOperational(uid) ? 0 : 10;
+            var score = operationalPenalty + (ownsTarget
+                ? 0
+                : sameMap && available
+                    ? 1
+                    : available
+                        ? 2
+                        : sameMap
+                            ? 3
+                            : 4);
+            if (score > bestScore ||
+                score == bestScore && agent.Valid && uid.Id >= agent.Id)
+            {
+                continue;
+            }
+
+            bestScore = score;
+            agent = uid;
+            rescue = rescueComp;
+        }
+
+        return agent.Valid;
     }
 
     private bool TryResolveDispatchAgent(
+        EntityUid target,
         bool manualOverride,
         EntityUid? manualOverrideOwner,
         out EntityUid agent,
@@ -2537,7 +2681,7 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
             return true;
         }
 
-        return TryFindLivingActiveRescueAgent(out agent, out rescue);
+        return TryFindLivingActiveRescueAgentForTarget(target, out agent, out rescue);
     }
 
     public void RetireDeadRescueAgents()
@@ -2615,7 +2759,9 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
         LuaMRescueAgentComponent rescue,
         EntityUid target)
     {
-        return rescue.AssignedTarget == target ||
+        return rescue.LifeSupportEmergencyActive &&
+               rescue.LifeSupportEmergencyPatient == target ||
+               rescue.AssignedTarget == target ||
                rescue.DeathSignalTarget == target ||
                rescue.EvacuatingTarget == target ||
                rescue.OnboardCareTarget == target ||
@@ -2664,7 +2810,8 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
 
     private static bool IsRescueAvailableForDispatch(LuaMRescueAgentComponent rescue)
     {
-        return rescue.PendingPlayerAction == LuaMRescuePlayerActionKind.None &&
+        return !rescue.LifeSupportEmergencyActive &&
+               rescue.PendingPlayerAction == LuaMRescuePlayerActionKind.None &&
                rescue.AssignedTarget == null &&
                rescue.DeathSignalTarget == null &&
                rescue.EvacuatingTarget == null &&
@@ -2677,6 +2824,13 @@ public sealed class LuaMRescueShuttleSystem : EntitySystem
 
     private static bool TryGetAssignedPatient(LuaMRescueAgentComponent rescue, out EntityUid target)
     {
+        if (rescue.LifeSupportEmergencyActive &&
+            rescue.LifeSupportEmergencyPatient is { Valid: true } emergencyPatient)
+        {
+            target = emergencyPatient;
+            return true;
+        }
+
         if (rescue.ActivityContext.Target is { Valid: true } activityTarget &&
             rescue.ActivityContext.TerminalStatus == LuaMRescueTerminalStatus.Active)
         {

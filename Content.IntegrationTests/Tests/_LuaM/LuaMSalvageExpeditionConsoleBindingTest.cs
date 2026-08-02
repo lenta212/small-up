@@ -42,6 +42,7 @@ public sealed class LuaMSalvageExpeditionConsoleBindingTest
         var testMap = await pair.CreateTestMap();
 
         EntityUid station = EntityUid.Invalid;
+        EntityUid console = EntityUid.Invalid;
 
         try
         {
@@ -62,7 +63,7 @@ public sealed class LuaMSalvageExpeditionConsoleBindingTest
                 Assert.That(entities.HasComponent<SalvageExpeditionDataComponent>(station), Is.False,
                     "Ordinary vessels should start without expedition data in this test.");
 
-                entities.SpawnEntity(
+                console = entities.SpawnEntity(
                     "ComputerSalvageExpedition",
                     new EntityCoordinates(shuttle.Owner, new Vector2(0.5f, 0.5f)));
             });
@@ -75,6 +76,14 @@ public sealed class LuaMSalvageExpeditionConsoleBindingTest
                     "Installing an expedition console on a shuttle station should bind it to that shuttle's own station data.");
                 Assert.That(data!.Missions, Is.Not.Empty,
                     "Newly enabled expedition data should get an initial local mission offer list.");
+                Assert.That(entities.GetComponent<SalvageExpeditionConsoleComponent>(console).LegacyLaunchingEnabled,
+                    Is.False,
+                    "Player ship consoles must be retired in favor of the shared outpost gateway.");
+                entities.EventBus.RaiseLocalEvent(
+                    console,
+                    new ClaimSalvageMessage { Index = data.Missions.Keys.First() });
+                Assert.That(data.ActiveMission, Is.Zero,
+                    "A forged BUI message must not reactivate legacy whole-shuttle expeditions.");
             });
         }
         finally
