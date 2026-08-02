@@ -6291,3 +6291,10 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Player-facing coverage: Resources/Changelog/ServerNews.yml contains ordered LuaM entries 2026080201 through 2026080225, including the latest Stargate/DHD lifecycle work.
 - Validation actually run: focused LuaMServerNewsChangelogTest passed 1/1 with the current candidate; git diff --check reported only existing LF-to-CRLF notices. The first combined command returned nonzero because its build phase failed before the isolated --no-build changelog rerun; the isolated rerun passed.
 - Release state: remote deployment remains frozen by policy. Next action is to commit the complete candidate and run powershell -NoProfile -ExecutionPolicy Bypass -File Tools\ship_luam_release.ps1 -Force -Json without -Deploy to build and verify fresh local artifacts.
+
+## 2026-08-02T18:20:00Z -- complete August release installed on production
+
+- Completed the explicitly authorized production server update using the fresh receipt-bound server artifact; no rebuild or stale package reuse occurred.
+- Because the persistent-ship maintenance endpoint correctly rejected deployment while eight sessions were active, a bounded nftables admission guard blocked only external UDP/1212, the old service was restarted, and the official deployment was retried only after players reached zero. The guard was removed afterward.
+- The authenticated ship-save barrier froze an empty persistent set, required server/config/data backups were created, and the deploy script completed the verified package swap and health wait.
+- Production is active on round 195 and now advertises client hash `033373b34f37c59c84c6bc63d13b46454d6a65a0ac20835b275b6f3cbc003987`. UDP/1212 is listening, the temporary guard is absent, and the published client URL returns the already released update.
