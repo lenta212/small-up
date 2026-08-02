@@ -21,8 +21,8 @@
   abstract: true
   parent: BaseGateway
   id: LuaMStargateBase
-  name: stargate
-  description: An ancient ring device that opens a stable passage to another gate when its address is dialed.
+  name: ent-LuaMStargateBase
+  description: luam-stargate-base-desc
   components:
   - type: Sprite
     sprite: _Lua/Structures/Machines/gateway.rsi
@@ -113,8 +113,8 @@
 - type: entity
   parent: BaseStructure
   id: LuaMStargateConsole
-  name: DHD console
-  description: A control pedestal used to dial Stargate addresses and establish wormhole connections.
+  name: ent-LuaMStargateConsole
+  description: luam-stargate-console-desc
   components:
   - type: Sprite
     sprite: _Lua/Structures/Machines/dhdconsole.rsi
@@ -168,8 +168,8 @@
 - type: entity
   parent: BaseStructure
   id: StargateAddressEditorConsole
-  name: address editor console
-  description: A workstation for copying, moving, and editing addresses on Stargate disks.
+  name: ent-StargateAddressEditorConsole
+  description: luam-stargate-editor-desc
   components:
   - type: Sprite
     sprite: Structures/Machines/computers.rsi
@@ -227,8 +227,8 @@
 - type: entity
   parent: Paper
   id: StargateAddressPaper
-  name: stargate coordinates
-  description: A paper copy of the address of the Stargate installed on this station.
+  name: ent-StargateAddressPaper
+  description: luam-stargate-paper-desc
   components:
   - type: LuaMStargateAddressPaper
 
@@ -244,8 +244,8 @@
 - type: entity
   parent: BaseItem
   id: StargateAddressDisk
-  name: stargate address disk
-  description: An encrypted data disk containing Stargate coordinates.
+  name: ent-StargateAddressDisk
+  description: luam-stargate-disk-desc
   components:
   - type: Sprite
     sprite: Objects/Misc/module.rsi

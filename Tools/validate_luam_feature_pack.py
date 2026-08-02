@@ -5512,14 +5512,18 @@ def main(argv: list[str] | None = None) -> int:
     assert_equal(ordered_gun_compound["type"], "htnCompound", "LuaMRescueOrderedGunCombatCompound.type")
 
     rescue_agent_gear = prototypes["LuaMRescueAgentGear"]
-    assert_equal(rescue_agent_gear["equipment"]["outerClothing"], "ClothingOuterArmorBasicSlim", "LuaMRescueAgentGear.outerClothing")
-    assert_equal(rescue_agent_gear["equipment"]["head"], "ClothingHeadHelmetBasic", "LuaMRescueAgentGear.head")
+    assert_equal(rescue_agent_gear["equipment"]["outerClothing"], "ClothingOuterHardsuitDeathsquad", "LuaMRescueAgentGear.outerClothing")
+    assert_equal(rescue_agent_gear["equipment"]["head"], "ClothingHeadHelmetHardsuitDeathsquad", "LuaMRescueAgentGear.head")
+    assert_equal(rescue_agent_gear["equipment"]["suitstorage"], "OxygenTankFilled", "LuaMRescueAgentGear.suitstorage")
+    assert_equal(rescue_agent_gear["equipment"]["pocket1"], "DoubleEmergencyOxygenTankFilled", "LuaMRescueAgentGear.pocket1")
     assert_contains(rescue_agent_gear["inhand"], "WeaponLaserCarbine", "LuaMRescueAgentGear.inhand")
     assert_contains(rescue_agent_gear["storage"]["back"], "DefibrillatorCompact", "LuaMRescueAgentGear.storage.back")
 
     rescue_escort_gear = prototypes["LuaMRescueEscortGear"]
-    assert_equal(rescue_escort_gear["equipment"]["outerClothing"], "ClothingOuterArmorBPVestHeavy", "LuaMRescueEscortGear.outerClothing")
-    assert_equal(rescue_escort_gear["equipment"]["head"], "ClothingHeadHelmetSwat", "LuaMRescueEscortGear.head")
+    assert_equal(rescue_escort_gear["equipment"]["outerClothing"], "ClothingOuterHardsuitDeathsquad", "LuaMRescueEscortGear.outerClothing")
+    assert_equal(rescue_escort_gear["equipment"]["head"], "ClothingHeadHelmetHardsuitDeathsquad", "LuaMRescueEscortGear.head")
+    assert_equal(rescue_escort_gear["equipment"]["suitstorage"], "OxygenTankFilled", "LuaMRescueEscortGear.suitstorage")
+    assert_equal(rescue_escort_gear["equipment"]["pocket1"], "DoubleEmergencyOxygenTankFilled", "LuaMRescueEscortGear.pocket1")
     assert_equal(rescue_escort_gear["equipment"]["belt"], "ClothingBeltSecurityFilled", "LuaMRescueEscortGear.belt")
     assert_contains(rescue_escort_gear["inhand"], "WeaponLaserCarbine", "LuaMRescueEscortGear.inhand")
     assert_contains(rescue_escort_gear["storage"]["back"], "WeaponDisablerSMG", "LuaMRescueEscortGear.storage.back")

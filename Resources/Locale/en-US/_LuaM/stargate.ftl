@@ -34,6 +34,11 @@ stargate-editor-move = Move
 stargate-editor-copy = Copy
 stargate-editor-delete = Delete
 stargate-address-paper-heading = STARGATE ADDRESS
+luam-stargate-base-desc = An ancient ring device that opens a stable passage to another gate when its address is dialed.
+luam-stargate-console-desc = A control pedestal used to dial stargate addresses and establish wormhole connections.
+luam-stargate-editor-desc = A workstation for copying, moving, and editing addresses on stargate disks.
+luam-stargate-paper-desc = A paper copy of the address of the stargate installed on this station.
+luam-stargate-disk-desc = An encrypted data disk containing stargate coordinates.
 
 ent-LuaMStargateBase = stargate
     .desc = An ancient ring device that opens a stable passage to another gate.
