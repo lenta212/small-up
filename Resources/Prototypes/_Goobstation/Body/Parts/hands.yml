@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 - type: entity
   id: LeftHandDwarf
   name: "left dwarf hand"
@@ -17,8 +19,8 @@
     state: "r_hand"
 
 - type: entity
-  id: LeftHandFelinid
-  name: "left felinid hand"
+  id: LeftHandBananamen
+  name: "left bananamen hand"
   parent: [PartHuman, BaseLeftHand]
   components:
   - type: Sprite
@@ -26,8 +28,8 @@
     state: "l_hand"
 
 - type: entity
-  id: RightHandFelinid
-  name: "right felinid hand"
+  id: RightHandBananamen
+  name: "right bananamen hand"
   parent: [PartHuman, BaseRightHand]
   components:
   - type: Sprite
@@ -35,19 +37,65 @@
     state: "r_hand"
 
 - type: entity
-  id: LeftHandYowie
-  name: "left yowie hand"
-  parent: [PartHuman, BaseLeftHand]
+  id: SmartlinkLeftHand
+  parent: LeftHandCybernetic
+  name: SmartLink left hand
+  description: A cybernetic left hand that allows its wearer to shoot "smart" bullets from any weapon.
   components:
   - type: Sprite
-    sprite: Mobs/Species/Human/parts.rsi
-    state: "l_hand"
+    sprite: _EinsteinEngines/Mobs/Species/Cybernetics/morpheus/morpheus_main.rsi
+  - type: Icon
+    sprite: _EinsteinEngines/Mobs/Species/Cybernetics/morpheus/morpheus_main.rsi
+  - type: BodyPartAppearance
+    color: White
+    iD: MobCyberneticBishopLHand
+    visLayers: LHand
+  - type: SmartLinkArm
 
 - type: entity
-  id: RightHandYowie
-  name: "right yowie hand"
-  parent: [PartHuman, BaseRightHand]
+  id: SmartlinkRightHand
+  parent: RightHandCybernetic
+  name: SmartLink right hand
+  description: A cybernetic right hand that allows its wearer to shoot "smart" bullets from any weapon.
   components:
   - type: Sprite
-    sprite: Mobs/Species/Human/parts.rsi
-    state: "r_hand"
+    sprite: _EinsteinEngines/Mobs/Species/Cybernetics/morpheus/morpheus_main.rsi
+  - type: Icon
+    sprite: _EinsteinEngines/Mobs/Species/Cybernetics/morpheus/morpheus_main.rsi
+  - type: BodyPartAppearance
+    color: White
+    iD: MobCyberneticBishopRHand
+    visLayers: RHand
+  - type: SmartLinkArm
+
+- type: entity
+  id: RecoilAbsorberLeftHand
+  parent: LeftHandCybernetic
+  name: recoil absorbing left hand
+  description: A cybernetic left hand that absorbs most of ranged weapons recoil.
+  components:
+  - type: Sprite
+    sprite: _EinsteinEngines/Mobs/Species/Cybernetics/wardtakahashi/wardtakahashi_main.rsi
+  - type: Icon
+    sprite: _EinsteinEngines/Mobs/Species/Cybernetics/wardtakahashi/wardtakahashi_main.rsi
+  - type: BodyPartAppearance
+    color: White
+    iD: MobCyberneticBishopLHand
+    visLayers: LHand
+  - type: RecoilAbsorberArm
+
+- type: entity
+  id: RecoilAbsorberRightHand
+  parent: RightHandCybernetic
+  name: recoil absorbing right hand
+  description: A cybernetic right hand that absorbs most of ranged weapons recoil.
+  components:
+  - type: Sprite
+    sprite: _EinsteinEngines/Mobs/Species/Cybernetics/wardtakahashi/wardtakahashi_main.rsi
+  - type: Icon
+    sprite: _EinsteinEngines/Mobs/Species/Cybernetics/wardtakahashi/wardtakahashi_main.rsi
+  - type: BodyPartAppearance
+    color: White
+    iD: MobCyberneticBishopRHand
+    visLayers: RHand
+  - type: RecoilAbsorberArm

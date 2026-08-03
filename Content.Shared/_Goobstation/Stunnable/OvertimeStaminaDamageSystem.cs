@@ -33,7 +33,8 @@ public sealed partial class OvertimeStaminaDamageSystem : EntitySystem
     {
         base.Update(frameTime);
 
-        foreach (var overtime in EntityQuery<OvertimeStaminaDamageComponent>())
+        var query = EntityQueryEnumerator<OvertimeStaminaDamageComponent>();
+        while (query.MoveNext(out _, out var overtime))
         {
             overtime.Timer -= frameTime;
 

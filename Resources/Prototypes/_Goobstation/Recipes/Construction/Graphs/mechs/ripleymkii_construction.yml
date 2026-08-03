@@ -1,11 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 - type: constructionGraph
   id: RipleyMKII
-  start: start
   graph:
   - node: start
     edges:
     - to: ripleymkii
       steps:
+      - assemblyId: RipleyMKII
+        guideString: mech-construction-guide-string
+
       - tool: Anchoring
         doAfter: 1
         completed:
@@ -34,7 +38,7 @@
           data: 4
 
       - tag: RipleyCentralControlModule
-        name: ripley central control module
+        name: construction-graph-tag-ripley-central-control-module
         icon:
           sprite: "Objects/Misc/module.rsi"
           state: "mainboard"
@@ -51,7 +55,7 @@
           data: 6
 
       - tag: RipleyPeripheralsControlModule
-        name: ripley peripherals control module
+        name: construction-graph-tag-ripley-peripherals-control-module
         icon:
           sprite: "Objects/Misc/module.rsi"
           state: id_mod
@@ -68,7 +72,7 @@
           data: 8
 
       - component: PowerCell
-        name: power cell
+        name: construction-graph-component-power-cell
         store: battery-container
         icon:
           sprite: Objects/Power/power_cells.rsi
@@ -107,7 +111,7 @@
           data: 17
 
       - tag: MechAirTank
-        name: exosuit air tank
+        name: construction-graph-tag-exosuit-air-tank
         icon:
           sprite: Objects/Specific/Mech/mecha_equipment.rsi
           state: mecha_air_tank

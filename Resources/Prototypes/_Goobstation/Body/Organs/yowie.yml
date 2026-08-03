@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 - type: entity
   id: OrganYowieStomach
   parent: OrganHumanStomach
@@ -18,7 +20,7 @@
   - type: Stomach
   - type: Metabolizer
     # mm very yummy
-    maxReagents: 5
+    maxPoisonsProcessable: 5
     metabolizerTypes: [Yowie]
 
 - type: entity
@@ -28,6 +30,16 @@
   components:
   - type: Metabolizer
     metabolizerTypes: [Yowie]
+    groups:
+    - id: Medicine
+      rateModifier: 1
+    - id: Poison
+      rateModifier: 1
+    - id: Narcotic
+      rateModifier: 1
+    - id: Alcohol # Same as parent
+      rateModifier: 0.1
+    maxPoisonsProcessable: 3 # For proper processing of chems instead of heart
 
 - type: entity
   id: OrganYowieHeart
@@ -36,6 +48,7 @@
   components:
   - type: Metabolizer
     metabolizerTypes: [Yowie]
+    groups: # Empty to ensure it doesn't do anything
 
 - type: entity
   id: OrganYowieLungs

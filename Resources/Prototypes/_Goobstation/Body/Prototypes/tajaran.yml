@@ -1,26 +1,33 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 - type: body
   id: Tajaran
   name: tajaran
-  root: torso
+  root: chest
   slots:
     head:
       part: HeadTajaran
       connections:
-      - torso
+      - chest
       organs:
         brain: OrganHumanBrain
-        eyes: OrganTajaranEyes # LuaM: OrganHumanEyes > OrganTajaranEyes
-    torso:
-      part: TorsoTajaran
+        eyes: OrganHumanEyes
+    chest:
+      part: ChestTajaran
       connections:
+      - groin
       - right arm
       - left arm
-      - right leg
-      - left leg
       - head # Shitmed Change
       organs:
         heart: OrganAnimalHeart
         lungs: OrganHumanLungs
+    groin:
+      part: GroinTajaran
+      connections:
+      - right leg
+      - left leg
+      organs:
         stomach: OrganAnimalStomach
         liver:  OrganAnimalLiver
         kidneys: OrganHumanKidneys

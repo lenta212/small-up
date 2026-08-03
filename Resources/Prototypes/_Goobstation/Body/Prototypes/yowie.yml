@@ -1,33 +1,40 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 - type: body
   id: Yowie
   name: yowie
-  root: torso
+  root: chest
   slots:
     head:
-      part: HeadHuman
+      part: HeadYowie
       connections:
-      - torso
+      - chest
       organs:
         brain: OrganHumanBrain
-    torso:
-      part: TorsoHuman
+    chest:
+      part: ChestYowie
       connections:
+      - groin
       - right arm
       - left arm
-      - right leg
-      - left leg
       organs:
         heart: OrganYowieHeart
         lungs: OrganYowieLungs
+    groin:
+      part: GroinYowie
+      connections:
+      - right leg
+      - left leg
+      organs:
         stomach: OrganYowieStomach
         liver: OrganYowieLiver
         kidneys: OrganHumanKidneys
     right arm:
-      part: RightArmHuman
+      part: RightArmYowie
       connections:
       - right hand
     left arm:
-      part: LeftArmHuman
+      part: LeftArmYowie
       connections:
       - left hand
     right hand:
@@ -35,14 +42,14 @@
     left hand:
       part: LeftHandYowie
     right leg:
-      part: RightLegHuman
+      part: RightLegYowie
       connections:
       - right foot
     left leg:
-      part: LeftLegHuman
+      part: LeftLegYowie
       connections:
       - left foot
     right foot:
-      part: RightFootHuman
+      part: RightFootYowie
     left foot:
-      part: LeftFootHuman
+      part: LeftFootYowie

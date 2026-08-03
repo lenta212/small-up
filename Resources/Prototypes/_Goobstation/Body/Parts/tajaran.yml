@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 - type: entity
   id: PartTajaran
   parent: BasePart
@@ -14,9 +15,14 @@
     damageModifierSet: Tajaran
 
 - type: entity
-  id: TorsoTajaran
-  name: tajaran torso
-  parent: [PartTajaran, BaseTorso]
+  id: ChestTajaran
+  name: tajaran chest
+  parent: [PartTajaran, BaseChest]
+
+- type: entity
+  id: GroinTajaran
+  name: tajaran groin
+  parent: [PartTajaran, BaseGroin]
 
 - type: entity
   id: HeadTajaran

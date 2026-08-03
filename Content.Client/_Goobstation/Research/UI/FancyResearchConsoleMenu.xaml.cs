@@ -1,8 +1,11 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using System.Linq;
 using System.Numerics;
-using Content.Client.Parallax; // Frontier: Parallax control for the background
 using Content.Client.Research;
 using Content.Client.UserInterface.Controls;
-using Content.Shared._Goobstation.Research;
+using Content.Goobstation.Common.Research;
+using Content.Goobstation.Shared.Research;
 using Content.Shared.Access.Systems;
 using Content.Shared.Research.Components;
 using Content.Shared.Research.Prototypes;
@@ -16,7 +19,7 @@ using Robust.Shared.Input;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
 
-namespace Content.Client._Goobstation.Research.UI;
+namespace Content.Goobstation.Client.Research.UI;
 
 [GenerateTypedNameReferences]
 public sealed partial class FancyResearchConsoleMenu : FancyWindow
@@ -24,9 +27,9 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
     public Action<string>? OnTechnologyCardPressed;
     public Action? OnServerButtonPressed;
 
-    [Dependency] private IEntityManager _entity = default!;
-    [Dependency] private IPrototypeManager _prototype = default!;
-    [Dependency] private IPlayerManager _player = default!;
+    [Dependency] private readonly IEntityManager _entity = default!;
+    [Dependency] private readonly IPrototypeManager _prototype = default!;
+    [Dependency] private readonly IPlayerManager _player = default!;
 
     private readonly ResearchSystem _research;
     private readonly SpriteSystem _sprite;
@@ -39,12 +42,12 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
 
     /// <summary>
     /// Currently selected tech
-    /// Exists for better UI refreshing
+    /// Exsists for better UI refreshing
     /// </summary>
     public ProtoId<TechnologyPrototype>? CurrentTech;
 
     /// <summary>
-    /// All technologies and their availability
+    /// All technologies and their availablity
     /// </summary>
     public Dictionary<string, ResearchAvailability> List = new();
 
@@ -62,35 +65,11 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
     /// Global position that all tech relates to.
     /// For dragging mostly
     /// </summary>
-    private Vector2 _position = DefaultPosition;
-
-    /// <summary>
-    /// Captures the initial position to use with recenter button
-    /// </summary>
-    private Vector2 _initialViewPosition = DefaultPosition;
-
-    /// <summary>
-    /// Tracks if first initialization has happened
-    /// </summary>
-    private bool _firstInitialization = true;
-
-    /// <summary>
-    /// Frontier: the distance between elements on the grid.
-    /// </summary>
-    private const int GridSize = 90;
-
-    private const float MinZoom = 0.65f;
-    private const float MaxZoom = 1.8f;
-    private const float ZoomStep = 0.1f;
-
-    /// <summary>
-    /// Frontier: the distance between elements on the grid.
-    /// </summary>
-    private static readonly Vector2i DefaultPosition = Vector2i.Zero; //Frontier: 45,250 < 0,0
-
-    private ParallaxControl _parallaxControl; // Frontier: Parallax control for the background
-
+    private Vector2 _position = new Vector2(45, 250);
     private float _zoom = 1f;
+    private const float MinZoom = 0.5f;
+    private const float MaxZoom = 2f;
+    private const float ZoomSpeed = 0.125f;
 
     public FancyResearchConsoleMenu()
     {
@@ -99,39 +78,17 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
         _research = _entity.System<ResearchSystem>();
         _sprite = _entity.System<SpriteSystem>();
         _accessReader = _entity.System<AccessReaderSystem>();
-
-        // Frontier: Initialize parallax background
-        _parallaxControl = new ParallaxControl
-        {
-            ParallaxPrototype = "Default",
-            HorizontalExpand = true,
-            VerticalExpand = true,
-        };
-
-        // Add the parallax control to the ResearchesContainer at the beginning (bottom layer)
-        ResearchesContainer.AddChild(_parallaxControl);
-
-        // Set the proper rendering order by adjusting positions in the parent's child list
-        // Controls with a higher position value are drawn on top (foreground)
-        // Make sure the parallax is at the bottom of the z-order (drawn first)
-        _parallaxControl.SetPositionInParent(0);
-
-        // The drag container should be in the middle
-        DragContainer.SetPositionInParent(1);
-
-        // The recenter button should be at the top of the z-order (drawn last)
-        RecenterButton.SetPositionInParent(2);
+        StaticSprite.SetFromSpriteSpecifier(new SpriteSpecifier.Rsi(new("_Goobstation/Interface/rnd-static.rsi"), "static"));
+        StaticSprite.DisplayRect.CanShrink = true;
+        StaticSprite.DisplayRect.Stretch = TextureRect.StretchMode.Scale;
 
         ServerButton.OnPressed += _ => OnServerButtonPressed?.Invoke();
         DragContainer.OnKeyBindDown += OnKeybindDown;
         DragContainer.OnKeyBindUp += OnKeybindUp;
         RecenterButton.OnPressed += _ => Recenter();
-        ZoomOutButton.OnPressed += _ => SetZoom(_zoom - ZoomStep);
-        ZoomResetButton.OnPressed += _ => ResetZoom();
-        ZoomInButton.OnPressed += _ => SetZoom(_zoom + ZoomStep);
 
-        // Empty initialization
         UpdatePanels(List);
+        Recenter();
     }
 
     public void SetEntity(EntityUid entity)
@@ -142,19 +99,15 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
         DragContainer.RemoveAllChildren();
         List = dict;
 
-        if (_firstInitialization && List.Count > 0)
-        {
-            _initialViewPosition = _position;
-            _firstInitialization = false;
-        }
-
         foreach (var tech in List)
         {
             var proto = _prototype.Index<TechnologyPrototype>(tech.Key);
 
             var control = new FancyResearchConsoleItem(proto, _sprite, tech.Value);
             DragContainer.AddChild(control);
-            LayoutResearchCard(control, proto);
+
+            // Set position for all tech, relating to _position
+            LayoutContainer.SetPosition(control, _position + proto.Position * 150 * _zoom);
             control.SelectAction += SelectTech;
 
             if (tech.Key == CurrentTech)
@@ -215,21 +168,39 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
             return;
 
         _position += args.Relative;
-        LayoutResearchCards();
+
+        // Move all tech
+        foreach (var child in DragContainer.Children)
+        {
+            LayoutContainer.SetPosition(child, child.Position + args.Relative);
+        }
     }
 
     protected override void MouseWheel(GUIMouseWheelEventArgs args)
     {
-        if (!ResearchesContainer.GlobalRect.Contains(args.GlobalPosition))
+        base.MouseWheel(args);
+
+        var oldZoom = _zoom;
+
+        if (args.Delta.Y > 0)
+            _zoom += ZoomSpeed;
+        else
+            _zoom -= ZoomSpeed;
+
+        _zoom = Math.Clamp(_zoom, MinZoom, MaxZoom);
+
+        if (MathHelper.CloseTo(oldZoom, _zoom))
+            return;
+
+        foreach (var child in DragContainer.Children)
         {
-            base.MouseWheel(args);
-            return;
+            if (child is not FancyResearchConsoleItem research)
+                continue;
+
+            var pos = research.Prototype.Position * 150;
+            LayoutContainer.SetPosition(child, _position + pos * _zoom);
+            research.SetScale(_zoom);
         }
-
-        if (args.Delta.Y == 0)
-            return;
-
-        SetZoom(_zoom + Math.Sign(args.Delta.Y) * ZoomStep);
         args.Handle();
     }
 
@@ -259,7 +230,7 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
     /// Selects a tech prototype and opens info panel
     /// </summary>
     /// <param name="proto">Tech proto</param>
-    /// <param name="availability">Tech availability</param>
+    /// <param name="availability">Tech availablity</param>
     public void SelectTech(TechnologyPrototype proto, ResearchAvailability availability)
     {
         InfoContainer.RemoveAllChildren();
@@ -273,61 +244,18 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
     }
 
     /// <summary>
-    /// Resets the view exactly to the initial position when the UI was first opened
+    /// Sets <see cref="_position"/> to its default value
     /// </summary>
     public void Recenter()
     {
-        _position = _initialViewPosition;
-        LayoutResearchCards();
-    }
-
-    private void ResetZoom()
-    {
-        _zoom = 1f;
-        _position = _initialViewPosition;
-        UpdateZoomLabel();
-        UpdatePanels(List);
-    }
-
-    private void SetZoom(float zoom)
-    {
-        var newZoom = Math.Clamp(zoom, MinZoom, MaxZoom);
-        if (Math.Abs(newZoom - _zoom) < 0.001f)
-            return;
-
-        var oldZoom = _zoom;
-        var focus = GetZoomFocus();
-        _position = focus + (_position - focus) * (newZoom / oldZoom);
-        _zoom = newZoom;
-        UpdateZoomLabel();
-        UpdatePanels(List);
-    }
-
-    private Vector2 GetZoomFocus()
-    {
-        return ResearchesContainer.Size / 2f;
-    }
-
-    private void UpdateZoomLabel()
-    {
-        ZoomResetButton.Text = $"{Math.Round(_zoom * 100)}%";
-    }
-
-    private void LayoutResearchCards()
-    {
-        foreach (var child in DragContainer.Children)
+        _position = new(45, 250);
+        foreach (var item in DragContainer.Children)
         {
-            if (child is not FancyResearchConsoleItem item)
+            if (item is not FancyResearchConsoleItem research)
                 continue;
 
-            LayoutResearchCard(item, item.Prototype);
+            LayoutContainer.SetPosition(item, _position + research.Prototype.Position * 150 * _zoom);
         }
-    }
-
-    private void LayoutResearchCard(FancyResearchConsoleItem item, TechnologyPrototype proto)
-    {
-        item.SetZoom(_zoom);
-        LayoutContainer.SetPosition(item, _position + proto.Position * GridSize * _zoom);
     }
 
     public override void Close()
@@ -336,11 +264,6 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
 
         DragContainer.RemoveAllChildren();
         InfoContainer.RemoveAllChildren();
-        _position = DefaultPosition;
-        _initialViewPosition = DefaultPosition;
-        _zoom = 1f;
-        UpdateZoomLabel();
-        _firstInitialization = true;
     }
 
     private sealed partial class DisciplineButton(TechDisciplinePrototype proto) : Button

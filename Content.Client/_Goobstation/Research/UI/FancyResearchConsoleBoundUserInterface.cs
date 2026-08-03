@@ -1,11 +1,14 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 using System.Linq;
+using Content.Goobstation.Common.Research;
 using Content.Shared.Research.Components;
 using Content.Shared.Research.Prototypes;
 using JetBrains.Annotations;
 using Robust.Client.UserInterface;
 using Robust.Shared.Prototypes;
 
-namespace Content.Client._Goobstation.Research.UI;
+namespace Content.Goobstation.Client.Research.UI;
 
 [UsedImplicitly]
 public sealed class FancyResearchConsoleBoundUserInterface : BoundUserInterface

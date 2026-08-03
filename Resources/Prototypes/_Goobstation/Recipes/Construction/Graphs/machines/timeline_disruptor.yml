@@ -1,4 +1,6 @@
-﻿- type: constructionGraph
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+- type: constructionGraph
   id: TimelineDisruptor
   start: timelineDisruptor
   graph:
