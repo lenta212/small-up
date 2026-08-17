@@ -5,11 +5,13 @@ using Content.Shared.Database;
 using Content.Shared.Follower.Components;
 using Content.Shared.Ghost;
 using Content.Shared.Hands;
+using Content.Shared.Mobs.Components;
 using Content.Shared.Movement.Events;
 using Content.Shared.Movement.Pulling.Events;
 using Content.Shared.Polymorph;
 using Content.Shared.Tag;
 using Content.Shared.Verbs;
+using Content.Shared._NF.Shipyard.Components;
 using Robust.Shared.Containers;
 using Robust.Shared.EntitySerialization;
 using Robust.Shared.GameStates;
@@ -101,6 +103,13 @@ public sealed partial class FollowerSystem : EntitySystem
 
         if (HasComp<GhostComponent>(ev.User))
         {
+            // LuaM/Mono: regular ghosts must not use the generic follow verb as a
+            // player/ship locator. GhostSystem already blocks direct ghost-warp to
+            // players, living mobs, and player-owned shuttles; keep this verb under
+            // the same boundary. Admin ghosts retain the follow tool.
+            if (!_adminManager.IsAdmin(ev.User) && IsRestrictedRegularGhostFollowTarget(ev.Target))
+                return;
+
             var verb = new AlternativeVerb()
             {
                 Priority = 10,
@@ -128,6 +137,20 @@ public sealed partial class FollowerSystem : EntitySystem
 
             ev.Verbs.Add(verb);
         }
+    }
+
+    private bool IsRestrictedRegularGhostFollowTarget(EntityUid target)
+    {
+        if (HasComp<ActorComponent>(target) ||
+            HasComp<MobStateComponent>(target) ||
+            HasComp<ShipOwnershipComponent>(target))
+        {
+            return true;
+        }
+
+        return TryComp<TransformComponent>(target, out var xform) &&
+               xform.GridUid is { } grid &&
+               HasComp<ShipOwnershipComponent>(grid);
     }
 
     private void OnFollowerMove(EntityUid uid, FollowerComponent component, ref MoveInputEvent args)

@@ -1,5 +1,6 @@
 using System.Linq;
 using Content.Server.Administration.Logs;
+using Content.Server.Administration.Managers;
 using Content.Server.EUI;
 using Content.Server.Ghost.Roles.Components;
 using Content.Server.Ghost.Roles.Events;
@@ -16,7 +17,9 @@ using Content.Shared.Ghost.Roles;
 using Content.Shared.Mind;
 using Content.Shared.Mind.Components;
 using Content.Shared.Mobs;
+using Content.Shared.Mobs.Components;
 using Content.Shared.Players;
+using Content.Shared._NF.Shipyard.Components;
 using Content.Shared.Roles;
 using JetBrains.Annotations;
 using Robust.Server.GameObjects;
@@ -24,6 +27,7 @@ using Robust.Server.Player;
 using Robust.Shared.Configuration;
 using Robust.Shared.Console;
 using Robust.Shared.Enums;
+using Robust.Shared.Map;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
@@ -44,6 +48,7 @@ public sealed partial class GhostRoleSystem : EntitySystem
     [Dependency] private IConfigurationManager _cfg = default!;
     [Dependency] private EuiManager _euiManager = default!;
     [Dependency] private IPlayerManager _playerManager = default!;
+    [Dependency] private IAdminManager _adminManager = default!;
     [Dependency] private IAdminLogManager _adminLogger = default!;
     [Dependency] private IRobustRandom _random = default!;
     [Dependency] private FollowerSystem _followerSystem = default!;
@@ -523,10 +528,38 @@ public sealed partial class GhostRoleSystem : EntitySystem
         if (!_ghostRoles.TryGetValue(identifier, out var role))
             return;
 
-        if (player.AttachedEntity == null)
+        if (player.AttachedEntity is not { } attached)
             return;
 
-        _followerSystem.StartFollowingEntity(player.AttachedEntity.Value, role);
+        // LuaM/Mono: the ghost-role list is global and does not imply world
+        // visibility. Do not let regular ghosts use its Follow button as a
+        // remote locator for active mobs, sleepers, or player-owned shuttles.
+        // Taking the role is still allowed; only the out-of-band follow/warp is
+        // blocked. Admins keep their investigation tool.
+        if (!_adminManager.IsAdmin(player) && IsRestrictedRegularGhostRoleFollowTarget(role.Owner))
+        {
+            _adminLogger.Add(
+                LogType.Action,
+                LogImpact.Low,
+                $"{player:player} tried to ghost-role-follow restricted target {ToPrettyString(role.Owner):entity}");
+            return;
+        }
+
+        _followerSystem.StartFollowingEntity(attached, role);
+    }
+
+    private bool IsRestrictedRegularGhostRoleFollowTarget(EntityUid target)
+    {
+        if (HasComp<ActorComponent>(target) ||
+            HasComp<MobStateComponent>(target) ||
+            HasComp<ShipOwnershipComponent>(target))
+        {
+            return true;
+        }
+
+        return TryComp<TransformComponent>(target, out var xform) &&
+               xform.GridUid is { } grid &&
+               HasComp<ShipOwnershipComponent>(grid);
     }
 
     public void GhostRoleInternalCreateMindAndTransfer(ICommonSession player, EntityUid roleUid, EntityUid mob, GhostRoleComponent? role = null)

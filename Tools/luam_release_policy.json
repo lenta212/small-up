@@ -1,13 +1,13 @@
 ﻿{
     "remoteDeployFrozen":  false,
-    "reason":  "Operator authorized the complete August 2 client and server update via Codex chat; receipt-bound publication and guarded deployment only.",
-    "lastReviewed":  "2026-08-02",
+    "reason":  "Operator authorized the ghost-follow locator hotfix via Codex chat; receipt-bound publication and guarded deployment only.",
+    "lastReviewed":  "2026-08-04",
     "deploymentAuthorization":  {
                                     "state":  "authorized",
-                                    "approvalId":  "operator-chat-20260802-complete-update",
+                                    "approvalId":  "operator-chat-20260804-ghost-follow-hotfix",
                                     "approvedBy":  "server operator via Codex chat",
-                                    "approvedAtUtc":  "2026-08-02T16:24:30.3299051Z",
-                                    "expiresAtUtc":  "2026-08-03T04:24:30.3299051Z",
+                                    "approvedAtUtc":  "2026-08-04T10:45:06.8819549Z",
+                                    "expiresAtUtc":  "2026-08-04T22:45:06.8819549Z",
                                     "allowedMutations":  [
                                                              "client-static",
                                                              "server-release"
@@ -105,7 +105,8 @@
                                                                           "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredInteractionUseDelayTest.cs",
                                                                           "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredPowerStateTest.cs",
                                                                           "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredShipGunneryTest.cs",
-                                                                          "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredShipShieldTest.cs"
+                                                                          "Content.IntegrationTests/Tests/_LuaM/LuaMRestoredShipShieldTest.cs",
+                                                                          "Content.IntegrationTests/Tests/_LuaM/LuaMGhostFollowRestrictionTest.cs"
                                                                       ]
                                                 }
                                             ],
@@ -395,7 +396,8 @@
                                      "Resources/Prototypes/Entities/Mobs/NPCs/simplemob.yml",
                                      "Resources/Prototypes/Entities/Objects/Weapons/Guns/Turrets/turrets_base.yml",
                                      ".agents/ITERATION_LOG.md",
-                                     "AGENTS.md"
+                                     "AGENTS.md",
+                                     "Content.Server/Ghost/Roles/GhostRoleSystem.cs"
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260802-complete-gameplay-update",
