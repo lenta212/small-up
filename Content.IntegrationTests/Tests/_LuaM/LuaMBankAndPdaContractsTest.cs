@@ -174,11 +174,10 @@ public sealed class LuaMBankAndPdaContractsTest
     [Test]
     public async Task PreferenceMessagesPublishOnlyAfterDatabaseSuccessAndObserveFailures()
     {
-        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        var pair = await PoolManager.GetServerClient(new PoolSettings
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false,
         });
 
         ICommonSession? attachedSession = null;
@@ -469,7 +468,6 @@ public sealed class LuaMBankAndPdaContractsTest
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false
         });
 
         ICommonSession? attachedSession = null;
@@ -617,7 +615,6 @@ public sealed class LuaMBankAndPdaContractsTest
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false
         });
 
         ICommonSession? attachedSession = null;
@@ -767,7 +764,6 @@ public sealed class LuaMBankAndPdaContractsTest
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false
         });
 
         ICommonSession? attachedSession = null;
@@ -1187,7 +1183,6 @@ public sealed class LuaMBankAndPdaContractsTest
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false
         });
 
         IDisposable? mutationLease = null;
@@ -1357,11 +1352,10 @@ public sealed class LuaMBankAndPdaContractsTest
     [Test]
     public async Task SpawnLoadoutDebitCapturedForArchivedProfileCannotChargeReplacement()
     {
-        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        var pair = await PoolManager.GetServerClient(new PoolSettings
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false
         });
 
         ICommonSession? attachedSession = null;
@@ -1454,11 +1448,10 @@ public sealed class LuaMBankAndPdaContractsTest
     [Test]
     public async Task PdaBankTransferByIdMissingRecipientShowsRegistrationHint()
     {
-        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        var pair = await PoolManager.GetServerClient(new PoolSettings
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false
         });
 
         ICommonSession? attachedSession = null;
@@ -1536,11 +1529,10 @@ public sealed class LuaMBankAndPdaContractsTest
     [Test]
     public async Task PayrollStatusUsesAssignedJobAndReportsHourlyRate()
     {
-        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        var pair = await PoolManager.GetServerClient(new PoolSettings
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false
         });
 
         ICommonSession? attachedSession = null;
@@ -1590,7 +1582,6 @@ public sealed class LuaMBankAndPdaContractsTest
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false
         });
 
         try
@@ -1654,11 +1645,10 @@ public sealed class LuaMBankAndPdaContractsTest
     [Test]
     public async Task PayrollDepositsHourlyRateWhenTimerElapses()
     {
-        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        var pair = await PoolManager.GetServerClient(new PoolSettings
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false
         });
 
         ICommonSession? attachedSession = null;
@@ -1709,11 +1699,10 @@ public sealed class LuaMBankAndPdaContractsTest
     [Test]
     public async Task DurableBankDepositRollsBackBeforeWorldRetry()
     {
-        await using var pair = await PoolManager.GetServerClient(new PoolSettings
+        var pair = await PoolManager.GetServerClient(new PoolSettings
         {
             Connected = true,
             Dirty = true,
-            DummyTicker = false
         });
 
         ICommonSession? attachedSession = null;
