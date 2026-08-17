@@ -91,7 +91,17 @@ public sealed class LuaMAsteroidBeltSystem : EntitySystem
             .EnumeratePrototypes<PointOfInterestPrototype>()
             .Where(prototype => prototype.AsteroidBelt)
             .ToList();
-        _poi.GenerateRequireds(mapId, beltPois, out _);
+        // The belt is one shared world for every round, independent of the
+        // active game preset. Its fixed POI set must spawn even for presets
+        // that are not listed in the main-sector SpawnGamePreset whitelists.
+        _poi.GenerateRequireds(mapId, beltPois, out _, ignorePresetFilter: true);
+
+        // Station post-init re-registers every station grid's map as an ordinary
+        // free FTL destination, which clears the belt's coordinate-disk lock.
+        // Re-assert the locked destination after all belt POIs have loaded.
+        destination.Enabled = true;
+        destination.BeaconsOnly = false;
+        destination.RequireCoordinateDisk = true;
 
         _beltMap = map;
         AssignAllDisks(map);

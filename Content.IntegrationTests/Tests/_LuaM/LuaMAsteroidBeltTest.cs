@@ -53,7 +53,8 @@ public sealed class LuaMAsteroidBeltTest
             var placer = (DebrisFeaturePlacerControllerComponent)
                 biome.ChunkComponents[nameof(DebrisFeaturePlacerControllerComponent)
                     .Replace("Component", string.Empty)].Component;
-            var inventory = prototypes.Index<VendingMachineInventoryPrototype>("NFSalvageEquipmentPOIInventory");
+            var poiInventory = prototypes.Index<VendingMachineInventoryPrototype>("NFSalvageEquipmentPOIInventory");
+            var stationInventory = prototypes.Index<VendingMachineInventoryPrototype>("NFSalvageEquipmentInventory");
 
             Assert.Multiple(() =>
             {
@@ -75,9 +76,13 @@ public sealed class LuaMAsteroidBeltTest
                 Assert.That(placer.DensityNoiseChannel, Is.EqualTo("DensityUnclipped"));
                 Assert.That(placer.RandomCancellationChance, Is.EqualTo(0.35f));
                 Assert.That(
-                    inventory.StartingInventory.ContainsKey(LuaMAsteroidBeltSystem.DiskPrototype),
+                    poiInventory.StartingInventory.ContainsKey(LuaMAsteroidBeltSystem.DiskPrototype),
                     Is.True,
                     "Station salvage vendors must sell the asteroid-belt disk.");
+                Assert.That(
+                    stationInventory.StartingInventory.ContainsKey(LuaMAsteroidBeltSystem.DiskPrototype),
+                    Is.True,
+                    "The ordinary station salvage vendor must also sell the asteroid-belt disk.");
             });
 
             Assert.That(mapMarker.EntryBeacon, Is.Not.Null);
@@ -87,6 +92,19 @@ public sealed class LuaMAsteroidBeltTest
                 Assert.That(entities.HasComponent<FTLBeaconComponent>(beacon), Is.True);
                 Assert.That(entities.GetComponent<TransformComponent>(beacon).MapUid, Is.EqualTo(map));
             });
+
+            var gridsOnBelt = 0;
+            var gridQuery = entities.EntityQueryEnumerator<MapGridComponent, TransformComponent>();
+            while (gridQuery.MoveNext(out _, out _, out var gridXform))
+            {
+                if (gridXform.MapUid == map)
+                    gridsOnBelt++;
+            }
+
+            Assert.That(
+                gridsOnBelt,
+                Is.GreaterThan(0),
+                "EnsureWorld must generate the shared asteroid-belt locations regardless of the active preset.");
         });
 
         await pair.CleanReturnAsync();

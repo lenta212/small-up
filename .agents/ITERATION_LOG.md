@@ -1,3 +1,15 @@
+## 2026-08-17T14:27:26Z -- asteroid-belt coordinate disks and locations repaired
+
+- Objective/result: diagnosed the report that coordinate disks do not generate and belt locations are not created, without touching production. The belt map and its FTLPoint entry beacon are created on every round start, but three defects broke the feature.
+- Root causes and fixes:
+  - Belt POI locations were filtered by `PointOfInterestPrototype.SpawnGamePreset`, so every preset not listed in those whitelists (including sandbox and several standard modes) generated a completely empty belt. `LuaMAsteroidBeltSystem.EnsureWorld` now generates the fixed shared-belt POI set with `ignorePresetFilter: true`; `PointOfInterestSystem.GenerateRequireds` gained an optional `ignorePresetFilter` parameter and also proceeds when the ticker preset is null for this path.
+  - `ShuttleSystem.OnStationPostInit` re-registers every station grid's map as an ordinary free FTL destination (`TryAddFTLDestination(mapId, true, false, false)`), which silently cleared the belt's `RequireCoordinateDisk` lock after its POI stations loaded. `EnsureWorld` now re-asserts `Enabled=true`, `BeaconsOnly=false`, and `RequireCoordinateDisk=true` after POI generation.
+  - The belt disk was sold only in `NFSalvageEquipmentPOIInventory` (`VendingMachineSalvagePOI`), not in the ordinary station salvage vendor `NFSalvageEquipmentInventory` (`VendingMachineSalvage`). The disk is now in both inventories.
+  - The Goobstation sync imported the Felinid body prototype referencing `LeftHandFelinid`/`RightHandFelinid`, but the part prototypes were missing, breaking every Felinid spawn. Added `Resources/Prototypes/Nyanotrasen/Body/Parts/felinid.yml` with `PartFelinid` and both hands, matching the local `PartHuman`/`BaseLeftHand`/`BaseRightHand` parents and the existing Felinid species.
+- Validation: `Content.Server` and `Content.IntegrationTests` DebugOpt builds pass with zero errors. `LuaMAsteroidBeltTest` now also asserts that `EnsureWorld` spawns belt POI grids regardless of preset, that the ordinary station salvage inventory contains the disk, and that the coordinate-disk lock survives POI generation; it passes 1/1. Production `content-tests-luam` gate passes 96/96. `git diff --check` shows only repository LF/CRLF notices.
+- Production state: no production host, package, client, server, database, ship, round, or player state was changed. The operator explicitly restricted this iteration to local work.
+- Next action: commit this slice locally; production deployment of these fixes still requires fresh explicit operator authorization through the guarded receipt-bound release path.
+
 ## 2026-08-17T12:51:52Z -- dirty integration slice validated; ghost-follow test repaired
 
 - Objective/result: continued the August 15 handoff "isolate and validate the current dirty slice". The `Content.Shared` Goobstation compile blocker recorded on August 4 is gone: `Content.Shared`, `Content.Server`, `Content.Client`, and `Content.IntegrationTests` all build DebugOpt with zero errors.

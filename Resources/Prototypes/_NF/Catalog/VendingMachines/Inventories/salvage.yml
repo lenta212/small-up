@@ -13,6 +13,7 @@
     BoxDispenserFlare: 5
     FlashlightLantern: 15
     RadioHandheldNF: 5
+    LuaMCriticalAsteroidBeltCoordinatesDisk: 4294967295 # Infinite - LuaM
 
 - type: vendingMachineInventory
   id: NFSalvageEquipmentPOIInventory

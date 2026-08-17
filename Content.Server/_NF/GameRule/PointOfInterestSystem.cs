@@ -175,7 +175,11 @@ public sealed partial class PointOfInterestSystem : EntitySystem
         }
     }
 
-    public void GenerateRequireds(MapId mapUid, List<PointOfInterestPrototype> requiredPrototypes, out List<EntityUid> requiredStations)
+    public void GenerateRequireds(
+        MapId mapUid,
+        List<PointOfInterestPrototype> requiredPrototypes,
+        out List<EntityUid> requiredStations,
+        bool ignorePresetFilter = false)
     {
         //Stations are required are ones that are vital to function but otherwise still follow a generic random spawn logic
         //Traditionally these would be stations like Expedition Lodge, NFSD station, Prison/Courthouse POI, etc.
@@ -184,14 +188,16 @@ public sealed partial class PointOfInterestSystem : EntitySystem
 
         requiredStations = new List<EntityUid>();
 
-        if (_ticker.CurrentPreset is null)
+        if (_ticker.CurrentPreset is null && !ignorePresetFilter)
             return;
-        var currentPreset = _ticker.CurrentPreset!.ID;
+        var currentPreset = _ticker.CurrentPreset?.ID ?? string.Empty;
 
         foreach (var proto in requiredPrototypes)
         {
             // Safety check: ensure selected POIs are either fine in any preset or accepts this current one.
-            if (proto.SpawnGamePreset.Length > 0 && !proto.SpawnGamePreset.Contains(currentPreset))
+            if (!ignorePresetFilter &&
+                proto.SpawnGamePreset.Length > 0 &&
+                !proto.SpawnGamePreset.Contains(currentPreset))
                 continue;
 
             var offset = GetRandomPOICoord(mapUid, proto.MinimumDistance, proto.MaximumDistance);

@@ -1,0 +1,32 @@
+# Felinid hand parts referenced by the Felinid body prototype. The upstream
+# Goobstation definitions were not imported during the sync, which broke
+# spawning any character with a Felinid body.
+- type: entity
+  id: PartFelinid
+  parent: PartHuman
+  abstract: true
+  components:
+  - type: BodyPart
+    species: Felinid
+
+- type: entity
+  id: LeftHandFelinid
+  name: "left felinid hand"
+  parent: [PartFelinid, BaseLeftHand]
+  components:
+  - type: Sprite
+    sprite: Mobs/Species/Human/parts.rsi
+    state: "l_hand"
+  - type: DoAfterDelayMultiplier
+    multiplier: 0.9
+
+- type: entity
+  id: RightHandFelinid
+  name: "right felinid hand"
+  parent: [PartFelinid, BaseRightHand]
+  components:
+  - type: Sprite
+    sprite: Mobs/Species/Human/parts.rsi
+    state: "r_hand"
+  - type: DoAfterDelayMultiplier
+    multiplier: 0.9
