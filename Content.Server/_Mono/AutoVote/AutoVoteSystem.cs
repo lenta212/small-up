@@ -1,3 +1,4 @@
+using System.Linq;
 using Robust.Shared.Configuration;
 using Content.Server.Voting.Managers;
 using Content.Shared.GameTicking;
@@ -15,6 +16,7 @@ public sealed partial class AutoVoteSystem : EntitySystem
     [Dependency] public IPlayerManager _playerManager = default!;
 
     public bool _shouldVoteNextJoin = false;
+    private bool _autovoteStartedThisLobby;
 
     public override void Initialize()
     {
@@ -24,19 +26,26 @@ public sealed partial class AutoVoteSystem : EntitySystem
         SubscribeLocalEvent<PlayerJoinedLobbyEvent>(OnPlayerJoinedLobby);
     }
 
-    public void OnReturnedToLobby(RoundRestartCleanupEvent ev) => CallAutovote();
+    public void OnReturnedToLobby(RoundRestartCleanupEvent ev)
+    {
+        _autovoteStartedThisLobby = false;
+        CallAutovote();
+    }
 
     public void OnPlayerJoinedLobby(PlayerJoinedLobbyEvent ev)
     {
         if (!_shouldVoteNextJoin)
             return;
 
-        CallAutovote();
         _shouldVoteNextJoin = false;
+        CallAutovote();
     }
 
     private void CallAutovote()
     {
+        if (_autovoteStartedThisLobby || _voteManager.ActiveVotes.Any())
+            return;
+
         if (!_cfg.GetCVar(CCVars.AutoVoteEnabled))
             return;
 
@@ -46,9 +55,17 @@ public sealed partial class AutoVoteSystem : EntitySystem
             return;
         }
 
-        if (_cfg.GetCVar(CCVars.MapAutoVoteEnabled))
-            _voteManager.CreateStandardVote(null, StandardVoteType.Map);
         if (_cfg.GetCVar(CCVars.PresetAutoVoteEnabled))
+        {
             _voteManager.CreateStandardVote(null, StandardVoteType.Preset);
+            _autovoteStartedThisLobby = true;
+            return;
+        }
+
+        if (_cfg.GetCVar(CCVars.MapAutoVoteEnabled))
+        {
+            _voteManager.CreateStandardVote(null, StandardVoteType.Map);
+            _autovoteStartedThisLobby = true;
+        }
     }
 }
