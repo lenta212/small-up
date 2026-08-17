@@ -37,7 +37,7 @@ public sealed partial class FancyResearchConsoleItem : LayoutContainer
         Prototype = proto;
 
         if (proto.Icon != null)
-            ResearchDisplay.Texture = sprite.Frame0(proto.Icon);
+            ResearchDisplay.TextureNormal = sprite.Frame0(proto.Icon);
         Button.OnPressed += Selected;
         Button.OnDrawModeChanged += UpdateColor;
 
@@ -73,10 +73,13 @@ public sealed partial class FancyResearchConsoleItem : LayoutContainer
         SelectAction?.Invoke(Prototype, Availability);
     }
 
-    public void SetScale(float scale)
+    public void SetZoom(float zoom)
     {
-        var box = (BoxContainer) GetChild(0)!;
-        box.SetSize = new Vector2(80 * scale, 80 * scale);
+        var displayScale = 2f * zoom;
+
+        CardContainer.SetSize = new Vector2(80f * zoom, 80f * zoom);
+        ResearchDisplay.SetSize = new Vector2(64f * zoom, 64f * zoom);
+        ResearchDisplay.Scale = new Vector2(displayScale, displayScale);
     }
 }
 

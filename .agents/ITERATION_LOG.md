@@ -1,3 +1,11 @@
+## 2026-08-17T15:10:00Z -- research rework UI completed against LuaM feature contract
+
+- Objective/result: verified the Goobstation research transfer end to end and closed the only missing UX/contract gap. The server console handlers, shared `ResearchAvailability`, menu/item controls, prototypes, recipes, and en/ru localization all resolve and build; the BUI wiring matches upstream Goob.
+- Gap found: the reworked `FancyResearchConsoleMenu` dropped the fork's resizable window and zoomable technology tree. `Tools/validate_luam_feature_pack.py` failed closed on `missing 'Resizable="True"'`, and the XAML/code-behind lacked the zoom buttons, tooltips, and zoom layout methods.
+- Fix: restored `Resizable="True"` with `MinSize="600 400"`, added `ZoomOutButton`/`ZoomResetButton`/`ZoomInButton` with tooltips, and reintroduced `SetZoom`/`ResetZoom`/`GetZoomFocus`/`LayoutResearchCards`/`LayoutResearchCard`/`UpdateZoomLabel` while keeping the new upstream static-background and drag implementation. `FancyResearchConsoleItem` now exposes the contract-compliant `SetZoom(float)` with `CardContainer`/`ResearchDisplay` scaling via a non-interactive `TextureButton`. Added the missing en-US zoom tooltips.
+- Validation: `Content.Client` DebugOpt build passes with zero errors; the full `Tools/validate_luam_feature_pack.py` run passes; production `content-tests-luam` gate passes 96/96. No production host, package, client, server, database, ship, round, or player state was changed.
+- Next action: commit locally; production deployment still requires fresh explicit operator authorization.
+
 ## 2026-08-17T14:27:26Z -- asteroid-belt coordinate disks and locations repaired
 
 - Objective/result: diagnosed the report that coordinate disks do not generate and belt locations are not created, without touching production. The belt map and its FTLPoint entry beacon are created on every round start, but three defects broke the feature.

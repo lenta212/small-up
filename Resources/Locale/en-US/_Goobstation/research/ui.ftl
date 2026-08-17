@@ -10,3 +10,7 @@ research-console-menu-recenter-button = Recenter
 research-console-menu-server-researched-button = Researched
 research-console-tech-cost-label = { $cost } R.P.
 research-console-tier-percentage = : { $perc }%
+
+research-console-menu-zoom-out-tooltip = Zoom out the research tree
+research-console-menu-zoom-reset-tooltip = Reset the research tree zoom
+research-console-menu-zoom-in-tooltip = Zoom in the research tree

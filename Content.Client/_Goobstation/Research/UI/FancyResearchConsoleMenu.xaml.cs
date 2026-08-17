@@ -86,6 +86,9 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
         DragContainer.OnKeyBindDown += OnKeybindDown;
         DragContainer.OnKeyBindUp += OnKeybindUp;
         RecenterButton.OnPressed += _ => Recenter();
+        ZoomOutButton.OnPressed += _ => SetZoom(_zoom - ZoomSpeed);
+        ZoomResetButton.OnPressed += _ => ResetZoom();
+        ZoomInButton.OnPressed += _ => SetZoom(_zoom + ZoomSpeed);
 
         UpdatePanels(List);
         Recenter();
@@ -106,8 +109,7 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
             var control = new FancyResearchConsoleItem(proto, _sprite, tech.Value);
             DragContainer.AddChild(control);
 
-            // Set position for all tech, relating to _position
-            LayoutContainer.SetPosition(control, _position + proto.Position * 150 * _zoom);
+            LayoutResearchCard(control, proto);
             control.SelectAction += SelectTech;
 
             if (tech.Key == CurrentTech)
@@ -168,39 +170,17 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
             return;
 
         _position += args.Relative;
-
-        // Move all tech
-        foreach (var child in DragContainer.Children)
-        {
-            LayoutContainer.SetPosition(child, child.Position + args.Relative);
-        }
+        LayoutResearchCards();
     }
 
     protected override void MouseWheel(GUIMouseWheelEventArgs args)
     {
         base.MouseWheel(args);
 
-        var oldZoom = _zoom;
-
-        if (args.Delta.Y > 0)
-            _zoom += ZoomSpeed;
-        else
-            _zoom -= ZoomSpeed;
-
-        _zoom = Math.Clamp(_zoom, MinZoom, MaxZoom);
-
-        if (MathHelper.CloseTo(oldZoom, _zoom))
+        if (args.Delta.Y == 0)
             return;
 
-        foreach (var child in DragContainer.Children)
-        {
-            if (child is not FancyResearchConsoleItem research)
-                continue;
-
-            var pos = research.Prototype.Position * 150;
-            LayoutContainer.SetPosition(child, _position + pos * _zoom);
-            research.SetScale(_zoom);
-        }
+        SetZoom(_zoom + Math.Sign(args.Delta.Y) * ZoomSpeed);
         args.Handle();
     }
 
@@ -249,13 +229,52 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
     public void Recenter()
     {
         _position = new(45, 250);
+        LayoutResearchCards();
+    }
+
+    private void ResetZoom()
+    {
+        SetZoom(1f);
+        Recenter();
+    }
+
+    private void SetZoom(float zoom)
+    {
+        var newZoom = Math.Clamp(zoom, MinZoom, MaxZoom);
+        if (MathHelper.CloseTo(newZoom, _zoom))
+            return;
+
+        var oldZoom = _zoom;
+        var focus = GetZoomFocus();
+        _position = focus + (_position - focus) * (newZoom / oldZoom);
+        _zoom = newZoom;
+        UpdateZoomLabel();
+        LayoutResearchCards();
+    }
+
+    private Vector2 GetZoomFocus()
+    {
+        return ResearchesContainer.Size / 2f;
+    }
+
+    private void UpdateZoomLabel()
+    {
+        ZoomResetButton.Text = $"{Math.Round(_zoom * 100)}%";
+    }
+
+    private void LayoutResearchCards()
+    {
         foreach (var item in DragContainer.Children)
         {
-            if (item is not FancyResearchConsoleItem research)
-                continue;
-
-            LayoutContainer.SetPosition(item, _position + research.Prototype.Position * 150 * _zoom);
+            if (item is FancyResearchConsoleItem research)
+                LayoutResearchCard(research, research.Prototype);
         }
+    }
+
+    private void LayoutResearchCard(FancyResearchConsoleItem item, TechnologyPrototype proto)
+    {
+        item.SetZoom(_zoom);
+        LayoutContainer.SetPosition(item, _position + proto.Position * 150 * _zoom);
     }
 
     public override void Close()
