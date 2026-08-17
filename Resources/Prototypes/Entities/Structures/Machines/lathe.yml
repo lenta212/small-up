@@ -1,4 +1,4 @@
-- type: entity
+﻿- type: entity
   id: BaseLathe
   parent: [ BaseMachinePowered, ConstructibleMachine ]
   abstract: true
@@ -392,6 +392,7 @@
     - MechMiscStatic # Mono
     # Shitmed Change
     - IPCPartsStatic
+    - IPCPartsStatic_Goob
     dynamicPacks:
     - Robotics
     - BorgModules
@@ -403,6 +404,7 @@
     - LuaMCyberneticOrgans
     # Goob/Mono - modsuits
     - Modsuits
+    - Modsuits_Goob
     # Mono - Mechs
     - ClarkeMechParts
     - DurandMechParts
@@ -931,3 +933,5 @@
     emagStaticPacks:
     - MedicalPizzaLimbsStatic
 # Shitmed Change End
+
+

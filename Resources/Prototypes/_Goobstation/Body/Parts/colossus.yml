@@ -1,4 +1,4 @@
-
+﻿
 
 # Not parenting this shit to BaseItem cause i dont want this to be an item.
 - type: entity
@@ -122,7 +122,7 @@
   - type: Icon
     state: "chest"
   - type: BodyPart
-    partType: Chest
+    partType: Torso
     # Shitmed Change Start
     toolName: "a chest"
     containerName: "chest_slot"
@@ -154,3 +154,4 @@
   slots:
     chest:
       part: ChestColossus
+

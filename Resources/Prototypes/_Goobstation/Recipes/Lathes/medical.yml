@@ -1,13 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 - type: latheRecipe
-  id: VehicleWheelchairFolded
-  result: VehicleWheelchairFolded
-  materials:
-    Plastic: 500
-    Steel: 500
-
-- type: latheRecipe
   id: PrescriptionGlasses
   result: ClothingEyesPrescriptionGlasses
   completetime: 3
@@ -58,35 +51,6 @@
     Plastic: 500
     Glass: 500
     Gold: 300
-
-- type: latheRecipe
-  id: HandheldCrewMonitor
-  result: HandheldCrewMonitorEmpty
-  completetime: 5
-  materials:
-    Steel: 500
-    Glass: 200
-    Plastic: 200
-    Gold: 100
-
-- type: latheRecipe
-  id: DefibrillatorCompact
-  result: DefibrillatorCompactEmpty
-  completetime: 5
-  materials:
-    Steel: 250
-    Silver: 50
-
-- type: latheRecipe
-  id: VialBluespace
-  result: BluespaceChemistryVial
-  completetime: 2
-  materials:
-    Steel: 100
-    Plastic: 150
-    Glass: 250
-    Plasma: 100
-    Silver: 50
 
 - type: latheRecipe
   id: XenoCompatibilityImplanter

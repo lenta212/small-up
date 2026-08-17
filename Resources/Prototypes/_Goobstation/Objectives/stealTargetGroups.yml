@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+﻿# SPDX-License-Identifier: AGPL-3.0-or-later
 
 - type: stealTargetGroup
   id: SupermatterSliver
@@ -50,8 +50,9 @@
     state: icon
 
 - type: stealTargetGroup
-  id: WeaponEnergyShotgun
+  id: WeaponEnergyShotgun_Goob
   name: steal-target-groups-weapon-energy-shot-gun
   sprite:
     sprite: Objects/Weapons/Guns/Battery/energy_shotgun.rsi
     state: base
+

@@ -1,7 +1,7 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+﻿# SPDX-License-Identifier: AGPL-3.0-or-later
 ## Static
 - type: latheRecipePack
-  id: IPCPartsStatic
+  id: IPCPartsStatic_Goob
   recipes:
   - ChestIPC
   - GroinIPC
@@ -30,7 +30,7 @@
 
 ## Dynamic
 - type: latheRecipePack
-  id: Modsuits
+  id: Modsuits_Goob
   recipes:
   - ModsuitChestplate
   - ModsuitBoots
@@ -78,3 +78,4 @@
   - DexLeftHand
   - DexRightHand
   - DiagnosticCyberneticEyes
+

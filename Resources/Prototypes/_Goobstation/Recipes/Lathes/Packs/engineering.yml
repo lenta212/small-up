@@ -24,7 +24,7 @@
 # Dynamic
 
 - type: latheRecipePack
-  id: UpgradeKits
+  id: UpgradeKits_Goob
   recipes:
   - LatheUpgradeKitHyper
   - LatheUpgradeKitCryo

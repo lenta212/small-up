@@ -5,7 +5,7 @@ using Robust.Client.UserInterface.Controls;
 using Robust.Client.UserInterface.CustomControls;
 using Robust.Client.UserInterface.XAML;
 
-namespace Content.Goobstation.Client.Devil.UI;
+namespace Content.Client._Goobstation.Devil.UI;
 
 [GenerateTypedNameReferences]
 public sealed partial class RevivalContractMenu : DefaultWindow

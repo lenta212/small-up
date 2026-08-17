@@ -14,6 +14,11 @@
   hideSpawnMenu: true
 
 - type: entityCategory
+  id: Enchants
+  name: entity-category-name-enchants
+  hideSpawnMenu: true
+
+- type: entityCategory
   id: Roles
   name: entity-category-name-roles
   hideSpawnMenu: true

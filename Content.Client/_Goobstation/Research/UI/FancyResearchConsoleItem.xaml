@@ -5,7 +5,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 <LayoutContainer xmlns="https://spacestation14.io"
                  xmlns:gfx="clr-namespace:Robust.Client.Graphics;assembly=Robust.Client"
                  xmlns:graphics="clr-namespace:Robust.Client.Graphics;assembly=Robust.Client"
-                 xmlns:goob="clr-namespace:Content.Goobstation.Client.Research.UI"
+                 xmlns:goob="clr-namespace:Content.Client._Goobstation.Research.UI"
                  Margin="5"
                  HorizontalExpand="False">
     <BoxContainer Orientation="Vertical" SetSize="80 80">

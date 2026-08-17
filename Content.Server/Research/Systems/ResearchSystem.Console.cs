@@ -5,7 +5,7 @@ using Content.Shared.Access.Components;
 using Content.Shared.Emag.Systems;
 using Content.Shared.Research.Components;
 using Content.Shared.Research.Prototypes;
-using Content.Shared._Goobstation.Research; // R&D Console Rework
+using Content.Goobstation.Common.Research; // R&D Console Rework
 using System.Linq; // R&D Console Rework
 
 namespace Content.Server.Research.Systems;

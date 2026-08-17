@@ -2,6 +2,7 @@
 
 - type: constructionGraph
   id: Modsuit
+  start: start
   graph:
   - node: start
     entity: ModsuitShell

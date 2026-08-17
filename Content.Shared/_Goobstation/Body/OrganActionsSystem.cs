@@ -1,6 +1,7 @@
 using Content.Shared.Actions;
 using Content.Shared.Body.Events;
 using Content.Shared.Body.Organ;
+using Content.Shared._Shitmed.Body.Organ;
 using Robust.Shared.Network;
 
 namespace Content.Goobstation.Shared.Body;

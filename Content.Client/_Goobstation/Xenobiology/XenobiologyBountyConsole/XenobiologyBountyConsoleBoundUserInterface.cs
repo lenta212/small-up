@@ -5,7 +5,7 @@ using Content.Shared.Cargo.Components;
 using JetBrains.Annotations;
 using Robust.Client.UserInterface;
 
-namespace Content.Goobstation.Client.Xenobiology.XenobiologyBountyConsole;
+namespace Content.Client._Goobstation.Xenobiology.XenobiologyBountyConsole;
 
 [UsedImplicitly]
 public sealed class XenobiologyBountyConsoleBoundUserInterface(EntityUid owner, Enum uiKey) : BoundUserInterface(owner, uiKey)

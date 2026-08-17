@@ -1,4 +1,5 @@
 using Content.Server.Objectives.Components;
+using Content.Server.GameTicking.Rules;
 using Content.Server.Revolutionary.Components;
 using Content.Server.Shuttles.Systems;
 using Content.Shared.CCVar;
@@ -28,6 +29,8 @@ public sealed partial class KillPersonConditionSystem : EntitySystem
         SubscribeLocalEvent<KillPersonConditionComponent, ObjectiveGetProgressEvent>(OnGetProgress);
 
         SubscribeLocalEvent<PickRandomPersonComponent, ObjectiveAssignedEvent>(OnPersonAssigned);
+
+        SubscribeLocalEvent<PickRandomTraitorComponent, ObjectiveAssignedEvent>(OnTraitorAssigned);
 
         SubscribeLocalEvent<PickRandomHeadComponent, ObjectiveAssignedEvent>(OnHeadAssigned);
     }
@@ -72,6 +75,36 @@ public sealed partial class KillPersonConditionSystem : EntitySystem
         }
 
         _target.SetTarget(uid, _random.Pick(allHumans), target);
+    }
+
+    private void OnTraitorAssigned(EntityUid uid, PickRandomTraitorComponent comp, ref ObjectiveAssignedEvent args)
+    {
+        if (!TryComp<TargetObjectiveComponent>(uid, out var target))
+        {
+            args.Cancelled = true;
+            return;
+        }
+
+        if (target.Target != null)
+            return;
+
+        var traitors = EntitySystem.Get<TraitorRuleSystem>()
+            .GetOtherTraitorMindsAliveAndConnected(args.Mind)
+            .ToHashSet();
+
+        foreach (var objective in args.Mind.Objectives)
+        {
+            if (HasComp<KillPersonConditionComponent>(objective) && TryComp<TargetObjectiveComponent>(objective, out var kill))
+                traitors.RemoveWhere(x => x.Id == kill.Target);
+        }
+
+        if (traitors.Count == 0)
+        {
+            args.Cancelled = true;
+            return;
+        }
+
+        _target.SetTarget(uid, _random.Pick(traitors).Id, target);
     }
 
     private void OnHeadAssigned(EntityUid uid, PickRandomHeadComponent comp, ref ObjectiveAssignedEvent args)

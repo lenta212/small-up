@@ -24,8 +24,8 @@ public sealed class EnchantRelaySystem : EntitySystem
 
         SubInventory<DamageModifyEvent>();
         SubscribeLocalEvent<EnchantedComponent, MeleeHitEvent>(RelayEvent);
-        SubInventory<AttackedEvent>(true);
-        SubInventory<StepTriggerAttemptEvent>(true);
+        SubscribeLocalEvent<EnchantedComponent, AttackedEvent>(RelayEvent);
+        SubscribeLocalEvent<EnchantedComponent, StepTriggerAttemptEvent>(RelayEvent);
         SubInventory<GetFireProtectionEvent>();
         SubInventory<ModifyChangedTemperatureEvent>();
         SubInventory<ElectrocutionAttemptEvent>();
@@ -37,7 +37,7 @@ public sealed class EnchantRelaySystem : EntitySystem
         SubscribeLocalEvent<EnchantedComponent, InventoryRelayedEvent<T>>(RelayInventoryEvent);
         // only needed if the source system doesn't relay directly and inventory system doesn't relay for it
         if (relayInventory)
-            SubscribeLocalEvent<InventoryComponent, T>(_inventory.RelayEvent);
+            SubscribeLocalEvent<InventoryComponent, T>((Entity<InventoryComponent> ent, ref T args) => _inventory.RelayEvent(ent, ref args));
     }
 
     private void RelayEvent<T>(Entity<EnchantedComponent> ent, ref T args) where T : notnull

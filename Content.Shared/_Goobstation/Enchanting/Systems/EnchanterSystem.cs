@@ -129,7 +129,7 @@ public sealed class EnchanterSystem : EntitySystem
         _adminLogger.Add(LogType.EntityDelete, LogImpact.Low,
             $"{ToPrettyString(user):player} enchanted {ToPrettyString(item):item} using {ToPrettyString(ent):enchanter}");
 
-        if (!HasComp<StackComponent>(ent) || !_stack.TryUse(ent.Owner, 1))
+        if (!HasComp<StackComponent>(ent) || !_stack.Use(ent.Owner, 1))
         {
             ent.Comp.Enchants = new(); // prevent double enchanting by malf client
             QueueDel(ent);

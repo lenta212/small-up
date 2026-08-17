@@ -1,8 +1,34 @@
 using Content.Shared.StepTrigger.Systems;
 using Content.Shared.Whitelist;
 using Robust.Shared.GameStates;
+using Robust.Shared.Prototypes;
 
 namespace Content.Shared.StepTrigger.Components;
+
+[Prototype("stepTriggerType")]
+public sealed partial class StepTriggerTypePrototype : IPrototype
+{
+    [IdDataField]
+    public string ID { get; private set; } = default!;
+}
+
+[DataDefinition]
+public sealed partial class StepTriggerGroup
+{
+    [DataField]
+    public List<ProtoId<StepTriggerTypePrototype>> Types = new();
+
+    public bool IsValid(StepTriggerComponent component)
+    {
+        // Backwards-compatible bridge for Goob enchant data. This codebase's
+        // StepTriggerComponent does not carry typed trigger groups, so the only
+        // currently meaningful imported group is Lava: lava tiles are identified
+        // by their zero-speed, low-intersection trigger configuration.
+        return Types.Contains("Lava")
+            && component.RequiredTriggeredSpeed == 0f
+            && component.IntersectRatio <= 0.1f;
+    }
+}
 
 [RegisterComponent, NetworkedComponent, AutoGenerateComponentState(true)]
 [Access(typeof(StepTriggerSystem))]

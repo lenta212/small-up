@@ -1,4 +1,4 @@
-- type: entity
+﻿- type: entity
   parent: BaseObjective
   id: NukeopsDetonateObjective
   name: Destroy the station with a nuclear device.
@@ -13,5 +13,7 @@
       state: nuclearbomb_base
   - type: RoleRequirement
     roles:
-    - NukeopsRole
+      mindRoles:
+      - NukeopsRole
   - type: DetonateNukeCondition
+

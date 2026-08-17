@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+﻿# SPDX-License-Identifier: AGPL-3.0-or-later
 
 # The ID is what is searched for on the paper, coming after the target identifier.
 # Any spaces on the written portion will be removed, so keep it all lowercase and one word.
@@ -181,10 +181,8 @@
   clauseWeight: 35
   addedComponents:
   - type: Narcolepsy
-    maxTimeBetweenIncidents: 600
-    minTimeBetweenIncidents: 300
-    maxDurationOfIncident: 30
-    minDurationOfIncident: 10
+    timeBetweenIncidents: 300, 600
+    durationOfIncident: 10, 30
 
 - type: clause
   id: anorgan
@@ -225,3 +223,5 @@
     preventAllRevives: true # :trol:
     deathTime: 300
     deathMessageId: devil-deal-time-ran-out
+
+

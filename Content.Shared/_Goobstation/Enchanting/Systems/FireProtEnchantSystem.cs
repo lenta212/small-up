@@ -43,25 +43,15 @@ public sealed class FireProtEnchantSystem : EntitySystem
 
     private void OnGetFireProtection(Entity<FireProtEnchantComponent> ent, ref GetFireProtectionEvent args)
     {
-        if (Ignored(ent, args.Target))
-            return;
-
         args.Reduce(ent.Comp.Reduction);
     }
 
     private void OnTemperatureChangeAttempt(Entity<FireProtEnchantComponent> ent, ref ModifyChangedTemperatureEvent args)
     {
         // don't care about cooling
-        if (args.TemperatureDelta < 0 || Ignored(ent, args.Target))
+        if (args.TemperatureDelta < 0)
             return;
 
         args.TemperatureDelta *= ent.Comp.TempModifier;
-    }
-
-    private bool Ignored(EntityUid uid, EntityUid target)
-    {
-        // Fire Protection mouse will only protect the mouse not you
-        var item = _enchanting.GetEnchantedItem(uid);
-        return item != target && HasComp<MobStateComponent>(item);
     }
 }

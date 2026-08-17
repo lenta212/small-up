@@ -4,6 +4,12 @@ using Content.Shared._Shitmed.Body.Part;
 
 namespace Content.Goobstation.Shared.Xenobiology.Components;
 
+public enum BodyPartComposition : byte
+{
+    Organic,
+    Inorganic,
+}
+
 [RegisterComponent]
 public sealed partial class CorpseEaterComponent : Component
 {

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+﻿// SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Content.Shared.Actions;
 
@@ -13,3 +13,7 @@ public sealed partial class ShadowJauntEvent : InstantActionEvent;
 public sealed partial class DevilGripEvent : InstantActionEvent;
 
 public sealed partial class DevilPossessionEvent : EntityTargetActionEvent;
+
+public sealed partial class CheatDeathEvent : InstantActionEvent;
+
+public sealed partial class EndPossessionEarlyEvent : InstantActionEvent;

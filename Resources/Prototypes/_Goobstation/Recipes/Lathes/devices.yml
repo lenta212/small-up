@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+﻿# SPDX-License-Identifier: AGPL-3.0-or-later
 
 - type: latheRecipe
   id: Pinpointer
@@ -48,16 +48,3 @@
     Plastic: 200
     Glass: 100
     Gold: 200
-
-- type: latheRecipe
-  id: ExplosivePayload
-  result: ExplosivePayload
-  categories:
-  - Parts
-  completetime: 3
-  materials:
-    Steel: 200
-    Plastic: 200
-    Glass: 100
-    Gold: 50
-    Plasma: 100

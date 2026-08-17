@@ -18,15 +18,7 @@
       "directions": 4
     },
     {
-      "name": "equipped-HEAD-resomi",
-      "directions": 4
-    },
-    {
       "name": "equipped-HEAD-sealed",
-      "directions": 4
-    },
-    {
-      "name": "equipped-HEAD-sealed-resomi",
       "directions": 4
     },
     {
@@ -35,30 +27,6 @@
     },
     {
       "name": "equipped-HEAD-sealed-vox",
-      "directions": 4
-    },
-    {
-      "name": "equipped-HEAD-sealed-vulpkanin",
-      "directions": 4
-    },
-    {
-      "name": "equipped-HEAD-vulpkanin",
-      "directions": 4
-    },
-    {
-      "name": "equipped-HEAD-sealed-feroxi",
-      "directions": 4
-    },
-    {
-      "name": "equipped-HEAD-feroxi",
-      "directions": 4
-    },
-    {
-      "name": "equipped-HEAD-hydrakin",
-      "directions": 4
-    },
-    {
-      "name": "equipped-HEAD-sealed-hydrakin",
       "directions": 4
     }
   ]

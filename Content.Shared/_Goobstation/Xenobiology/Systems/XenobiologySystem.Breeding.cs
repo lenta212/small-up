@@ -4,23 +4,12 @@ using Content.Goobstation.Common.CCVar;
 using Content.Goobstation.Shared.Xenobiology.Components;
 using Content.Shared.Nutrition.Components;
 using Robust.Shared.Random;
-using Content.Shared.Body.Systems;
-using Content.Shared.Body.Components;
-using Content.Shared.Chemistry.EntitySystems;
-using Content.Goobstation.Maths.FixedPoint;
-using Content.Shared.Chemistry.Components;
-using Robust.Shared.Prototypes;
 
 namespace Content.Goobstation.Shared.Xenobiology.Systems;
 
 // This handles slime breeding and mutation.
 public partial class XenobiologySystem
 {
-    [Dependency] private readonly IPrototypeManager _proto = default!;
-    [Dependency] private readonly SharedSolutionContainerSystem _solutionContainer = default!;
-    [Dependency] private readonly SharedBodySystem _body = default!;
-    [Dependency] private readonly StomachSystem _stomach = default!;
-
     private void SubscribeBreeding()
     {
         SubscribeLocalEvent<RandomSlimeChangeComponent, MapInitEvent>(OnPendingSlimeMapInit);
@@ -113,42 +102,6 @@ public partial class XenobiologySystem
                 newComp.MaxOffspring = ent.Comp.MaxOffspring;
                 newComp.ExtractsProduced = ent.Comp.ExtractsProduced;
                 slimes.Add(sl);
-            }
-        }
-
-        // transfer chem bloodstream and stomach chemicals to children evenly
-        var slimeScale = 1/(float)slimes.Count;
-        var parentStomachList = _body.GetBodyOrganEntityComps<StomachComponent>(ent.Owner);
-        var parentStomachSolutionTransfer = new Solution();
-        foreach (var stomach in parentStomachList)
-        {
-            if (_solutionContainer.ResolveSolution(stomach.Owner, StomachSystem.DefaultSolutionName, ref stomach.Comp1.Solution, out var sol))
-            {
-                parentStomachSolutionTransfer.AddSolution(sol, _proto);
-                sol.RemoveAllSolution();
-            }
-        }
-        parentStomachSolutionTransfer.ScaleSolution(slimeScale);
-
-        var parentChemSolutionTransfer = new Solution();
-        if (TryComp<BloodstreamComponent>(ent, out var parentBloodstream)
-            && _solutionContainer.ResolveSolution(ent.Owner, parentBloodstream.BloodSolutionName, ref parentBloodstream.BloodSolution, out var parentChem))
-        {
-            parentChemSolutionTransfer.AddSolution(parentChem, _proto);
-            parentChem.RemoveAllSolution();
-        }
-        parentChemSolutionTransfer.ScaleSolution(slimeScale);
-
-        foreach (var s in slimes)
-        {
-            if (TryComp<BloodstreamComponent>(s, out var childBloodstream)
-                && _solutionContainer.ResolveSolution(s, childBloodstream.BloodSolutionName, ref childBloodstream.BloodSolution, out var childChem))
-                childChem.AddSolution(parentChemSolutionTransfer, _proto);
-
-            var childStomachList = _body.GetBodyOrganEntityComps<StomachComponent>(s);
-            foreach (var stomach in childStomachList)
-            {
-                _stomach.TryTransferSolution(stomach.Owner, parentStomachSolutionTransfer, stomach);
             }
         }
 

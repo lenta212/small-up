@@ -1,4 +1,5 @@
 using System.Numerics;
+using Content.Goobstation.Shared.Enchanting.Systems;
 using Content.Shared.Throwing;
 using Robust.Shared.GameStates;
 using Robust.Shared.Physics.Components;
@@ -12,7 +13,7 @@ namespace Content.Shared.Weapons.Melee.Components;
 /// until it hits a wall or a time limit is exhausted.
 /// </summary>
 [RegisterComponent, NetworkedComponent, AutoGenerateComponentState]
-[Access(typeof(MeleeThrowOnHitSystem))]
+[Access(typeof(MeleeThrowOnHitSystem), typeof(KnockbackEnchantSystem))]
 public sealed partial class MeleeThrowOnHitComponent : Component
 {
     /// <summary>

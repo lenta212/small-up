@@ -8,7 +8,7 @@ using JetBrains.Annotations;
 using Robust.Client.UserInterface;
 using Robust.Shared.Prototypes;
 
-namespace Content.Goobstation.Client.Research.UI;
+namespace Content.Client._Goobstation.Research.UI;
 
 [UsedImplicitly]
 public sealed class FancyResearchConsoleBoundUserInterface : BoundUserInterface

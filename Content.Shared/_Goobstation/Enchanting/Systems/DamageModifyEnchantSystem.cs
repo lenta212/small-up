@@ -33,10 +33,6 @@ public sealed class DamageModifyEnchantSystem : EntitySystem
 
     private void OnDamageModify(Entity<DamageModifyEnchantComponent> ent, ref DamageModifyEvent args)
     {
-        // no wearing DamageModify III mouse for your protection
-        if (!ent.Comp.ProtectWearer && _enchanting.GetEnchantedItem(ent) != args.Target)
-            return;
-
         args.Damage = args.Damage * ent.Comp.Modifier;
     }
 }

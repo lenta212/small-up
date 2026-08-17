@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+﻿# SPDX-License-Identifier: AGPL-3.0-or-later
 
 
 
@@ -13,8 +13,8 @@
     issuer: objective-issuer-syndicate
   - type: RoleRequirement
     roles:
-    - TraitorRole
-
+      mindRoles:
+      - TraitorRole
 - type: entity
   abstract: true
   parent: [BaseCorporateObjective, BaseSocialObjective]
@@ -254,7 +254,7 @@
     jobs:
     - Warden # Goob edit
   - type: StealCondition
-    stealGroup: WeaponEnergyShotgun
+    stealGroup: WeaponEnergyShotgun_Goob
     owner: job-name-warden # Goob edit
 
 ## ce
@@ -471,3 +471,5 @@
   - type: Objective
     # This bad boy is LITERALLY directly screwed into the RDs spinal cord. Good luck!
     difficulty: 3.5
+
+

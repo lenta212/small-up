@@ -9,7 +9,7 @@ using Robust.Client.UserInterface.XAML;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Timing;
 
-namespace Content.Goobstation.Client.Xenobiology.XenobiologyBountyConsole;
+namespace Content.Client._Goobstation.Xenobiology.XenobiologyBountyConsole;
 
 [GenerateTypedNameReferences]
 public sealed partial class XenobiologyBountyEntry : BoxContainer

@@ -43,11 +43,7 @@ public sealed class FortuneEnchantSystem : EntitySystem
 
     private void OnMeleeHit(Entity<FortuneEnchantComponent> ent, ref MeleeHitEvent args)
     {
-        var chance = ent.Comp.Chance;
-        foreach (var hit in args.HitEntities)
-        {
-            if (_oreQuery.TryComp(hit, out var ore))
-                ore.Modifier = chance;
-        }
+        // This fork's OreVeinComponent does not expose Goob's per-hit fortune
+        // modifier field. Keep the enchant loadable without mutating ore drops.
     }
 }

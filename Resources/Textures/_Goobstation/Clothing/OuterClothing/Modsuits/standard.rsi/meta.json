@@ -10,28 +10,20 @@
     {
       "name": "chestplate"
     },
-		{
-		  "name": "chestplate-sealed"
-		},
-		{
-			"name": "equipped-OUTERCLOTHING",
-			"directions": 4
-		},
-		{
-			"name": "equipped-OUTERCLOTHING-sealed",
-			"directions": 4
-		},
     {
-			"name": "equipped-OUTERCLOTHING-resomi",
-			"directions": 4
-		},
-		{
-			"name": "equipped-OUTERCLOTHING-sealed-resomi",
-			"directions": 4
-		},
-		{
-			"name": "equipped-OUTERCLOTHING-vox",
-			"directions": 4
-		}
+      "name": "chestplate-sealed"
+    },
+    {
+      "name": "equipped-OUTERCLOTHING",
+      "directions": 4
+    },
+    {
+      "name": "equipped-OUTERCLOTHING-sealed",
+      "directions": 4
+    },
+    {
+      "name": "equipped-OUTERCLOTHING-vox",
+      "directions": 4
+    }
   ]
 }

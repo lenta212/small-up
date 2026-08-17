@@ -2,6 +2,7 @@
 
 - type: constructionGraph
   id: BananiumSword
+  start: start
   graph:
     - node: start
       edges:

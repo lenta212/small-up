@@ -1,0 +1,87 @@
+﻿# Local compatibility parents for imported Goobstation prototypes that expect
+# upstream base prototypes not present in this integration branch.
+
+- type: entity
+  id: BaseAction
+  abstract: true
+
+- type: entity
+  id: MobStatusEffectBase
+  abstract: true
+
+- type: entity
+  id: Chronofield
+  abstract: true
+  components:
+  - type: Transform
+    anchored: true
+
+- type: entity
+  id: BaseMagicalContraband
+  abstract: true
+  parent: BaseC3WizardContraband
+
+- type: entity
+  id: BaseSyndicateContraband
+  abstract: true
+  parent: BaseC3SyndicateContraband
+
+- type: entity
+  id: BaseChest
+  parent: BaseTorso
+  abstract: true
+
+- type: entity
+  id: BaseGroin
+  parent: BaseTorso
+  abstract: true
+
+- type: latheRecipe
+  id: BaseMedicalMachineRecipeCategory
+  abstract: true
+  categories:
+  - Medical
+
+- type: latheRecipe
+  id: BaseEngineeringMachineRecipeCategory
+  abstract: true
+  categories:
+  - Engineering
+
+- type: latheRecipe
+  id: BaseResearchMachineRecipeCategory
+  abstract: true
+  categories:
+  - Science
+
+- type: latheRecipe
+  id: BaseResearchComputerRecipeCategory
+  abstract: true
+  categories:
+  - Science
+
+- type: latheRecipe
+  id: BaseServiceMachineRecipeCategory
+  abstract: true
+  categories:
+  - Service
+
+- type: latheRecipe
+  id: BaseCircuitryRecipeCategory
+  abstract: true
+  categories:
+  - Circuitry
+
+- type: latheRecipe
+  id: MechEquipmentGrabber
+  abstract: true
+  categories:
+  - Robotics
+
+- type: latheRecipe
+  id: BaseTranslatorImplanter
+  abstract: true
+  categories:
+  - Science
+
+

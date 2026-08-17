@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+﻿# SPDX-License-Identifier: AGPL-3.0-or-later
 
 - type: entity
   id: PartYowie
@@ -26,7 +26,7 @@
   components:
   - type: Sprite
     sprite: Mobs/Species/Human/parts.rsi
-    state: "chest_m"
+    state: "torso_m"
 
 - type: entity
   id: GroinYowie
@@ -35,7 +35,7 @@
   components:
   - type: Sprite
     sprite: Mobs/Species/Human/parts.rsi
-    state: "groin_m"
+    state: "torso_m"
 
 - type: entity
   id: LeftArmYowie
@@ -108,3 +108,4 @@
   - type: Sprite
     sprite: Mobs/Species/Human/parts.rsi
     state: "r_foot"
+

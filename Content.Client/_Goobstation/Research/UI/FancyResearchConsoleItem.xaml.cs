@@ -9,7 +9,7 @@ using Robust.Client.Graphics;
 using Robust.Client.UserInterface.Controls;
 using Robust.Client.UserInterface.XAML;
 
-namespace Content.Goobstation.Client.Research.UI;
+namespace Content.Client._Goobstation.Research.UI;
 
 [GenerateTypedNameReferences]
 public sealed partial class FancyResearchConsoleItem : LayoutContainer
@@ -36,7 +36,8 @@ public sealed partial class FancyResearchConsoleItem : LayoutContainer
         Availability = availability;
         Prototype = proto;
 
-        ResearchDisplay.Texture = sprite.Frame0(proto.Icon);
+        if (proto.Icon != null)
+            ResearchDisplay.Texture = sprite.Frame0(proto.Icon);
         Button.OnPressed += Selected;
         Button.OnDrawModeChanged += UpdateColor;
 
