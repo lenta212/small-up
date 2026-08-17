@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Content.Server.Gateway.Components;
 using Content.Server.Gateway.Systems;
 using Content.Server.Ghost;
@@ -35,6 +36,7 @@ public sealed class LuaMStargateSystem : EntitySystem
     [Dependency] private readonly GhostSystem _ghost = default!;
 
     private readonly HashSet<string> _assignedAddresses = new();
+    private readonly HashSet<string> _reservedRandomDiskAddresses = new();
     private readonly List<EntityUid> _dialingBuffer = new();
     private readonly List<EntityUid> _openingBuffer = new();
     private readonly List<EntityUid> _closingBuffer = new();
@@ -130,6 +132,37 @@ public sealed class LuaMStargateSystem : EntitySystem
     private void OnRoundCleanup(RoundRestartCleanupEvent args)
     {
         _assignedAddresses.Clear();
+        _reservedRandomDiskAddresses.Clear();
+    }
+
+    /// <summary>
+    /// Reserves one random address of a currently loaded network gate for a
+    /// loot-generated address disk. Reservations persist for the round, so two
+    /// random disks never carry the same address.
+    /// </summary>
+    public bool TryAcquireUniqueRandomAddress([NotNullWhen(true)] out byte[]? address)
+    {
+        address = null;
+
+        var candidates = new List<byte[]>();
+        var query = EntityQueryEnumerator<LuaMStargateComponent>();
+        while (query.MoveNext(out _, out var gate))
+        {
+            if (gate.Address.Length == 0 ||
+                _reservedRandomDiskAddresses.Contains(AddressKey(gate.Address)))
+            {
+                continue;
+            }
+
+            candidates.Add(gate.Address.ToArray());
+        }
+
+        if (candidates.Count == 0)
+            return false;
+
+        address = _random.Pick(candidates);
+        _reservedRandomDiskAddresses.Add(AddressKey(address));
+        return true;
     }
 
     private byte[] AllocateAddress()

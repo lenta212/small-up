@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using Content.Server._NF.Salvage; // Frontier: job complete event
+using Content.Server._LuaM.Stargate;
 using Content.Server.Atmos;
 using Content.Server.Atmos.Components;
 using Content.Server.Atmos.EntitySystems;
@@ -39,11 +40,15 @@ using Robust.Shared.Random;
 using Robust.Shared.Timing;
 using Robust.Shared.GameObjects;
 using Content.Shared._Crescent.SpaceBiomes;
+using Content.Shared._LuaM.Stargate;
 
 namespace Content.Server.Salvage;
 
 public sealed class SpawnSalvageMissionJob : Job<bool>
 {
+    private const string StargateAddressDiskPrototype = "StargateAddressDisk";
+    private const double StargateAddressDiskSpawnChance = 0.15;
+
     private readonly IEntityManager _entManager;
     private readonly IGameTiming _timing;
     private readonly IMapManager _mapManager;
@@ -351,7 +356,56 @@ public sealed class SpawnSalvageMissionJob : Job<bool>
                 continue;
             await SpawnDungeonLoot(dungeon, missionBiome, lootProto, mapUid, grid, random, reservedTiles);
         }
+
+        // LuaM: wreckage has a fixed 15% chance to contain one unique random
+        // Stargate address disk for gate travel.
+        if (random.NextDouble() < StargateAddressDiskSpawnChance)
+            TrySpawnRandomStargateAddressDisk(dungeon, mapUid, grid, random);
+
         return true;
+    }
+
+    private void TrySpawnRandomStargateAddressDisk(
+        Dungeon dungeon,
+        EntityUid mapUid,
+        MapGridComponent grid,
+        Random random)
+    {
+        if (dungeon.Rooms.Count == 0)
+            return;
+
+        var stargate = _entManager.System<LuaMStargateSystem>();
+        if (!stargate.TryAcquireUniqueRandomAddress(out var address))
+            return;
+
+        var rooms = dungeon.Rooms.ToList();
+        while (rooms.Count > 0)
+        {
+            var room = rooms[random.Next(rooms.Count)];
+            rooms.Remove(room);
+
+            var tiles = new List<Vector2i>(room.Tiles);
+            random.Shuffle(tiles);
+
+            foreach (var tile in tiles)
+            {
+                if (!_anchorable.TileFree(
+                        grid,
+                        tile,
+                        (int) CollisionGroup.MachineLayer,
+                        (int) CollisionGroup.MachineMask))
+                {
+                    continue;
+                }
+
+                var position = _map.GridTileToLocal(mapUid, grid, tile);
+                var disk = _entManager.SpawnEntity(StargateAddressDiskPrototype, position);
+                var component = _entManager.EnsureComponent<LuaMStargateAddressDiskComponent>(disk);
+                component.Addresses.Add(address.ToList());
+                _entManager.Dirty(disk, component);
+                return;
+            }
+        }
     }
 
     private void MassAdjustFTLExpedStartup(EntityUid? shuttleUid, out float massStartupTime)

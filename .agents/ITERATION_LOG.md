@@ -1,3 +1,11 @@
+## 2026-08-17T15:01:55Z -- random unique Stargate address disks on salvage wreckage
+
+- Objective/result: added the requested loot behavior: salvage expedition wreckage has a fixed 15% chance to contain one `StargateAddressDisk` whose address points to a real gate in the loaded network, and random disks never duplicate each other.
+- Implementation: `LuaMStargateSystem` gained `TryAcquireUniqueRandomAddress(out byte[]?)`, which picks one address from currently loaded `LuaMStargateComponent` gates and reserves it in `_reservedRandomDiskAddresses` for the round (cleared with the other address state on `RoundRestartCleanupEvent`). `SpawnSalvageMissionJob` rolls `Random.NextDouble() < 0.15` after guaranteed loot and spawns the disk on the first machine-free dungeon tile, writing the acquired address into `LuaMStargateAddressDiskComponent.Addresses` and dirtying the component. Mining missions have no dungeon and are skipped safely.
+- Validation: `Content.Server` and `Content.IntegrationTests` DebugOpt builds pass with zero errors. New integration test `RandomDiskAddressesAreUniqueAndReferenceRealGates` passes 1/1 (four gates → four unique reservations, then exhaustion fails); the full `LuaMStargateRuntimeTest` suite passes 8/8; production `content-tests-luam` gate passes 96/96.
+- Production state: no production host, package, client, server, database, ship, round, or player state was changed.
+- Next action: commit locally; production deployment still requires fresh explicit operator authorization.
+
 ## 2026-08-17T15:10:00Z -- research rework UI completed against LuaM feature contract
 
 - Objective/result: verified the Goobstation research transfer end to end and closed the only missing UX/contract gap. The server console handlers, shared `ResearchAvailability`, menu/item controls, prototypes, recipes, and en/ru localization all resolve and build; the BUI wiring matches upstream Goob.

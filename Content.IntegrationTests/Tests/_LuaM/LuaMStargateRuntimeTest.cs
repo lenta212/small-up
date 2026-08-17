@@ -943,4 +943,54 @@ public sealed class LuaMStargateRuntimeTest
         Assert.That(address.All(symbol => symbol is >= 1 and <= LuaMStargateGlyphs.Count), Is.True);
         Assert.That(address.Distinct().Count(), Is.EqualTo(expectedLength));
     }
+
+    [Test]
+    public async Task RandomDiskAddressesAreUniqueAndReferenceRealGates()
+    {
+        await using var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var maps = entities.System<SharedMapSystem>();
+
+        var gateAddresses = new List<byte[]>();
+        var acquired = new List<byte[]>();
+
+        await server.WaitAssertion(() =>
+        {
+            for (var i = 0; i < 4; i++)
+            {
+                maps.CreateMap(out var mapId);
+                var gate = entities.SpawnEntity("Stargate", new MapCoordinates(0, 0, mapId));
+                gateAddresses.Add(entities.GetComponent<LuaMStargateComponent>(gate).Address.ToArray());
+            }
+
+            var stargate = entities.System<LuaMStargateSystem>();
+            for (var i = 0; i < 4; i++)
+            {
+                Assert.That(stargate.TryAcquireUniqueRandomAddress(out var address), Is.True);
+                acquired.Add(address!);
+            }
+
+            Assert.That(
+                stargate.TryAcquireUniqueRandomAddress(out _),
+                Is.False,
+                "No address should remain after every network gate has been reserved.");
+        });
+
+        await server.WaitAssertion(() =>
+        {
+            var keys = acquired.Select(address => string.Join('-', address)).ToHashSet();
+            Assert.That(keys, Has.Count.EqualTo(acquired.Count), "Random disks must not share addresses.");
+
+            foreach (var address in acquired)
+            {
+                Assert.That(
+                    gateAddresses.Any(existing => existing.SequenceEqual(address)),
+                    Is.True,
+                    "Random disk addresses must reference real network gates.");
+            }
+        });
+
+        await pair.CleanReturnAsync();
+    }
 }
