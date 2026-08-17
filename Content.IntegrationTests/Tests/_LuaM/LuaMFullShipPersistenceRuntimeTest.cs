@@ -17,6 +17,7 @@ using Content.Server.Shuttles.Components;
 using Content.Server.Shuttles.Systems;
 using Content.Server.Spreader;
 using Content.Server.Station.Systems;
+using Content.Server.Xenoarchaeology.XenoArtifacts;
 using Content.Shared.Access.Components;
 using Content.Shared.Atmos;
 using Content.Shared.Buckle;
@@ -152,6 +153,152 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
             Assert.That(((YamlScalarNode) unrelatedBuckled.Children.Single()).Value,
                 Is.EqualTo("invalid"));
         });
+    }
+
+    [Test]
+    public void PortableReferenceSanitizerRemovesInvalidFactionExceptionTargets()
+    {
+        const string yaml = """
+                            meta:
+                              category: Grid
+                              entityCount: 1
+                            entities:
+                            - proto: LuaMReferenceFixture
+                              entities:
+                              - uid: 1
+                                components:
+                                - type: FactionException
+                                  ignored:
+                                  - invalid
+                                  - 7
+                                  hostiles:
+                                  - invalid
+                                - type: Transform
+                            """;
+
+        Assert.That(
+            LuaMFullShipPersistenceSystem.TryInspectAndSanitizeSerializedShipYaml(
+                yaml,
+                out var sanitized,
+                out _,
+                out _,
+                out _,
+                out var reason),
+            Is.True,
+            reason);
+
+        var stream = new YamlStream();
+        stream.Load(new StringReader(sanitized));
+        var root = (YamlMappingNode) stream.Documents.Single().RootNode;
+        var groups = (YamlSequenceNode) RequireYamlChild(root, "entities");
+        var group = (YamlMappingNode) groups.Children.Single();
+        var entities = (YamlSequenceNode) RequireYamlChild(group, "entities");
+        var entity = (YamlMappingNode) entities.Children.Single();
+        var components = (YamlSequenceNode) RequireYamlChild(entity, "components");
+        var faction = RequireComponent(components, "FactionException");
+        var ignored = (YamlSequenceNode) RequireYamlChild(faction, "ignored");
+        var hostiles = (YamlSequenceNode) RequireYamlChild(faction, "hostiles");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ignored.Children.Select(node => ((YamlScalarNode) node).Value),
+                Is.EqualTo(new[] { "7" }));
+            Assert.That(hostiles.Children, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task LegacyArtifactNodeDataTagsRoundTripThroughShipRestore()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var mapManager = server.ResolveDependency<IMapManager>();
+        var maps = entities.System<SharedMapSystem>();
+        var persistence = entities.System<LuaMFullShipPersistenceSystem>();
+        var artifacts = entities.System<ArtifactSystem>();
+
+        MapId sourceMap = default;
+        MapId targetMap = default;
+        var sourceMapCreated = false;
+        var targetMapCreated = false;
+
+        try
+        {
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out sourceMap);
+                sourceMapCreated = true;
+                var sourceGrid = mapManager.CreateGridEntity(sourceMap);
+                maps.SetTile(sourceGrid, Vector2i.Zero, new Tile(1));
+
+                var artifact = entities.SpawnEntity(
+                    "SimpleXenoArtifactItem",
+                    new EntityCoordinates(sourceGrid, new Vector2(0.5f, 0.5f)));
+                artifacts.SetNodeData(artifact, "nodeDataChemicalList",
+                    new List<string> { "Oxygen", "Water", "Sulfur" });
+                artifacts.SetNodeData(artifact, "nodeDataVolumeSpawned",
+                    Content.Shared.FixedPoint.FixedPoint2.New(300));
+                artifacts.SetNodeData(artifact, "nodeDataSpawnAmount", 1);
+
+                Assert.That(
+                    persistence.TryCaptureSnapshot(sourceGrid, 1, out var snapshot, out var captureReason),
+                    Is.True,
+                    captureReason);
+
+                var captured = Encoding.UTF8.GetString(snapshot.Payload);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(captured, Does.Contain("nodeDataChemicalList"));
+                    Assert.That(captured, Does.Contain("nodeDataVolumeSpawned"));
+                    Assert.That(captured, Does.Contain("nodeDataSpawnAmount"));
+                });
+
+                maps.DeleteMap(sourceMap);
+                sourceMapCreated = false;
+
+                maps.CreateMap(out targetMap);
+                targetMapCreated = true;
+                Assert.That(
+                    persistence.TryRestoreSnapshot(snapshot, targetMap, out var restoredGrid, out var restoreReason),
+                    Is.True,
+                    restoreReason);
+
+                var restoredArtifact = RequirePrototypeDescendant(entities, restoredGrid, "SimpleXenoArtifactItem");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(
+                        artifacts.TryGetNodeData(restoredArtifact, "nodeDataChemicalList", out List<string>? chemicals),
+                        Is.True,
+                        "Chemical list node data must survive a full ship save/restore round-trip.");
+                    Assert.That(chemicals, Is.EqualTo(new List<string> { "Oxygen", "Water", "Sulfur" }));
+
+                    Assert.That(
+                        artifacts.TryGetNodeData(restoredArtifact, "nodeDataVolumeSpawned", out Content.Shared.FixedPoint.FixedPoint2 volume),
+                        Is.True,
+                        "FixedPoint2 node data must survive a full ship save/restore round-trip.");
+                    Assert.That(volume, Is.EqualTo(Content.Shared.FixedPoint.FixedPoint2.New(300)));
+
+                    Assert.That(
+                        artifacts.TryGetNodeData(restoredArtifact, "nodeDataSpawnAmount", out int amount),
+                        Is.True,
+                        "Int32 node data must survive a full ship save/restore round-trip.");
+                    Assert.That(amount, Is.EqualTo(1));
+                });
+            });
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (sourceMapCreated && maps.MapExists(sourceMap))
+                    maps.DeleteMap(sourceMap);
+                if (targetMapCreated && maps.MapExists(targetMap))
+                    maps.DeleteMap(targetMap);
+            });
+
+            pair.Kill();
+        }
     }
 
     [Test]

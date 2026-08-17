@@ -28,6 +28,7 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
     [Dependency] private IServerDbManager _database = default!;
     [Dependency] private LuaMFullShipPersistenceSystem _runtime = default!;
     [Dependency] private LuaMShipGeneratorSystem _shipGenerator = default!;
+    [Dependency] private SharedMapSystem _maps = default!;
     [Dependency] private ITaskManager _taskManager = default!;
     [Dependency] private GameTicker _gameTicker = default!;
     private string _serverInstanceId = "new_frontier";
@@ -467,6 +468,17 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         var stored = await _database.GetLuaMShipSnapshotAsync(shipId, ownerUserId, cancel);
         if (stored == null)
             return Failure(LuaMShipPersistenceWriteStatus.NotFound, "snapshot not found");
+
+        if (stored.Status == DbLuaMShipSnapshotStatus.Quarantined)
+        {
+            var repair = await TryRepairQuarantinedSnapshotAsync(stored, nowUtc, cancel);
+            if (!repair.Success)
+                return Failure(repair.Status, $"quarantined snapshot repair failed: {repair.Status}");
+
+            stored = await _database.GetLuaMShipSnapshotAsync(shipId, ownerUserId, cancel);
+            if (stored == null)
+                return Failure(LuaMShipPersistenceWriteStatus.NotFound, "snapshot disappeared after repair");
+        }
 
         var leaseId = Guid.NewGuid();
         var claim = await _database.ClaimLuaMShipRestoreAsync(new(
@@ -1518,6 +1530,67 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
         }
 
         _ = _shipGenerator.AnalyzeSavedShipAsync(manifest);
+    }
+
+    /// <summary>
+    /// Proves that a quarantined payload still restores, then repairs its stale
+    /// entity-count/prototype-manifest metadata and clears the quarantine. The
+    /// durable payload bytes are never changed; the loaded graph is rolled back
+    /// after validation and the ship is left Stored for the normal claim path.
+    /// </summary>
+    private async Task<LuaMShipPersistenceWriteResult> TryRepairQuarantinedSnapshotAsync(
+        LuaMShipSnapshotRecord stored,
+        DateTime nowUtc,
+        CancellationToken cancel)
+    {
+        if (!TryDecode(stored, out var snapshot, out var decodeReason))
+        {
+            _sawmill.Warning(
+                $"Could not repair quarantined ship snapshot {stored.ShipId:N}: {decodeReason}");
+            return new(LuaMShipPersistenceWriteStatus.InvalidRequest);
+        }
+
+        MapId repairMap = default;
+        var mapCreated = false;
+        try
+        {
+            _maps.CreateMap(out repairMap);
+            mapCreated = true;
+
+            if (!_runtime.TryBeginRestoreSnapshot(
+                    snapshot,
+                    repairMap,
+                    out var restore,
+                    out var restoreReason,
+                    acceptDriftedManifest: true))
+            {
+                _sawmill.Warning(
+                    $"Could not repair quarantined ship snapshot {stored.ShipId:N}: {restoreReason}");
+                return new(LuaMShipPersistenceWriteStatus.InvalidRequest);
+            }
+
+            var repairedEntityCount = restore.RepairedEntityCount ?? stored.EntityCount;
+            var repairedManifestHash =
+                restore.RepairedPrototypeManifestHash ?? stored.PrototypeManifestHash;
+            _runtime.RollbackRestore(restore);
+
+            var reason = restore.RepairedEntityCount is { } repairedCount
+                ? $"auto-repaired manifest after successful restore validation ({stored.EntityCount}->{repairedCount} entities)"
+                : "auto-repaired quarantine after successful restore validation";
+            return await _database.RepairQuarantinedLuaMShipSnapshotAsync(new(
+                stored.ShipId,
+                stored.OwnerUserId,
+                stored.Revision,
+                repairedEntityCount,
+                repairedManifestHash,
+                reason,
+                nowUtc), cancel);
+        }
+        finally
+        {
+            if (mapCreated && _maps.MapExists(repairMap))
+                _maps.DeleteMap(repairMap);
+        }
     }
 
     private static bool TryDecode(LuaMShipSnapshotRecord stored, out LuaMFullShipSnapshot snapshot, out string reason)

@@ -158,7 +158,7 @@ public sealed partial class ArtifactNode : ICloneable
     /// <summary>
     /// Used for storing cumulative information about nodes
     /// </summary>
-    [DataField("nodeData"), ViewVariables]
+    [DataField("nodeData", customTypeSerializer: typeof(ArtifactNodeDataDictionarySerializer)), ViewVariables]
     public Dictionary<string, object> NodeData = new();
 
     public object Clone()

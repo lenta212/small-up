@@ -123,6 +123,20 @@ public sealed record LuaMShipSnapshotQuarantineRequest(
     string Reason,
     DateTime QuarantinedAtUtc);
 
+/// <summary>
+/// Repairs the metadata of a quarantined snapshot after its payload was proven
+/// to restore successfully. The payload bytes themselves are never rewritten;
+/// only the entity count, prototype manifest and quarantine marker change.
+/// </summary>
+public sealed record LuaMShipSnapshotRepairRequest(
+    Guid ShipId,
+    NetUserId OwnerUserId,
+    long ExpectedRevision,
+    int EntityCount,
+    string PrototypeManifestHash,
+    string Reason,
+    DateTime RepairedAtUtc);
+
 public sealed record LuaMShipSnapshotRetireRequest(
     Guid OperationId,
     Guid ShipId,
@@ -255,6 +269,10 @@ public partial interface IServerDbManager
 
     Task<LuaMShipPersistenceWriteResult> QuarantineLuaMShipSnapshotAsync(
         LuaMShipSnapshotQuarantineRequest request,
+        CancellationToken cancel = default);
+
+    Task<LuaMShipPersistenceWriteResult> RepairQuarantinedLuaMShipSnapshotAsync(
+        LuaMShipSnapshotRepairRequest request,
         CancellationToken cancel = default);
 
     Task<LuaMShipPersistenceWriteResult> RetireLuaMShipSnapshotAsync(

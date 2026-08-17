@@ -55,6 +55,11 @@ public sealed partial class ServerDbManager
         CancellationToken cancel = default)
         => RunDbCommand(() => _db.QuarantineLuaMShipSnapshotAsync(request, cancel));
 
+    public Task<LuaMShipPersistenceWriteResult> RepairQuarantinedLuaMShipSnapshotAsync(
+        LuaMShipSnapshotRepairRequest request,
+        CancellationToken cancel = default)
+        => RunDbCommand(() => _db.RepairQuarantinedLuaMShipSnapshotAsync(request, cancel));
+
     public Task<LuaMShipPersistenceWriteResult> RetireLuaMShipSnapshotAsync(
         LuaMShipSnapshotRetireRequest request,
         CancellationToken cancel = default)

@@ -109,6 +109,86 @@ public sealed class LuaMShipPersistenceDatabaseTest
     }
 
     [Test]
+    public async Task QuarantineRepairUsesCasAndClearsOnlyQuarantinedRows()
+    {
+        await using var connection = await OpenSqliteAsync();
+        var options = new DbContextOptionsBuilder<SqliteServerDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var db = NewServerDb(() => options, inMemory: true);
+        var owner = new NetUserId(Guid.NewGuid());
+        var shipId = Guid.NewGuid();
+        var startedAt = DateTime.UtcNow;
+        await db.InitPrefsAsync(owner, NewProfile("Repair Owner"));
+
+        var stored = await db.StoreLuaMShipSnapshotAsync(
+            NewStoreRequest(shipId, owner, startedAt, "quarantine repair payload"));
+        Assert.That(stored.Success, Is.True);
+
+        var leaseId = Guid.NewGuid();
+        var claim = await db.ClaimLuaMShipRestoreAsync(new(
+            shipId,
+            owner,
+            stored.Revision!.Value,
+            202,
+            leaseId,
+            "quarantine-repair-test",
+            startedAt.AddSeconds(1),
+            startedAt.AddMinutes(5)));
+        Assert.That(claim.Success, Is.True);
+
+        var quarantined = await db.QuarantineLuaMShipSnapshotAsync(new(
+            shipId,
+            owner,
+            claim.Revision!.Value,
+            leaseId,
+            "legacy manifest drift",
+            startedAt.AddSeconds(2)));
+        Assert.That(quarantined.Success, Is.True);
+
+        var staleRepair = await db.RepairQuarantinedLuaMShipSnapshotAsync(new(
+            shipId,
+            owner,
+            quarantined.Revision!.Value - 1,
+            100,
+            new string('B', 64),
+            "stale repair",
+            startedAt.AddSeconds(3)));
+        Assert.That(staleRepair.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.RevisionConflict));
+
+        var repaired = await db.RepairQuarantinedLuaMShipSnapshotAsync(new(
+            shipId,
+            owner,
+            quarantined.Revision.Value,
+            100,
+            new string('B', 64),
+            "auto-repaired manifest",
+            startedAt.AddSeconds(4)));
+        Assert.That(repaired.Success, Is.True);
+
+        var record = await db.GetLuaMShipSnapshotAsync(shipId, owner);
+        Assert.Multiple(() =>
+        {
+            Assert.That(record, Is.Not.Null);
+            Assert.That(record!.Status, Is.EqualTo(DbLuaMShipSnapshotStatus.Stored));
+            Assert.That(record.EntityCount, Is.EqualTo(100));
+            Assert.That(record.PrototypeManifestHash, Is.EqualTo(new string('B', 64)));
+            Assert.That(record.QuarantinedAtUtc, Is.Null);
+            Assert.That(record.QuarantineReason, Is.Null);
+        });
+
+        var repairAfterRepair = await db.RepairQuarantinedLuaMShipSnapshotAsync(new(
+            shipId,
+            owner,
+            record.Revision,
+            101,
+            new string('C', 64),
+            "second repair",
+            startedAt.AddSeconds(5)));
+        Assert.That(repairAfterRepair.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.InvalidState));
+    }
+
+    [Test]
     public async Task OwnerCanRegisterMultipleStoredShips()
     {
         await using var connection = await OpenSqliteAsync();

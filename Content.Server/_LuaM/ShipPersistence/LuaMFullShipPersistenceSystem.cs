@@ -55,6 +55,8 @@ public sealed class LuaMShipRestoreScope
 
     public Guid ShipId { get; }
     public EntityUid Grid { get; }
+    public int? RepairedEntityCount { get; }
+    public string? RepairedPrototypeManifestHash { get; }
     internal ProtoId<VesselPrototype>? VesselId { get; }
     internal StationConfig? VesselStationConfig { get; }
 
@@ -62,12 +64,16 @@ public sealed class LuaMShipRestoreScope
         Guid shipId,
         EntityUid grid,
         HashSet<EntityUid> createdEntities,
+        int? repairedEntityCount,
+        string? repairedPrototypeManifestHash,
         ProtoId<VesselPrototype>? vesselId,
         StationConfig? vesselStationConfig)
     {
         ShipId = shipId;
         Grid = grid;
         _createdEntities = createdEntities;
+        RepairedEntityCount = repairedEntityCount;
+        RepairedPrototypeManifestHash = repairedPrototypeManifestHash;
         VesselId = vesselId;
         VesselStationConfig = vesselStationConfig;
     }
@@ -650,7 +656,8 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         out LuaMShipRestoreScope restore,
         out string reason,
         Vector2 offset = default,
-        Angle rotation = default)
+        Angle rotation = default,
+        bool acceptDriftedManifest = false)
     {
         restore = default!;
         reason = string.Empty;
@@ -743,13 +750,21 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     createdEntities,
                     out var entityCount,
                     out var prototypeManifestHash,
-                    out reason) ||
-                entityCount != snapshot.EntityCount ||
-                !FixedHashEquals(prototypeManifestHash, snapshot.PrototypeManifestHash))
+                    out reason))
             {
                 CleanupPartialLoadEntities(entitiesBeforeLoad);
                 if (string.IsNullOrEmpty(reason))
                     reason = "restored-entity-graph-or-manifest-mismatch";
+                return false;
+            }
+
+            var manifestDrifted =
+                entityCount != snapshot.EntityCount ||
+                !FixedHashEquals(prototypeManifestHash, snapshot.PrototypeManifestHash);
+            if (manifestDrifted && !acceptDriftedManifest)
+            {
+                CleanupPartialLoadEntities(entitiesBeforeLoad);
+                reason = "restored-entity-graph-or-manifest-mismatch";
                 return false;
             }
 
@@ -793,6 +808,8 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 snapshot.ShipId,
                 restoredGrid,
                 createdEntities,
+                manifestDrifted ? entityCount : null,
+                manifestDrifted ? prototypeManifestHash : null,
                 vesselId,
                 vesselStationConfig);
             return true;
@@ -1319,6 +1336,15 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     if (TryGetNode(component, "buckledEntities", out var buckled))
                         changed |= RemoveInvalidReferences(buckled);
                     break;
+                case "FactionException":
+                    // Player- or round-scoped faction exceptions become EntityUid
+                    // 0 after a portable save. Rehydration then tries to add a
+                    // tracker to the invalid entity and aborts the whole load.
+                    if (TryGetNode(component, "ignored", out var ignored))
+                        changed |= RemoveInvalidReferences(ignored);
+                    if (TryGetNode(component, "hostiles", out var hostiles))
+                        changed |= RemoveInvalidReferences(hostiles);
+                    break;
                 case "Storage":
                     if (TryGetMapping(component, "storedItems", out var storedItems))
                         changed |= RemoveInvalidMappingKeys(storedItems);
@@ -1615,7 +1641,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     /// Preserve the exact entity and prototype manifest while explicitly marking
     /// those detached entities as null-space roots for this restore only.
     /// </summary>
-    private static bool TryPrepareLegacySnapshotForRestore(
+    internal static bool TryPrepareLegacySnapshotForRestore(
         string yaml,
         out string preparedYaml,
         out int detachedEntityCount,
@@ -1627,6 +1653,9 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
 
         try
         {
+            yaml = NormalizeLegacySnapshotText(yaml);
+            preparedYaml = yaml;
+
             var stream = new YamlStream();
             stream.Load(new StringReader(yaml));
             if (stream.Documents.Count != 1 ||
@@ -1772,6 +1801,44 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
             return false;
         }
     }
+
+    /// <summary>
+    /// Normalizes historical snapshot YAML that predates current serialization
+    /// rules. Older saves wrote primitive type tags using short names that the
+    /// serializer no longer resolves, and some Goobstation prototypes were
+    /// renamed after ships were saved.
+    /// </summary>
+    private static string NormalizeLegacySnapshotText(string yaml)
+    {
+        var normalized = yaml
+            .Replace("!type:Int32 ", string.Empty, StringComparison.Ordinal)
+            .Replace("!type:Single ", string.Empty, StringComparison.Ordinal)
+            .Replace("!type:Double ", string.Empty, StringComparison.Ordinal)
+            .Replace("!type:Boolean ", string.Empty, StringComparison.Ordinal)
+            .Replace("!type:String ", string.Empty, StringComparison.Ordinal);
+
+        foreach (var (legacyId, currentId) in LegacySnapshotPrototypeAliases)
+        {
+            normalized = normalized.Replace(
+                $"- proto: {legacyId}",
+                $"- proto: {currentId}",
+                StringComparison.Ordinal);
+        }
+
+        return normalized;
+    }
+
+    /// <summary>
+    /// Prototype renames that may be present in historical ship snapshots.
+    /// Every content rename that could exist inside a saved ship must keep an
+    /// entry here, otherwise the affected ship is quarantined on restore.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, string> LegacySnapshotPrototypeAliases =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["WeaponShotgunKammererPMC"] = "WeaponShotgunKammerer",
+            ["Audio"] = "PaperBin20",
+        };
 
     /// <summary>
     /// Re-validates a durable snapshot and extracts only aggregate prototype counts

@@ -651,6 +651,87 @@ public abstract partial class ServerDbBase
         }
     }
 
+    public async Task<LuaMShipPersistenceWriteResult> RepairQuarantinedLuaMShipSnapshotAsync(
+        LuaMShipSnapshotRepairRequest request,
+        CancellationToken cancel = default)
+    {
+        if (!IsValidShipRepairRequest(request))
+            return new(LuaMShipPersistenceWriteStatus.InvalidRequest);
+
+        var commitAttempted = false;
+        try
+        {
+            await using var db = await GetDb(cancel);
+            await using var transaction = await db.DbContext.Database.BeginTransactionAsync(cancel);
+            var snapshot = await db.DbContext.LuaMShipSnapshots
+                .SingleOrDefaultAsync(value => value.ShipId == request.ShipId, cancel);
+            if (snapshot == null)
+                return new(LuaMShipPersistenceWriteStatus.NotFound, request.ShipId);
+
+            var initial = CheckShipIdentityRevision(snapshot, request.OwnerUserId, request.ExpectedRevision);
+            if (initial != null)
+                return initial;
+            if (snapshot.Status != DbLuaMShipSnapshotStatus.Quarantined)
+                return ShipInvalidState(snapshot);
+
+            var lease = await db.DbContext.LuaMShipPresenceLeases
+                .SingleOrDefaultAsync(value => value.ShipId == request.ShipId, cancel);
+            if (lease != null)
+            {
+                return new(
+                    LuaMShipPersistenceWriteStatus.LeaseConflict,
+                    snapshot.ShipId,
+                    snapshot.Revision,
+                    snapshot.Status,
+                    lease.LeaseId,
+                    lease.Revision);
+            }
+
+            snapshot.EntityCount = request.EntityCount;
+            snapshot.PrototypeManifestHash = NormalizeShipSha256(request.PrototypeManifestHash);
+            snapshot.Status = DbLuaMShipSnapshotStatus.Stored;
+            snapshot.QuarantinedAtUtc = null;
+            snapshot.QuarantineReason = null;
+            snapshot.UpdatedAtUtc = MaxShipDate(snapshot.UpdatedAtUtc, AsPersistedShipUtc(request.RepairedAtUtc));
+
+            await db.DbContext.SaveChangesAsync(cancel);
+            commitAttempted = true;
+            await transaction.CommitAsync(cancel);
+            return new(
+                LuaMShipPersistenceWriteStatus.Success,
+                snapshot.ShipId,
+                snapshot.Revision,
+                snapshot.Status,
+                Snapshot: ToShipSnapshotRecord(snapshot, null));
+        }
+        catch (OperationCanceledException) when (commitAttempted)
+        {
+            return await ResolveShipWriteFailureAsync(
+                request.ShipId,
+                request.OwnerUserId,
+                LuaMShipPersistenceWriteStatus.UnknownOutcome);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return await ResolveShipWriteFailureAsync(
+                request.ShipId,
+                request.OwnerUserId,
+                LuaMShipPersistenceWriteStatus.RevisionConflict);
+        }
+        catch (Exception exception) when (exception is DbUpdateException or DbException)
+        {
+            _opsLog.Warning($"LuaM ship quarantine repair outcome requires re-read: {exception.Message}");
+            return await ResolveShipWriteFailureAsync(
+                request.ShipId,
+                request.OwnerUserId,
+                LuaMShipPersistenceWriteStatus.UnknownOutcome);
+        }
+    }
+
     public async Task<LuaMShipPersistenceWriteResult> RetireLuaMShipSnapshotAsync(
         LuaMShipSnapshotRetireRequest request,
         CancellationToken cancel = default)
@@ -1325,6 +1406,17 @@ public abstract partial class ServerDbBase
         => request.ShipId != Guid.Empty && request.OwnerUserId.UserId != Guid.Empty &&
            request.ExpectedRevision >= 0 && request.LeaseId != Guid.Empty &&
            request.QuarantinedAtUtc != default && request.Reason is { Length: > 0 } &&
+           !string.IsNullOrWhiteSpace(request.Reason) &&
+           request.Reason.Length <= LuaMShipPersistenceLimits.MaxReasonLength;
+
+    private static bool IsValidShipRepairRequest(LuaMShipSnapshotRepairRequest request)
+        => request.ShipId != Guid.Empty && request.OwnerUserId.UserId != Guid.Empty &&
+           request.ExpectedRevision >= 0 &&
+           request.EntityCount > 0 &&
+           request.EntityCount <= LuaMShipPersistenceLimits.MaxEntityCount &&
+           IsShipSha256(request.PrototypeManifestHash) &&
+           request.RepairedAtUtc != default &&
+           request.Reason is { Length: > 0 } &&
            !string.IsNullOrWhiteSpace(request.Reason) &&
            request.Reason.Length <= LuaMShipPersistenceLimits.MaxReasonLength;
 
