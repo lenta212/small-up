@@ -1,4 +1,5 @@
 ## UI
+bank-atm-menu-amount-placeholder = Сумма
 
 bank-atm-menu-title = Галактический Банк NT
 bank-atm-menu-balance-label = Баланс аккаунта:{ " " }

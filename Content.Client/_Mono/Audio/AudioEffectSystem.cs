@@ -35,7 +35,11 @@ public sealed partial class AudioEffectSystem : EntitySystem
     // actually this problem applies for effects too
     private bool? _auxiliariesSafe = null;
 
-    private static readonly Dictionary<ProtoId<AudioPresetPrototype>, (EntityUid AuxiliaryUid, EntityUid EffectUid)> CachedEffects = new();
+    // Effect entities belong to this client runtime's entity manager, so the
+    // cache must live with this system instance. A static cache leaks EntityUids
+    // from an earlier pooled test client into the next one, which then fails the
+    // AudioAuxiliaryComponent assertion in SharedAudioSystem.SetAuxiliary.
+    private readonly Dictionary<ProtoId<AudioPresetPrototype>, (EntityUid AuxiliaryUid, EntityUid EffectUid)> CachedEffects = new();
 
     /// <summary>
     ///     An auxiliary with no effect; for removing effects.

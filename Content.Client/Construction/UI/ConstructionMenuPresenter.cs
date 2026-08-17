@@ -13,6 +13,7 @@ using Robust.Client.UserInterface.Controls;
 using Robust.Client.Utility;
 using Robust.Shared.Enums;
 using Robust.Shared.Prototypes;
+using Robust.Shared.Utility;
 using static Robust.Client.UserInterface.Controls.BaseButton;
 
 namespace Content.Client.Construction.UI
@@ -364,7 +365,7 @@ namespace Content.Client.Construction.UI
                 // The padding needs to be applied regardless of text length... (See PadLeft documentation)
                 text = text.PadLeft(text.Length + entry.Padding);
 
-                var icon = entry.Icon != null ? _spriteSystem.Frame0(entry.Icon) : Texture.Transparent;
+                var icon = entry.Icon != null ? Frame0Safe(entry.Icon) : Texture.Transparent;
                 stepList.AddItem(text, icon, false);
             }
         }
@@ -375,10 +376,27 @@ namespace Content.Client.Construction.UI
             {
                 Metadata = recipe,
                 Text = recipe.Name,
-                Icon = _spriteSystem.Frame0(recipe.Icon),
+                Icon = Frame0Safe(recipe.Icon),
                 TooltipEnabled = true,
                 TooltipText = recipe.Description,
             };
+        }
+
+        /// <summary>
+        /// Recipes that never specified an icon use the default invalid texture
+        /// specifier. Rendering it would request the bare <c>/Textures</c> path
+        /// and log an error, so treat it as transparent instead.
+        /// </summary>
+        private Texture Frame0Safe(SpriteSpecifier specifier)
+        {
+            switch (specifier)
+            {
+                case SpriteSpecifier.Texture texture when texture.TexturePath == ResPath.Self:
+                case SpriteSpecifier.Rsi rsi when rsi.RsiPath == ResPath.Self:
+                    return Texture.Transparent;
+                default:
+                    return _spriteSystem.Frame0(specifier);
+            }
         }
 
         private void BuildButtonToggled(bool pressed)

@@ -90,8 +90,8 @@
     - map: ["computerLayerKeyboard"]
       state: generic_keyboard
     - map: ["computerLayerScreen"]
-      state: medical
+      state: medcomp
     - map: ["computerLayerKeys"]
-      state: medical_key
+      state: med_key
     - map: ["enum.WiresVisualLayers.MaintenancePanel"]
       state: generic_panel_open

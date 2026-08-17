@@ -41,7 +41,7 @@
                     </PanelContainer>
                 </BoxContainer>
                 <LineEdit Name="WithdrawEdit" MinSize="80 0"
-                        PlaceHolder="{Loc 'bank-atm-menu-withdraw-amount'}" Margin="2 2"/>
+                        PlaceHolder="{Loc 'bank-atm-menu-amount-placeholder'}" Margin="2 2"/>
                 <PanelContainer VerticalExpand="False" HorizontalExpand="True" Margin="2 2">
                     <PanelContainer.PanelOverride>
                         <gfx:StyleBoxFlat BorderThickness="3" BorderColor="#3d3d3d" BackgroundColor="#111111" />

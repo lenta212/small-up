@@ -1,4 +1,5 @@
 ## UI
+bank-atm-menu-amount-placeholder = Amount
 bank-atm-menu-title = Colossus Central Bank
 bank-atm-menu-balance-label = Balance:{" "}
 bank-atm-menu-savings-label = Long-term account:{" "}
