@@ -56,6 +56,11 @@ public abstract partial class SharedMaterialStorageSystem : EntitySystem
 
     private void OnMapInit(EntityUid uid, MaterialStorageComponent component, MapInitEvent args)
     {
+        // The insertion component is only a transient visual timer. Older saved
+        // shuttles may still contain it from before it was marked unsaved; drop
+        // it on restore so material storage/fab magnets do not replay a stale
+        // insertion animation forever.
+        RemCompDeferred<InsertingMaterialStorageComponent>(uid);
         _appearance.SetData(uid, MaterialStorageVisuals.Inserting, false);
     }
 

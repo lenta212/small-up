@@ -32,9 +32,14 @@ public sealed partial class HumanoidAppearanceSystem : SharedHumanoidAppearanceS
     private void UpdateSprite(HumanoidAppearanceComponent component, SpriteComponent sprite)
     {
         UpdateLayers(component, sprite);
-        ApplyMarkingSet(component, sprite);
 
-        sprite[sprite.LayerMapReserveBlank(HumanoidVisualLayers.Eyes)].Color = component.EyeColor;
+        // Keep the species eye layer below eye/body overlay markings (blindfolds, eye gauze, tattoos, etc.).
+        // Re-reserving/touching the Eyes layer after markings have been inserted can put the base eyes above
+        // those overlays on some restored/preview sprites, making eyes visible through blindfold-style markings.
+        if (sprite.LayerMapTryGet(HumanoidVisualLayers.Eyes, out var eyeLayer))
+            sprite[eyeLayer].Color = component.EyeColor;
+
+        ApplyMarkingSet(component, sprite);
     }
 
     private static bool IsHidden(HumanoidAppearanceComponent humanoid, HumanoidVisualLayers layer)

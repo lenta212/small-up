@@ -1,5 +1,7 @@
 using Content.Server.Atmos.Monitor.Components;
+using Content.Server.Atmos.EntitySystems;
 using Content.Server.Atmos.Piping.Components;
+using Content.Server.Atmos.Piping.Unary.Components;
 using Content.Server.DeviceLinking.Systems;
 using Content.Server.DeviceNetwork.Systems;
 using Content.Server.Popups;
@@ -19,6 +21,8 @@ using Content.Shared.Interaction;
 using Content.Shared.Power;
 using Content.Shared.Wires;
 using Robust.Server.GameObjects;
+using Robust.Shared.Map.Components;
+using Robust.Shared.Timing;
 using System.Linq;
 using Content.Shared.DeviceNetwork.Events;
 using Content.Shared.DeviceNetwork.Components;
@@ -40,10 +44,12 @@ public sealed partial class AirAlarmSystem : EntitySystem
     [Dependency] private ISharedAdminLogManager _adminLogger = default!;
     [Dependency] private AtmosAlarmableSystem _atmosAlarmable = default!;
     [Dependency] private AtmosDeviceNetworkSystem _atmosDevNet = default!;
+    [Dependency] private AtmosphereSystem _atmosphere = default!;
     [Dependency] private DeviceNetworkSystem _deviceNet = default!;
     [Dependency] private DeviceLinkSystem _deviceLink = default!;
     [Dependency] private DeviceListSystem _deviceList = default!;
     [Dependency] private PopupSystem _popup = default!;
+    [Dependency] private SharedTransformSystem _transform = default!;
     [Dependency] private UserInterfaceSystem _ui = default!;
 
     #region Device Network API
@@ -245,6 +251,123 @@ public sealed partial class AirAlarmSystem : EntitySystem
         // for mapped linked air alarms, start with high so when it changes for the first time it goes from high to low
         // without this the output would suddenly get sent a low signal after nothing which is bad
         _deviceLink.SendSignal(uid, GetPort(comp), true);
+
+        // LuaM/Mono: restored shuttle snapshots can come back with an empty or
+        // stale DeviceList even though the alarm, vents and scrubbers are still
+        // physically present on the same grid. Rebuild a conservative local
+        // atmos allow-list once after map init so players do not have to tear
+        // down the alarm and rebuild all vents/scrubbers after every load.
+        Timer.Spawn(TimeSpan.FromSeconds(1), () => RebuildLocalAtmosDeviceListIfNeeded(uid));
+    }
+
+    private void RebuildLocalAtmosDeviceListIfNeeded(EntityUid uid)
+    {
+        if (!Exists(uid) ||
+            !TryComp<DeviceListComponent>(uid, out var list) ||
+            !TryComp<TransformComponent>(uid, out var alarmXform) ||
+            alarmXform.GridUid is not { } grid)
+        {
+            return;
+        }
+
+        var deviceNetQuery = GetEntityQuery<DeviceNetworkComponent>();
+        var validLinkedAtmosDevices = 0;
+        foreach (var linked in list.Devices)
+        {
+            if (!deviceNetQuery.HasComponent(linked))
+                continue;
+
+            if (HasComp<GasVentPumpComponent>(linked) || HasComp<GasVentScrubberComponent>(linked))
+                validLinkedAtmosDevices++;
+        }
+
+        if (validLinkedAtmosDevices > 0)
+            return;
+
+        var rebuilt = new HashSet<EntityUid>();
+        var deviceQuery = EntityQueryEnumerator<DeviceNetworkComponent, TransformComponent>();
+        while (deviceQuery.MoveNext(out var deviceUid, out _, out var deviceXform))
+        {
+            if (deviceUid == uid || deviceXform.GridUid != grid)
+                continue;
+
+            if (!HasComp<GasVentPumpComponent>(deviceUid) && !HasComp<GasVentScrubberComponent>(deviceUid))
+                continue;
+
+            if (!IsLikelySameAtmosRegion(uid, alarmXform, deviceUid, deviceXform, grid))
+            {
+                continue;
+            }
+
+            rebuilt.Add(deviceUid);
+            if (rebuilt.Count >= list.DeviceLimit)
+                break;
+        }
+
+        if (rebuilt.Count == 0)
+            return;
+
+        _deviceList.UpdateDeviceList(uid, rebuilt, deviceList: list);
+        SyncRegisterAllDevices(uid);
+    }
+
+    private bool IsLikelySameAtmosRegion(
+        EntityUid alarm,
+        TransformComponent alarmXform,
+        EntityUid device,
+        TransformComponent deviceXform,
+        EntityUid grid)
+    {
+        const int maxTiles = 30;
+        const int maxVisited = maxTiles * maxTiles;
+
+        if ((deviceXform.Coordinates.Position - alarmXform.Coordinates.Position).LengthSquared() > maxTiles * maxTiles)
+            return false;
+
+        if (!TryComp<MapGridComponent>(grid, out var gridComp))
+            return true;
+
+        var start = _transform.GetGridTilePositionOrDefault((alarm, alarmXform), gridComp);
+        var target = _transform.GetGridTilePositionOrDefault((device, deviceXform), gridComp);
+
+        if (start == target)
+            return true;
+
+        var visited = new HashSet<Vector2i> { start };
+        var queue = new Queue<Vector2i>();
+        queue.Enqueue(start);
+
+        while (queue.TryDequeue(out var tile) && visited.Count <= maxVisited)
+        {
+            foreach (var (dir, offset) in CardinalAtmosNeighbors())
+            {
+                var next = tile + offset;
+                if (Math.Abs(next.X - start.X) > maxTiles || Math.Abs(next.Y - start.Y) > maxTiles)
+                    continue;
+
+                if (_atmosphere.IsTileAirBlocked(grid, tile, dir, gridComp) ||
+                    _atmosphere.IsTileAirBlocked(grid, next, dir.GetOpposite(), gridComp))
+                    continue;
+
+                if (!visited.Add(next))
+                    continue;
+
+                if (next == target)
+                    return true;
+
+                queue.Enqueue(next);
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<(AtmosDirection Direction, Vector2i Offset)> CardinalAtmosNeighbors()
+    {
+        yield return (AtmosDirection.North, new Vector2i(0, 1));
+        yield return (AtmosDirection.South, new Vector2i(0, -1));
+        yield return (AtmosDirection.East, new Vector2i(1, 0));
+        yield return (AtmosDirection.West, new Vector2i(-1, 0));
     }
 
     private void OnShutdown(EntityUid uid, AirAlarmComponent component, ComponentShutdown args)

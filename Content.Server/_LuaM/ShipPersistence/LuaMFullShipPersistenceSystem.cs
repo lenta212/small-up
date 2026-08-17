@@ -1331,6 +1331,14 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     changed |= RemoveMappingField(component, "entries");
                     changed |= RemoveMappingField(component, "containedEntries");
                     break;
+                case "MagicMirror":
+                    // Handheld barber scissors store the last UI target as a
+                    // runtime EntityUid. If the target is a player body or any
+                    // other entity outside the portable hull, saving the shuttle
+                    // must not fail because of this transient UI pointer.
+                    changed |= ReplaceInvalidReferenceWithNull(component, "target");
+                    changed |= RemoveMappingField(component, "doAfter");
+                    break;
                 case "Puller":
                     changed |= ReplaceInvalidReferenceWithNull(component, "pulling");
                     break;

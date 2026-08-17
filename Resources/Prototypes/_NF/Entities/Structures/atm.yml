@@ -18,7 +18,7 @@
   name: bank ATM
   id: ComputerBankATMDeposit
   parent: ComputerBankATMBase
-  description: Used to deposit and withdraw funds from a personal bank account. 5% deposit fee.
+  description: "Used to deposit and withdraw funds from a personal bank account. 5% deposit fee. Shared by all your characters: excess large deposits are saved to the long-term account and can pay for future spawn loadouts; ATM cash withdrawals use the current character balance."
   abstract: true
   components:
   - type: BankATM
@@ -46,7 +46,7 @@
   name: bank ATM
   id: ComputerBankATMDepositFree
   parent: ComputerBankATMDeposit
-  description: Used to deposit and withdraw funds from a personal bank account.
+  description: "Used to deposit and withdraw funds from a personal bank account. Shared by all your characters: excess large deposits are saved to the long-term account and can pay for future spawn loadouts; ATM cash withdrawals use the current character balance."
   abstract: true
   components:
   - type: BankATM

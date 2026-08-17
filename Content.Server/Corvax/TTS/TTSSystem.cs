@@ -7,6 +7,7 @@ using Content.Shared.Chat;
 using Content.Shared.Corvax.TTS;
 using Content.Shared.GameTicking;
 using Content.Shared.Players.RateLimiting;
+using Content.Shared.Speech.Muting;
 using Robust.Shared.Configuration;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
@@ -83,7 +84,8 @@ public sealed partial class TTSSystem : EntitySystem
         var voiceId = component.VoicePrototypeId;
         if (!_isEnabled ||
             args.Message.Length > MaxMessageChars ||
-            voiceId == null)
+            voiceId == null ||
+            HasComp<MutedComponent>(uid))
             return;
 
         var voiceEv = new TransformSpeakerVoiceEvent(uid, voiceId);
@@ -107,7 +109,8 @@ public sealed partial class TTSSystem : EntitySystem
         var voiceId = component.VoicePrototypeId;
         if (!_isEnabled ||
             args.Message.Length > MaxMessageChars ||
-            voiceId == null)
+            voiceId == null ||
+            HasComp<MutedComponent>(uid))
             return;
 
         var voiceEv = new TransformSpeakerVoiceEvent(uid, voiceId);
@@ -124,6 +127,7 @@ public sealed partial class TTSSystem : EntitySystem
     {
         if (!_isEnabled ||
             args.Message.Length > MaxMessageChars ||
+            HasComp<MutedComponent>(args.Source) ||
             !TryComp(args.Source, out TTSComponent? component))
             return;
 

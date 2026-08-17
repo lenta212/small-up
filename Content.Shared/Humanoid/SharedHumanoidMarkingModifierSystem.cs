@@ -46,6 +46,7 @@ public sealed class HumanoidMarkingModifierState : BoundUserInterfaceState
         string species,
         Sex sex,
         Color skinColor,
+        Color eyeColor,
         Dictionary<HumanoidVisualLayers, CustomBaseLayerInfo> customBaseLayers
     )
     {
@@ -53,6 +54,7 @@ public sealed class HumanoidMarkingModifierState : BoundUserInterfaceState
         Species = species;
         Sex = sex;
         SkinColor = skinColor;
+        EyeColor = eyeColor;
         CustomBaseLayers = customBaseLayers;
     }
 

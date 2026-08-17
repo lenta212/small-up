@@ -39,6 +39,7 @@ public sealed partial class HumanoidAppearanceSystem
                     new HumanoidMarkingModifierState(component.MarkingSet, component.Species,
                         component.Sex,
                         component.SkinColor,
+                        component.EyeColor,
                         component.CustomBaseLayers
                     ));
             }
@@ -72,6 +73,7 @@ public sealed partial class HumanoidAppearanceSystem
                 new HumanoidMarkingModifierState(component.MarkingSet, component.Species,
                         component.Sex,
                         component.SkinColor,
+                        component.EyeColor,
                         component.CustomBaseLayers
                     ));
         }
@@ -96,6 +98,7 @@ public sealed partial class HumanoidAppearanceSystem
                 new HumanoidMarkingModifierState(component.MarkingSet, component.Species,
                         component.Sex,
                         component.SkinColor,
+                        component.EyeColor,
                         component.CustomBaseLayers
                     ));
         }

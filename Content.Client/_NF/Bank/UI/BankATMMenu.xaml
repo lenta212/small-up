@@ -40,10 +40,6 @@
                         </BoxContainer>
                     </PanelContainer>
                 </BoxContainer>
-                <RichTextLabel Text="{Loc 'bank-atm-menu-savings-description'}"
-                               HorizontalExpand="True"
-                               MaxWidth="330"
-                               Margin="6 2 6 6"/>
                 <LineEdit Name="WithdrawEdit" MinSize="80 0"
                         PlaceHolder="{Loc 'bank-atm-menu-withdraw-amount'}" Margin="2 2"/>
                 <PanelContainer VerticalExpand="False" HorizontalExpand="True" Margin="2 2">
