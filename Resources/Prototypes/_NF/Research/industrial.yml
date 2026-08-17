@@ -50,7 +50,6 @@
   - ModsuitGauntlets
   - ModsuitShell
   - ModsuitPlatingExternal
-  - ModsuitCoreStandard
   technologyPrerequisites:
   - AdvancedParts
   position: 1, 8

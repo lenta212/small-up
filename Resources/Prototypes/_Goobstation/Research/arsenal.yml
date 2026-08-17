@@ -25,9 +25,7 @@
   discipline: Arsenal
   tier: 1
   cost: 5000
-  recipeUnlocks:
-  - WeaponLaserCellRevolver
-  - PowerCellIRRevolver
+  recipeUnlocks: []
   position: 3,0
   technologyPrerequisites:
   - DraconicMunitions
@@ -41,12 +39,8 @@
   discipline: Arsenal
   tier: 1
   cost: 3000
-  recipeUnlocks:
-  - ClothingMaskMuzzleSecure
-  - ClothingMaskMuzzleShock
+  recipeUnlocks: []
   position: 1,1
-  technologyPrerequisites:
-  - SalvageWeapons
 
 # Tier 2
 - type: technology
@@ -58,10 +52,7 @@
   discipline: Arsenal
   tier: 2
   cost: 10000
-  recipeUnlocks:
-  - WeaponLaserCellSMG
-  - PowerCellIRSMG
-  - PowerCellIonSMG
+  recipeUnlocks: []
   position: 5,-1
   technologyPrerequisites:
   - WeaponizedLaserManipulation
@@ -86,9 +77,7 @@
 #  - GygaxCentralElectronics
   - GygaxPeripheralsElectronics
   - GygaxTargetingElectronics
-  - WeaponMechCombatUltraRifle
   technologyPrerequisites:
-  - RipleyAPLU
   - AdvancedRiotControl
   - PortableMicrofusionWeaponry
   - SmartWeaponry
@@ -104,11 +93,7 @@
   discipline: Arsenal
   tier: 2
   cost: 7500
-  recipeUnlocks:
-  - WeaponEnergyRifle
-  - EnergyMagRifleIon
-  - EnergyMagRifleDisabler
-  - EnergyMagRifleLethal
+  recipeUnlocks: []
   technologyPrerequisites:
   - WaveParticleHarnessing
   position: 6,1
@@ -124,10 +109,7 @@
   discipline: Arsenal
   tier: 3
   cost: 15000
-  recipeUnlocks:
-  - WeaponLaserCellSniper
-  - PowerCellIRSniper
-  - PowerCellIonSniper
+  recipeUnlocks: []
   position: 6,-1
   technologyPrerequisites:
   - WeaponLaserCellSMGTech
@@ -141,9 +123,7 @@
   discipline: Arsenal
   tier: 3
   cost: 15000
-  recipeUnlocks:
-  - ClothingBackpackLMGBattery
-  - MilitaryPowerCellLMG
+  recipeUnlocks: []
   position: 6,-2
   technologyPrerequisites:
   - WeaponLaserCellSMGTech
@@ -157,8 +137,6 @@
   discipline: Arsenal
   tier: 3
   cost: 30000
-  recipeUnlocks:
-  - WeaponMechCombatMissileRack8
   technologyPrerequisites:
   - Gygax
   position: 3,-2
@@ -183,8 +161,6 @@
 #  - DurandCentralElectronics
   - DurandPeripheralsElectronics
   - DurandTargetingElectronics
-  - WeaponMechCombatShotgun
-  - WeaponMechCombatShotgunIncendiary
   technologyPrerequisites:
   - Gygax
   position: 3,-1
@@ -198,9 +174,7 @@
   discipline: Arsenal
   tier: 3
   cost: 15000
-  recipeUnlocks:
-  - WeaponSubMachineSmart
-  - MagazineSmart
+  recipeUnlocks: []
   technologyPrerequisites:
   - UraniumMunitions
   position: 4,2
@@ -214,11 +188,7 @@
   discipline: Arsenal
   tier: 3
   cost: 25000
-  recipeUnlocks:
-  - PowerCellBluespaceRevolver
-  - PowerCellBluespaceSMG
-  - PowerCellBluespaceSniper
-  - MilitaryPowerCellBluespaceLMG
+  recipeUnlocks: []
   technologyPrerequisites:
   - WeaponLaserCellLMGTech
   - WeaponLaserCellSniperTech

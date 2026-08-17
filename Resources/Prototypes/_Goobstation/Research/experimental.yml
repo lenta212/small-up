@@ -53,8 +53,7 @@
   - SlimeGrinderMachineCircuitboard
   - ClothingBackpackXenoBioTank
   position: -3,3
-  technologyPrerequisites:
-  - BasicXenoArcheology
+  technologyPrerequisites: []
 
 - type: technology
   id: BluespaceTheory
@@ -83,8 +82,7 @@
   recipeUnlocks:
   - ExperimentalCircuitBoard
   position: -4,0
-  technologyPrerequisites:
-  - AdvancedAnomalyResearch
+  technologyPrerequisites: []
 
 - type: technology
   id: XenoCompatibility

@@ -20,6 +20,7 @@
     - CivilianServices
     - MechaEngineering
     - FactionUniversal
+    - Shiparmory
   - type: ApcPowerReceiver
     powerLoad: 200
   - type: ExtensionCableReceiver

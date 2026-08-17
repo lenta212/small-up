@@ -1,0 +1,15 @@
+# Non-removable squadron suits for Aibolit and the rescue escorts.
+
+- type: entity
+  parent: ClothingOuterHardsuitDeathsquad
+  id: LuaMClothingOuterHardsuitDeathsquadUnremoveable
+  suffix: LuaM, Unremoveable
+  components:
+  - type: Unremoveable
+
+- type: entity
+  parent: ClothingHeadHelmetHardsuitDeathsquad
+  id: LuaMClothingHeadHelmetHardsuitDeathsquadUnremoveable
+  suffix: LuaM, Unremoveable
+  components:
+  - type: Unremoveable

@@ -23,6 +23,7 @@
     - Experimental
     - CivilianServices
     - MechaEngineering
+    - Shiparmory
   - type: ApcPowerReceiver
     powerLoad: 500
   - type: ExtensionCableReceiver
@@ -86,6 +87,7 @@
     - Experimental
     - CivilianServices
     - MechaEngineering
+    - Shiparmory
 
 - type: entity
   id: ResearchAndDevelopmentServerRogues
@@ -112,6 +114,7 @@
     - Experimental
     - CivilianServices
     - MechaEngineering
+    - Shiparmory
 
 - type: entity
   id: ResearchAndDevelopmentServerUssp
@@ -139,6 +142,7 @@
     - Experimental
     - CivilianServices
     - MechaEngineering
+    - Shiparmory
 
 - type: entity
   id: ResearchAndDevelopmentServerDebug
@@ -167,6 +171,7 @@
     - UsspWeapons
     - FactionUniversal
     - MechaEngineering
+    - Shiparmory
 
 - type: entity
   parent: ResearchAndDevelopmentServer

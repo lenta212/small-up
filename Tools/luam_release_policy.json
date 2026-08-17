@@ -1,13 +1,13 @@
 ﻿{
     "remoteDeployFrozen":  false,
-    "reason":  "Operator authorized the ghost-follow locator hotfix via Codex chat; receipt-bound publication and guarded deployment only.",
-    "lastReviewed":  "2026-08-04",
+    "reason":  "Operator authorized a full client+server rollout on 2026-08-17: repaired quarantined ship snapshots with self-heal, restored missing Goobstation assets, bank ATM amount input, research content and accumulated August fixes.",
+    "lastReviewed":  "2026-08-17",
     "deploymentAuthorization":  {
                                     "state":  "authorized",
-                                    "approvalId":  "operator-chat-20260804-ghost-follow-hotfix",
+                                    "approvalId":  "operator-chat-20260817-shipfix-release",
                                     "approvedBy":  "server operator via Codex chat",
-                                    "approvedAtUtc":  "2026-08-04T10:45:06.8819549Z",
-                                    "expiresAtUtc":  "2026-08-04T22:45:06.8819549Z",
+                                    "approvedAtUtc":  "2026-08-17T20:28:25.6524575Z",
+                                    "expiresAtUtc":  "2026-08-18T08:28:25.6524575Z",
                                     "allowedMutations":  [
                                                              "client-static",
                                                              "server-release"

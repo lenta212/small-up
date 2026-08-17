@@ -207,7 +207,8 @@ public sealed partial class LatheMenu : FancyWindow
         var currentCategories = new List<ProtoId<LatheCategoryPrototype>>();
         foreach (var recipeId in Recipes)
         {
-            var recipe = _prototypeManager.Index(recipeId);
+            if (!_prototypeManager.TryIndex(recipeId, out var recipe))
+                continue;
 
             if (recipe.Categories.Count <= 0)
                 continue;

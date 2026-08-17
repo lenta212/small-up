@@ -19,8 +19,11 @@ public sealed partial class MiniTechnologyCardControl : Control
     {
         RobustXamlLoader.Load(this);
 
-        var discipline = prototypeManager.Index(technology.Discipline);
-        Background.ModulateSelfOverride = discipline.Color;
+        if (prototypeManager.HasIndex(technology.Discipline))
+        {
+            var discipline = prototypeManager.Index(technology.Discipline);
+            Background.ModulateSelfOverride = discipline.Color;
+        }
 
         // Frontier: Handle technology icon - prioritize EntityIcon for full sprite layers, matching technology squares
         if (technology.EntityIcon.HasValue)

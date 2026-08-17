@@ -143,7 +143,10 @@ public abstract partial class SharedLatheSystem : EntitySystem
 
     public string GetRecipeName(ProtoId<LatheRecipePrototype> proto)
     {
-        return GetRecipeName(_proto.Index(proto));
+        if (!_proto.TryIndex(proto, out var recipe))
+            return proto.Id;
+
+        return GetRecipeName(recipe);
     }
 
     public string GetRecipeName(LatheRecipePrototype proto)
@@ -153,23 +156,26 @@ public abstract partial class SharedLatheSystem : EntitySystem
 
         if (proto.Result is {} result)
         {
-            return _proto.Index(result).Name;
+            if (_proto.HasIndex(result))
+                return _proto.Index(result).Name;
         }
-
-        if (proto.ResultReagents is { } resultReagents)
+        else if (proto.ResultReagents is { } resultReagents)
         {
             return ContentLocalizationManager.FormatList(resultReagents
                 .Select(p => Loc.GetString("lathe-menu-result-reagent-display", ("reagent", _proto.Index(p.Key).LocalizedName), ("amount", p.Value)))
                 .ToList());
         }
 
-        return string.Empty;
+        return proto.ID;
     }
 
     [PublicAPI]
     public string GetRecipeDescription(ProtoId<LatheRecipePrototype> proto)
     {
-        return GetRecipeDescription(_proto.Index(proto));
+        if (!_proto.TryIndex(proto, out var recipe))
+            return string.Empty;
+
+        return GetRecipeDescription(recipe);
     }
 
     public string GetRecipeDescription(LatheRecipePrototype proto)
@@ -179,10 +185,10 @@ public abstract partial class SharedLatheSystem : EntitySystem
 
         if (proto.Result is {} result)
         {
-            return _proto.Index(result).Description;
+            if (_proto.HasIndex(result))
+                return _proto.Index(result).Description;
         }
-
-        if (proto.ResultReagents is { } resultReagents)
+        else if (proto.ResultReagents is { } resultReagents)
         {
             // We only use the first one for the description since these descriptions don't combine very well.
             var reagent = resultReagents.First().Key;

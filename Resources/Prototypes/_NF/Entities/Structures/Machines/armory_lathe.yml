@@ -1,0 +1,41 @@
+# Shipboard autolathe recovered from the Stargate source build.
+
+- type: entity
+  id: ArmoryLatheMachineCircuitboard
+  parent: BaseMachineCircuitboard
+  name: ent-ArmoryLatheMachineCircuitboard
+  description: ent-ArmoryLatheMachineCircuitboard-desc
+  components:
+  - type: MachineBoard
+    prototype: ArmoryLathe
+    requirements:
+      MatterBin: 2
+      Manipulator: 2
+    tagRequirements:
+      GlassBeaker:
+        amount: 2
+        defaultPrototype: Beaker
+
+- type: entity
+  id: ArmoryLathe
+  parent: BaseLathe
+  name: ent-ArmoryLathe
+  description: ent-ArmoryLathe-desc
+  components:
+  - type: Sprite
+    sprite: _Lua/Structures/Machines/armorylathe.rsi
+    snapCardinals: true
+    layers:
+    - state: base_machine
+      map: ["enum.LatheVisualLayers.IsRunning"]
+    - state: buttons_on
+      shader: unshaded
+      map: ["enum.PowerDeviceVisualLayers.Powered"]
+  - type: Machine
+    board: ArmoryLatheMachineCircuitboard
+  - type: Lathe
+    idleState: base_machine
+    runningState: base_machine_processing
+    dynamicPacks:
+    - ArmoryLatheDynamicPack
+  - type: OreSiloClient

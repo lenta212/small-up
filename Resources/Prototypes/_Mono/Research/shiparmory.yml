@@ -1,0 +1,347 @@
+# Ship armory research branch recovered from the Stargate source build
+# (Lua-Frontier/sector-frontier-14-ds 276c4737c939b4c0793af12ce02466b86f64e67d).
+# Only unlocks that exist in this integration are retained.
+
+- type: technology
+  id: BasicShuttleWeaponPad
+  name: research-technology-basic-weaponpad
+  entityIcon: ComputerGunneryConsole
+  discipline: Shiparmory
+  tier: 1
+  cost: 10500
+  recipeUnlocks:
+  - GunneryControlComputerCircuitboard
+  - MachineGCSLowCircuitboard
+  position: 1, 1
+
+- type: technology
+  id: BasicShuttleWeapon
+  name: research-technology-basic-weapon
+  entityIcon: ShuttleGunKinetic
+  discipline: Shiparmory
+  tier: 1
+  cost: 12500
+  recipeUnlocks:
+  - ShuttleGunKineticCircuitboard
+  - ShuttleGunSvalinnMachineGunCircuitboard
+  technologyPrerequisites:
+  - BasicShuttleWeaponPad
+  position: 2, 1
+
+- type: technology
+  id: ShuttlePowerCage
+  name: research-technology-shuttle-powercage
+  entityIcon: PowerCageSmallEmpty
+  discipline: Shiparmory
+  tier: 1
+  cost: 13500
+  recipeUnlocks:
+  - PowerCageSmall
+  - PowerCageMedium
+  - PowerCageHigh
+  - PowerCageRechargerCircuitboard
+  technologyPrerequisites:
+  - BasicShuttleWeapon
+  position: 3, 1
+
+- type: technology
+  id: ShuttleShuttleGunPerforator
+  name: research-technology-shuttle-perforator
+  entityIcon: ShuttleGunPerforator
+  discipline: Shiparmory
+  tier: 1
+  cost: 14800
+  recipeUnlocks:
+  - ShuttleGunPerforatorCircuitboard
+  technologyPrerequisites:
+  - ShuttlePowerCage
+  position: 4, 1
+
+- type: technology
+  id: ShuttleFriendshipPirate
+  name: research-technology-shuttle-friendshippirate
+  entityIcon: ShuttleGunFriendship
+  discipline: Shiparmory
+  tier: 2
+  cost: 18200
+  recipeUnlocks:
+  - ShuttleGunFriendshipCircuitboard
+  technologyPrerequisites:
+  - ShuttleShuttleGunPerforator
+  position: 5, 2
+
+- type: technology
+  id: ShuttleGunDuster
+  name: research-technology-shuttle-gunduster
+  entityIcon: ShuttleGunDuster
+  discipline: Shiparmory
+  tier: 2
+  cost: 21100
+  recipeUnlocks:
+  - ShuttleGunDusterCircuitboard
+  technologyPrerequisites:
+  - ShuttleFriendshipPirate
+  position: 6, 2
+
+- type: technology
+  id: MachineGCSMediumCircuitboardTech
+  name: research-technology-machine-gcs-medium
+  entityIcon: GunneryServerMedium
+  discipline: Shiparmory
+  tier: 2
+  cost: 3500
+  recipeUnlocks:
+  - MachineGCSMediumCircuitboard
+  technologyPrerequisites:
+  - ShuttleGunDuster
+  position: 5, 4
+
+- type: technology
+  id: MachineGCSHighCircuitboardTech
+  name: research-technology-machine-gcs-high
+  entityIcon: GunneryServerHigh
+  discipline: Shiparmory
+  tier: 3
+  cost: 5000
+  recipeUnlocks:
+  - MachineGCSHighCircuitboard
+  technologyPrerequisites:
+  - MachineGCSMediumCircuitboardTech
+  position: 6, 4
+
+- type: technology
+  id: ShuttleGrenade
+  name: research-technology-shuttle-grenade
+  entityIcon: 40mmGrenadeFlash
+  discipline: Shiparmory
+  tier: 1
+  cost: 12100
+  recipeUnlocks:
+  - 40mmGrenadeFlash
+  - 40mmGrenadeThermobaric
+  technologyPrerequisites:
+  - ShuttleShuttleGunPerforator
+  position: 5, 1
+
+- type: technology
+  id: ShuttleCannonBall
+  name: research-technology-shuttle-cannonball
+  entityIcon: CannonBallGrapeshot
+  discipline: Shiparmory
+  tier: 2
+  cost: 16900
+  recipeUnlocks:
+  - CannonBallGrapeshot
+  - CannonBallGlassshot
+  technologyPrerequisites:
+  - ShuttleGrenade
+  position: 7, 2
+
+- type: technology
+  id: ShuttleGrenadeEMP
+  name: research-technology-shuttle-grenadeemp
+  entityIcon: 40mmGrenadeEMP
+  discipline: Shiparmory
+  tier: 2
+  cost: 14800
+  recipeUnlocks:
+  - 40mmGrenadeEMP
+  - Magazine40mmEmpty
+  technologyPrerequisites:
+  - ShuttleCannonBall
+  position: 8, 2
+
+- type: technology
+  id: ShiparmoryBallisticBases
+  name: research-technology-shiparmory-ballistic-bases
+  entityIcon: WeaponTurretL85Autocannon
+  discipline: Shiparmory
+  tier: 2
+  cost: 25000
+  recipeUnlocks:
+  - L58Flatpack
+  - AK570Flatpack
+  technologyPrerequisites:
+  - MachineGCSMediumCircuitboardTech
+  position: 1, 4
+
+- type: technology
+  id: ShiparmoryHeavyBallisticBases
+  name: research-technology-shiparmory-heavy-ballistic-bases
+  entityIcon: WeaponTurretRAC30
+  discipline: Shiparmory
+  tier: 2
+  cost: 35000
+  recipeUnlocks:
+  - WeaponTurretRAC30FlatPack
+  - WeaponTurretDravonFlatPack
+  technologyPrerequisites:
+  - ShiparmoryBallisticBases
+  position: 2, 4
+
+- type: technology
+  id: ShiparmoryTeslaTurretBase
+  name: research-technology-shiparmory-tesla-base
+  entityIcon: WeaponTurretShard
+  discipline: Shiparmory
+  tier: 2
+  cost: 45000
+  recipeUnlocks:
+  - WeaponTurretShardFlatpack
+  - WeaponTurretPinholeFlatpack
+  technologyPrerequisites:
+  - ShiparmoryHeavyBallisticBases
+  position: 3, 4
+
+- type: technology
+  id: ShiparmoryKineticTurrets
+  name: research-technology-shiparmory-kinetic-turrets
+  entityIcon: WeaponTurretAK570
+  discipline: Shiparmory
+  tier: 2
+  cost: 40000
+  recipeUnlocks:
+  - L58Flatpack
+  - AK570Flatpack
+  - WeaponTurretRAC30FlatPack
+  - WeaponTurretDravonFlatPack
+  technologyPrerequisites:
+  - ShiparmoryBallisticBases
+  position: 1, 5
+
+- type: technology
+  id: ShiparmoryAdvancedKineticTurrets
+  name: research-technology-shiparmory-advanced-kinetic-turrets
+  entityIcon: WeaponTurretCharonReload
+  discipline: Shiparmory
+  tier: 3
+  cost: 90000
+  recipeUnlocks:
+  - M381Flatpack
+  technologyPrerequisites:
+  - ShiparmoryKineticTurrets
+  position: 2, 5
+
+- type: technology
+  id: ShiparmoryEnergyTurrets
+  name: research-technology-shiparmory-energy-turrets
+  entityIcon: WeaponTurretType35
+  discipline: Shiparmory
+  tier: 2
+  cost: 45000
+  recipeUnlocks:
+  - Type35Flatpack
+  - WeaponLaserTurretL1PhalanxFlatPack
+  technologyPrerequisites:
+  - ShiparmoryBallisticBases
+  position: 3, 5
+
+- type: technology
+  id: ShiparmoryAdvancedEnergyTurrets
+  name: research-technology-shiparmory-advanced-energy-turrets
+  entityIcon: WeaponLaserTurretApollo
+  discipline: Shiparmory
+  tier: 3
+  cost: 85000
+  recipeUnlocks:
+  - WeaponTurretType54FlatPack
+  - WeaponLaserTurretApolloFlatPack
+  technologyPrerequisites:
+  - ShiparmoryEnergyTurrets
+  position: 4, 5
+
+- type: technology
+  id: ShiparmoryCapitalEnergyTurrets
+  name: research-technology-shiparmory-capital-energy-turrets
+  entityIcon: WeaponTurretCerberus
+  discipline: Shiparmory
+  tier: 3
+  cost: 200000
+  recipeUnlocks:
+  - WeaponTurretCerberusFlatPack
+  technologyPrerequisites:
+  - ShiparmoryAdvancedEnergyTurrets
+  position: 5, 5
+
+- type: technology
+  id: ShiparmoryMissileTurrets
+  name: research-technology-shiparmory-missile-turrets
+  entityIcon: WeaponTurretVanyk
+  discipline: Shiparmory
+  tier: 2
+  cost: 50000
+  recipeUnlocks:
+  - WeaponTurretVanykFlatPack
+  - WeaponTurretVesperaFlatPack
+  technologyPrerequisites:
+  - ShiparmoryBallisticBases
+  position: 4, 6
+
+- type: technology
+  id: ShiparmoryAdvancedMissileTurrets
+  name: research-technology-shiparmory-advanced-missile-turrets
+  entityIcon: WeaponTurretASM220
+  discipline: Shiparmory
+  tier: 3
+  cost: 80000
+  recipeUnlocks:
+  - WeaponTurretLightMunitionsBayFlatPack
+  - WeaponTurretASM220FlatPack
+  technologyPrerequisites:
+  - ShiparmoryMissileTurrets
+  position: 5, 6
+
+- type: technology
+  id: ShiparmoryShieldSystems
+  name: research-technology-shiparmory-shield-systems
+  entityIcon: ShieldGeneratorMedium
+  discipline: Shiparmory
+  tier: 2
+  cost: 60000
+  recipeUnlocks:
+  - ShieldGeneratorMediumFlatPack
+  - ShieldGeneratorFlatPack
+  technologyPrerequisites:
+  - ShiparmoryBallisticBases
+  position: 2, 6
+
+- type: technology
+  id: ShiparmoryCapitalShields
+  name: research-technology-shiparmory-capital-shields
+  entityIcon: ShieldGeneratorTSFCapital
+  discipline: Shiparmory
+  tier: 3
+  cost: 100000
+  recipeUnlocks:
+  - ShieldGeneratorTSFCapitalFlatPack
+  technologyPrerequisites:
+  - ShiparmoryShieldSystems
+  position: 3, 6
+
+- type: technology
+  id: ShiparmoryPlastitaniumStructures
+  name: research-technology-shiparmory-plastitanium-structures
+  entityIcon: WallPlastitanium
+  discipline: Shiparmory
+  tier: 2
+  cost: 30000
+  recipeUnlocks:
+  - WallPlastitaniumFlatPack
+  - PlastitaniumWindowFlatPack
+  technologyPrerequisites:
+  - ShiparmoryBallisticBases
+  position: 6, 6
+
+- type: technology
+  id: ShiparmoryStationPlastitanium
+  name: research-technology-shiparmory-station-plastitanium
+  entityIcon: WallPlastitaniumOutpost
+  discipline: Shiparmory
+  tier: 3
+  cost: 80000
+  recipeUnlocks:
+  - WallPlastitaniumOutpostFlatPack
+  - PlastitaniumWindowOutpostFlatPack
+  technologyPrerequisites:
+  - ShiparmoryPlastitaniumStructures
+  position: 7, 6

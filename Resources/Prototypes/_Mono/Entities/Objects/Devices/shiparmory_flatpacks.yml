@@ -1,0 +1,237 @@
+- type: entity
+  parent: BaseFlatpack
+  id: WeaponTurretRAC30FlatPack
+  name: packed RAC-30 autocannon
+  description: A flatpack used for constructing a RAC-30 autocannon.
+  components:
+  - type: Flatpack
+    entity: WeaponTurretRAC30
+  - type: StaticPrice
+    price: 600
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: WeaponTurretDravonFlatPack
+  name: packed Dravon rotary cannon
+  description: A flatpack used for constructing a Dravon rotary cannon.
+  components:
+  - type: Flatpack
+    entity: WeaponTurretDravon
+  - type: StaticPrice
+    price: 800
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: WeaponLaserTurretL1PhalanxFlatPack
+  name: packed L1 Phalanx laser turret
+  description: A flatpack used for constructing an L1 Phalanx laser turret.
+  components:
+  - type: Flatpack
+    entity: WeaponLaserTurretL1Phalanx
+  - type: StaticPrice
+    price: 900
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: WeaponTurretType54FlatPack
+  name: packed Type-54 laser turret
+  description: A flatpack used for constructing a Type-54 laser turret.
+  components:
+  - type: Flatpack
+    entity: WeaponTurretType54
+  - type: StaticPrice
+    price: 1100
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: WeaponLaserTurretApolloFlatPack
+  name: packed Apollo laser turret
+  description: A flatpack used for constructing an Apollo laser turret.
+  components:
+  - type: Flatpack
+    entity: WeaponLaserTurretApollo
+  - type: StaticPrice
+    price: 1400
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: WeaponTurretCerberusFlatPack
+  name: packed Cerberus turret
+  description: A flatpack used for constructing a Cerberus turret.
+  components:
+  - type: Flatpack
+    entity: WeaponTurretCerberus
+  - type: StaticPrice
+    price: 1800
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: WeaponTurretVanykFlatPack
+  name: packed Vanyk missile launcher
+  description: A flatpack used for constructing a Vanyk missile launcher.
+  components:
+  - type: Flatpack
+    entity: WeaponTurretVanyk
+  - type: StaticPrice
+    price: 1200
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: WeaponTurretVesperaFlatPack
+  name: packed Vespera missile launcher
+  description: A flatpack used for constructing a Vespera missile launcher.
+  components:
+  - type: Flatpack
+    entity: WeaponTurretVespera
+  - type: StaticPrice
+    price: 1400
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: WeaponTurretLightMunitionsBayFlatPack
+  name: packed light munitions bay
+  description: A flatpack used for constructing a light munitions bay.
+  components:
+  - type: Flatpack
+    entity: WeaponTurretLightMunitionsBay
+  - type: StaticPrice
+    price: 1600
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: WeaponTurretASM220FlatPack
+  name: packed ASM-220 torpedo launcher
+  description: A flatpack used for constructing an ASM-220 torpedo launcher.
+  components:
+  - type: Flatpack
+    entity: WeaponTurretASM220
+  - type: StaticPrice
+    price: 1800
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: ShieldGeneratorMediumFlatPack
+  name: packed medium shield generator
+  description: A flatpack used for constructing a medium shield generator.
+  components:
+  - type: Flatpack
+    entity: ShieldGeneratorMedium
+  - type: StaticPrice
+    price: 1200
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: ShieldGeneratorFlatPack
+  name: packed shield generator
+  description: A flatpack used for constructing a shield generator.
+  components:
+  - type: Flatpack
+    entity: ShieldGenerator
+  - type: StaticPrice
+    price: 1600
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: ShieldGeneratorTSFCapitalFlatPack
+  name: packed capital shield generator
+  description: A flatpack used for constructing a capital shield generator.
+  components:
+  - type: Flatpack
+    entity: ShieldGeneratorTSFCapital
+  - type: StaticPrice
+    price: 3000
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: ship_weapon
+
+- type: entity
+  parent: BaseFlatpack
+  id: WallPlastitaniumFlatPack
+  name: packed plastitanium wall
+  description: A flatpack used for constructing a plastitanium wall.
+  components:
+  - type: Flatpack
+    entity: WallPlastitanium
+  - type: StaticPrice
+    price: 300
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: base
+
+- type: entity
+  parent: BaseFlatpack
+  id: PlastitaniumWindowFlatPack
+  name: packed plastitanium window
+  description: A flatpack used for constructing a plastitanium window.
+  components:
+  - type: Flatpack
+    entity: PlastitaniumWindow
+  - type: StaticPrice
+    price: 250
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: base
+
+- type: entity
+  parent: BaseFlatpack
+  id: WallPlastitaniumOutpostFlatPack
+  name: packed reinforced plastitanium wall
+  description: A flatpack used for constructing a reinforced plastitanium wall.
+  components:
+  - type: Flatpack
+    entity: WallPlastitaniumOutpost
+  - type: StaticPrice
+    price: 600
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: base
+
+- type: entity
+  parent: BaseFlatpack
+  id: PlastitaniumWindowOutpostFlatPack
+  name: packed reinforced plastitanium window
+  description: A flatpack used for constructing a reinforced plastitanium window.
+  components:
+  - type: Flatpack
+    entity: PlastitaniumWindowOutpost
+  - type: StaticPrice
+    price: 500
+  - type: Sprite
+    sprite: _Lua/Flatpack/flatpack.rsi
+    state: base

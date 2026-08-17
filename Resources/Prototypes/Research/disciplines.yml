@@ -49,3 +49,16 @@
     2: 0.75
     3: 0.75
   uiName: SRV  # Goobstation
+
+- type: techDiscipline
+  id: Shiparmory
+  name: research-discipline-shiparmory
+  color: "#223e52"
+  icon:
+    sprite: _Lua/Interface/Misc/research_disciplines.rsi
+    state: shiparmory
+  tierPrerequisites:
+    1: 0
+    2: 0
+    3: 0
+  uiName: SHIP

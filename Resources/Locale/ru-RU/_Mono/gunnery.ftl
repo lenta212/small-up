@@ -91,3 +91,26 @@ research-technology-turret-two-ap = Бронебойные миномётные 
 research-technology-turret-two-he = Фугасные миномётные снаряды
 research-technology-turret-two-pf = Бесконтактные миномётные снаряды
 research-technology-turret-teslalaser = Компактное хранение энергии
+
+research-technology-machine-gcs-medium = Средняя плата сервера вооружения
+research-technology-machine-gcs-high = Высокомощная плата сервера вооружения
+
+ent-ArmoryLathe = корабельный автолат
+ent-ArmoryLathe-desc = Автолат для создания корабельного вооружения и боеприпасов.
+ent-ArmoryLatheMachineCircuitboard = корабельный автолат машинная плата
+ent-ArmoryLatheMachineCircuitboard-desc = Печатная плата корабельного автолата.
+
+research-technology-shiparmory-ballistic-bases = Калиберные базы
+research-technology-shiparmory-heavy-ballistic-bases = Тяжёлые калиберные базы
+research-technology-shiparmory-tesla-base = Тесла-турель
+research-technology-shiparmory-shield-systems = Корабельные щиты
+research-technology-shiparmory-capital-shields = Капитальные щиты
+research-technology-shiparmory-kinetic-turrets = Кинетические турели
+research-technology-shiparmory-advanced-kinetic-turrets = Продвинутые кинетические турели
+research-technology-shiparmory-energy-turrets = Энергетические турели
+research-technology-shiparmory-advanced-energy-turrets = Продвинутые энергетические турели
+research-technology-shiparmory-capital-energy-turrets = Капитальные энергетические турели
+research-technology-shiparmory-missile-turrets = Ракетные турели
+research-technology-shiparmory-advanced-missile-turrets = Продвинутые ракетные турели
+research-technology-shiparmory-plastitanium-structures = Пластитановые конструкции
+research-technology-shiparmory-station-plastitanium = Стационные пластитановые конструкции

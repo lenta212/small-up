@@ -12,8 +12,7 @@
   recipeUnlocks:
   - RipleyMKIIHarness
   - RipleyUpgradeKit
-  technologyPrerequisites:
-  - RipleyAPLU
+  technologyPrerequisites: []
   position: -1,-6
 
 - type: technology

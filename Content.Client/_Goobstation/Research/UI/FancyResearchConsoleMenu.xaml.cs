@@ -132,6 +132,9 @@ public sealed partial class FancyResearchConsoleMenu : FancyWindow
         TierDisplayContainer.RemoveAllChildren();
         foreach (var disciplineId in database.SupportedDisciplines)
         {
+            if (!_prototype.HasIndex(disciplineId))
+                continue;
+
             var discipline = _prototype.Index<TechDisciplinePrototype>(disciplineId);
             var tier = _research.GetTierCompletionPercentage(database, discipline, _prototype);
 

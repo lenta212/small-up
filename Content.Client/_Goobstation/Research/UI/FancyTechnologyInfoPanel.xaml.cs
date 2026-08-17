@@ -33,7 +33,8 @@ public sealed partial class FancyTechnologyInfoPanel : Control
         Prototype = proto;
 
         TechnologyNameLabel.Text = Loc.GetString(proto.Name);
-        DisciplineTexture.Texture = sprite.Frame0(_proto.Index(proto.Discipline).Icon);
+        if (_proto.HasIndex(proto.Discipline))
+            DisciplineTexture.Texture = sprite.Frame0(_proto.Index(proto.Discipline).Icon);
         if (proto.Icon != null)
             TechnologyTexture.Texture = sprite.Frame0(proto.Icon);
 
@@ -73,6 +74,9 @@ public sealed partial class FancyTechnologyInfoPanel : Control
         RequiredTechContainer.RemoveAllChildren();
         foreach (var techId in proto.TechnologyPrerequisites)
         {
+            if (!_proto.HasIndex(techId))
+                continue;
+
             var tech = _proto.Index(techId);
             var description = research.GetTechnologyDescription(tech, true, false, true);
             RequiredTechContainer.AddChild(new MiniTechnologyCardControl(tech, _proto, sprite, description));
@@ -84,6 +88,9 @@ public sealed partial class FancyTechnologyInfoPanel : Control
         UnlocksContainer.RemoveAllChildren();
         foreach (var recipeId in proto.RecipeUnlocks)
         {
+            if (!_proto.HasIndex(recipeId))
+                continue;
+
             var recipe = _proto.Index(recipeId);
             UnlocksContainer.AddChild(new MiniRecipeCardControl(proto, recipe, _proto, sprite, lathe));
         }

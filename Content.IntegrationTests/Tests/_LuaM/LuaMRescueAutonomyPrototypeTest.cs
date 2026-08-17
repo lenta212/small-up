@@ -17,8 +17,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
             "LuaMRescueAgentGear");
         var agentEquipment = Mapping(agentGear, "equipment");
 
-        Assert.That(ScalarValue(agentEquipment, "outerClothing"), Is.EqualTo("ClothingOuterHardsuitDeathsquad"));
-        Assert.That(ScalarValue(agentEquipment, "head"), Is.EqualTo("ClothingHeadHelmetHardsuitDeathsquad"));
+        Assert.That(ScalarValue(agentEquipment, "outerClothing"), Is.EqualTo("LuaMClothingOuterHardsuitDeathsquadUnremoveable"));
+        Assert.That(ScalarValue(agentEquipment, "head"), Is.EqualTo("LuaMClothingHeadHelmetHardsuitDeathsquadUnremoveable"));
         Assert.That(ScalarValue(agentEquipment, "mask"), Is.EqualTo("ClothingMaskBreathMedical"));
         Assert.That(ScalarValue(agentEquipment, "shoes"), Is.EqualTo("LuaMClothingShoesBootsMagRescue"));
         Assert.That(ScalarValue(agentEquipment, "suitstorage"), Is.EqualTo("OxygenTankFilled"));
@@ -39,8 +39,8 @@ public sealed class LuaMRescueAutonomyPrototypeTest
             "LuaMRescueEscortGear");
         var escortEquipment = Mapping(escortGear, "equipment");
 
-        Assert.That(ScalarValue(escortEquipment, "outerClothing"), Is.EqualTo("ClothingOuterHardsuitDeathsquad"));
-        Assert.That(ScalarValue(escortEquipment, "head"), Is.EqualTo("ClothingHeadHelmetHardsuitDeathsquad"));
+        Assert.That(ScalarValue(escortEquipment, "outerClothing"), Is.EqualTo("LuaMClothingOuterHardsuitDeathsquadUnremoveable"));
+        Assert.That(ScalarValue(escortEquipment, "head"), Is.EqualTo("LuaMClothingHeadHelmetHardsuitDeathsquadUnremoveable"));
         Assert.That(ScalarValue(escortEquipment, "mask"), Is.EqualTo("ClothingMaskGasSecurity"));
         Assert.That(ScalarValue(escortEquipment, "shoes"), Is.EqualTo("LuaMClothingShoesBootsMagSecurityRescue"));
         Assert.That(ScalarValue(escortEquipment, "suitstorage"), Is.EqualTo("OxygenTankFilled"));

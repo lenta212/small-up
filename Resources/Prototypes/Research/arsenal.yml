@@ -31,7 +31,6 @@
   cost: 10000
   recipeUnlocks:
   - WeaponLaserCarbine
-  - WeaponMechCombatFiredartLaser # Goobstation
   - WeaponLaserSvalinn # Mono
   - NFBlueprintWeaponLaserSvalinn # Frontier
   technologyPrerequisites:
@@ -66,7 +65,6 @@
   - HoloprojectorSecurity
   - WeaponDisablerSMG
   - WeaponDisabler # Mono
-  - WeaponMechCombatDisabler # Goobstation
   - ClothingBackpackElectropack # Mono
   technologyPrerequisites:
   - BasicParts
@@ -117,25 +115,24 @@
   cost: 25000 # Mono
   recipeUnlocks:
   - WeaponLaserCannon
-  - WeaponMechCombatSolarisLaser # Goobstation
   - WeaponXrayCannon # Mono
   technologyPrerequisites:
   - WeaponizedLaserManipulation
   position: 3, 3
 
-# - type: technology
-#   id: WaveParticleHarnessing
-#   name: research-technology-wave-particle-harnessing
-#   entityIcon: WeaponXrayCannon
-#   discipline: Arsenal
-#   tier: 2
-#   cost: 20000
-#   recipeUnlocks:
-#   - WeaponXrayCannon
-#   technologyPrerequisites:
-#   - ConcentratedLaserWeaponry
-#   - SuperParts
-#   position: 4, 4
+- type: technology
+  id: WaveParticleHarnessing
+  name: research-technology-wave-particle-harnessing
+  entityIcon: WeaponXrayCannon
+  discipline: Arsenal
+  tier: 2
+  cost: 20000
+  recipeUnlocks:
+  - WeaponXrayCannon
+  technologyPrerequisites:
+  - ConcentratedLaserWeaponry
+  - SuperParts
+  position: 4, 4
 
 - type: technology
   id: BasicShuttleArmament
@@ -175,7 +172,6 @@
   - WeaponAdvancedLaser
   - PortableRecharger
   - NFBlueprintPortableRecharger # Frontier
-  - WeaponMechCombatImmolationGun # Goobstation
   technologyPrerequisites:
   - ConcentratedLaserWeaponry
   - SuperParts

@@ -13,7 +13,6 @@
   - RipleyRLeg
   - RipleyCentralElectronics
   - RipleyPeripheralsElectronics
-  - MechEquipmentGrabber
   - RipleyMKIIHarness
   - RipleyUpgradeKit
   - ClarkeHarness
@@ -55,12 +54,8 @@
   - GygaxLLeg
   - GygaxRArm
   - GygaxRLeg
-  - GygaxCentralElectronics
   - GygaxPeripheralsElectronics
   - GygaxTargetingElectronics
-  - WeaponMechCombatUltraRifle
-  - WeaponMechCombatMissileRack8
-  - WeaponMechCombatFlashbangLauncher
   - DurandHarness
   - DurandArmor
   - DurandHead
@@ -68,12 +63,8 @@
   - DurandLLeg
   - DurandRArm
   - DurandRLeg
-  - DurandCentralElectronics
   - DurandPeripheralsElectronics
   - DurandTargetingElectronics
-  - WeaponMechCombatShotgun
-  - WeaponMechCombatShotgunIncendiary
-  - WeaponMechChainSword
   technologyPrerequisites:
   - SuperParts
   - MechBasic

@@ -12,11 +12,9 @@
   recipeUnlocks:
   - VehicleHoverchairSci
   - PrescriptionGlasses
-  - EnvirosuitExtinguisherRefill
   - TinfoilHats
   position: 3,4
-  technologyPrerequisites:
-  - AdvancedEntertainment
+  technologyPrerequisites: []
 
 - type: technology
   id: MedicalDefense

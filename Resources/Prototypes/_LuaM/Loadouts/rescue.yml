@@ -19,11 +19,11 @@
   equipment:
     back: ClothingBackpackERTMedical
     shoes: LuaMClothingShoesBootsMagRescue
-    head: ClothingHeadHelmetHardsuitDeathsquad
+    head: LuaMClothingHeadHelmetHardsuitDeathsquadUnremoveable
     mask: ClothingMaskBreathMedical
     eyes: ClothingEyesHudMedical
     gloves: ClothingHandsGlovesCombat
-    outerClothing: ClothingOuterHardsuitDeathsquad
+    outerClothing: LuaMClothingOuterHardsuitDeathsquadUnremoveable
     suitstorage: OxygenTankFilled
     id: ParamedicPDA
     ears: ClothingHeadsetMedical
@@ -49,11 +49,11 @@
   equipment:
     back: ClothingBackpackERTSecurity
     shoes: LuaMClothingShoesBootsMagSecurityRescue
-    head: ClothingHeadHelmetHardsuitDeathsquad
+    head: LuaMClothingHeadHelmetHardsuitDeathsquadUnremoveable
     mask: ClothingMaskGasSecurity
     eyes: ClothingEyesGlassesSecurity
     gloves: ClothingHandsGlovesCombat
-    outerClothing: ClothingOuterHardsuitDeathsquad
+    outerClothing: LuaMClothingOuterHardsuitDeathsquadUnremoveable
     suitstorage: OxygenTankFilled
     id: ParamedicPDA
     ears: ClothingHeadsetMedical
