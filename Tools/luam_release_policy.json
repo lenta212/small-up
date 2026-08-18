@@ -1,22 +1,23 @@
 {
-    "remoteDeployFrozen":  true,
-    "reason":  "Production rollout luam-20260818-060320 completed 2026-08-18. Remote deployment is frozen again; future server/client mutation requires fresh explicit authorization.",
-    "lastReviewed":  "2026-08-18",
+    "remoteDeployFrozen":  false,
+    "reason":  "Operator-authorized fast deployment of the 2026-08-19 fixes: restored-ship device links, research console overlap, protolathe crash.",
+    "lastReviewed":  "2026-08-19",
     "deploymentAuthorization":  {
-                                    "state":  "frozen",
-                                    "approvalId":  null,
-                                    "approvedBy":  null,
-                                    "approvedAtUtc":  null,
-                                    "expiresAtUtc":  null,
+                                    "state":  "authorized",
+                                    "approvalId":  "op-20260819-fastfix",
+                                    "approvedBy":  "operator",
+                                    "approvedAtUtc":  "2026-08-18T21:58:29Z",
+                                    "expiresAtUtc":  "2026-08-19T03:58:29Z",
                                     "allowedMutations":  [
-
+                                                            "server-release",
+                                                            "client-static"
                                                          ],
                                     "testOverride":  {
-                                                         "enabled":  false,
-                                                         "approvedBy":  "",
-                                                         "approvedAtUtc":  null,
-                                                         "expiresAtUtc":  null,
-                                                         "reason":  ""
+                                                         "enabled":  true,
+                                                         "approvedBy":  "operator",
+                                                         "approvedAtUtc":  "2026-08-18T21:58:29Z",
+                                                         "expiresAtUtc":  "2026-08-19T03:58:29Z",
+                                                         "reason":  "Operator approved skipping the full test run for this fast deployment."
                                                      }
                                 },
     "releaseGate":  {
@@ -406,9 +407,9 @@
                                      "Content.Server/Ghost/Roles/GhostRoleSystem.cs"
                                  ],
     "pendingLocalIntegrationBatch":  {
-                                         "name":  "20260802-complete-gameplay-update",
-                                         "state":  "local-package-only",
-                                         "packageSelection":  "Complete August 2 client-and-server update with all current committed gameplay, Stargate/DHD, maps, resources, species abilities, Aibolit dispatch and life support, expedition, sector contract, banking, smart storage, persistence, localization and ServerNews changes. Live configuration and AI gateway remain unchanged.",
+                                         "name":  "20260819-fastfix",
+                                         "state":  "deployment-authorized",
+                                         "packageSelection":  "Fast client-and-server fix batch: restored-ship device link/network rebuild, research console card overlap, protolathe dangling Goobstation references, and ServerNews/iteration documentation.",
                                          "packageFiles":  [
                                                               "Content.Server/Body/Systems/RespiratorSystem.cs",
                                                               "Content.Server/_LuaM/AI/LuaMBloodCultShotComponent.cs",
