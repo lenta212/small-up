@@ -1,23 +1,22 @@
 {
-    "remoteDeployFrozen":  false,
-    "reason":  "Operator-authorized fast deployment of the 2026-08-19 fixes: restored-ship device links, research console overlap, protolathe crash.",
+    "remoteDeployFrozen":  true,
+    "reason":  "Fast deployment luam-20260819-fastfix completed 2026-08-19. Remote deployment is frozen again; future server/client mutation requires fresh explicit authorization.",
     "lastReviewed":  "2026-08-19",
     "deploymentAuthorization":  {
-                                    "state":  "authorized",
-                                    "approvalId":  "op-20260819-fastfix",
-                                    "approvedBy":  "operator",
-                                    "approvedAtUtc":  "2026-08-18T21:58:29Z",
-                                    "expiresAtUtc":  "2026-08-19T03:58:29Z",
+                                    "state":  "frozen",
+                                    "approvalId":  null,
+                                    "approvedBy":  null,
+                                    "approvedAtUtc":  null,
+                                    "expiresAtUtc":  null,
                                     "allowedMutations":  [
-                                                            "server-release",
-                                                            "client-static"
+
                                                          ],
                                     "testOverride":  {
-                                                         "enabled":  true,
-                                                         "approvedBy":  "operator",
-                                                         "approvedAtUtc":  "2026-08-18T21:58:29Z",
-                                                         "expiresAtUtc":  "2026-08-19T03:58:29Z",
-                                                         "reason":  "Operator approved skipping the full test run for this fast deployment."
+                                                         "enabled":  false,
+                                                         "approvedBy":  "",
+                                                         "approvedAtUtc":  null,
+                                                         "expiresAtUtc":  null,
+                                                         "reason":  ""
                                                      }
                                 },
     "releaseGate":  {
@@ -408,7 +407,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260819-fastfix",
-                                         "state":  "deployment-authorized",
+                                         "state":  "release-candidate",
                                          "packageSelection":  "Fast client-and-server fix batch: restored-ship device link/network rebuild, research console card overlap, protolathe dangling Goobstation references, and ServerNews/iteration documentation.",
                                          "packageFiles":  [
                                                               "Content.Server/Body/Systems/RespiratorSystem.cs",
