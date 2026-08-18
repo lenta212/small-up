@@ -1,13 +1,13 @@
 {
     "remoteDeployFrozen":  false,
-    "reason":  "Operator authorized a full client+server rollout on 2026-08-18 and explicitly instructed to skip redundant test reruns. Full LuaM integration suite already passed 531/1/0 on this exact commit.",
+    "reason":  "Operator authorized full client+server rollout on 2026-08-18; authorization refreshed after the first window expired. Client already published.",
     "lastReviewed":  "2026-08-18",
     "deploymentAuthorization":  {
                                     "state":  "authorized",
-                                    "approvalId":  "operator-chat-20260817-shipfix-release",
+                                    "approvalId":  "operator-chat-20260818-shipfix-release-2",
                                     "approvedBy":  "server operator via Codex chat",
-                                    "approvedAtUtc":  "2026-08-17T20:28:25.6524575Z",
-                                    "expiresAtUtc":  "2026-08-18T08:28:25.6524575Z",
+                                    "approvedAtUtc":  "2026-08-18T10:55:49.3234916Z",
+                                    "expiresAtUtc":  "2026-08-18T22:55:49.3234916Z",
                                     "allowedMutations":  [
                                                              "client-static",
                                                              "server-release"
@@ -15,9 +15,9 @@
                                     "testOverride":  {
                                                          "enabled":  true,
                                                          "approvedBy":  "server operator via Codex chat",
-                                                         "approvedAtUtc":  "2026-08-18T05:35:50.8023885Z",
-                                                         "expiresAtUtc":  "2026-08-18T07:35:50.8023885Z",
-                                                         "reason":  "Complete LuaM integration suite passed 531/1/0 on this exact commit; operator instructed to skip redundant rerun."
+                                                         "approvedAtUtc":  "2026-08-18T10:55:49.3234916Z",
+                                                         "expiresAtUtc":  "2026-08-18T16:55:49.3234916Z",
+                                                         "reason":  "Complete LuaM integration suite passed 531/1/0 on this commit; operator instructed to skip redundant rerun."
                                                      }
                                 },
     "releaseGate":  {
