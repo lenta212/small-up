@@ -6427,3 +6427,12 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Fix (repo only, not deployed): attached the orphaned packs to `CircuitImprinter`, `Protolathe`, and `MedicalTechFab`; added the `AdvancedPowerGenerationBoards` pack; re-enabled `AdvancedPowercells` at position `-2, 6` (the original `-2, 7` collided with `PortableFission`).
 - Validation: edited YAML files parse; the research audit now reports 0 technologies whose recipes are outside every lathe dynamic pack (197 techs, 2300 recipes, 301 packs).
 - Next action: deploy with restart when the operator authorizes, then verify in-game research unlocks appear in the corresponding machines.
+
+## 2026-08-18 -- ship-restore sanitizer: resource magnets, buttons and cloning links (no deploy)
+
+- Objective: fix restored shuttles whose resource magnets, button links, and cloning/scanner connections stop working after the persistent-ship restore.
+- Root cause: the portable-hull YAML snapshot retains direct EntityUid/NetEntity references that do not survive the round-trip (e.g. `ShipRepairData` repair chunks, `ShuttleConsoleJobSlots.OwningStation`, `DeviceLinkSource.LinkedPorts`, cloning `ConnectedConsole`/`GeneticScanner`/`CloningPod` refs). The map loader then rejects or silently drops them, and the restore caller re-links only what remains valid.
+- Fix (repo only, not deployed): extended `TryInspectAndSanitizeSerializedShipYaml` in `LuaMFullShipPersistenceSystem` to sanitize before load: drop `ShipRepairData.chunks` (rebuilds on demand), null `ShuttleConsoleJobSlots.owningStation`, null invalid cloning/scanner console refs, remove invalid `DeviceLinkSource.linkedPorts` entries, and reset `MaterialStorageMagnetPickup.nextScan` while forcing `magnetEnabled=true` so restored lathes/techfabs keep attracting materials.
+- Validation: `Content.Server` compile reports no errors in the changed file (the local NuGet/SDK environment still fails on unrelated `Robust.Packaging` restore, so a full build was not produced).
+- Note: the original stargate reference project is not present locally (remotes are Goob-Station and Lua-Frontier/Monolith-DS); the fix follows the existing sanitizer pattern already used for MagicMirror/StationMember/SmartFridge/etc.
+- Next action: run the full release gate and deploy with restart when the operator authorizes; verify a restored shuttle's magnet, buttons and cloning links in-game.

@@ -1393,6 +1393,41 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 case "StationTracker":
                     changed |= ReplaceInvalidReferenceWithNull(component, "station");
                     break;
+                case "ShipRepairData":
+                    // Repair chunks cache original NetEntity references that
+                    // cannot survive a portable hull round-trip. Dropping the
+                    // cache is safer than failing the whole restore; the repair
+                    // system rebuilds chunks on demand.
+                    changed |= RemoveMappingField(component, "chunks");
+                    break;
+                case "ShuttleConsoleJobSlots":
+                    // The owning station lives outside the portable hull; the
+                    // restore caller assigns the destination station after load.
+                    changed |= ReplaceInvalidReferenceWithNull(component, "owningStation");
+                    break;
+                case "CloningConsole":
+                    changed |= ReplaceInvalidReferenceWithNull(component, "geneticScanner");
+                    changed |= ReplaceInvalidReferenceWithNull(component, "cloningPod");
+                    break;
+                case "CloningPod":
+                    changed |= ReplaceInvalidReferenceWithNull(component, "connectedConsole");
+                    break;
+                case "MedicalScanner":
+                    changed |= ReplaceInvalidReferenceWithNull(component, "connectedConsole");
+                    break;
+                case "DeviceLinkSource":
+                    // LinkedPorts keys are sink EntityUids; stale ones break
+                    // buttons and console links after a portable round-trip.
+                    if (TryGetMapping(component, "linkedPorts", out var linkedPorts))
+                        changed |= RemoveMappingsContainingInvalidReference(linkedPorts);
+                    break;
+                case "MaterialStorageMagnetPickup":
+                    // Reset the scan timer and force the resource magnet back on
+                    // so restored lathes/techfabs keep attracting materials.
+                    changed |= RemoveMappingField(component, "nextScan");
+                    component.Children[new YamlScalarNode("magnetEnabled")] = new YamlScalarNode("true");
+                    changed = true;
+                    break;
             }
         }
 
