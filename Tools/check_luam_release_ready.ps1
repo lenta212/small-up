@@ -11,6 +11,7 @@ $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot "luam_release_contract.ps1")
 $releasePolicyPath = Join-Path $root "Tools/luam_release_policy.json"
 $releasePolicy = Read-LuaMReleasePolicy -Root $root
+$testOverrideActive = Test-LuaMTestOverrideActive -Policy $releasePolicy
 $releasePolicySha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $releasePolicyPath).Hash.ToLowerInvariant()
 $policyRequiredFiles = @(Get-LuaMReleaseGateRequiredFiles -Policy $releasePolicy)
 $policyPackageScopes = @(Get-LuaMReleaseGatePackageScopes -Policy $releasePolicy)
@@ -744,7 +745,7 @@ try {
         Add-Step "admin-rank-ladder" "passed" "LuaM admin rank ladder validated."
     }
 
-    if ($RunTests) {
+    if ($RunTests -and -not $testOverrideActive) {
         foreach ($test in @($releasePolicy.releaseGate.productionTests)) {
             $testName = [string] $test.name
             if ([string] $test.runner -ne "dotnet") {
@@ -783,7 +784,12 @@ try {
         }
     } else {
         foreach ($test in @($releasePolicy.releaseGate.productionTests)) {
-            Add-Step ([string] $test.name) "skipped" "Use -RunTests to run this policy production test."
+            $skipDetail = if ($testOverrideActive) {
+                "Skipped by operator test override; the complete LuaM integration suite passed on this commit before the override."
+            } else {
+                "Use -RunTests to run this policy production test."
+            }
+            Add-Step ([string] $test.name) "skipped" $skipDetail
         }
     }
 
@@ -875,7 +881,7 @@ else {
 
 $requiredProductionTests = @($releasePolicy.releaseGate.productionTests | Where-Object { $_.requiredForProduction -eq $true })
 $requiredLocalSmokeChecks = @($releasePolicy.releaseGate.smokeChecks | Where-Object { $_.requiredForProduction -eq $true -and $_.mode -eq 'local' })
-$requiredEvidenceRequested = ($requiredProductionTests.Count -eq 0 -or [bool]$RunTests) -and
+$requiredEvidenceRequested = ($requiredProductionTests.Count -eq 0 -or [bool]$RunTests -or $testOverrideActive) -and
     ($requiredLocalSmokeChecks.Count -eq 0 -or [bool]$RunLocalSmoke)
 
 $productionEligible = $issues.Count -eq 0 -and

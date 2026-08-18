@@ -27,7 +27,10 @@ $arguments = @(
     "--filter", $filter,
     "--logger", "trx;LogFileName=luam-post-deploy-smoke.trx",
     "--results-directory", $results,
-    "--verbosity", "minimal"
+    "--verbosity", "minimal",
+    "-m:1",
+    "--",
+    "NUnit.NumberOfTestWorkers=1"
 )
 if ($NoBuild) { $arguments += "--no-build" }
 

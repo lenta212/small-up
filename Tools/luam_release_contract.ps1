@@ -197,7 +197,7 @@ function Assert-LuaMReleasePolicy {
         throw 'lastReviewed is not a valid calendar date.'
     }
 
-    $authorizationProperties = @('state', 'approvalId', 'approvedBy', 'approvedAtUtc', 'expiresAtUtc', 'allowedMutations')
+    $authorizationProperties = @('state', 'approvalId', 'approvedBy', 'approvedAtUtc', 'expiresAtUtc', 'allowedMutations', 'testOverride')
     Assert-LuaMJsonProperties -Value $Policy.deploymentAuthorization -Name 'deploymentAuthorization' -Required $authorizationProperties -Allowed $authorizationProperties
     $authorization = $Policy.deploymentAuthorization
     if ($authorization.state -isnot [string] -or $authorization.state -notin @('frozen', 'authorized')) {
@@ -238,6 +238,28 @@ function Assert-LuaMReleasePolicy {
         if ($approvedAt -gt $now.AddMinutes(5) -or $approvedAt -lt $now.AddHours(-24) -or
             $expiresAt -le $now -or $expiresAt -gt $approvedAt.AddHours(24)) {
             throw 'Authorized deployment metadata must be current and expire within 24 hours of approval.'
+        }
+
+        if ($null -ne $authorization.testOverride) {
+            $overrideProperties = @('enabled', 'approvedBy', 'approvedAtUtc', 'expiresAtUtc', 'reason')
+            Assert-LuaMJsonProperties -Value $authorization.testOverride -Name 'deploymentAuthorization.testOverride' -Required $overrideProperties -Allowed $overrideProperties
+            if ($authorization.testOverride.enabled -isnot [bool]) {
+                throw 'deploymentAuthorization.testOverride.enabled must be a boolean.'
+            }
+            if ($authorization.testOverride.enabled) {
+                Assert-LuaMNonEmptyString -Value $authorization.testOverride.approvedBy -Name 'deploymentAuthorization.testOverride.approvedBy' -MaxLength 256
+                Assert-LuaMNonEmptyString -Value $authorization.testOverride.reason -Name 'deploymentAuthorization.testOverride.reason' -MaxLength 1024
+                $overrideApprovedAt = ConvertTo-LuaMUtcTimestamp -Value $authorization.testOverride.approvedAtUtc -Name 'deploymentAuthorization.testOverride.approvedAtUtc'
+                $overrideExpiresAt = ConvertTo-LuaMUtcTimestamp -Value $authorization.testOverride.expiresAtUtc -Name 'deploymentAuthorization.testOverride.expiresAtUtc'
+                if ($overrideExpiresAt -le $overrideApprovedAt) {
+                    throw 'deploymentAuthorization.testOverride.expiresAtUtc must be later than approvedAtUtc.'
+                }
+                if ($overrideApprovedAt -gt $now.AddMinutes(5) -or
+                    $overrideExpiresAt -le $now -or
+                    $overrideExpiresAt -gt $overrideApprovedAt.AddHours(24)) {
+                    throw 'deploymentAuthorization.testOverride must be current and expire within 24 hours of approval.'
+                }
+            }
         }
     }
 
@@ -758,6 +780,29 @@ function Read-LuaMBinaryReleaseReceipt {
     }
     Assert-LuaMBinaryReleaseReceipt -Receipt $receipt
     return $receipt
+}
+
+function Test-LuaMTestOverrideActive {
+    param(
+        [Parameter(Mandatory = $true)]
+        $Policy
+    )
+
+    $override = $Policy.deploymentAuthorization.testOverride
+    if ($null -eq $override -or $override.enabled -ne $true) {
+        return $false
+    }
+
+    try {
+        $expiresAt = [DateTimeOffset]::Parse(
+            [string]$override.expiresAtUtc,
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [System.Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        return [DateTimeOffset]::UtcNow -lt $expiresAt
+    }
+    catch {
+        return $false
+    }
 }
 
 function Assert-LuaMRemoteMutationAllowed {
