@@ -20,7 +20,7 @@
   entityIcon: ShuttleGunKinetic
   discipline: Shiparmory
   tier: 1
-  cost: 12500
+  cost: 1250000
   recipeUnlocks:
   - ShuttleGunKineticCircuitboard
   - ShuttleGunSvalinnMachineGunCircuitboard
@@ -34,7 +34,7 @@
   entityIcon: PowerCageSmallEmpty
   discipline: Shiparmory
   tier: 1
-  cost: 13500
+  cost: 135000
   recipeUnlocks:
   - PowerCageSmall
   - PowerCageMedium
@@ -50,7 +50,7 @@
   entityIcon: ShuttleGunPerforator
   discipline: Shiparmory
   tier: 1
-  cost: 14800
+  cost: 148000
   recipeUnlocks:
   - ShuttleGunPerforatorCircuitboard
   technologyPrerequisites:
@@ -63,7 +63,7 @@
   entityIcon: ShuttleGunFriendship
   discipline: Shiparmory
   tier: 2
-  cost: 18200
+  cost: 1000000
   recipeUnlocks:
   - ShuttleGunFriendshipCircuitboard
   technologyPrerequisites:
@@ -76,11 +76,11 @@
   entityIcon: ShuttleGunDuster
   discipline: Shiparmory
   tier: 2
-  cost: 21100
+  cost: 750000
   recipeUnlocks:
   - ShuttleGunDusterCircuitboard
   technologyPrerequisites:
-  - ShuttleFriendshipPirate
+  - BasicShuttleWeapon
   position: 6, 2
 
 - type: technology
@@ -89,7 +89,7 @@
   entityIcon: GunneryServerMedium
   discipline: Shiparmory
   tier: 2
-  cost: 3500
+  cost: 3500000
   recipeUnlocks:
   - MachineGCSMediumCircuitboard
   technologyPrerequisites:
@@ -102,7 +102,7 @@
   entityIcon: GunneryServerHigh
   discipline: Shiparmory
   tier: 3
-  cost: 5000
+  cost: 5000000
   recipeUnlocks:
   - MachineGCSHighCircuitboard
   technologyPrerequisites:
@@ -115,7 +115,7 @@
   entityIcon: 40mmGrenadeFlash
   discipline: Shiparmory
   tier: 1
-  cost: 12100
+  cost: 1210000
   recipeUnlocks:
   - 40mmGrenadeFlash
   - 40mmGrenadeThermobaric
@@ -129,7 +129,7 @@
   entityIcon: CannonBallGrapeshot
   discipline: Shiparmory
   tier: 2
-  cost: 16900
+  cost: 1690000
   recipeUnlocks:
   - CannonBallGrapeshot
   - CannonBallGlassshot
@@ -143,7 +143,7 @@
   entityIcon: 40mmGrenadeEMP
   discipline: Shiparmory
   tier: 2
-  cost: 14800
+  cost: 1480000
   recipeUnlocks:
   - 40mmGrenadeEMP
   - Magazine40mmEmpty
@@ -157,7 +157,7 @@
   entityIcon: WeaponTurretL85Autocannon
   discipline: Shiparmory
   tier: 2
-  cost: 25000
+  cost: 2500000
   recipeUnlocks:
   - L58Flatpack
   - AK570Flatpack
@@ -171,7 +171,7 @@
   entityIcon: WeaponTurretRAC30
   discipline: Shiparmory
   tier: 2
-  cost: 35000
+  cost: 35000000
   recipeUnlocks:
   - WeaponTurretRAC30FlatPack
   - WeaponTurretDravonFlatPack
@@ -185,7 +185,7 @@
   entityIcon: WeaponTurretShard
   discipline: Shiparmory
   tier: 2
-  cost: 45000
+  cost: 450000
   recipeUnlocks:
   - WeaponTurretShardFlatpack
   - WeaponTurretPinholeFlatpack
@@ -199,7 +199,7 @@
   entityIcon: WeaponTurretAK570
   discipline: Shiparmory
   tier: 2
-  cost: 40000
+  cost: 4000000
   recipeUnlocks:
   - L58Flatpack
   - AK570Flatpack
@@ -215,7 +215,7 @@
   entityIcon: WeaponTurretCharonReload
   discipline: Shiparmory
   tier: 3
-  cost: 90000
+  cost: 9000000
   recipeUnlocks:
   - M381Flatpack
   technologyPrerequisites:
@@ -228,7 +228,7 @@
   entityIcon: WeaponTurretType35
   discipline: Shiparmory
   tier: 2
-  cost: 45000
+  cost: 450000
   recipeUnlocks:
   - Type35Flatpack
   - WeaponLaserTurretL1PhalanxFlatPack
@@ -242,7 +242,7 @@
   entityIcon: WeaponLaserTurretApollo
   discipline: Shiparmory
   tier: 3
-  cost: 85000
+  cost: 9500000
   recipeUnlocks:
   - WeaponTurretType54FlatPack
   - WeaponLaserTurretApolloFlatPack
@@ -256,7 +256,7 @@
   entityIcon: WeaponTurretCerberus
   discipline: Shiparmory
   tier: 3
-  cost: 200000
+  cost: 20000000
   recipeUnlocks:
   - WeaponTurretCerberusFlatPack
   technologyPrerequisites:
@@ -269,7 +269,7 @@
   entityIcon: WeaponTurretVanyk
   discipline: Shiparmory
   tier: 2
-  cost: 50000
+  cost: 5000000
   recipeUnlocks:
   - WeaponTurretVanykFlatPack
   - WeaponTurretVesperaFlatPack
@@ -283,7 +283,7 @@
   entityIcon: WeaponTurretASM220
   discipline: Shiparmory
   tier: 3
-  cost: 80000
+  cost: 8000000
   recipeUnlocks:
   - WeaponTurretLightMunitionsBayFlatPack
   - WeaponTurretASM220FlatPack
@@ -297,7 +297,7 @@
   entityIcon: ShieldGeneratorMedium
   discipline: Shiparmory
   tier: 2
-  cost: 60000
+  cost: 1000000
   recipeUnlocks:
   - ShieldGeneratorMediumFlatPack
   - ShieldGeneratorFlatPack
@@ -311,7 +311,7 @@
   entityIcon: ShieldGeneratorTSFCapital
   discipline: Shiparmory
   tier: 3
-  cost: 100000
+  cost: 10000000
   recipeUnlocks:
   - ShieldGeneratorTSFCapitalFlatPack
   technologyPrerequisites:
@@ -324,7 +324,7 @@
   entityIcon: WallPlastitanium
   discipline: Shiparmory
   tier: 2
-  cost: 30000
+  cost: 3000000
   recipeUnlocks:
   - WallPlastitaniumFlatPack
   - PlastitaniumWindowFlatPack
@@ -338,7 +338,7 @@
   entityIcon: WallPlastitaniumOutpost
   discipline: Shiparmory
   tier: 3
-  cost: 80000
+  cost: 8000000
   recipeUnlocks:
   - WallPlastitaniumOutpostFlatPack
   - PlastitaniumWindowOutpostFlatPack

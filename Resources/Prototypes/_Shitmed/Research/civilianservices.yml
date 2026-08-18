@@ -10,7 +10,7 @@
   entityIcon: OmnimedTool
   discipline: CivilianServices
   tier: 3
-  cost: 45000
+  cost: 4500000
   recipeUnlocks:
   - ShitmedOmnimedTool
   - AdvancedBoneGel

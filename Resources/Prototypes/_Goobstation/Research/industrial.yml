@@ -8,11 +8,10 @@
     state: ripleymkii
   discipline: Industrial
   tier: 2
-  cost: 8000
+  cost: 800000
   recipeUnlocks:
   - RipleyMKIIHarness
   - RipleyUpgradeKit
-  technologyPrerequisites: []
   position: -1,-6
 
 - type: technology
@@ -23,7 +22,7 @@
     state: clarke
   discipline: Industrial
   tier: 2
-  cost: 10000
+  cost: 1000000
   recipeUnlocks:
   - ClarkeHarness
   - ClarkeHead
@@ -44,7 +43,7 @@
     state: coil
   discipline: Industrial
   tier: 1
-  cost: 10000
+  cost: 100000
   recipeUnlocks:
   - TeslaCoilCircuitboard
   - RadiationCollectorCircuitboard
@@ -60,7 +59,7 @@
     state: icon
   discipline: Industrial
   tier: 3
-  cost: 5000
+  cost: 500000
   recipeUnlocks:
   - ConstructionBagOfHolding
   technologyPrerequisites:
@@ -75,7 +74,7 @@
     state: icon
   discipline: Industrial
   tier: 1
-  cost: 6500
+  cost: 65000
   recipeUnlocks:
   - PlumbingPumpCircuitboard
   position: 1,-7

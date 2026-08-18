@@ -6,17 +6,17 @@
   entityIcon: KitchenReagentGrinder
   discipline: CivilianServices
   tier: 1
-  cost: 7500
+  cost: 75000
   recipeUnlocks:
   - MicrowaveMachineCircuitboard
   - ReagentGrinderMachineCircuitboard
   - ElectricGrillMachineCircuitboard
   - BoozeDispenserMachineCircuitboard
   - SodaDispenserMachineCircuitboard
-  - DeepFryerMachineCircuitboard # Mono
-  - ServiceSelectiveDropper # Mono
-  - KitchenAssemblerMachineCircuitboard # Mono
-  - ElectricRangeMachineCircuitboard # Mono
+  - DeepFryerMachineCircuitboard
+  - ServiceSelectiveDropper
+  - KitchenAssemblerMachineCircuitboard
+  - ElectricRangeMachineCircuitboard
   technologyPrerequisites: 
   - BasicParts
   position: 3, -2
@@ -27,7 +27,7 @@
   entityIcon: NFPouchContractor
   discipline: CivilianServices
   tier: 1
-  cost: 5000
+  cost: 55000
   recipeUnlocks:
   - NFPouchUtility
   - NFPouchEngineering
@@ -75,7 +75,7 @@
   entityIcon: MedicalAssembler
   discipline: CivilianServices
   tier: 2
-  cost: 13500
+  cost: 735000
   recipeUnlocks:
   - MedicalAssemblerMachineCircuitboard
   - HotplateMachineCircuitboard
@@ -83,7 +83,7 @@
   - ChemDispenserMachineCircuitboard
   - FatExtractorMachineCircuitboard
   - BiogeneratorMachineCircuitboard
-  - BiofabricatorMachineCircuitboard 
+  - BiofabricatorMachineCircuitboard
   - BiomassReclaimerMachineCircuitboard
   technologyPrerequisites:
   - AdvancedParts
@@ -95,7 +95,7 @@
   entityIcon: JetpackVoid
   discipline: CivilianServices
   tier: 2 # 3->2 - Mono
-  cost: 15000
+  cost: 750000
   recipeUnlocks:
   - JetpackVoid
   technologyPrerequisites:

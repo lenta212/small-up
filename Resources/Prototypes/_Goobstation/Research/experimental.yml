@@ -8,7 +8,7 @@
     state: pinpointer
   discipline: Experimental
   tier: 2
-  cost: 7500
+  cost: 750000
   recipeUnlocks:
   - Pinpointer
   - PinpointerArtifact
@@ -26,7 +26,7 @@
     state: mod-core-standard
   discipline: Experimental
   tier: 1
-  cost: 5000
+  cost: 50000000
   recipeUnlocks:
   - ModsuitChestplate
   - ModsuitBoots
@@ -46,14 +46,13 @@
     state: icon
   discipline: Experimental
   tier: 1
-  cost: 5000
+  cost: 50000
   recipeUnlocks:
   - SlimeScannerXenobio
   - XenobiologyBountyComputerCircuitboard
   - SlimeGrinderMachineCircuitboard
   - ClothingBackpackXenoBioTank
   position: -3,3
-  technologyPrerequisites: []
 
 - type: technology
   id: BluespaceTheory
@@ -63,7 +62,7 @@
     state: bluespace_crystal
   discipline: Experimental
   tier: 1
-  cost: 5000
+  cost: 50000
   recipeUnlocks:
   - MaterialBSCrystal
   position: -4,-2
@@ -78,11 +77,10 @@
     state: std_mod
   discipline: Experimental
   tier: 2
-  cost: 7500
+  cost: 750000
   recipeUnlocks:
   - ExperimentalCircuitBoard
   position: -4,0
-  technologyPrerequisites: []
 
 - type: technology
   id: XenoCompatibility
@@ -92,7 +90,7 @@
     state: xenomorph
   discipline: Experimental
   tier: 2
-  cost: 15000
+  cost: 50000
   recipeUnlocks:
   - XenoCompatibilityImplanter
   position: -5,0
@@ -107,7 +105,7 @@
     state: icon
   discipline: Experimental
   tier: 2
-  cost: 10000
+  cost: 2000000
   recipeUnlocks:
   - ClothingBeltChemBagXenobiologyHolding
   position: -4,3

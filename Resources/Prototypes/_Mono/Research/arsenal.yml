@@ -4,14 +4,13 @@
   entityIcon: WeaponLMGRatel
   discipline: Arsenal
   tier: 2
-  cost: 25000
+  cost: 3000000
   recipeUnlocks:
   - WeaponLMGRatel
   - WeaponRifleIroh
   - WeaponShotgunBigBuddy
   technologyPrerequisites:
   - MercArmementSimple
-  - AdvancedParts
   position: 3, 1
 
 - type: technology
@@ -20,7 +19,7 @@
   entityIcon: WeaponSubMachineGunVector9x19mm
   discipline: Arsenal
   tier: 2
-  cost: 15000
+  cost: 2000000
   recipeUnlocks:
   - WeaponShotgunBigJohnny
   - WeaponShotgunEnforcerMerc
@@ -42,14 +41,13 @@
   entityIcon: WeaponRadAx
   discipline: Arsenal
   tier: 3
-  cost: 15000
+  cost: 550000
   recipeUnlocks:
-  - WeaponRadAx # Monolith
+  - WeaponRadAx
   - HardlightShield
   - WeaponShockMaul
   technologyPrerequisites:
   - AdvancedRiotControl
-  - SuperParts
   position: 4, 2
 
 - type: technology
@@ -58,7 +56,7 @@
   entityIcon: ShipVoucherTsfT0
   discipline: Arsenal
   tier: 3
-  cost: 15000
+  cost: 150000
   recipeUnlocks:
   - BalorDroneVoucherMerc
   technologyPrerequisites:

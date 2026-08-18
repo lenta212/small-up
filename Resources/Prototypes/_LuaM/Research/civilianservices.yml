@@ -4,7 +4,7 @@
   entityIcon: BasicCyberneticLungs
   discipline: CivilianServices
   tier: 3
-  cost: 25000
+  cost: 2000000
   recipeUnlocks:
   - BasicCyberneticHeart
   - BasicCyberneticLungs
@@ -19,11 +19,10 @@
   entityIcon: UpgradedCyberneticHeart
   discipline: CivilianServices
   tier: 3
-  cost: 50000
+  cost: 7000000
   recipeUnlocks:
   - UpgradedCyberneticHeart
   - UpgradedCyberneticLungs
   technologyPrerequisites:
   - CyberneticOrgans
-  - HighEndSurgery
   position: -2, 15

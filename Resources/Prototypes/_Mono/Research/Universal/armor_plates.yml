@@ -14,7 +14,7 @@
   entityIcon: ArmorPlateBlunt_Slash
   discipline: FactionUniversal
   tier: 1
-  cost: 10000
+  cost: 300000
   recipeUnlocks:
   - ArmorPlateBlunt_Slash
   - ArmorPlatePierce
@@ -28,11 +28,10 @@
   entityIcon: ArmorPlateHeat
   discipline: FactionUniversal
   tier: 2
-  cost: 15000
+  cost: 1500000
   recipeUnlocks:
   - ArmorPlateHeat
   - ArmorPlateSpeed
   technologyPrerequisites:
   - UniversalArmorPlatesT1
-  - UniversalMaterialResearchT2
   position: 8, 2

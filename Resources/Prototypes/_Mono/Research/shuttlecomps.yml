@@ -4,7 +4,7 @@
   entityIcon: ComputerAdvancedRadar
   discipline: CivilianServices
   tier: 3
-  cost: 55000
+  cost: 2550000
   recipeUnlocks:
 #  - ShieldControlComputerCircuitboard
 #  - MachineShieldMS225Circuitboard
@@ -18,7 +18,6 @@
   - LargeThrusterMachineCircuitboard
   technologyPrerequisites:
   - Shuttlecraft
-  - SuperParts
   position: -6, 7
 
 
@@ -28,11 +27,10 @@
   entityIcon: MachineFTLDrive50
   discipline: Experimental
   tier: 3
-  cost: 45000
+  cost: 5000000
   recipeUnlocks:
   - MachineDriveCTLA25sCircuitboard
   - MachineDriveCTLA50Circuitboard
   technologyPrerequisites:
   - ShuttleAdvancedComponents
-  - PortableFission
   position: -6, 9

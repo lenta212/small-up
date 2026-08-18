@@ -6,7 +6,7 @@
   entityIcon: hydroponicsTray
   discipline: CivilianServices
   tier: 1
-  cost: 5000
+  cost: 50000
   recipeUnlocks:
   - BorgModuleGardening
   - BorgModuleHarvesting
@@ -14,9 +14,9 @@
   - SeedExtractorMachineCircuitboard
   - HydroponicsTrayMachineCircuitboard
   - ReagentGrinderIndustrialMachineCircuitboard
-  - PlantAnalyzer # Frontier
-  - NFBlueprintPlantAnalyzer # Frontier
-  - NFBlueprintPlantBagOfHolding # Frontier
+  - PlantAnalyzer
+  - NFBlueprintPlantAnalyzer
+  - NFBlueprintPlantBagOfHolding
   # Mono edit start
   - FauxTileAstroGrass
   - FauxTileMowedAstroGrass
@@ -34,7 +34,7 @@
   entityIcon: MechHamtrBattery
   discipline: CivilianServices
   tier: 1
-  cost: 5000
+  cost: 50000
   recipeUnlocks:
   - HamtrHarness
   - HamtrLArm
@@ -55,7 +55,7 @@
   entityIcon: ComputerTelevision # Mono
   discipline: CivilianServices
   tier: 1
-  cost: 7500 # Mono
+  cost: 75000
   recipeUnlocks:
   - SurveillanceCameraRouterCircuitboard
   #  - SurveillanceCameraWirelessRouterCircuitboard # Frontier - Removal of range limits made it useless to build
@@ -151,7 +151,7 @@
   entityIcon: StasisBed
   discipline: CivilianServices
   tier: 2
-  cost: 10000
+  cost: 100000
   recipeUnlocks:
   - StasisBedMachineCircuitboard
   - CryoPodMachineCircuitboard
@@ -168,19 +168,18 @@
   entityIcon: EnergyScalpel
   discipline: CivilianServices
   tier: 2
-  cost: 15000
+  cost: 150000
   recipeUnlocks:
   - BorgModuleAdvancedTreatment
   - BorgModuleDefibrillator
-  - BorgModuleAdvancedParamedic # Frontier
+  - BorgModuleAdvancedParamedic
   - EnergyScalpel
   - EnergyCautery
   - AdvancedRetractor
   - BorgModuleAdvancedSurgery
-  - DefibrillatorCompact # Mono
+  - DefibrillatorCompact
   technologyPrerequisites:
   - SuperParts
-  - IndustrialMedicine
   position: -2, 11
 
 - type: technology
@@ -189,7 +188,7 @@
   entityIcon: SecurityCyberneticEyes
   discipline: CivilianServices
   tier: 2
-  cost: 20000
+  cost: 2000000
   recipeUnlocks:
   - JawsOfLifeLeftArm
   - JawsOfLifeRightArm
@@ -213,12 +212,12 @@
   entityIcon: AdvMopItem
   discipline: CivilianServices
   tier: 2
-  cost: 15000
+  cost: 150000
   recipeUnlocks:
   - AdvMopItem
   - MegaSprayBottle
-  - NFBlueprintAdvMopItem # Frontier
-  - ReinforcedJug # Frontier
+  - NFBlueprintAdvMopItem
+  - ReinforcedJug
   - BorgModuleAdvancedCleaning
   - WeaponSprayNozzle
   - ClothingBackpackWaterTank
@@ -233,7 +232,7 @@
   entityIcon: MechHonkerFilled
   discipline: CivilianServices
   tier: 2
-  cost: 15000
+  cost: 150000
   recipeUnlocks:
   - HonkerHarness
   - HonkerLArm
@@ -298,17 +297,16 @@
   entityIcon: BluespaceBeaker
   discipline: CivilianServices
   tier: 3
-  cost: 35000
+  cost: 5000000
   recipeUnlocks:
   - BluespaceBeaker
   - SyringeBluespace
-  - JugBluespace # Frontier
-  - VialBluespace # Frontier
-  - NFBlueprintBluespaceBeaker # Frontier
-  - NFBlueprintSyringeBluespace # Frontier
-  - NFBlueprintJugBluespace # Frontier
-  - NFBlueprintVialBluespace # Frontier
+  - JugBluespace
+  - VialBluespace
+  - NFBlueprintBluespaceBeaker
+  - NFBlueprintSyringeBluespace
+  - NFBlueprintJugBluespace
+  - NFBlueprintVialBluespace
   technologyPrerequisites:
   - SuperParts
-  - BiochemicalStasis
   position: -4, 12

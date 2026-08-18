@@ -6,7 +6,7 @@
   entityIcon: ConstructionBagOfHolding
   discipline: Industrial
   tier: 3
-  cost: 12500
+  cost: 1250000
   recipeUnlocks:
   - ConstructionBagOfHolding
   - NFBlueprintConstructionBagOfHolding
@@ -34,7 +34,7 @@
   entityIcon: ClothingOuterHardsuitEngineering
   discipline: Industrial
   tier: 2
-  cost: 17500
+  cost: 1750000
   recipeUnlocks:
   - ClothingOuterHardsuitBasic
   - ClothingOuterHardsuitAtmos
@@ -63,7 +63,7 @@
   entityIcon: ClothingOuterHardsuitEngineeringWhite
   discipline: Industrial
   tier: 3
-  cost: 25000
+  cost: 2500000
   recipeUnlocks:
   - ClothingOuterHardsuitCap
   - ClothingOuterHardsuitEngineeringWhite

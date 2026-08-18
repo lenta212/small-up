@@ -6,18 +6,18 @@
   entityIcon: MiningDrill
   discipline: Industrial
   tier: 1
-  cost: 10000 # Mono
+  cost: 100000
   recipeUnlocks:
   - MiningDrill
-  - WeaponGrapplingGun # Frontier
+  - WeaponGrapplingGun
   - MineralScannerEmpty
   - OreProcessorIndustrialMachineCircuitboard
   - ClothingMaskWeldingGas
   - ClothingShoesBootsJump
-  - MechEquipmentDrill # Goobstation
+  - MechEquipmentDrill
   - WeaponProtoKineticAccelerator
   - ShuttleGunKineticCircuitboard
-  - WeaponTurretM25Circuitboard # Mono
+  - WeaponTurretM25Circuitboard
   # These are roundstart but not replenishable for salvage
   - WeaponCrusher
   - WeaponCrusherDagger
@@ -33,7 +33,7 @@
   entityIcon: HandHeldMassScanner
   discipline: Industrial
   tier: 1
-  cost: 10000
+  cost: 100000
   recipeUnlocks:
   - RadarConsoleCircuitboard
   - HandHeldMassScanner
@@ -68,7 +68,7 @@
   entityIcon: MachineFlatpacker
   discipline: Industrial
   tier: 2
-  cost: 12500
+  cost: 2212500
   recipeUnlocks:
   - FlatpackerMachineCircuitboard
   - CutterMachineCircuitboard
@@ -85,7 +85,7 @@
   entityIcon: LatheUpgradeKitHyper
   discipline: Industrial
   tier: 1
-  cost: 22500
+  cost: 225000
   recipeUnlocks:
   # Begin DeltaV Removals - replaced by upgrade kits + departmental techfabs
   #- AutolatheHyperConvectionMachineCircuitboard
@@ -114,23 +114,23 @@
   entityIcon: PortableGeneratorPacman
   discipline: Industrial
   tier: 1
-  cost: 15000
+  cost: 150000
   recipeUnlocks:
   - PortableGeneratorPacmanMachineCircuitboard
   - PortableGeneratorSuperPacmanMachineCircuitboard
   - PortableGeneratorJrPacmanMachineCircuitboard
   - SolarControlComputerCircuitboard
   - SolarTrackerElectronics
-  - SolarAssemblyFlatpack # Mono
+  - SolarAssemblyFlatpack
   - EmitterCircuitboard
-  - ContainmentFieldGeneratorCircuitboard # Mono
+  - ContainmentFieldGeneratorCircuitboard
   - PowerCellHigh
   - TurboItemRechargerCircuitboard
   - SMESAdvancedMachineCircuitboard
-  - PowerCageSmall # Mono
-  - PowerCageMedium # Mono
-  - PowerCageHigh # Mono
-  - PowerCageRechargerCircuitboard # Mono
+  - PowerCageSmall
+  - PowerCageMedium
+  - PowerCageHigh
+  - PowerCageRechargerCircuitboard
   technologyPrerequisites:
   - AdvancedParts
   position: -2, 8
@@ -141,7 +141,7 @@
   entityIcon: GasThermoMachineFreezerEnabled
   discipline: Industrial
   tier: 1
-  cost: 8500
+  cost: 85000
   recipeUnlocks:
   - ThermomachineFreezerMachineCircuitBoard
   - GasRecyclerMachineCircuitboard
@@ -157,15 +157,15 @@
   entityIcon: Thruster
   discipline: Industrial
   tier: 2
-  cost: 10000
+  cost: 1000000
   recipeUnlocks:
   - ShuttleConsoleCircuitboard
   - ThrusterMachineCircuitboard
   - GyroscopeMachineCircuitboard
   - MiniGravityGeneratorCircuitboard
-  - MiniStationAnchorCircuitboard # Frontier
-  - SmallThrusterMachineCircuitboard # Frontier
-  - SmallGyroscopeMachineCircuitboard # Frontier
+  - MiniStationAnchorCircuitboard
+  - SmallThrusterMachineCircuitboard
+  - SmallGyroscopeMachineCircuitboard
   technologyPrerequisites:
   - AdvancedParts
   position: -5, 7
@@ -176,13 +176,13 @@
   entityIcon: GasThermoMachineHellfireFreezer
   discipline: Industrial
   tier: 2
-  cost: 15000
+  cost: 1500000
   recipeUnlocks:
   - HellfireFreezerMachineCircuitBoard
   - PortableScrubberMachineCircuitBoard
   - HolofanProjector
-  - PlasticProcessorMachineCircuitboard # LuaM
-  - CrystallizerMachineCircuitboard # Mono
+  - PlasticProcessorMachineCircuitboard
+  - CrystallizerMachineCircuitboard
   #  - FireExtinguisherBluespace # DeltaV
   technologyPrerequisites:
   - AtmosphericTech
@@ -194,15 +194,15 @@
   entityIcon: WelderExperimental
   discipline: Industrial
   tier: 2
-  cost: 23500
+  cost: 2350000
   recipeUnlocks:
   - WelderExperimental
   - PowerDrill
   - JawsOfLife
-  - TrayGoggles # Delta-V
+  - TrayGoggles
   - UtilityBeltChiefEngineer
   - BorgModuleAdvancedTool
-  - ExperimentalNaniteApplicator # Monolith
+  - ExperimentalNaniteApplicator
   # - Fulton # Frontier
   # - FultonBeacon # Frontier
   - BorgModuleJetpack # Frontier
@@ -226,25 +226,25 @@
   entityIcon: MiningDrillDiamond
   discipline: Industrial
   tier: 2
-  cost: 15000 # aint that good tbh.
+  cost: 9500000
   recipeUnlocks:
   - OreBagOfHolding
   - MiningDrillDiamond
   - AdvancedMineralScannerEmpty
-  - NFBlueprintOreBagOfHolding # Frontier
-  - NFBlueprintMiningDrillDiamond # Frontier
-  - NFBlueprintAdvancedMineralScannerEmpty # Frontier
-  - BorgModuleAdvancedMining # Frontier
+  - NFBlueprintOreBagOfHolding
+  - NFBlueprintMiningDrillDiamond
+  - NFBlueprintAdvancedMineralScannerEmpty
+  - BorgModuleAdvancedMining
   - MechEquipmentDrillDiamond
   technologyPrerequisites:
   - SalvageEquipment
-  - AdvancedParts
   position: -1, 2
 
 # Tier 3
 
 - type: technology
   id: BluespaceStorage
+  hidden: true
   name: research-technology-bluespace-storage
   icon:
     sprite: Clothing/Back/Backpacks/holding.rsi
@@ -256,14 +256,13 @@
   - ClothingBackpackHolding
   - ClothingBackpackSatchelHolding
   - ClothingBackpackDuffelHolding
-  - ClothingBackpackMessengerHolding # Frontier
-  - NFBlueprintClothingBackpackHolding # Frontier
-  - NFBlueprintClothingBackpackSatchelHolding # Frontier
-  - NFBlueprintClothingBackpackDuffelHolding # Frontier
-  - NFBlueprintClothingBackpackMessengerHolding # Frontier
+  - ClothingBackpackMessengerHolding
+  - NFBlueprintClothingBackpackHolding
+  - NFBlueprintClothingBackpackSatchelHolding
+  - NFBlueprintClothingBackpackDuffelHolding
+  - NFBlueprintClothingBackpackMessengerHolding
   technologyPrerequisites:
   - MassExcavation
-  - SuperParts
   position: 1, 2
 
 - type: technology
@@ -272,16 +271,15 @@
   entityIcon: PowerCellMicroreactor
   discipline: Industrial
   tier: 3
-  cost: 22500
+  cost: 2250000
   recipeUnlocks:
   - PowerCellMicroreactor
-  - PowerCellCombat # Mono
-  - NFBlueprintPowerCellMicroreactor # Frontier
-  - PortableGeneratorDKJrMachineCircuitboard # Frontier
-  - NFBlueprintPortableGeneratorDKJr # Frontier
+  - PowerCellCombat
+  - NFBlueprintPowerCellMicroreactor
+  - PortableGeneratorDKJrMachineCircuitboard
+  - NFBlueprintPortableGeneratorDKJr
   technologyPrerequisites:
   - PowerGeneration
-  - SuperParts
   position: -2, 7
 
 # Mono edit - research consolidation

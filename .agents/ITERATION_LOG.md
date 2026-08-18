@@ -6444,3 +6444,11 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Fix (repo only, not deployed): collect all serialized UIDs first and sanitize in a second pass, removing numeric refs whose target is absent from the snapshot; normalize null-prototype groups to the empty string so capture/load manifest keys match; restrict the runtime manifest drift check to the entity count (the YAML-level payload hash and manifest hash checks remain).
 - Validation: `Content.Server` and `Content.IntegrationTests` build with 0 errors; `LuaMFullShipPersistenceRuntimeTest` passed 13/13; `FullGridRoundTripPreservesShipStateWithoutPersistingBodies` ran 10/10 times successfully.
 - Next action: run the release gate and deploy with restart when the operator authorizes; then verify in-game magnet, buttons, cloning links and 10 restore cycles on production.
+
+## 2026-08-18 -- research prices and grouping applied from the approved tech list (no deploy)
+
+- Objective: apply the agreed research costs, categories and prerequisite chains to the prototype tree.
+- Scope: 150 technologies across Industrial/Arsenal/Experimental/CivilianServices/MechaEngineering/Shiparmory/FactionUniversal. Costs, `discipline` grouping and `technologyPrerequisites` were set exactly per the approved list; `recipeUnlocks` were merged (listed unlocks added, existing unlocks preserved).
+- Special handling: `BluespaceStorage` is now `hidden: true` (kept for tech-disk grants but removed from the R&D console) per the list note. Recipe names that differ between the list and the repo were mapped to their real ids (e.g. `WelderExperimentalEmpty` -> `WelderExperimental`, `C4` -> `PrintableC4`, `CharonSlugAmmo` -> `CharonSlugUniversal`). Faction-specific techs (Rogue/TSF/USSP/Viper/PDV) were intentionally left unchanged.
+- Validation: research audit reports 0 missing prerequisites, 0 missing recipe unlocks and no duplicate positions per discipline; YAML parses; a runtime integration test (`RealMcChickenGridCapturesTwoRevisionsAndRestores`) passed, confirming all prototypes load in-game.
+- Next action: include in the next release batch and deploy with restart when the operator authorizes.

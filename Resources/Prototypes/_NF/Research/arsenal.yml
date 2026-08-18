@@ -7,7 +7,7 @@
   entityIcon: ClothingOuterCoatBHTrench
   discipline: Arsenal
   tier: 1
-  cost: 10000
+  cost: 500000
   recipeUnlocks:
   - Stunbaton
   - BolaNF
@@ -51,13 +51,12 @@
   entityIcon: ClothingShoesBootsMagSecurity
   discipline: Experimental
   tier: 1
-  cost: 10000
+  cost: 100000
   recipeUnlocks:
   - ClothingShoesBootsMagSecurity
   - ClothingShoesBootsMagMercenary
   technologyPrerequisites:
   - MagnetsTech
-  - AdvancedParts
   position: -3, -1
 
 - type: technology
@@ -66,13 +65,12 @@
   entityIcon: ClothingOuterHardsuitPrivateSecurity
   discipline: Arsenal
   tier: 2
-  cost: 15000
+  cost: 2500000
   recipeUnlocks:
   - ClothingOuterHardsuitMercenary
   - ClothingOuterHardsuitPrivateSecurity
   technologyPrerequisites:
   - HardsuitsSpecialized
-  - HardsuitsAdvanced
   position: 2, 8
 
 # Mono edit - research consolidation
@@ -116,12 +114,11 @@
   entityIcon: ClothingOuterHardsuitScaf
   discipline: Arsenal
   tier: 3
-  cost: 25000
+  cost: 7500000
   recipeUnlocks:
   - ClothingModsuitMercenaryPowerCell # Mono edit
   - ClothingOuterHardsuitScaf
   - BlueprintClothingOuterHardsuitScaf
   technologyPrerequisites:
   - HardsuitsArmored
-  - SuperParts
   position: 3, 7

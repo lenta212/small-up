@@ -8,13 +8,12 @@
     state: vehicle
   discipline: CivilianServices
   tier: 1
-  cost: 4500
+  cost: 45000
   recipeUnlocks:
   - VehicleHoverchairSci
   - PrescriptionGlasses
   - TinfoilHats
   position: 3,4
-  technologyPrerequisites: []
 
 - type: technology
   id: MedicalDefense
@@ -24,7 +23,7 @@
     state: icon
   discipline: CivilianServices
   tier: 1
-  cost: 5000
+  cost: 80000
   recipeUnlocks:
   - SyringeGun
   position: 3,6
@@ -39,7 +38,7 @@
     state: scanner
   discipline: CivilianServices
   tier: 1
-  cost: 7500
+  cost: 75000
   recipeUnlocks:
   - HandheldCrewMonitor
   position: 4,6
@@ -56,7 +55,7 @@
     state: base
   discipline: CivilianServices
   tier: 2
-  cost: 10000
+  cost: 100000
   recipeUnlocks:
   - TelecomTransmitterCircuitboard
   position: 2,5
@@ -71,7 +70,7 @@
     state: icon
   discipline: CivilianServices
   tier: 2
-  cost: 10000
+  cost: 100000
   recipeUnlocks:
   - VinylPlayerCircuitboard
   - TapeDeckCircuitboard
@@ -89,7 +88,7 @@
     state: mecha_bananamrtr
   discipline: CivilianServices
   tier: 2
-  cost: 6000
+  cost: 600000
   recipeUnlocks:
   - MechEquipmentHonkerBananaMortar
   - MechEquipmentHonkerMousetrapMortar
@@ -107,11 +106,12 @@
     state: pod_0
   discipline: CivilianServices
   tier: 3
-  cost: 15000
+  cost: 1000000
   recipeUnlocks:
   - CloningPodMachineCircuitboardRecipe
   - MedicalScannerMachineCircuitboardRecipe
   - CloningConsoleComputerCircuitboardRecipe
+  - CloningPodMachineCircuitboard
   technologyPrerequisites:
   - HighEndSurgery
   position: -3, 9

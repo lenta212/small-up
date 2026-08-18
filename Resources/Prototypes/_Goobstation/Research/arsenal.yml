@@ -24,7 +24,7 @@
     state: icon
   discipline: Arsenal
   tier: 1
-  cost: 5000
+  cost: 500000
   recipeUnlocks: []
   position: 3,0
   technologyPrerequisites:
@@ -38,7 +38,7 @@
     state: icon
   discipline: Arsenal
   tier: 1
-  cost: 3000
+  cost: 300000
   recipeUnlocks: []
   position: 1,1
 
@@ -51,7 +51,7 @@
     state: icon
   discipline: Arsenal
   tier: 2
-  cost: 10000
+  cost: 1000000
   recipeUnlocks: []
   position: 5,-1
   technologyPrerequisites:
@@ -65,7 +65,7 @@
     state: gygax
   discipline: Arsenal
   tier: 2
-  cost: 20000
+  cost: 2000000
   recipeUnlocks:
   - GygaxHarness
   - GygaxArmor
@@ -79,9 +79,6 @@
   - GygaxTargetingElectronics
   technologyPrerequisites:
   - AdvancedRiotControl
-  - PortableMicrofusionWeaponry
-  - SmartWeaponry
-  - ThermalVisionTech
   position: 2,-1
 
 - type: technology
@@ -92,7 +89,7 @@
     state: icon
   discipline: Arsenal
   tier: 2
-  cost: 7500
+  cost: 750000
   recipeUnlocks: []
   technologyPrerequisites:
   - WaveParticleHarnessing
@@ -108,7 +105,7 @@
     state: icon
   discipline: Arsenal
   tier: 3
-  cost: 15000
+  cost: 1500000
   recipeUnlocks: []
   position: 6,-1
   technologyPrerequisites:
@@ -122,7 +119,7 @@
     state: icon
   discipline: Arsenal
   tier: 3
-  cost: 15000
+  cost: 1500000
   recipeUnlocks: []
   position: 6,-2
   technologyPrerequisites:
@@ -136,7 +133,7 @@
     state: mecha_missilerack
   discipline: Arsenal
   tier: 3
-  cost: 30000
+  cost: 3000000
   technologyPrerequisites:
   - Gygax
   position: 3,-2
@@ -149,7 +146,7 @@
     state: durand
   discipline: Arsenal
   tier: 3
-  cost: 40000
+  cost: 4000000
   recipeUnlocks:
   - DurandHarness
   - DurandArmor
@@ -173,11 +170,11 @@
     state: icon
   discipline: Arsenal
   tier: 3
-  cost: 15000
+  cost: 1250000
   recipeUnlocks: []
   technologyPrerequisites:
   - UraniumMunitions
-  position: 4,2
+  position: 4, 0
 
 - type: technology
   id: BlueSpaceMunitions
@@ -187,9 +184,8 @@
     state: bluespace_research
   discipline: Arsenal
   tier: 3
-  cost: 25000
+  cost: 250000
   recipeUnlocks: []
   technologyPrerequisites:
   - WeaponLaserCellLMGTech
-  - WeaponLaserCellSniperTech
   position: 7, -1

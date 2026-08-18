@@ -28,11 +28,11 @@
   entityIcon: WeaponLaserCarbine
   discipline: Arsenal
   tier: 1
-  cost: 10000
+  cost: 1000000
   recipeUnlocks:
   - WeaponLaserCarbine
-  - WeaponLaserSvalinn # Mono
-  - NFBlueprintWeaponLaserSvalinn # Frontier
+  - WeaponLaserSvalinn
+  - NFBlueprintWeaponLaserSvalinn
   technologyPrerequisites:
   - BasicParts
   position: 2, 3
@@ -58,14 +58,14 @@
   entityIcon: Truncheon
   discipline: Arsenal
   tier: 1
-  cost: 10000
+  cost: 100000
   recipeUnlocks:
   - Truncheon
   - TelescopicShield
   - HoloprojectorSecurity
   - WeaponDisablerSMG
-  - WeaponDisabler # Mono
-  - ClothingBackpackElectropack # Mono
+  - WeaponDisabler
+  - ClothingBackpackElectropack
   technologyPrerequisites:
   - BasicParts
   position: 2, 2
@@ -76,7 +76,7 @@
   entityIcon: ExplosivePayload
   discipline: Arsenal
   tier: 1
-  cost: 25000
+  cost: 750000
   recipeUnlocks:
   - SignallerAdvanced
   - SignalTrigger
@@ -85,7 +85,7 @@
   - FlashPayload
   - ExplosivePayload
   - ChemicalPayload
-  - NFBlueprintSignallerAdvanced # Frontier
+  - NFBlueprintSignallerAdvanced
   technologyPrerequisites:
   - SuperParts
   position: 1, 14
@@ -112,10 +112,10 @@
   entityIcon: WeaponLaserCannon
   discipline: Arsenal
   tier: 2
-  cost: 25000 # Mono
+  cost: 750000
   recipeUnlocks:
   - WeaponLaserCannon
-  - WeaponXrayCannon # Mono
+  - WeaponXrayCannon
   technologyPrerequisites:
   - WeaponizedLaserManipulation
   position: 3, 3
@@ -126,12 +126,11 @@
   entityIcon: WeaponXrayCannon
   discipline: Arsenal
   tier: 2
-  cost: 20000
+  cost: 2000000
   recipeUnlocks:
   - WeaponXrayCannon
   technologyPrerequisites:
   - ConcentratedLaserWeaponry
-  - SuperParts
   position: 4, 4
 
 - type: technology
@@ -140,7 +139,7 @@
   entityIcon: PowerCageHigh
   discipline: Arsenal
   tier: 2
-  cost: 10000
+  cost: 5000000
   recipeUnlocks:
   #  - PowerCageRechargerCircuitboard # Mono - moved to industrial
   #  - PowerCageSmall # Mono
@@ -167,14 +166,13 @@
   entityIcon: WeaponAdvancedLaser
   discipline: Arsenal
   tier: 3
-  cost: 30000
+  cost: 5000000
   recipeUnlocks:
   - WeaponAdvancedLaser
   - PortableRecharger
-  - NFBlueprintPortableRecharger # Frontier
+  - NFBlueprintPortableRecharger
   technologyPrerequisites:
   - ConcentratedLaserWeaponry
-  - SuperParts
   position: 4, 3
 
 # Mono edit - research consolidation

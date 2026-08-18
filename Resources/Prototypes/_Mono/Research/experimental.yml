@@ -18,7 +18,7 @@
   entityIcon: ClothingShoesBootsMagVoid
   discipline: Experimental
   tier: 2 # normal magboots are t1 so t2
-  cost: 25000
+  cost: 2500000
   recipeUnlocks:
   - ClothingShoesBootsMagVoid
   technologyPrerequisites:
@@ -31,7 +31,7 @@
   entityIcon: AnomalyScanner
   discipline: Experimental
   tier: 1
-  cost: 8000
+  cost: 25000
   recipeUnlocks:
   - AnomalyScanner
   - AnomalyLocator
@@ -54,7 +54,7 @@
   entityIcon: CapacitorStockPart
   discipline: Experimental
   tier: 1
-  cost: 5000
+  cost: 25000
   position: 0, 0
 
 - type: technology
@@ -63,7 +63,7 @@
   entityIcon: WeaponPistolCHIMP
   discipline: Experimental
   tier: 2
-  cost: 17500
+  cost: 125500
   recipeUnlocks:
   - WeaponGauntletGorilla
   - ArtifactCrusherMachineCircuitboard
@@ -80,7 +80,7 @@
   entityIcon: DatafarmCrypto
   discipline: Experimental
   tier: 3
-  cost: 25000
+  cost: 7000000
   recipeUnlocks:
   - DataFarmResearchCircuitboard
   technologyPrerequisites:
