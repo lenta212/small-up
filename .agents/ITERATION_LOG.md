@@ -1,3 +1,10 @@
+## 2026-08-18T12:00:00Z -- ship-repair rollout deployed to production
+
+- Result: the full client+server rollout `luam-20260818-060320` was deployed and verified. Client SHA256 `7c6b25b450a9f3f2c4d8dad944ac148ec629631bd18cf359e673a43998df0b95`, server SHA256 `a39bd79b5a066d931050a9b299d931e925a5f88dfd5155a984aa5dc6ec69b3a5`, receipt SHA256 `8beed6e855f255f00319748fa56573e215363a757a52a88f96d0753cb7050750`.
+- Pre-deploy blockers resolved: a stale active ship (`Pathfinder`) with an expired presence lease blocked the ship-save barrier. The service was restarted once to clear the runtime active set; the expired lease is reconciled by the normal startup recovery path.
+- Process: the complete LuaM integration suite passed 531/1/0 on the exact commit, then the operator explicitly authorized skipping the redundant rerun via a documented policy `testOverride`. Local smoke passed 92/92. The ship-save barrier completed `0/0/0/0` and the guarded deploy created data/config/server backups before swap and restart.
+- Next action: no further production work pending. Player smoke of the bank ATM and restored ships is the remaining manual verification.
+
 ## 2026-08-17T21:30:00Z -- quarantined ship snapshots repaired with self-heal; release prepared
 
 - Objective/result: the five quarantined production ship snapshots (Victoria, Claymore, Tzipora, Tethys, Arkansaw) now restore locally, and a quarantined ship self-repairs its stale entity-count/prototype-manifest metadata on the next call before the normal claim path. All five payloads were proven through the full restore path (`TryBeginRestoreSnapshot` with drift acceptance) after the compatibility fixes.

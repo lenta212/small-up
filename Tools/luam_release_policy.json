@@ -1,23 +1,22 @@
 {
-    "remoteDeployFrozen":  false,
-    "reason":  "Operator authorized full client+server rollout on 2026-08-18; authorization refreshed after the first window expired. Client already published.",
+    "remoteDeployFrozen":  true,
+    "reason":  "Production rollout luam-20260818-060320 completed 2026-08-18. Remote deployment is frozen again; future server/client mutation requires fresh explicit authorization.",
     "lastReviewed":  "2026-08-18",
     "deploymentAuthorization":  {
-                                    "state":  "authorized",
-                                    "approvalId":  "operator-chat-20260818-shipfix-release-2",
-                                    "approvedBy":  "server operator via Codex chat",
-                                    "approvedAtUtc":  "2026-08-18T10:55:49.3234916Z",
-                                    "expiresAtUtc":  "2026-08-18T22:55:49.3234916Z",
+                                    "state":  "frozen",
+                                    "approvalId":  null,
+                                    "approvedBy":  null,
+                                    "approvedAtUtc":  null,
+                                    "expiresAtUtc":  null,
                                     "allowedMutations":  [
-                                                             "client-static",
-                                                             "server-release"
+
                                                          ],
                                     "testOverride":  {
-                                                         "enabled":  true,
-                                                         "approvedBy":  "server operator via Codex chat",
-                                                         "approvedAtUtc":  "2026-08-18T10:55:49.3234916Z",
-                                                         "expiresAtUtc":  "2026-08-18T16:55:49.3234916Z",
-                                                         "reason":  "Complete LuaM integration suite passed 531/1/0 on this commit; operator instructed to skip redundant rerun."
+                                                         "enabled":  false,
+                                                         "approvedBy":  "",
+                                                         "approvedAtUtc":  null,
+                                                         "expiresAtUtc":  null,
+                                                         "reason":  ""
                                                      }
                                 },
     "releaseGate":  {
@@ -408,7 +407,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260802-complete-gameplay-update",
-                                         "state":  "deployment-authorized",
+                                         "state":  "local-package-only",
                                          "packageSelection":  "Complete August 2 client-and-server update with all current committed gameplay, Stargate/DHD, maps, resources, species abilities, Aibolit dispatch and life support, expedition, sector contract, banking, smart storage, persistence, localization and ServerNews changes. Live configuration and AI gateway remain unchanged.",
                                          "packageFiles":  [
                                                               "Content.Server/Body/Systems/RespiratorSystem.cs",
