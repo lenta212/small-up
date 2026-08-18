@@ -1,3 +1,10 @@
+## 2026-08-03T22:30:00Z -- reported connection failure verified as successful session
+
+- Scope/result: bounded read-only production verification after a reported connection failure. Public TCP 1212, `/status`, and `/info` were healthy; `monolith-ds.service` was active with `NRestarts=0` and `ExecMainStatus=0`; round 198 remained running.
+- Exact connection evidence: the local launcher selected advertised build `033373b34f37c59c84c6bc63d13b46454d6a65a0ac20835b275b6f3cbc003987` on engine `277.2.1`. The client completed its handshake. Production approved `Vagantes1` at 2026-08-03T22:22:36Z, connected the UDP session one second later, and subsequently processed authenticated commands from it. No current refusal, timeout, version mismatch, or auth rejection was found.
+- Separate observation: `Flundr` is generating repeated PVS full-state requests for entities received without metadata, mainly `Listening Point Bravo` and occasionally `Colossus Central`. This affects that player's state synchronization but does not explain the successful `Vagantes1` connection.
+- Safety/recovery: no service, package, client, config, database, entity, ship, player, firewall, gateway, or round mutation occurred; no rollback is needed. The only follow-up mutation is installation of this required journal mirror.
+
 ## 2026-07-31T18:27:14Z -- Bravo-clear joke announced and text-siren correction delivered
 
 - Scope/result: sent the operator-requested humorous global notice for the cleared Bravo sector. The first delivered line was `УИ-УИ-УИ! Сектор «Браво» зачищен. Командование говорит бойцам: «Браво!» Просьба не зачищать это слово повторно.` After the operator clarified that the siren must not be written as text, one corrected line was delivered: `Сектор «Браво» зачищен. Командование говорит бойцам: «Браво!» Просьба не зачищать это слово повторно.`
