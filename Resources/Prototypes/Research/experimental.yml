@@ -150,7 +150,7 @@
   - HoloprojectorField
   technologyPrerequisites:
   - BasicParts
-  position: 2, -1
+  position: 0, -1
 
 - type: technology
   id: AiTechnology

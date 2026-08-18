@@ -12,7 +12,7 @@
   recipeUnlocks:
   - GunneryControlComputerCircuitboard
   - MachineGCSLowCircuitboard
-  position: 1, 1
+  position: 17, 1
 
 - type: technology
   id: BasicShuttleWeapon
@@ -26,7 +26,7 @@
   - ShuttleGunSvalinnMachineGunCircuitboard
   technologyPrerequisites:
   - BasicShuttleWeaponPad
-  position: 2, 1
+  position: 18, 1
 
 - type: technology
   id: ShuttlePowerCage
@@ -42,7 +42,7 @@
   - PowerCageRechargerCircuitboard
   technologyPrerequisites:
   - BasicShuttleWeapon
-  position: 3, 1
+  position: 19, 1
 
 - type: technology
   id: ShuttleShuttleGunPerforator
@@ -55,7 +55,7 @@
   - ShuttleGunPerforatorCircuitboard
   technologyPrerequisites:
   - ShuttlePowerCage
-  position: 4, 1
+  position: 20, 1
 
 - type: technology
   id: ShuttleFriendshipPirate
@@ -68,7 +68,7 @@
   - ShuttleGunFriendshipCircuitboard
   technologyPrerequisites:
   - ShuttleShuttleGunPerforator
-  position: 5, 2
+  position: 21, 2
 
 - type: technology
   id: ShuttleGunDuster
@@ -81,7 +81,7 @@
   - ShuttleGunDusterCircuitboard
   technologyPrerequisites:
   - BasicShuttleWeapon
-  position: 6, 2
+  position: 22, 2
 
 - type: technology
   id: MachineGCSMediumCircuitboardTech
@@ -94,7 +94,7 @@
   - MachineGCSMediumCircuitboard
   technologyPrerequisites:
   - ShuttleGunDuster
-  position: 5, 4
+  position: 21, 4
 
 - type: technology
   id: MachineGCSHighCircuitboardTech
@@ -107,7 +107,7 @@
   - MachineGCSHighCircuitboard
   technologyPrerequisites:
   - MachineGCSMediumCircuitboardTech
-  position: 6, 4
+  position: 22, 4
 
 - type: technology
   id: ShuttleGrenade
@@ -121,7 +121,7 @@
   - 40mmGrenadeThermobaric
   technologyPrerequisites:
   - ShuttleShuttleGunPerforator
-  position: 5, 1
+  position: 21, 1
 
 - type: technology
   id: ShuttleCannonBall
@@ -135,7 +135,7 @@
   - CannonBallGlassshot
   technologyPrerequisites:
   - ShuttleGrenade
-  position: 7, 2
+  position: 23, 2
 
 - type: technology
   id: ShuttleGrenadeEMP
@@ -149,7 +149,7 @@
   - Magazine40mmEmpty
   technologyPrerequisites:
   - ShuttleCannonBall
-  position: 8, 2
+  position: 24, 2
 
 - type: technology
   id: ShiparmoryBallisticBases
@@ -163,7 +163,7 @@
   - AK570Flatpack
   technologyPrerequisites:
   - MachineGCSMediumCircuitboardTech
-  position: 1, 4
+  position: 17, 4
 
 - type: technology
   id: ShiparmoryHeavyBallisticBases
@@ -177,7 +177,7 @@
   - WeaponTurretDravonFlatPack
   technologyPrerequisites:
   - ShiparmoryBallisticBases
-  position: 2, 4
+  position: 18, 4
 
 - type: technology
   id: ShiparmoryTeslaTurretBase
@@ -191,7 +191,7 @@
   - WeaponTurretPinholeFlatpack
   technologyPrerequisites:
   - ShiparmoryHeavyBallisticBases
-  position: 3, 4
+  position: 19, 4
 
 - type: technology
   id: ShiparmoryKineticTurrets
@@ -207,7 +207,7 @@
   - WeaponTurretDravonFlatPack
   technologyPrerequisites:
   - ShiparmoryBallisticBases
-  position: 1, 5
+  position: 17, 5
 
 - type: technology
   id: ShiparmoryAdvancedKineticTurrets
@@ -220,7 +220,7 @@
   - M381Flatpack
   technologyPrerequisites:
   - ShiparmoryKineticTurrets
-  position: 2, 5
+  position: 18, 5
 
 - type: technology
   id: ShiparmoryEnergyTurrets
@@ -234,7 +234,7 @@
   - WeaponLaserTurretL1PhalanxFlatPack
   technologyPrerequisites:
   - ShiparmoryBallisticBases
-  position: 3, 5
+  position: 19, 5
 
 - type: technology
   id: ShiparmoryAdvancedEnergyTurrets
@@ -248,7 +248,7 @@
   - WeaponLaserTurretApolloFlatPack
   technologyPrerequisites:
   - ShiparmoryEnergyTurrets
-  position: 4, 5
+  position: 20, 5
 
 - type: technology
   id: ShiparmoryCapitalEnergyTurrets
@@ -261,7 +261,7 @@
   - WeaponTurretCerberusFlatPack
   technologyPrerequisites:
   - ShiparmoryAdvancedEnergyTurrets
-  position: 5, 5
+  position: 21, 5
 
 - type: technology
   id: ShiparmoryMissileTurrets
@@ -275,7 +275,7 @@
   - WeaponTurretVesperaFlatPack
   technologyPrerequisites:
   - ShiparmoryBallisticBases
-  position: 4, 6
+  position: 20, 6
 
 - type: technology
   id: ShiparmoryAdvancedMissileTurrets
@@ -289,7 +289,7 @@
   - WeaponTurretASM220FlatPack
   technologyPrerequisites:
   - ShiparmoryMissileTurrets
-  position: 5, 6
+  position: 21, 6
 
 - type: technology
   id: ShiparmoryShieldSystems
@@ -303,7 +303,7 @@
   - ShieldGeneratorFlatPack
   technologyPrerequisites:
   - ShiparmoryBallisticBases
-  position: 2, 6
+  position: 18, 6
 
 - type: technology
   id: ShiparmoryCapitalShields
@@ -316,7 +316,7 @@
   - ShieldGeneratorTSFCapitalFlatPack
   technologyPrerequisites:
   - ShiparmoryShieldSystems
-  position: 3, 6
+  position: 19, 6
 
 - type: technology
   id: ShiparmoryPlastitaniumStructures
@@ -330,7 +330,7 @@
   - PlastitaniumWindowFlatPack
   technologyPrerequisites:
   - ShiparmoryBallisticBases
-  position: 6, 6
+  position: 22, 6
 
 - type: technology
   id: ShiparmoryStationPlastitanium
@@ -344,4 +344,4 @@
   - PlastitaniumWindowOutpostFlatPack
   technologyPrerequisites:
   - ShiparmoryPlastitaniumStructures
-  position: 7, 6
+  position: 23, 6

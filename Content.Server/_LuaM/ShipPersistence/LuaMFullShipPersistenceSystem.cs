@@ -8,6 +8,8 @@ using Content.Server.Database;
 using Content.Server._Crescent.ShipShields;
 using Content.Server._NF.CryoSleep;
 using Content.Server._NF.Station.Components;
+using Content.Server.DeviceLinking.Systems;
+using Content.Server.DeviceNetwork.Systems;
 using Content.Server.Power.Components;
 using Content.Server.Power.EntitySystems;
 using Content.Server.Salvage;
@@ -19,6 +21,8 @@ using Content.Server.Mind;
 using Content.Server.Weapons.Ranged.Systems;
 using Content.Shared._NF.Shipyard.Prototypes;
 using Content.Shared._Mono.Ships.Components;
+using Content.Shared.DeviceLinking;
+using Content.Shared.DeviceNetwork.Components;
 using Content.Shared.Maps;
 using Content.Shared.Mind;
 using Content.Shared.Mind.Components;
@@ -40,6 +44,7 @@ using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Serialization;
 using Robust.Shared.Timing;
+using Robust.Shared.Utility;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
@@ -207,6 +212,8 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
     [Dependency] private BatterySystem _battery = default!;
     [Dependency] private PowerChargeSystem _powerCharge = default!;
     [Dependency] private SmartFridgeSystem _smartFridges = default!;
+    [Dependency] private DeviceLinkSystem _deviceLinks = default!;
+    [Dependency] private DeviceNetworkSystem _deviceNetworks = default!;
 
     private readonly HashSet<Guid> _busyShips = [];
 
@@ -776,6 +783,8 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
             // Player minds are runtime ownership, not portable ship content.
             SanitizeRestoredMinds(createdEntities);
             RebuildRestoredSmartStorageIndexes(createdEntities);
+            RebuildRestoredDeviceLinkOutputs(createdEntities);
+            ReconnectRestoredDeviceNetworks(createdEntities);
             _shipShields.ReconcileRestoredShipShields(restoredGrid, createdEntities);
             createdEntities.RemoveWhere(uid => !Exists(uid));
             ExpireImpossibleRestoredUseDelays(createdEntities);
@@ -920,6 +929,43 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         {
             if (TryComp<Content.Shared.SmartFridge.SmartFridgeComponent>(uid, out var smartFridge))
                 _smartFridges.RebuildContentsIndex((uid, smartFridge));
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the derived <see cref="DeviceLinkSourceComponent.Outputs"/>
+    /// index for every source on a restored hull. The startup-time validation
+    /// pass does not reliably run for entities deserialized through the
+    /// single-grid restore path, which previously left restored buttons and
+    /// consoles with intact linkedPorts data but empty outputs: the link
+    /// looked connected while invoking a port did nothing.
+    /// </summary>
+    private void RebuildRestoredDeviceLinkOutputs(IEnumerable<EntityUid> createdEntities)
+    {
+        foreach (var uid in createdEntities)
+        {
+            if (!TryComp<DeviceLinkSourceComponent>(uid, out var source))
+                continue;
+
+            _deviceLinks.RefreshLinks(uid, source);
+        }
+    }
+
+    /// <summary>
+    /// Reconnects restored devices to their device network. The single-grid
+    /// restore path does not reliably raise the map-init hook that normally
+    /// joins auto-connect devices, which left restored buttons, valves and
+    /// consoles addressable but absent from the net: links looked intact
+    /// while wireless signals never reached their targets.
+    /// </summary>
+    private void ReconnectRestoredDeviceNetworks(IEnumerable<EntityUid> createdEntities)
+    {
+        foreach (var uid in createdEntities)
+        {
+            if (!TryComp<DeviceNetworkComponent>(uid, out var device) || !device.AutoConnect)
+                continue;
+
+            _deviceNetworks.ConnectDevice(uid, device);
         }
     }
 

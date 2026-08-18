@@ -35,7 +35,7 @@
       - !type:PlaySoundEffect
         sound: /Audio/Effects/Chemistry/bubbles.ogg
       - !type:SpawnEntity
-        entity: MaterialBSCrystal1
+        entity: MaterialBluespace1
         number: 5
         shouldScale: false
     - reagents: [ Blood ]

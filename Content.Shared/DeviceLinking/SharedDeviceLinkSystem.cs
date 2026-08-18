@@ -218,6 +218,54 @@ public abstract partial class SharedDeviceLinkSystem : EntitySystem
 
     #region Links
     /// <summary>
+    /// Rebuilds <see cref="DeviceLinkSourceComponent.Outputs"/> from
+    /// <see cref="DeviceLinkSourceComponent.LinkedPorts"/> and prunes links
+    /// whose ports no longer match either side. Intended for grids restored
+    /// from a portable snapshot, where component startup ordering can leave
+    /// the derived output index empty despite intact linkedPorts data: the
+    /// link looks connected while invoking a port does nothing.
+    /// </summary>
+    public void RefreshLinks(EntityUid sourceUid, DeviceLinkSourceComponent? source = null)
+    {
+        if (!Resolve(sourceUid, ref source))
+            return;
+
+        source.Outputs.Clear();
+        var invalidSinks = new List<EntityUid>();
+        foreach (var (sinkUid, links) in source.LinkedPorts)
+        {
+            if (!TryComp<DeviceLinkSinkComponent>(sinkUid, out var sink))
+            {
+                invalidSinks.Add(sinkUid);
+                continue;
+            }
+
+            var invalidLinks = new List<(ProtoId<SourcePortPrototype>, ProtoId<SinkPortPrototype>)>();
+            foreach (var (sourcePort, sinkPort) in links)
+            {
+                if (sink.Ports.Contains(sinkPort) && source.Ports.Contains(sourcePort))
+                    source.Outputs.GetOrNew(sourcePort).Add(sinkUid);
+                else
+                    invalidLinks.Add((sourcePort, sinkPort));
+            }
+
+            foreach (var link in invalidLinks)
+                links.Remove(link);
+
+            if (links.Count == 0)
+            {
+                invalidSinks.Add(sinkUid);
+                continue;
+            }
+
+            sink.LinkedSources.Add(sourceUid);
+        }
+
+        foreach (var sinkUid in invalidSinks)
+            source.LinkedPorts.Remove(sinkUid);
+    }
+
+    /// <summary>
     /// Returns the links of a source
     /// </summary>
     /// <returns>A list of sink and source port ids that are linked together</returns>
