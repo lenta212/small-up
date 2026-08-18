@@ -4,7 +4,10 @@
 public sealed class PoolManagerTestEventHandler
 {
     // This value is completely arbitrary.
-    private static TimeSpan MaximumTotalTestingTimeLimit => TimeSpan.FromMinutes(120); // Monolith
+    // Monolith: the full serial LuaM integration suite legitimately exceeds two
+    // hours because production maps, sector worldgen and restored-ship fixtures
+    // each boot a complete server/client pair.
+    private static TimeSpan MaximumTotalTestingTimeLimit => TimeSpan.FromMinutes(300); // Monolith
     private static TimeSpan HardStopTimeLimit => MaximumTotalTestingTimeLimit.Add(TimeSpan.FromMinutes(1));
 
     [OneTimeSetUp]
