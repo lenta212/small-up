@@ -6411,3 +6411,11 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Finding: the current dirty slice already contains the intended stable identity path. `LuaMFullShipPersistenceSystem.TryCaptureSnapshot` binds ship security to the persistent `ShipId`; `SharedShuttleConsoleLockSystem` canonicalizes lock/deed keys to the GUID; restore rebinds in-grid deed `ShuttleUid` to the new grid while preserving off-grid deeds. Existing `LuaMFullShipPersistenceRuntimeTest.McChickenPersistentLockAndOffGridGuestRoundTrip` covers legacy runtime lock keys, canonical GUID conversion, owner/wrong deed separation, and restored lock behavior.
 - Validation: `Content.Server` DebugOpt build passed earlier with 0 errors. A targeted integration invocation compiled the full test assembly successfully but failed during runtime setup because the shared test pool could not create its gravestone file; a second broad persistence invocation was started concurrently and timed out. No product files were changed in this iteration.
 - Next action: rerun the single lock round-trip test in an isolated test-output/pool environment after all competing dotnet test processes have exited; only add code if that test exposes a real remaining remapping gap.
+
+## 2026-08-18 -- AI gateway switched to BenPay for PersonalAI reactions
+
+- Objective: make the PersonalAI react to incidents via the existing gateway algorithm, using BenPay as the LLM provider.
+- Result: provider switched to BenPay (`gpt-5.5`, OpenAI-compatible chat completions). `/chat` and `/propose_event` verified live with `fallback=false`; a test event generated a full distress proposal.
+- Root cause fixed: BenPay stalls on large escaped payloads from this host; the gateway now sends raw UTF-8 and falls back from structured to unstructured chat on timeout/HTTP 400.
+- Server changes: `/opt/monolith-ds/ai-gateway/luam_ai_gateway.py` patched (backup `.bak-20260818-benpay-timeout` exists) and `/etc/monolith-ds/ai-gateway.env` updated (backup `.bak-20260818-151201` exists). Repo journals updated and installed on the host.
+- Next action: verify the next in-game AI world pulse uses `gatewayDecision` from BenPay; monitor latency and adjust `OPENAI_TIMEOUT`/model if needed.

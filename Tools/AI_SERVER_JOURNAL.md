@@ -1,3 +1,11 @@
+## 2026-08-18T12:45:00Z -- AI gateway switched to BenPay and verified end-to-end
+
+- Scope/result: per operator request, the AI gateway provider was switched from local Ollama (absent on this host) to the BenPay OpenAI-compatible API with model `gpt-5.5`. Both `/chat` and `/propose_event` now return live AI output with `fallback=false`: a test `/chat` returned `ОК` in about 5 seconds, and a test `/propose_event` generated a complete distress proposal with title, hazard, and briefing.
+- Cause/correction: BenPay stalled on the gateway's escaped ASCII-only request bodies (~27 KB) from this host, while raw UTF-8 bodies (~17.5 KB) respond normally. The gateway's `post_json` now sends raw UTF-8, and the three chat-completion call sites retry unstructured after a structured timeout (BenPay rejects `json_schema` with HTTP 400). Backups exist at `/opt/monolith-ds/ai-gateway/luam_ai_gateway.py.bak-20260818-benpay-timeout` and `/etc/monolith-ds/ai-gateway.env.bak-20260818-151201`.
+- Env state: `LUAM_AI_PROVIDER=openai-compatible`, `LUAM_COMPAT_BASE_URL=https://api.benpay.ai/openai/v1`, `LUAM_COMPAT_MODEL=gpt-5.5`, `LUAM_COMPAT_API_MODE=openai-compatible`, `OPENAI_TIMEOUT=20`. TTS remains local piper.
+- Health: `luam-ai-gateway.service` is active with `NRestarts=0`; `/health` reports provider `openai-compatible`, model `gpt-5.5`, BenPay base URL. The 15:38Z game world pulse still used local fallback because the fix landed immediately after it; the next pulse should carry a gateway decision.
+- Next action: observe the next in-game AI world pulse / PersonalAI reaction. If latency is too high, raise `OPENAI_TIMEOUT` or switch the BenPay model.
+
 ## 2026-08-18T12:00:00Z -- ship-repair client/server rollout deployed and verified
 
 - Scope/result: deployed the operator-authorized full client+server rollout `luam-20260818-060320`. The update repairs quarantined persistent ship snapshots with lazy self-heal (Victoria/Claymore/Tzipora/Tethys/Arkansaw), restores missing Goobstation assets, hardens the bank ATM amount input, fixes the Aibolit console states, and includes the accumulated August research/armory/texture integration.
