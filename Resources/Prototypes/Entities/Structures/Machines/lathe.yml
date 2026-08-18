@@ -270,6 +270,10 @@
     - VisionGoggles
     # WD EDIT END
     - SmartGun # Goobstation
+    - Pinpointers # Goobstation
+    - BluespaceTheory # Goobstation
+    - XenobioPack # Goobstation
+    - XenobagHoldingPack # Goobstation
     # Einstein Engines Packs
     - Translators
   - type: EmagLatheRecipes
@@ -345,6 +349,11 @@
     - AiCoreBoard
     - S2MechBoards
     - EngineeringBoardsGoob #Goob Factorio port
+    - MedicalCloning # Goobstation
+    - ScienceBoardsGoob # Goobstation
+    - ServiceBoardsGoob # Goobstation
+    - ExperimentalScienceGoob # Goobstation
+    - AdvancedPowerGenerationBoards # Goobstation
     - ReactorCircuitboards # FH edit
   - type: MaterialStorage
     whitelist:
@@ -612,6 +621,9 @@
     dynamicPacks:
     - Chemistry
     - SyringeGuns # DeltaV
+    - MedicalMisc # Goobstation
+    - MedicalMiscRestricted # Goobstation
+    - Genetics # Goobstation
     - NFMedical # Frontier
     # Shitmed Change
     - SMSurgery

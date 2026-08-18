@@ -6419,3 +6419,11 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Root cause fixed: BenPay stalls on large escaped payloads from this host; the gateway now sends raw UTF-8 and falls back from structured to unstructured chat on timeout/HTTP 400.
 - Server changes: `/opt/monolith-ds/ai-gateway/luam_ai_gateway.py` patched (backup `.bak-20260818-benpay-timeout` exists) and `/etc/monolith-ds/ai-gateway.env` updated (backup `.bak-20260818-151201` exists). Repo journals updated and installed on the host.
 - Next action: verify the next in-game AI world pulse uses `gatewayDecision` from BenPay; monitor latency and adjust `OPENAI_TIMEOUT`/model if needed.
+
+## 2026-08-18 -- research/lathe recipe packs wired to machines (no deploy)
+
+- Objective: fix researched recipes not appearing in protolathe/circuit imprinter/medical techfab.
+- Root cause: after the Goobstation research integration, several recipe packs existed but were attached to no lathe (`MedicalCloning`, `ScienceBoardsGoob`, `ServiceBoardsGoob`, `ExperimentalScienceGoob`, `Pinpointers`, `BluespaceTheory`, `XenobioPack`, `XenobagHoldingPack`, `MedicalMisc`, `MedicalMiscRestricted`, `Genetics`); the `AdvancedPowerGeneration` circuit boards were in no pack at all; and the `AdvancedPowercells` technology was commented out.
+- Fix (repo only, not deployed): attached the orphaned packs to `CircuitImprinter`, `Protolathe`, and `MedicalTechFab`; added the `AdvancedPowerGenerationBoards` pack; re-enabled `AdvancedPowercells` at position `-2, 6` (the original `-2, 7` collided with `PortableFission`).
+- Validation: edited YAML files parse; the research audit now reports 0 technologies whose recipes are outside every lathe dynamic pack (197 techs, 2300 recipes, 301 packs).
+- Next action: deploy with restart when the operator authorizes, then verify in-game research unlocks appear in the corresponding machines.

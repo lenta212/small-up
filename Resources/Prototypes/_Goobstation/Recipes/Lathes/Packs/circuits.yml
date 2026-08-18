@@ -40,3 +40,9 @@
   - StationRadioServerCircuitboard
   - StationRadioRigCircuitboard
   - ServiceEnergyChemMachineCircuitboard
+
+- type: latheRecipePack
+  id: AdvancedPowerGenerationBoards
+  recipes:
+  - TeslaCoilCircuitboard
+  - RadiationCollectorCircuitboard

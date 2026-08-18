@@ -42,24 +42,24 @@
   - BasicParts
   position: -2, 0
 
-# - type: technology
-#   id: AdvancedPowercells
-#   name: research-technology-advanced-powercells
-#   entityIcon: PowerCellHigh
-#   discipline: Industrial
-#   tier: 1
-#   cost: 20000
-#   recipeUnlocks:
-#   - PowerCellHigh
-#   - TurboItemRechargerCircuitboard
-#   - SMESAdvancedMachineCircuitboard
-#   - PowerCageSmall # Mono
-#   - PowerCageMedium # Mono
-#   - PowerCageHigh # Mono
-#   - PowerCageRechargerCircuitboard # Mono
-#   technologyPrerequisites:
-#   - PowerGeneration
-#   position: -2, 7
+- type: technology
+  id: AdvancedPowercells
+  name: research-technology-advanced-powercells
+  entityIcon: PowerCellHigh
+  discipline: Industrial
+  tier: 1
+  cost: 20000
+  recipeUnlocks:
+  - PowerCellHigh
+  - TurboItemRechargerCircuitboard
+  - SMESAdvancedMachineCircuitboard
+  - PowerCageSmall # Mono
+  - PowerCageMedium # Mono
+  - PowerCageHigh # Mono
+  - PowerCageRechargerCircuitboard # Mono
+  technologyPrerequisites:
+  - PowerGeneration
+  position: -2, 6
 
 # Mono edit
 - type: technology
