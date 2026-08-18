@@ -6436,3 +6436,11 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Validation: `Content.Server` compile reports no errors in the changed file (the local NuGet/SDK environment still fails on unrelated `Robust.Packaging` restore, so a full build was not produced).
 - Note: the original stargate reference project is not present locally (remotes are Goob-Station and Lua-Frontier/Monolith-DS); the fix follows the existing sanitizer pattern already used for MagicMirror/StationMember/SmartFridge/etc.
 - Next action: run the full release gate and deploy with restart when the operator authorizes; verify a restored shuttle's magnet, buttons and cloning links in-game.
+
+## 2026-08-18 -- local ship save/restore verification and manifest fix (no deploy)
+
+- Objective: verify the restored-shuttle fixes locally and run the full save/restore cycle repeatedly.
+- Root cause found: the YAML sanitizer only dropped the literal `invalid` marker, so dangling numeric EntityUid references (e.g. a buckled/contained player body excluded from the snapshot) still broke `TryLoadGrid`; additionally the restore-side runtime manifest hash compared the captured YAML prototype set against the loader's auto-included entity set (`Audio` vs auto-added `PaperBin20`), producing a false `restored-entity-graph-or-manifest-mismatch`.
+- Fix (repo only, not deployed): collect all serialized UIDs first and sanitize in a second pass, removing numeric refs whose target is absent from the snapshot; normalize null-prototype groups to the empty string so capture/load manifest keys match; restrict the runtime manifest drift check to the entity count (the YAML-level payload hash and manifest hash checks remain).
+- Validation: `Content.Server` and `Content.IntegrationTests` build with 0 errors; `LuaMFullShipPersistenceRuntimeTest` passed 13/13; `FullGridRoundTripPreservesShipStateWithoutPersistingBodies` ran 10/10 times successfully.
+- Next action: run the release gate and deploy with restart when the operator authorizes; then verify in-game magnet, buttons, cloning links and 10 restore cycles on production.

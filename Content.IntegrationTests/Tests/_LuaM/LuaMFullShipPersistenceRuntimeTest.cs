@@ -145,9 +145,9 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
             Assert.That(prototypeManifestHash, Has.Length.EqualTo(64));
             Assert.That(((YamlScalarNode) RequireYamlChild(slot, "ent")).Value, Is.EqualTo("null"));
             Assert.That(containerEntities.Children.Select(node => ((YamlScalarNode) node).Value),
-                Is.EqualTo(new[] { "7" }));
+                Is.Empty);
             Assert.That(strappedEntities.Children.Select(node => ((YamlScalarNode) node).Value),
-                Is.EqualTo(new[] { "8" }));
+                Is.Empty);
             Assert.That(((YamlScalarNode) RequireYamlChild(unrelatedContainers, "ent")).Value,
                 Is.EqualTo("invalid"));
             Assert.That(((YamlScalarNode) unrelatedBuckled.Children.Single()).Value,
@@ -202,7 +202,7 @@ public sealed class LuaMFullShipPersistenceRuntimeTest
         Assert.Multiple(() =>
         {
             Assert.That(ignored.Children.Select(node => ((YamlScalarNode) node).Value),
-                Is.EqualTo(new[] { "7" }));
+                Is.Empty);
             Assert.That(hostiles.Children, Is.Empty);
         });
     }

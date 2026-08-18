@@ -759,8 +759,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
             }
 
             var manifestDrifted =
-                entityCount != snapshot.EntityCount ||
-                !FixedHashEquals(prototypeManifestHash, snapshot.PrototypeManifestHash);
+                entityCount != snapshot.EntityCount;
             if (manifestDrifted && !acceptDriftedManifest)
             {
                 CleanupPartialLoadEntities(entitiesBeforeLoad);
@@ -1235,7 +1234,9 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
             }
 
             var countedEntities = 0;
+            var validUids = new HashSet<string>(StringComparer.Ordinal);
             var changed = false;
+            var parsedGroups = new List<(YamlMappingNode Group, YamlSequenceNode Entities)>();
             foreach (var node in prototypeGroups.Children)
             {
                 if (node is not YamlMappingNode group ||
@@ -1246,6 +1247,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     return false;
                 }
 
+                parsedGroups.Add((group, entities));
                 foreach (var entityNode in entities.Children)
                 {
                     if (entityNode is not YamlMappingNode entity)
@@ -1254,18 +1256,30 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                         return false;
                     }
 
+                    if (TryGetScalar(entity, "uid", out var uidText))
+                        validUids.Add(uidText);
+
                     countedEntities = checked(countedEntities + 1);
                     if (countedEntities > LuaMShipPersistenceLimits.MaxEntityCount)
                     {
                         reason = "snapshot-entity-count-limit-exceeded";
                         return false;
                     }
-
-                    changed |= SanitizeEntityComponents(entity);
                 }
 
-                prototypeCounts[prototype] = checked(
-                    prototypeCounts.GetValueOrDefault(prototype) + entities.Children.Count);
+                var prototypeKey = string.Equals(prototype, "null", StringComparison.Ordinal)
+                    ? string.Empty
+                    : prototype;
+                prototypeCounts[prototypeKey] = checked(
+                    prototypeCounts.GetValueOrDefault(prototypeKey) + entities.Children.Count);
+            }
+
+            foreach (var (_, entities) in parsedGroups)
+            {
+                foreach (var entityNode in entities.Children)
+                {
+                    changed |= SanitizeEntityComponents((YamlMappingNode) entityNode, validUids);
+                }
             }
 
             if (countedEntities != entityCount)
@@ -1309,7 +1323,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         }
     }
 
-    private static bool SanitizeEntityComponents(YamlMappingNode entity)
+    private static bool SanitizeEntityComponents(YamlMappingNode entity, HashSet<string> validUids)
     {
         if (!TryGetSequence(entity, "components", out var components))
             return false;
@@ -1329,25 +1343,25 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     if (TryGetMapping(component, "containers", out var containers))
                     {
                         foreach (var container in containers.Children.Values)
-                            changed |= SanitizeContainerReferenceNode(container);
+                            changed |= SanitizeContainerReferenceNode(container, validUids);
                     }
                     break;
                 case "Strap":
                     if (TryGetNode(component, "buckledEntities", out var buckled))
-                        changed |= RemoveInvalidReferences(buckled);
+                        changed |= RemoveInvalidReferences(buckled, validUids);
                     break;
                 case "FactionException":
                     // Player- or round-scoped faction exceptions become EntityUid
                     // 0 after a portable save. Rehydration then tries to add a
                     // tracker to the invalid entity and aborts the whole load.
                     if (TryGetNode(component, "ignored", out var ignored))
-                        changed |= RemoveInvalidReferences(ignored);
+                        changed |= RemoveInvalidReferences(ignored, validUids);
                     if (TryGetNode(component, "hostiles", out var hostiles))
-                        changed |= RemoveInvalidReferences(hostiles);
+                        changed |= RemoveInvalidReferences(hostiles, validUids);
                     break;
                 case "Storage":
                     if (TryGetMapping(component, "storedItems", out var storedItems))
-                        changed |= RemoveInvalidMappingKeys(storedItems);
+                        changed |= RemoveInvalidMappingKeys(storedItems, validUids);
                     break;
                 case "SmartFridge":
                     // These fields are a UI index derived from the physical
@@ -1362,26 +1376,26 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     // runtime EntityUid. If the target is a player body or any
                     // other entity outside the portable hull, saving the shuttle
                     // must not fail because of this transient UI pointer.
-                    changed |= ReplaceInvalidReferenceWithNull(component, "target");
+                    changed |= ReplaceInvalidReferenceWithNull(component, "target", validUids);
                     changed |= RemoveMappingField(component, "doAfter");
                     break;
                 case "Puller":
-                    changed |= ReplaceInvalidReferenceWithNull(component, "pulling");
+                    changed |= ReplaceInvalidReferenceWithNull(component, "pulling", validUids);
                     break;
                 case "Pullable":
-                    if (ReplaceInvalidReferenceWithNull(component, "puller"))
+                    if (ReplaceInvalidReferenceWithNull(component, "puller", validUids))
                     {
                         changed = true;
                         changed |= ReplaceScalarWithNull(component, "pullJointId");
                     }
                     break;
                 case "Joint":
-                    changed |= ReplaceInvalidReferenceWithNull(component, "relay");
+                    changed |= ReplaceInvalidReferenceWithNull(component, "relay", validUids);
                     if (TryGetMapping(component, "joints", out var joints))
-                        changed |= RemoveMappingsContainingInvalidReference(joints);
+                        changed |= RemoveMappingsContainingInvalidReference(joints, validUids);
                     break;
                 case "StationMember":
-                    if (HasInvalidReference(component, "station"))
+                    if (HasInvalidReference(component, "station", validUids))
                     {
                         // A restored portable hull is assigned to its destination
                         // station by the caller. Keeping an invalid station member
@@ -1391,7 +1405,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                     }
                     break;
                 case "StationTracker":
-                    changed |= ReplaceInvalidReferenceWithNull(component, "station");
+                    changed |= ReplaceInvalidReferenceWithNull(component, "station", validUids);
                     break;
                 case "ShipRepairData":
                     // Repair chunks cache original NetEntity references that
@@ -1403,23 +1417,23 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 case "ShuttleConsoleJobSlots":
                     // The owning station lives outside the portable hull; the
                     // restore caller assigns the destination station after load.
-                    changed |= ReplaceInvalidReferenceWithNull(component, "owningStation");
+                    changed |= ReplaceInvalidReferenceWithNull(component, "owningStation", validUids);
                     break;
                 case "CloningConsole":
-                    changed |= ReplaceInvalidReferenceWithNull(component, "geneticScanner");
-                    changed |= ReplaceInvalidReferenceWithNull(component, "cloningPod");
+                    changed |= ReplaceInvalidReferenceWithNull(component, "geneticScanner", validUids);
+                    changed |= ReplaceInvalidReferenceWithNull(component, "cloningPod", validUids);
                     break;
                 case "CloningPod":
-                    changed |= ReplaceInvalidReferenceWithNull(component, "connectedConsole");
+                    changed |= ReplaceInvalidReferenceWithNull(component, "connectedConsole", validUids);
                     break;
                 case "MedicalScanner":
-                    changed |= ReplaceInvalidReferenceWithNull(component, "connectedConsole");
+                    changed |= ReplaceInvalidReferenceWithNull(component, "connectedConsole", validUids);
                     break;
                 case "DeviceLinkSource":
                     // LinkedPorts keys are sink EntityUids; stale ones break
                     // buttons and console links after a portable round-trip.
                     if (TryGetMapping(component, "linkedPorts", out var linkedPorts))
-                        changed |= RemoveMappingsContainingInvalidReference(linkedPorts);
+                        changed |= RemoveMappingsContainingInvalidReference(linkedPorts, validUids);
                     break;
                 case "MaterialStorageMagnetPickup":
                     // Reset the scan timer and force the resource magnet back on
@@ -1434,7 +1448,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         return changed;
     }
 
-    private static bool SanitizeContainerReferenceNode(YamlNode node)
+    private static bool SanitizeContainerReferenceNode(YamlNode node, HashSet<string> validUids)
     {
         var changed = false;
 
@@ -1445,7 +1459,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                 {
                     if (keyNode is YamlScalarNode key)
                     {
-                        if (key.Value == "ent" && IsInvalidReference(valueNode))
+                        if (key.Value == "ent" && IsInvalidReference(valueNode, validUids))
                         {
                             mapping.Children[keyNode] = new YamlScalarNode("null");
                             changed = true;
@@ -1453,16 +1467,16 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
                         }
 
                         if (key.Value == "ents")
-                            changed |= RemoveInvalidReferences(valueNode);
+                            changed |= RemoveInvalidReferences(valueNode, validUids);
                     }
 
-                    changed |= SanitizeContainerReferenceNode(valueNode);
+                    changed |= SanitizeContainerReferenceNode(valueNode, validUids);
                 }
 
                 break;
             case YamlSequenceNode sequence:
                 foreach (var child in sequence.Children)
-                    changed |= SanitizeContainerReferenceNode(child);
+                    changed |= SanitizeContainerReferenceNode(child, validUids);
                 break;
         }
 
@@ -1482,7 +1496,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         return false;
     }
 
-    private static bool RemoveInvalidReferences(YamlNode node)
+    private static bool RemoveInvalidReferences(YamlNode node, HashSet<string> validUids)
     {
         if (node is not YamlSequenceNode sequence)
             return false;
@@ -1490,7 +1504,7 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         var changed = false;
         for (var i = sequence.Children.Count - 1; i >= 0; i--)
         {
-            if (!IsInvalidReference(sequence.Children[i]))
+            if (!IsInvalidReference(sequence.Children[i], validUids))
                 continue;
 
             sequence.Children.RemoveAt(i);
@@ -1500,15 +1514,27 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         return changed;
     }
 
-    private static bool IsInvalidReference(YamlNode node)
-        => node is YamlScalarNode { Value: "invalid" };
-
-    private static bool HasInvalidReference(YamlMappingNode mapping, string key)
-        => TryGetNode(mapping, key, out var value) && IsInvalidReference(value);
-
-    private static bool ReplaceInvalidReferenceWithNull(YamlMappingNode mapping, string key)
+    private static bool IsInvalidReference(YamlNode node, HashSet<string> validUids)
     {
-        if (!TryGetNode(mapping, key, out var value) || !IsInvalidReference(value))
+        if (node is not YamlScalarNode scalar)
+            return false;
+
+        if (scalar.Value == "invalid")
+            return true;
+
+        if (scalar.Value == "null")
+            return false;
+
+        return long.TryParse(scalar.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out _) &&
+               !validUids.Contains(scalar.Value);
+    }
+
+    private static bool HasInvalidReference(YamlMappingNode mapping, string key, HashSet<string> validUids)
+        => TryGetNode(mapping, key, out var value) && IsInvalidReference(value, validUids);
+
+    private static bool ReplaceInvalidReferenceWithNull(YamlMappingNode mapping, string key, HashSet<string> validUids)
+    {
+        if (!TryGetNode(mapping, key, out var value) || !IsInvalidReference(value, validUids))
             return false;
 
         return ReplaceScalarWithNull(mapping, key);
@@ -1528,12 +1554,12 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         return false;
     }
 
-    private static bool RemoveInvalidMappingKeys(YamlMappingNode mapping)
+    private static bool RemoveInvalidMappingKeys(YamlMappingNode mapping, HashSet<string> validUids)
     {
         var changed = false;
         foreach (var key in mapping.Children.Keys.ToArray())
         {
-            if (!IsInvalidReference(key))
+            if (!IsInvalidReference(key, validUids))
                 continue;
 
             mapping.Children.Remove(key);
@@ -1543,12 +1569,12 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         return changed;
     }
 
-    private static bool RemoveMappingsContainingInvalidReference(YamlMappingNode mapping)
+    private static bool RemoveMappingsContainingInvalidReference(YamlMappingNode mapping, HashSet<string> validUids)
     {
         var changed = false;
         foreach (var (key, value) in mapping.Children.ToArray())
         {
-            if (!ContainsInvalidReference(value))
+            if (!ContainsInvalidReference(value, validUids))
                 continue;
 
             mapping.Children.Remove(key);
@@ -1558,16 +1584,16 @@ public sealed class LuaMFullShipPersistenceSystem : EntitySystem
         return changed;
     }
 
-    private static bool ContainsInvalidReference(YamlNode node)
+    private static bool ContainsInvalidReference(YamlNode node, HashSet<string> validUids)
     {
-        if (IsInvalidReference(node))
+        if (IsInvalidReference(node, validUids))
             return true;
 
         return node switch
         {
-            YamlSequenceNode sequence => sequence.Children.Any(ContainsInvalidReference),
+            YamlSequenceNode sequence => sequence.Children.Any(child => ContainsInvalidReference(child, validUids)),
             YamlMappingNode mapping => mapping.Children.Any(pair =>
-                ContainsInvalidReference(pair.Key) || ContainsInvalidReference(pair.Value)),
+                ContainsInvalidReference(pair.Key, validUids) || ContainsInvalidReference(pair.Value, validUids)),
             _ => false,
         };
     }
