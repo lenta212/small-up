@@ -1,3 +1,13 @@
+## 2026-08-19T16:10:00Z -- PAI proximity chatter muted at the gateway (live, no game-server restart)
+
+- Objective: operator report "персональный ии просто пиздит, а должен отвечать" — the PAI emitted looping small talk whenever a player was near.
+- Root cause: the game sends a synthetic "подошёл(ла) к тебе" prompt on approach; the gateway answered with the model, and the model produced formulaic small talk, while each greet also spent provider tokens.
+- Fix (gateway only): added `is_personal_ai_proximity_greet()` and, for `/chat` requests with `selectedTemplateId=unknown-personal-receiver` whose message/phraseBundles contain "подошёл(ла) к тебе", return an empty `reply` with `action=none` without calling the provider. The empty reply is dropped by the game, so the PAI stays silent and no tokens are spent.
+- Deploy: patched `/opt/monolith-ds/ai-gateway/luam_ai_gateway.py` directly; backups at `/opt/monolith-ds/backups/luam_ai_gateway.py.bak-20260819-190135` and `.bak-20260819-190811`. Restarted only `luam-ai-gateway.service` (no game server restart, no round/player impact). Repo copy `Tools/luam_ai_gateway.py` synced.
+- Verified: greet test returns `{"reply":"",...}` in ~2ms with no provider call; normal `/chat` still returns a real model reply.
+- Health: `luam-ai-gateway.service` active; game server untouched.
+- Next action: confirm in-game the PAI is silent on approach and still answers directed speech; the game-side disable of `TryStartPersonalAiProximityGreets` remains committed for the next server deploy.
+
 ## 2026-08-19T15:40:00Z -- ship-launched salvage expeditions deploy (production)
 
 - Objective: operator request to restore ordinary salvage expeditions launched directly from shuttle consoles ("не активна кнопка для выбора экспедиций"). Rollout `luam-20260819-salvage-expeditions` (server + client), operator-authorized, test override active.

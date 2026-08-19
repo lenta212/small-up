@@ -1,3 +1,9 @@
+## 2026-08-19T16:10:00Z -- PAI proximity chatter muted at the gateway (live)
+
+- Applied a gateway-side mute for the PAI proximity greet: `/chat` with `selectedTemplateId=unknown-personal-receiver` and "подошёл(ла) к тебе" returns an empty reply without calling the provider, so the PAI stops looping small talk and no tokens are spent.
+- Restarted only `luam-ai-gateway.service` (no game server restart). `Tools/luam_ai_gateway.py` synced with the live host file (pulls in the prior BenPay gateway drift + this fix).
+- The game-side disable of `TryStartPersonalAiProximityGreets` (commit `7d85e8c74e`) remains committed and will take effect on the next server deploy.
+
 ## 2026-08-19T16:05:00Z -- PAI unsolicited proximity chatter disabled (local, no deploy)
 
 - Objective: operator report "персональный ии просто пиздит, а должен отвечать" — the PAI wrote canned-feeling phrases on a loop whenever a player was nearby.
