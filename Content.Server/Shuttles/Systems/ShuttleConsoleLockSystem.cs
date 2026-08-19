@@ -9,6 +9,7 @@ using Robust.Shared.Audio.Systems;
 using Content.Shared.Verbs;
 using Robust.Shared.Utility;
 using Content.Server._NF.Shipyard.Components;
+using Content.Server._LuaM.ShipPersistence;
 using Content.Shared._Mono.Company;
 using Content.Shared._Mono.Shipyard;
 using Content.Shared.Silicons.Borgs.Components;
@@ -16,6 +17,7 @@ using Content.Shared.Interaction;
 using Content.Shared.PDA;
 using Robust.Shared.Audio;
 using Robust.Shared.Map.Components;
+using Robust.Server.Player;
 
 namespace Content.Server.Shuttles.Systems;
 
@@ -28,6 +30,7 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
     [Dependency] private SharedAudioSystem _audio = default!;
     [Dependency] private HandsSystem _handsSystem = default!;
     [Dependency] private ShuttleSystem _shuttleSystem = default!;
+    [Dependency] private IPlayerManager _player = default!;
 
     /// <inheritdoc/>
     public override void Initialize()
@@ -723,6 +726,25 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
             return true;
         }
 
+        // Persistent ships are owned by the account, not by the physical card:
+        // a respawned character whose old card (and deed) was deleted can still
+        // unlock the console as the registered owner.
+        if (user is { } userUid && IsSessionPersistentShipOwner(console, userUid))
+        {
+            if (gridLock != null)
+            {
+                SetGridLockState(gridUid!.Value, false);
+            }
+            else
+            {
+                lockComp.Locked = false;
+            }
+
+            _audio.PlayPvs(idComp.SwipeSound, console);
+            Popup.PopupEntity(Loc.GetString("shuttle-console-unlocked"), console);
+            return true;
+        }
+
         // Get the ID's uid string to compare with the lock
         Log.Debug("Attempting to unlock shuttle console {0} with card {1}. Lock ID: {2}",
             console,
@@ -969,6 +991,11 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
 
         var gridUid = consoleTransform.GridUid.Value;
 
+        // Account-level persistent ownership survives respawns even when the
+        // physical deed card was deleted with the old body.
+        if (IsSessionPersistentShipOwner(console, user))
+            return true;
+
         // Check if this is a ship with a deed
         if (!TryComp<ShuttleDeedComponent>(gridUid, out var shipDeed))
             return false;
@@ -987,6 +1014,25 @@ public sealed partial class ShuttleConsoleLockSystem : SharedShuttleConsoleLockS
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// True when the user's account is the registered owner of a persistent
+    /// ship grid. This is the durable ownership link that survives respawns;
+    /// the physical deed card is only a bearer convenience.
+    /// </summary>
+    private bool IsSessionPersistentShipOwner(EntityUid console, EntityUid user)
+    {
+        if (!_player.TryGetSessionByEntity(user, out var session))
+            return false;
+
+        if (Transform(console).GridUid is not { } gridUid)
+            return false;
+
+        return TryComp<LuaMShipIdentityComponent>(gridUid, out var identity) &&
+               identity.ShipId != Guid.Empty &&
+               TryComp<ShipOwnershipComponent>(gridUid, out var ownership) &&
+               ownership.OwnerUserId == session.UserId;
     }
 
     /// <summary>

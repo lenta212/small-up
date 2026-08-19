@@ -1,3 +1,14 @@
+## 2026-08-19T08:45:00Z -- shuttle deed restored after ghostrespawn (local, no deploy)
+
+- Objective/result: fixed the reported bug where calling a persistent shuttle, deleting the character (ghostrespawn) and respawning silently lost shuttle ownership.
+- Root cause: `DisposeStalePresenceBody` deletes the old body together with its ID card, and the `ShuttleDeedComponent` (bearer key for console lock/unlock) died with the card. Durable ownership in `ShipOwnershipComponent` and the registry is account-keyed and survives, but the console deed did not.
+- Fix:
+  - `ShipyardSystem` now subscribes `PlayerSpawnCompleteEvent` and re-issues the deed onto the new body's ID card for live persistent ships owned by the account (name/owner/voucher fields copied from the grid deed, `PersistentShipId` rebound, ship access levels re-granted). Stored ships keep the normal shipyard-call deed write.
+  - `ShuttleConsoleLockSystem.TryUnlock` and `HasDeedAccess` now accept account-level persistent ownership (`LuaMShipIdentityComponent` + `ShipOwnershipComponent.OwnerUserId` against the session) as a fallback, so a destroyed card can no longer lock the owner out of their own ship.
+- Validation: `dotnet build Content.Server/Content.Server.csproj --configuration DebugOpt --no-restore --no-dependencies -v:minimal` passes with 0 errors (1162 pre-existing warnings). `Resources/Changelog/ServerNews.yml` entry `2026081902` records the player-facing fix.
+- Production state: no production host, package, client, server, database, round, ship, or player state was changed.
+- Next action: add a focused integration test (owned live ship -> ghostrespawn -> assert the new card carries the deed and the console unlock succeeds), then deploy only with fresh operator authorization.
+
 ## 2026-08-18T12:00:00Z -- ship-repair rollout deployed to production
 
 - Result: the full client+server rollout `luam-20260818-060320` was deployed and verified. Client SHA256 `7c6b25b450a9f3f2c4d8dad944ac148ec629631bd18cf359e673a43998df0b95`, server SHA256 `a39bd79b5a066d931050a9b299d931e925a5f88dfd5155a984aa5dc6ec69b3a5`, receipt SHA256 `8beed6e855f255f00319748fa56573e215363a757a52a88f96d0753cb7050750`.
