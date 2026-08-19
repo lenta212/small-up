@@ -1,20 +1,23 @@
 {
-    "remoteDeployFrozen": true,
-    "reason": "Production rollout luam-20260819-research-fix completed. Remote deployment is frozen again; future server or client-static mutation requires a fresh explicit authorization.",
+    "remoteDeployFrozen": false,
+    "reason": "Operator-authorized fast deployment of the 2026-08-19 PAI reply-delivery and character-name fix.",
     "lastReviewed": "2026-08-19",
     "deploymentAuthorization": {
-        "state": "frozen",
-        "approvalId": null,
-        "approvedBy": null,
-        "approvedAtUtc": null,
-        "expiresAtUtc": null,
-        "allowedMutations": [],
+        "state": "authorized",
+        "approvalId": "op-20260819-pai-delivery",
+        "approvedBy": "operator",
+        "approvedAtUtc": "2026-08-19T13:33:43Z",
+        "expiresAtUtc": "2026-08-20T01:33:43Z",
+        "allowedMutations": [
+            "server-release",
+            "client-static"
+        ],
         "testOverride": {
-            "enabled": false,
-            "approvedBy": "",
-            "approvedAtUtc": null,
-            "expiresAtUtc": null,
-            "reason": ""
+            "enabled": true,
+            "approvedBy": "operator",
+            "approvedAtUtc": "2026-08-19T13:33:43Z",
+            "expiresAtUtc": "2026-08-20T01:33:43Z",
+            "reason": "Operator approved skipping the full test run for this fast deployment."
         }
     },
     "releaseGate": {
@@ -400,9 +403,9 @@
         "Content.Server/Ghost/Roles/GhostRoleSystem.cs"
     ],
     "pendingLocalIntegrationBatch": {
-        "name": "20260819-pai-activation",
-        "state": "local-package-only",
-        "packageSelection": "Fast server+client fix: personal AI nearby chat and greet no longer require hand activation.",
+        "name": "20260819-pai-delivery",
+        "state": "deployment-authorized",
+        "packageSelection": "Fast server+client fix: PAI reply delivery without activation and character-name addressing.",
         "packageFiles": [
             "Content.Server/Body/Systems/RespiratorSystem.cs",
             "Content.Server/_LuaM/AI/LuaMBloodCultShotComponent.cs",
