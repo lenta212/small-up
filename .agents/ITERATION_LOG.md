@@ -1,3 +1,10 @@
+## 2026-08-19T16:05:00Z -- PAI unsolicited proximity chatter disabled (local, no deploy)
+
+- Objective: operator report "персональный ии просто пиздит, а должен отвечать" — the PAI wrote canned-feeling phrases on a loop whenever a player was nearby.
+- Root cause: `TryStartPersonalAiProximityGreets()` ran every update (1s scan) and, every 45s per unoccupied PAI, sent a synthetic "подошёл(ла) к тебе" prompt to the gateway; the model replied with formulaic small talk ("Слышу тебя…", "Принято…", "Я рядом…"), which read as rotating canned phrases.
+- Fix: disabled the proximity-greet call in `LuaMSectorAiDirectorSystem`; the PAI now only replies to actual nearby speech via `TryStartPersonalAiNearbyReply`. Verified Content.Server compile: 0 errors.
+- Production state: no production change; deploy deferred by operator instruction. Next action: deploy server-only with operator authorization, then verify the PAI is quiet on approach and answers directed speech.
+
 ## 2026-08-19T15:40:00Z -- ship-launched salvage expeditions deployed to production
 
 - Rollout: `luam-20260819-salvage-expeditions` (server + client) completed with operator authorization and test override. Contents: `legacyLaunchingEnabled` on `ComputerSalvageExpedition` (claim button active again), restored console name/description, updated binding test, ServerNews `2026081907`, Monolith changelog `2374`.

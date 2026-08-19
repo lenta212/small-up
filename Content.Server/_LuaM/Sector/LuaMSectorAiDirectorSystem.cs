@@ -7742,7 +7742,10 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         EnsureUnknownOperator();
         ProcessPendingPersonalPressures();
-        TryStartPersonalAiProximityGreets();
+        // Proximity greets disabled: they made the PAI emit unsolicited small
+        // talk ("Слышу тебя…", "Принято…") on a loop whenever a player was near.
+        // The PAI now only answers actual nearby speech (TryStartPersonalAiNearbyReply).
+        // TryStartPersonalAiProximityGreets();
         UpdateLocalWorldPulse();
 
         if (_requestGate.IsActive)
