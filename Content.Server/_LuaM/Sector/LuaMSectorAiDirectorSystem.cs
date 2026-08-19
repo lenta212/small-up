@@ -11408,8 +11408,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var query = EntityQueryEnumerator<PAIComponent, TransformComponent>();
         while (query.MoveNext(out var uid, out _, out var transform))
         {
-            if (!HasComp<GhostTakeoverAvailableComponent>(uid) ||
-                TryComp<MindContainerComponent>(uid, out var mind) && mind.HasMind ||
+            if (TryComp<MindContainerComponent>(uid, out var mind) && mind.HasMind ||
                 !Transform(localChat.Sender).Coordinates.TryDistance(EntityManager, transform.Coordinates, out var distance) ||
                 distance > Math.Min(localChat.Range, PersonalAiListeningRange) ||
                 distance >= nearestDistance)
@@ -11429,6 +11428,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             return;
 
         var persona = GetPersonalAiPersona(receiverUid);
+        _sawmill.Info($"Personal AI nearby reply: receiver={receiverUid} persona={persona.Name} sender={session.Name} adultRequired={persona.RequiresAdultConfirmation}");
         if (persona.RequiresAdultConfirmation &&
             TryHandlePersonalAiAdultGate(receiverUid, persona, message, now))
         {
@@ -11457,11 +11457,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         var paiCandidates = new List<(EntityUid Receiver, TransformComponent Transform)>();
         var paiQuery = EntityQueryEnumerator<PAIComponent, TransformComponent>();
-        while (paiQuery.MoveNext(out var uid, out var pai, out var transform))
+        while (paiQuery.MoveNext(out var uid, out _, out var transform))
         {
-            if (pai.LastUser != null ||
-                !HasComp<GhostTakeoverAvailableComponent>(uid) ||
-                TryComp<MindContainerComponent>(uid, out var mind) && mind.HasMind)
+            if (TryComp<MindContainerComponent>(uid, out var mind) && mind.HasMind)
             {
                 continue;
             }

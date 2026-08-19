@@ -1,3 +1,10 @@
+## 2026-08-19T11:10:00Z -- PAI nearby chat/greet no longer require hand activation (local, no deploy)
+
+- Objective/result: fixed the second PAI non-response report. The nearby-chat receiver still required `GhostTakeoverAvailableComponent`, and the proximity-greet path required it while also requiring `LastUser == null` — mutually exclusive conditions, so fresh (never hand-activated) PAIs neither greeted nor answered chat.
+- Fix (`LuaMSectorAiDirectorSystem`): both the nearby-chat receiver and the proximity-greet candidate now accept any unoccupied PAI (no mind) regardless of hand-activation; added an INFO log when a nearby reply is dispatched for diagnosis.
+- Validation: `dotnet build Content.Server/Content.Server.csproj -t:Compile --configuration DebugOpt --no-restore --no-dependencies` passes with 0 errors. ServerNews `2026081904` records the player-facing fix.
+- Production state: no production change yet; next action is the fast deploy.
+
 ## 2026-08-19T11:00:00Z -- deployed shuttle/PAI fixes and server name change to production
 
 - Objective/result: operator-authorized fast deployment (`luam-20260819-103329`) without the full test run (policy `testOverride` active; contract and readiness passed). Shuttle deed restore after ghostrespawn, personal AI proximity greets and nearby-chat fixes are now live, together with the new server name suffix "СОХРАНЕНИЕ ШАТЛОВ для следующей смены".
