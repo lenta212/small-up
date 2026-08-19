@@ -1,3 +1,12 @@
+## 2026-08-19T15:40:00Z -- ship-launched salvage expeditions deployed to production
+
+- Rollout: `luam-20260819-salvage-expeditions` (server + client) completed with operator authorization and test override. Contents: `legacyLaunchingEnabled` on `ComputerSalvageExpedition` (claim button active again), restored console name/description, updated binding test, ServerNews `2026081907`, Monolith changelog `2374`.
+- Client: `0ddb27f7...` published and advertised; server package SHA256 `0b4669d3...`, receipt `0580c1ad...`; post-deploy smoke suite passed (including `LuaMSalvageExpeditionConsoleBindingTest`).
+- Barrier: first attempt HTTP 409 (2 players, round 217); one operator-authorized clean restart moved round 217 -> 218 lobby; retry passed barrier `638ba0ce...` (activeRemaining=0, frozen=true). Service active, round 219 lobby, players 0, config hash unchanged `250f67c0...`.
+- Note: transient binary-build crash (`dotnet` -532462766) retried successfully via standalone build; audit 0 violations; client HTTP 200.
+- Policy frozen again; AI server journal updated and installed on the host.
+- Next action: in-game verify the shuttle expedition console claim button and FTL departure.
+
 ## 2026-08-19T14:47:00Z -- ship-launched salvage expeditions restored (local, no deploy)
 
 - Objective: the shuttle expedition console showed an inactive mission-claim button ("не активна кнопка для выбора экспедиций"). Restore ordinary salvage expeditions launched directly from the ship.

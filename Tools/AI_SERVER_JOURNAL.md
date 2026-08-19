@@ -1,3 +1,15 @@
+## 2026-08-19T15:40:00Z -- ship-launched salvage expeditions deploy (production)
+
+- Objective: operator request to restore ordinary salvage expeditions launched directly from shuttle consoles ("не активна кнопка для выбора экспедиций"). Rollout `luam-20260819-salvage-expeditions` (server + client), operator-authorized, test override active.
+- Root cause: the August update (`eede020433`) retired ship-launched expeditions on purpose. `ComputerSalvageExpedition` never set `LegacyLaunchingEnabled`, so `OnSalvageClaimMessage` rejected claims and `UpdateConsole`/`UpdateConsoles` forced `Cooldown=true`, disabling the client claim button and pointing players at the outpost portal.
+- Fix: `legacyLaunchingEnabled: true` on `ComputerSalvageExpedition`, restored player-facing name/description ("экспедиционный компьютер"); `LuaMSalvageExpeditionConsoleBindingTest` updated and passed (post-deploy smoke suite green, including the console binding test). ServerNews `2026081907`, Monolith changelog `2374`.
+- Client: `0ddb27f7f5b59d521e76ce98c99c28113f49c70f823f141c46073f018fd68564` (376,896,057 bytes) published at http://188.127.225.57:1213/0ddb27f7.../SS14.Client.zip, HTTP 200; `/info` and `/opt/monolith-ds/server/build.json` advertise it, `acz=false`.
+- Server: package SHA256 `0b4669d3d552286e473f5345ea795d8e8a5593247754207697bb51b4d3568d32`, receipt SHA256 `0580c1ad52a3d81fec79f3cf4f73a87d77f31943e391dee1be734e80094555fc`. First barrier attempt returned HTTP 409 (2 players, round 217); one operator-authorized clean service restart moved round 217 -> 218 lobby (players 0); retry passed barrier `638ba0ce-e6d8-4f90-af7b-977c1e264136` (attempted=0, saved=0, failed=0, activeRemaining=0, frozen=true). Deploy completed: stop, data backup, swap, start, status/info checks OK; round 219 lobby, players 0.
+- Backups: `/opt/monolith-ds/backups/server-luam-20260819-salvage-expeditions`, `/opt/monolith-ds/backups/server_config-before-luam-20260819-salvage-expeditions.toml`, `/opt/monolith-ds/backups/data-luam-20260819-salvage-expeditions.tar.gz`. Config hash unchanged `250f67c021ecb21fa06daf98408470b9a5c281a72ac9a602e84435e13c9750f0`.
+- Note: the guarded pipeline crashed transiently once at the binary build (`dotnet` exit -532462766, same as the research-fix run); the standalone binary build succeeded on retry and the remaining guarded steps (audit, client publish, server deploy) completed normally.
+- Health: service active, no journal errors since start, no leftover firewall guard. Policy frozen again.
+- Next action: in-game verify the shuttle expedition console claim button is active and a claimed mission FTLs the shuttle.
+
 ## 2026-08-18T12:45:00Z -- AI gateway switched to BenPay and verified end-to-end
 
 - Scope/result: per operator request, the AI gateway provider was switched from local Ollama (absent on this host) to the BenPay OpenAI-compatible API with model `gpt-5.5`. Both `/chat` and `/propose_event` now return live AI output with `fallback=false`: a test `/chat` returned `ОК` in about 5 seconds, and a test `/propose_event` generated a complete distress proposal with title, hazard, and briefing.
