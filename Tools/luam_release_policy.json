@@ -9,7 +9,8 @@
         "approvedAtUtc": "2026-08-19T10:21:38Z",
         "expiresAtUtc": "2026-08-19T22:21:38Z",
         "allowedMutations": [
-            "server-release"
+            "server-release",
+            "client-static"
         ],
         "testOverride": {
             "enabled": true,
