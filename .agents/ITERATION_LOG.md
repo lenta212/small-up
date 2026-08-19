@@ -1,3 +1,12 @@
+## 2026-08-19T10:40:00Z -- personal AI chat fixes (local, no deploy)
+
+- Objective/result: fixed the report that communication with the personal AI (PAI) "does not work".
+- Diagnosis: the production gateway answers `/chat` correctly (verified live with a PAI-style request, action=none, normal Russian reply). The game-side defect was an inconsistency introduced with the proximity-greet feature: the greet targets PAIs with `LastUser == null`, while the nearby-chat receiver required `LastUser != null`, so a fresh PAI greeted a player and then never answered their reply. The greet also set the 12-second reaction cooldown, blocking the immediate answer after a greeting.
+- Fix (`LuaMSectorAiDirectorSystem`): nearby-chat now accepts any nearby unoccupied PAI regardless of `LastUser`; the proximity greet no longer sets the chat reaction cooldown.
+- Validation: `dotnet build Content.Server/Content.Server.csproj --configuration DebugOpt --no-restore --no-dependencies -v:minimal` passes with 0 errors. ServerNews `2026081903` records the player-facing fix.
+- Production state: read-only diagnostics on the production host (gateway `/chat` probe, journald review); no production host, package, client, server, database, round, ship, or player state was changed.
+- Next action: local in-game check with the gateway running, then release with fresh operator authorization.
+
 ## 2026-08-19T08:45:00Z -- shuttle deed restored after ghostrespawn (local, no deploy)
 
 - Objective/result: fixed the reported bug where calling a persistent shuttle, deleting the character (ghostrespawn) and respawning silently lost shuttle ownership.

@@ -11406,10 +11406,9 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         EntityUid? receiver = null;
         var nearestDistance = float.MaxValue;
         var query = EntityQueryEnumerator<PAIComponent, TransformComponent>();
-        while (query.MoveNext(out var uid, out var pai, out var transform))
+        while (query.MoveNext(out var uid, out _, out var transform))
         {
-            if (pai.LastUser == null ||
-                !HasComp<GhostTakeoverAvailableComponent>(uid) ||
+            if (!HasComp<GhostTakeoverAvailableComponent>(uid) ||
                 TryComp<MindContainerComponent>(uid, out var mind) && mind.HasMind ||
                 !Transform(localChat.Sender).Coordinates.TryDistance(EntityManager, transform.Coordinates, out var distance) ||
                 distance > Math.Min(localChat.Range, PersonalAiListeningRange) ||
@@ -11495,7 +11494,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 }
 
                 _nextPersonalAiProximityGreet[receiver] = now + TimeSpan.FromSeconds(PersonalAiProximityGreetCooldownSeconds);
-                _nextPersonalAiReaction[receiver] = now + TimeSpan.FromSeconds(PersonalAiReactionCooldownSeconds);
 
                 var persona = GetPersonalAiPersona(receiver);
                 var nearbyMessage = $"{session.Name} подошёл(ла) к тебе";
