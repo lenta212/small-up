@@ -1,3 +1,13 @@
+## 2026-08-19T13:30:00Z -- protolathe crash and hidden BS-bag tech fixed (local, no deploy)
+
+- Objective/result: fixed the recurring "disappearing R&D/protolathe" report: the protolathe UI crashed on open with `EntityCreationException: invalid prototype PinpointerStationGoob`, and the Bluespace bags could not be researched because tech `BluespaceStorage` was `hidden: true`.
+- Diagnosis: client exception captured via Windows OCR from the user's launcher screenshot: `Content.Client.Lathe.UI.LatheMenu.PopulateRecipes -> EntityCreationException: Attempted to spawn an entity with an invalid prototype: PinpointerStationGoob`. A regex audit of all lathe recipes (2080 explicit results) found the Goobstation pack referencing result prototypes that do not exist in this fork.
+- Fix:
+  - `Pinpointer` recipe now produces `PinpointerStation` (the real station pinpointer); removed dangling Goobstation recipes `PinpointerArtifact/Anomaly/Borg`, `MedicalCigPack`, `PrescriptionGlasses`, `TinfoilHats`, `VehicleHoverchairSci`, `WeaponPlasmaCutter`, `WeaponPlasmaRifle`, `ClothingUniformJumpskirtReporterGoob`; cleaned their pack entries and the `Pinpointers`/`AccessibilityTech` research unlocks.
+  - Unhid `BluespaceStorage` in `Resources/Prototypes/Research/industrial.yml` so the Bluespace bags are researchable again.
+- Validation: post-fix audit reports 0 dangling recipe results and 0 missing tech recipeUnlocks (the remaining 134 pack references to missing recipe ids are tolerated by the server/client and are not crash-class). All edited YAML files parse. ServerNews `2026081905` records the player-facing fix.
+- Production state: no production change yet; next action is the fast deploy.
+
 ## 2026-08-19T11:10:00Z -- PAI nearby chat/greet no longer require hand activation (local, no deploy)
 
 - Objective/result: fixed the second PAI non-response report. The nearby-chat receiver still required `GhostTakeoverAvailableComponent`, and the proximity-greet path required it while also requiring `LastUser == null` — mutually exclusive conditions, so fresh (never hand-activated) PAIs neither greeted nor answered chat.

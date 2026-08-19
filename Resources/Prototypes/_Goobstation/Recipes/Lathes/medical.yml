@@ -1,35 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 - type: latheRecipe
-  id: PrescriptionGlasses
-  result: ClothingEyesPrescriptionGlasses
-  completetime: 3
-  materials:
-    Steel: 500
-    Glass: 500
-
-- type: latheRecipe
   id: Cane
   result: Cane
   completetime: 3
   materials:
     Wood: 100
-
-- type: latheRecipe
-  id: VehicleHoverchairSci
-  result: VehicleHoverchair
-  completetime: 5
-  materials:
-    Steel: 500
-    Gold: 300
-    Plasma: 250
-
-- type: latheRecipe
-  id: TinfoilHats
-  result: ClothingHeadHatTinfoilHat
-  completetime: 5
-  materials:
-    Steel: 500
 
 - type: latheRecipe
   id: SyringeGun
@@ -93,14 +69,6 @@
   materials:
     Plastic: 50
     Cloth: 50
-
-- type: latheRecipe
-  id: MedicalCigPack
-  result: CigPackMedical
-  completetime: 8 # slows down mass printing entities
-  materials:
-    Plastic: 500
-    Cloth: 500
 
 - type: latheRecipe
   id: EnergyChemDispenserMachineCircuitboard

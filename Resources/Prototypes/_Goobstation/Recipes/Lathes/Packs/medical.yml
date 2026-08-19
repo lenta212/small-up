@@ -17,7 +17,6 @@
   - MedicalPatchRapid
   - MedicalPatchTherapeutic
   - MedicalPatchLarge
-  - MedicalCigPack
   - ECigarette
 
 - type: latheRecipePack
@@ -32,11 +31,6 @@
   recipes:
   - VehicleWheelchairFolded
   - Cane
-
-- type: latheRecipePack
-  id: MedicalVehiclesAdvanced
-  recipes:
-  - VehicleHoverchairSci
 
 ## Dynamic
 - type: latheRecipePack
@@ -55,10 +49,7 @@
 
 - type: latheRecipePack
   id: MedicalMisc
-  recipes:
-  - PrescriptionGlasses
-  - VehicleHoverchairSci
-  - TinfoilHats
+  recipes: []
 
 - type: latheRecipePack
   id: MedicalMiscRestricted

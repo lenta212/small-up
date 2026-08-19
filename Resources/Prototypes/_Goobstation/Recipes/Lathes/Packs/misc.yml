@@ -52,6 +52,3 @@
   id: Pinpointers
   recipes:
   - Pinpointer
-  - PinpointerArtifact
-  - PinpointerAnomaly
-  - PinpointerBorg

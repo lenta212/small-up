@@ -11,9 +11,6 @@
   cost: 750000
   recipeUnlocks:
   - Pinpointer
-  - PinpointerArtifact
-  - PinpointerAnomaly
-  - PinpointerBorg
   position: -3,-3
   technologyPrerequisites:
   - DeterrenceTechnologies

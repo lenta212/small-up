@@ -82,11 +82,6 @@
   result: ClothingUniformJumpsuitReporter
 
 - type: latheRecipe
-  parent: BaseJumpsuitRecipe
-  id: ClothingUniformJumpskirtReporterGoob
-  result: ClothingUniformJumpskirtReporter
-
-- type: latheRecipe
   parent: BaseHatRecipe
   id: ClothingHeadHatUshanka
   result: ClothingHeadHatUshanka
