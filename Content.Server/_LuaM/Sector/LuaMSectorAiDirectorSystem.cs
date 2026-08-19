@@ -102,6 +102,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private const int RadioAiReactionDedupSeconds = 3;
     private const int PersonalAiReactionCooldownSeconds = 12;
     private const float PersonalAiListeningRange = 10f;
+    private const float PersonalAiProximityGreetCooldownSeconds = 45f;
+    private const float PersonalAiProximityScanIntervalSeconds = 1f;
     private const int PlayerAiWorldActionCooldownSeconds = 20;
     private const int RadioAiReplyTokenLifetimeSeconds = 5;
     private const int MaxGatewayJsonResponseBytes = 262_144;
@@ -808,9 +810,11 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
     private readonly Dictionary<UnknownRadioConversationKey, UnknownRadioConversationState> _unknownRadioConversations = new();
     private long _nextUnknownRadioConversationGeneration;
     private readonly Dictionary<EntityUid, TimeSpan> _nextPersonalAiReaction = new();
+    private readonly Dictionary<EntityUid, TimeSpan> _nextPersonalAiProximityGreet = new();
     private readonly Dictionary<EntityUid, List<string>> _personalAiConversation = new();
     private readonly Dictionary<EntityUid, LuaMPersonalAdultGateState> _personalAiAdultGate = new();
     private readonly List<PendingPersonalPressureRequest> _pendingPersonalPressures = new();
+    private TimeSpan _nextPersonalAiProximityScan;
     private readonly Dictionary<NetUserId, TimeSpan> _nextBountyHunterByUser = new();
     private readonly Dictionary<string, TimeSpan> _recentRadioAiRequests = new();
     private readonly Dictionary<NetUserId, TimeSpan> _nextPlayerWorldActionByUser = new();
@@ -953,6 +957,8 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         ClearUnknownRadioConversations();
         _nextUnknownOperatorCheck = TimeSpan.Zero;
         _nextPersonalAiReaction.Clear();
+        _nextPersonalAiProximityGreet.Clear();
+        _nextPersonalAiProximityScan = TimeSpan.Zero;
         _personalAiConversation.Clear();
         _personalAiAdultGate.Clear();
         _gatewayBudgetRoundUsed = 0;
@@ -7736,6 +7742,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
 
         EnsureUnknownOperator();
         ProcessPendingPersonalPressures();
+        TryStartPersonalAiProximityGreets();
         UpdateLocalWorldPulse();
 
         if (_requestGate.IsActive)
@@ -11439,6 +11446,79 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
         var adultConfirmed = !persona.RequiresAdultConfirmation ||
                              _personalAiAdultGate.GetValueOrDefault(receiverUid) == LuaMPersonalAdultGateState.Confirmed;
         _ = SendPersonalAiNearbyReplyAsync(receiverUid, persona, adultConfirmed, session, message, history, requestLease!);
+    }
+
+    private void TryStartPersonalAiProximityGreets()
+    {
+        var now = _timing.CurTime;
+        if (now < _nextPersonalAiProximityScan)
+            return;
+
+        _nextPersonalAiProximityScan = now + TimeSpan.FromSeconds(PersonalAiProximityScanIntervalSeconds);
+
+        var paiCandidates = new List<(EntityUid Receiver, TransformComponent Transform)>();
+        var paiQuery = EntityQueryEnumerator<PAIComponent, TransformComponent>();
+        while (paiQuery.MoveNext(out var uid, out var pai, out var transform))
+        {
+            if (pai.LastUser != null ||
+                !HasComp<GhostTakeoverAvailableComponent>(uid) ||
+                TryComp<MindContainerComponent>(uid, out var mind) && mind.HasMind)
+            {
+                continue;
+            }
+
+            paiCandidates.Add((uid, transform));
+        }
+
+        if (paiCandidates.Count == 0)
+            return;
+
+        foreach (var session in _players.Sessions)
+        {
+            if (session.Status != SessionStatus.InGame ||
+                session.AttachedEntity is not { Valid: true } player ||
+                HasComp<GhostComponent>(player))
+            {
+                continue;
+            }
+
+            var playerTransform = Transform(player);
+            foreach (var (receiver, transform) in paiCandidates)
+            {
+                if (_nextPersonalAiProximityGreet.TryGetValue(receiver, out var nextGreet) && nextGreet > now)
+                    continue;
+
+                if (!playerTransform.Coordinates.TryDistance(EntityManager, transform.Coordinates, out var distance) ||
+                    distance > PersonalAiListeningRange)
+                {
+                    continue;
+                }
+
+                _nextPersonalAiProximityGreet[receiver] = now + TimeSpan.FromSeconds(PersonalAiProximityGreetCooldownSeconds);
+                _nextPersonalAiReaction[receiver] = now + TimeSpan.FromSeconds(PersonalAiReactionCooldownSeconds);
+
+                var persona = GetPersonalAiPersona(receiver);
+                var nearbyMessage = $"{session.Name} подошёл(ла) к тебе";
+                if (persona.RequiresAdultConfirmation &&
+                    TryHandlePersonalAiAdultGate(receiver, persona, nearbyMessage, now))
+                {
+                    break;
+                }
+
+                var history = _personalAiConversation.TryGetValue(receiver, out var priorLines)
+                    ? string.Join(" | ", priorLines.TakeLast(6))
+                    : string.Empty;
+                var adultConfirmed = !persona.RequiresAdultConfirmation ||
+                                     _personalAiAdultGate.GetValueOrDefault(receiver) == LuaMPersonalAdultGateState.Confirmed;
+
+                if (_requestGate.TryAcquire(out var requestLease))
+                {
+                    _ = SendPersonalAiNearbyReplyAsync(receiver, persona, adultConfirmed, session, nearbyMessage, history, requestLease!);
+                }
+
+                break;
+            }
+        }
     }
 
     private async Task SendPersonalAiNearbyReplyAsync(
