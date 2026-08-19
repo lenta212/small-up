@@ -1,3 +1,10 @@
+## 2026-08-19T14:10:00Z -- PAI reply delivery and character-name fixes (local, no deploy)
+
+- Objective/result: third PAI non-response report. Root cause found in the reply-delivery path: `SendPersonalAiNearbyReplyAsync` still dropped replies when the receiver lacked `GhostTakeoverAvailableComponent` (unactivated PAIs), so the gateway reply was silently discarded. Also, the nearby-speech context used the account name (`session.Name`) instead of the character name, so the PAI could not address the player by their in-game name.
+- Fix (`LuaMSectorAiDirectorSystem`): removed the `GhostTakeoverAvailableComponent` requirement from reply delivery (kept the occupied-mind guard); greet and nearby-chat contexts now use the character name (`Name(player)`/`Name(localChat.Sender)`), e.g. "Харура подошёл(ла) к тебе".
+- Validation: `dotnet build Content.Server/Content.Server.csproj -t:Compile --configuration DebugOpt --no-restore --no-dependencies -v:minimal` passes with 0 errors. ServerNews `2026081906` records the player-facing fix.
+- Production state: no production change yet; next action is the fast deploy.
+
 ## 2026-08-19T13:50:00Z -- research/protolathe + PAI fixes deployed to production
 
 - Rollout `luam-20260819-research-fix` (server + client) deployed with operator authorization and test override: protolathe crash fix (dangling Goobstation recipe results), unhidden `BluespaceStorage`, PAI activation-independent chat/greet, prior shuttle-deed fix, server name suffix.

@@ -11444,7 +11444,12 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             : string.Empty;
         var adultConfirmed = !persona.RequiresAdultConfirmation ||
                              _personalAiAdultGate.GetValueOrDefault(receiverUid) == LuaMPersonalAdultGateState.Confirmed;
-        _ = SendPersonalAiNearbyReplyAsync(receiverUid, persona, adultConfirmed, session, message, history, requestLease!);
+
+        var speakerName = Name(localChat.Sender);
+        var speakerMessage = string.IsNullOrWhiteSpace(speakerName)
+            ? message
+            : TrimForChat($"{speakerName}: {message}", 220);
+        _ = SendPersonalAiNearbyReplyAsync(receiverUid, persona, adultConfirmed, session, speakerMessage, history, requestLease!);
     }
 
     private void TryStartPersonalAiProximityGreets()
@@ -11494,7 +11499,7 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
                 _nextPersonalAiProximityGreet[receiver] = now + TimeSpan.FromSeconds(PersonalAiProximityGreetCooldownSeconds);
 
                 var persona = GetPersonalAiPersona(receiver);
-                var nearbyMessage = $"{session.Name} подошёл(ла) к тебе";
+                var nearbyMessage = $"{Name(player)} подошёл(ла) к тебе";
                 if (persona.RequiresAdultConfirmation &&
                     TryHandlePersonalAiAdultGate(receiver, persona, nearbyMessage, now))
                 {
@@ -11540,7 +11545,6 @@ public sealed partial class LuaMSectorAiDirectorSystem : EntitySystem
             await RunOnMainThread(() =>
             {
                 if (!Exists(receiver) ||
-                    !HasComp<GhostTakeoverAvailableComponent>(receiver) ||
                     TryComp<MindContainerComponent>(receiver, out var mind) && mind.HasMind)
                 {
                     return;
