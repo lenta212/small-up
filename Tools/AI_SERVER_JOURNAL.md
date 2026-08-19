@@ -1654,6 +1654,16 @@ Next action: monitor player reconnection and do not assume the un-deployed relea
 - Backups/recovery: server backup `/opt/monolith-ds/backups/server-luam-20260802-complete-update`, configuration backup `/opt/monolith-ds/backups/server_config-before-luam-20260802-complete-update.toml`, and required data archive `/opt/monolith-ds/backups/data-luam-20260802-complete-update.tar.gz` were created. The deploy script completed extraction, verification, backup, swap, start, and endpoint checks successfully.
 - Postflight: `monolith-ds.service` is active, UDP/1212 listens on IPv4 and IPv6, the deployment guard is absent, and loopback `/status` reports round 195 with zero players. `/info` advertises client version/hash `033373b34f37c59c84c6bc63d13b46454d6a65a0ac20835b275b6f3cbc003987` at the published HTTP URL. Root storage had 7.5 GiB available (81% used).
 
+## 2026-08-19T13:50:00Z -- research/protolathe + PAI fix deploy (production)
+
+- Rollout: `luam-20260819-research-fix` (server + client). Contents: protolathe crash fix (dangling Goobstation recipe results repointed/removed, `Pinpointer` now prints `PinpointerStation`), `BluespaceStorage` unhidden so Bluespace bags are researchable, PAI nearby chat/greet no longer require hand activation, prior shuttle-deed fix, server name suffix.
+- Client: `5f92a0c58ae3f14979508c20914cb11bde74442fd42e2b3f4ac989814feac6c6` published at http://188.127.225.57:1213/5f92a0c5.../SS14.Client.zip, HTTP 200, `/info` advertises the same version.
+- Server: package SHA256 `ef36998b3b62aa5401e69e6856275fac3644762a2f0b77b81730e03ff5cc9ba2`, receipt SHA256 `ac381178eaaa5a21825d49297015843579c57d733380601b878c781a359e4715`. Ship-save barrier passed after a clean service restart (round 214 -> 215/216 lobby, players 0).
+- Backups: `/opt/monolith-ds/backups/server-luam-20260819-research-fix`, `server_config-before-luam-20260819-research-fix.toml`, `data-luam-20260819-research-fix.tar.gz`.
+- Note: the first background pipeline run crashed transiently at the binary build (`dotnet` exit -532462766); the standalone binary build succeeded and the remaining guarded steps (audit, client publish, server deploy) completed normally.
+- Health: service active, `/status` round 216 lobby, players 0. Policy frozen again.
+- Next action: in-game verify protolathe opens and prints the station pinpointer, BluespaceStorage tech visible, PAI chat/greet works.
+
 ## 2026-08-19T11:28:00Z -- Tethys PDV-221 unquarantined (production DB write)
 
 - Objective: operator request "верни безымянному его шатл tethys".

@@ -1,3 +1,10 @@
+## 2026-08-19T13:50:00Z -- research/protolathe + PAI fixes deployed to production
+
+- Rollout `luam-20260819-research-fix` (server + client) deployed with operator authorization and test override: protolathe crash fix (dangling Goobstation recipe results), unhidden `BluespaceStorage`, PAI activation-independent chat/greet, prior shuttle-deed fix, server name suffix.
+- Client `5f92a0c5...` published and advertised; server package SHA256 `ef36998b...`, receipt `ac381178...`; ship-save barrier passed after clean restart; backups created; policy frozen again; journals updated and installed on the host.
+- One transient failure: the background pipeline binary build crashed (`dotnet` exit -532462766) once; a standalone binary build succeeded, then audit/client-publish/server-deploy completed via the guarded scripts.
+- Next action: in-game verification of protolathe (station pinpointer), researchable Bluespace bags, and PAI chat/greet.
+
 ## 2026-08-19T13:30:00Z -- protolathe crash and hidden BS-bag tech fixed (local, no deploy)
 
 - Objective/result: fixed the recurring "disappearing R&D/protolathe" report: the protolathe UI crashed on open with `EntityCreationException: invalid prototype PinpointerStationGoob`, and the Bluespace bags could not be researched because tech `BluespaceStorage` was `hidden: true`.
