@@ -77,13 +77,13 @@ public sealed class LuaMSalvageExpeditionConsoleBindingTest
                 Assert.That(data!.Missions, Is.Not.Empty,
                     "Newly enabled expedition data should get an initial local mission offer list.");
                 Assert.That(entities.GetComponent<SalvageExpeditionConsoleComponent>(console).LegacyLaunchingEnabled,
-                    Is.False,
-                    "Player ship consoles must be retired in favor of the shared outpost gateway.");
+                    Is.True,
+                    "Player ship consoles must offer shuttle-launched expeditions again.");
                 entities.EventBus.RaiseLocalEvent(
                     console,
                     new ClaimSalvageMessage { Index = data.Missions.Keys.First() });
-                Assert.That(data.ActiveMission, Is.Zero,
-                    "A forged BUI message must not reactivate legacy whole-shuttle expeditions.");
+                Assert.That(data.ActiveMission, Is.EqualTo((int) data.Missions.Keys.First()),
+                    "A claim message on the shuttle console must start the selected expedition.");
             });
         }
         finally

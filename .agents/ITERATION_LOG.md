@@ -1,3 +1,11 @@
+## 2026-08-19T14:47:00Z -- ship-launched salvage expeditions restored (local, no deploy)
+
+- Objective: the shuttle expedition console showed an inactive mission-claim button ("не активна кнопка для выбора экспедиций"). Restore ordinary salvage expeditions launched directly from the ship.
+- Root cause: the August update (`eede020433`) retired ship-launched expeditions on purpose. `OnSalvageClaimMessage` rejects consoles without `LegacyLaunchingEnabled`, and `UpdateConsole`/`UpdateConsoles` force `Cooldown=true` for the same consoles, which disables the client claim button. The base `ComputerSalvageExpedition` prototype never set the flag, so every player console was disabled and pointed players at the central outpost portal instead.
+- Fix: set `legacyLaunchingEnabled: true` on `ComputerSalvageExpedition` and restored the player-facing name/description ("экспедиционный компьютер"). Updated `LuaMSalvageExpeditionConsoleBindingTest.SalvageExpeditionConsoleOnOrdinaryShuttleCreatesLocalExpeditionData` to assert the console is launch-enabled and that a claim message starts the selected mission.
+- Validation: the edited prototype YAML parses (`yaml.compose_all`); no build or test run was requested in this iteration (the integration assembly is still unavailable in this worktree). ServerNews `2026081907` records the player-facing change.
+- Production state: no production change. Deploy deferred by explicit operator instruction ("без деплоя"). Next action: build server+client and deploy with operator authorization, then verify the claim button and shuttle FTL departure in-game.
+
 ## 2026-08-19T14:10:00Z -- PAI reply delivery and character-name fixes (local, no deploy)
 
 - Objective/result: third PAI non-response report. Root cause found in the reply-delivery path: `SendPersonalAiNearbyReplyAsync` still dropped replies when the receiver lacked `GhostTakeoverAvailableComponent` (unactivated PAIs), so the gateway reply was silently discarded. Also, the nearby-speech context used the account name (`session.Name`) instead of the character name, so the PAI could not address the player by their in-game name.
