@@ -1,4 +1,4 @@
-﻿using Content.Server.Administration.Commands;
+using Content.Server.Administration.Commands;
 using Content.Server.Administration.Systems;
 using Content.Shared.Damage;
 using Content.Shared.Damage.Prototypes;

@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using System.Linq;
 using Content.IntegrationTests.Pair;
 using Content.Server.Ghost.Roles;

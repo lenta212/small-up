@@ -1,4 +1,4 @@
-﻿#nullable enable
+#nullable enable
 using Content.Server.Body.Systems;
 using Robust.Shared.GameObjects;
 

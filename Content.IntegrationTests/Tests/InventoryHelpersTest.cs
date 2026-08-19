@@ -1,4 +1,4 @@
-﻿using Content.Server.Stunnable;
+using Content.Server.Stunnable;
 using Content.Shared.Inventory;
 using Robust.Shared.GameObjects;
 using Robust.Shared.IoC;
