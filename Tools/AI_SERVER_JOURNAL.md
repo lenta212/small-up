@@ -1654,6 +1654,15 @@ Next action: monitor player reconnection and do not assume the un-deployed relea
 - Backups/recovery: server backup `/opt/monolith-ds/backups/server-luam-20260802-complete-update`, configuration backup `/opt/monolith-ds/backups/server_config-before-luam-20260802-complete-update.toml`, and required data archive `/opt/monolith-ds/backups/data-luam-20260802-complete-update.tar.gz` were created. The deploy script completed extraction, verification, backup, swap, start, and endpoint checks successfully.
 - Postflight: `monolith-ds.service` is active, UDP/1212 listens on IPv4 and IPv6, the deployment guard is absent, and loopback `/status` reports round 195 with zero players. `/info` advertises client version/hash `033373b34f37c59c84c6bc63d13b46454d6a65a0ac20835b275b6f3cbc003987` at the published HTTP URL. Root storage had 7.5 GiB available (81% used).
 
+## 2026-08-19T11:28:00Z -- Tethys PDV-221 unquarantined (production DB write)
+
+- Objective: operator request "верни безымянному его шатл tethys".
+- Diagnosis: `luam_ship_snapshot` row `B133C789-380B-4823-8CB7-3C9195736954` (Tethys PDV-221, owner `749C1719-1B7F-463D-88B1-E985E90943DD` = account "Encryption", preference 26) was stuck in status 3 (Quarantined, reason "restored-entity-graph-or-manifest-mismatch"), so the shipyard console could not list/call it. No presence lease existed.
+- Action: row backup to `/opt/monolith-ds/backups/tethys-pdv221-before-20260819-112804.json`, then CAS update `status=0 (Stored)`, `quarantined_at_utc=NULL`, `quarantine_reason=NULL`, `revision 11->12`, `updated_at_utc=now` (1 row updated). The deployed build contains the restore-side drifted-manifest self-heal, so the next shipyard call should recompute entity count/manifest and restore normally.
+- Note: a second Tethys row (`D95282DE-4038-4140-9B5A-D4B6A34DC2FE`, PDV-786) is intentionally Retired with reason "shipyard sale"; left untouched. No account or character named "Безымянный" exists in the DB; owner is "Encryption".
+- Health: service active, DB WAL write completed, no lease conflict.
+- Next action: owner calls Tethys PDV-221 from the shipyard console and the restore is verified; reconcile the journal mirror.
+
 ## 2026-08-19T11:00:00Z -- shuttle/PAI fast deploy + server name update (production)
 
 - Authorization: operator-authorized fast deploy `luam-20260819-103329` (`server-release` + `client-static`), testOverride active, contract/readiness passed.
