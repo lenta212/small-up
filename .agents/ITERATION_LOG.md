@@ -1,3 +1,13 @@
+## 2026-08-19T11:00:00Z -- deployed shuttle/PAI fixes and server name change to production
+
+- Objective/result: operator-authorized fast deployment (`luam-20260819-103329`) without the full test run (policy `testOverride` active; contract and readiness passed). Shuttle deed restore after ghostrespawn, personal AI proximity greets and nearby-chat fixes are now live, together with the new server name suffix "СОХРАНЕНИЕ ШАТЛОВ для следующей смены".
+- Client: static client `62c8af85...` (376,895,839 bytes) published at http://188.127.225.57:1213/62c8af85.../SS14.Client.zip and verified HTTP 200 (public and loopback). The first pipeline run aborted after provisioning with a post-check quirk; the published client was already correct and is unchanged.
+- Server: package SHA256 `1f913052...`, receipt SHA256 `82038027...`. The first two deploy attempts were blocked: first by the authorization check (client-static not covered, fixed in policy `5ee8091930`), then by the authenticated ship-save barrier (HTTP 409) while one player was online and once more on a stale active lease after the player left. With zero players the service was restarted cleanly (round 208 -> 209 lobby), and the retry passed the barrier (id `7e14cf6c...`, attempted=0, saved=0, failed=0, activeRemaining=0, frozen=true) and completed stop/backup/swap/start. Post status: round 210 lobby, players 0, service active.
+- Backups: `/opt/monolith-ds/backups/server-luam-20260819-103329`, `server_config-before-luam-20260819-103329.toml`, `data-luam-20260819-103329.tar.gz`.
+- Server name: `hostname` and `lobby_name` in `server_config.remote.toml` now end with " | СОХРАНЕНИЕ ШАТЛОВ для следующей смены"; config deployed with backup `server_config-before-name-update-20260819.toml`, service restarted, `/status` confirms the new name.
+- Production state: release policy frozen again after the rollout; local `nuget.config` change restored from stash (local-only, not committed).
+- Next action: verify in-game (shuttle deed after ghostrespawn, PAI nearby chat/greets), then reconcile the shipped journal mirror on the host.
+
 ## 2026-08-19T10:40:00Z -- personal AI chat fixes (local, no deploy)
 
 - Objective/result: fixed the report that communication with the personal AI (PAI) "does not work".

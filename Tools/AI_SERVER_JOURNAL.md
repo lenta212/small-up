@@ -1654,6 +1654,16 @@ Next action: monitor player reconnection and do not assume the un-deployed relea
 - Backups/recovery: server backup `/opt/monolith-ds/backups/server-luam-20260802-complete-update`, configuration backup `/opt/monolith-ds/backups/server_config-before-luam-20260802-complete-update.toml`, and required data archive `/opt/monolith-ds/backups/data-luam-20260802-complete-update.tar.gz` were created. The deploy script completed extraction, verification, backup, swap, start, and endpoint checks successfully.
 - Postflight: `monolith-ds.service` is active, UDP/1212 listens on IPv4 and IPv6, the deployment guard is absent, and loopback `/status` reports round 195 with zero players. `/info` advertises client version/hash `033373b34f37c59c84c6bc63d13b46454d6a65a0ac20835b275b6f3cbc003987` at the published HTTP URL. Root storage had 7.5 GiB available (81% used).
 
+## 2026-08-19T11:00:00Z -- shuttle/PAI fast deploy + server name update (production)
+
+- Authorization: operator-authorized fast deploy `luam-20260819-103329` (`server-release` + `client-static`), testOverride active, contract/readiness passed.
+- Client: `62c8af85bbb3e80f3a748ca1484ae12436bbd1bfcf888eae49965f42a3917158` (376,895,839 bytes) published and verified HTTP 200 at `http://188.127.225.57:1213/<hash>/SS14.Client.zip` from loopback and externally.
+- Server: package SHA256 `1f913052022a6068934b1fe417f47ae4e3a50c681face66b986abee79e111bbb`; receipt SHA256 `82038027a2a511ee74922c39be6484dcc2c5c891b054d44854551c69d453456e`. Barrier id `7e14cf6c-0286-4200-bc0f-1e615ef0a3aa` (attempted=0, saved=0, failed=0, activeRemaining=0, frozen=true) after a clean service restart cleared the stale active lease.
+- Backups: `/opt/monolith-ds/backups/server-luam-20260819-103329`, `server_config-before-luam-20260819-103329.toml`, `data-luam-20260819-103329.tar.gz`.
+- Name update: `hostname`/`lobby_name` now end with " | СОХРАНЕНИЕ ШАТЛОВ для следующей смены"; pre-change config backed up to `server_config-before-name-update-20260819.toml`; service restarted; `/status` shows the new name, round 210 lobby, players 0, service active.
+- Health: `monolith-ds.service` active, `/status` and `/info` respond, UDP/1212 listening. No leftover firewall guard.
+- Next action: verify in-game shuttle deed restore and PAI chat/greets; keep the journal mirror in sync on the host.
+
 ## 2026-08-19T01:55:00+03:00 -- fast fix deployment luam-20260819-fastfix
 
 - Authorization/scope: operator-authorized fast `server-release` + `client-static` deployment. Content: restored-ship device links and wireless re-registration (`RefreshLinks` + `ConnectDevice` in the restore pipeline), research console card overlap fixes (Shiparmory branch and three colliding techs repositioned), protolathe dangling Goobstation refs (missing xenobag entities added, `BSCrystal` repointed to `MaterialBluespace`), plus ServerNews and iteration log entries.

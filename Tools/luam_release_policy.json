@@ -1,23 +1,20 @@
 {
-    "remoteDeployFrozen": false,
-    "reason": "Operator-authorized fast deployment of the 2026-08-19 fixes: shuttle deed restore after ghostrespawn, personal AI proximity greets and nearby chat fixes.",
+    "remoteDeployFrozen": true,
+    "reason": "Production rollout luam-20260819-103329 completed. Remote deployment is frozen again; future server or client-static mutation requires a fresh explicit authorization.",
     "lastReviewed": "2026-08-19",
     "deploymentAuthorization": {
-        "state": "authorized",
-        "approvalId": "op-20260819-shuttle-pai",
-        "approvedBy": "operator",
-        "approvedAtUtc": "2026-08-19T10:21:38Z",
-        "expiresAtUtc": "2026-08-19T22:21:38Z",
-        "allowedMutations": [
-            "server-release",
-            "client-static"
-        ],
+        "state": "frozen",
+        "approvalId": null,
+        "approvedBy": null,
+        "approvedAtUtc": null,
+        "expiresAtUtc": null,
+        "allowedMutations": [],
         "testOverride": {
-            "enabled": true,
-            "approvedBy": "operator",
-            "approvedAtUtc": "2026-08-19T10:21:38Z",
-            "expiresAtUtc": "2026-08-19T22:21:38Z",
-            "reason": "Operator approved skipping the full test run for this fast deployment."
+            "enabled": false,
+            "approvedBy": "",
+            "approvedAtUtc": null,
+            "expiresAtUtc": null,
+            "reason": ""
         }
     },
     "releaseGate": {
@@ -404,7 +401,7 @@
     ],
     "pendingLocalIntegrationBatch": {
         "name": "20260819-shuttle-pai",
-        "state": "deployment-authorized",
+        "state": "local-package-only",
         "packageSelection": "Fast server-only fix batch: shuttle deed restore after ghostrespawn, personal AI proximity greets and nearby chat fixes.",
         "packageFiles": [
             "Content.Server/Body/Systems/RespiratorSystem.cs",
