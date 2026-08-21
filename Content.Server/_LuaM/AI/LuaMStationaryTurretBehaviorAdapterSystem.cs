@@ -1,7 +1,9 @@
 using System;
 using Content.Server.Weapons.Ranged.Systems;
+using Content.Shared.Ghost;
 using Content.Shared.Weapons.Ranged.Events;
 using Content.Shared._LuaM.AI;
+using Robust.Server.Player;
 using Robust.Shared.Player;
 using Robust.Shared.Timing;
 
@@ -22,11 +24,14 @@ public sealed partial class LuaMStationaryTurretBehaviorAdapterSystem : EntitySy
 {
     private const string ObservationSource = "stationary-turret:domain";
     private static readonly TimeSpan EvaluationInterval = TimeSpan.FromSeconds(0.5);
+    private static readonly TimeSpan IdleEvaluationInterval = TimeSpan.FromSeconds(2);
+    private const float IdlePlayerCheckRange = 40f;
     private static readonly TimeSpan ObservationTtl = TimeSpan.FromSeconds(2);
 
     [Dependency] private IGameTiming _timing = default!;
     [Dependency] private GunSystem _guns = default!;
     [Dependency] private LuaMBehaviorSystem _behavior = default!;
+    [Dependency] private IPlayerManager _playerManager = default!;
 
     public override void Update(float frameTime)
     {
@@ -42,8 +47,49 @@ public sealed partial class LuaMStationaryTurretBehaviorAdapterSystem : EntitySy
                 continue;
             }
 
+            // Monolith performance: a turret that is not currently engaged and
+            // has no player nearby only needs a slow re-check. Full behavior
+            // evaluation every 0.5s on every idle turret dominated empty-station
+            // sim cost, so idle turrets now re-check at a 2s cadence instead.
+            if (!IsEngaged(uid) && !HasNearbyPlayer(uid))
+            {
+                adapter.NextEvaluation = now + IdleEvaluationInterval;
+                continue;
+            }
+
             RefreshNow(uid, adapter);
         }
+    }
+
+    private bool IsEngaged(EntityUid uid)
+    {
+        return TryComp<LuaMBehaviorAgentComponent>(uid, out var agent)
+            && agent.Decision.Intent is LuaMBehaviorIntent.DefendSelf
+                or LuaMBehaviorIntent.DefendArea
+                or LuaMBehaviorIntent.ProtectTarget;
+    }
+
+    private bool HasNearbyPlayer(EntityUid uid)
+    {
+        var coords = Transform(uid).Coordinates;
+        foreach (var playerData in _playerManager.GetAllPlayerData())
+        {
+            if (!_playerManager.TryGetSessionById(playerData.UserId, out var session)
+                || session.AttachedEntity is not { Valid: true } playerEnt
+                || HasComp<GhostComponent>(playerEnt))
+            {
+                continue;
+            }
+
+            var playerCoords = Transform(playerEnt).Coordinates;
+            if (coords.TryDistance(EntityManager, playerCoords, out var distance)
+                && distance <= IdlePlayerCheckRange)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public bool RefreshNow(

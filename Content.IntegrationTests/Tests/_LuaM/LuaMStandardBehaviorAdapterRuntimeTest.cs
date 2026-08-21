@@ -10,6 +10,7 @@ using Content.Shared.Power.Components;
 using Content.Shared._LuaM.AI;
 using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
+using Robust.Server.Player;
 
 namespace Content.IntegrationTests.Tests._LuaM;
 
@@ -245,6 +246,57 @@ public sealed class LuaMStandardBehaviorAdapterRuntimeTest
                 Assert.That(unavailable.Tier, Is.EqualTo(LuaMBehaviorTier.Safety));
                 Assert.That(htn.RootTask.Task, Is.EqualTo("IdleSpinCompound"));
             });
+        });
+
+        await pair.CleanReturnAsync();
+    }
+
+    [Test]
+    public async Task TurretPacesIdleRefreshWhenNoPlayerIsNearbyAndResumesWithPlayer()
+    {
+        await using var pair = await PoolManager.GetServerClient();
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var playerMan = server.ResolveDependency<IPlayerManager>();
+        var adapters = entities.System<LuaMStationaryTurretBehaviorAdapterSystem>();
+        var map = await pair.CreateTestMap();
+
+        EntityUid turret = default;
+        await server.WaitAssertion(() =>
+        {
+            // Far away from any player: the turret must fall back to the slow idle cadence.
+            turret = entities.SpawnEntity("WeaponTurretSyndicate", Offset(map.MapCoords, 120f, 0f));
+            var adapter = entities.GetComponent<LuaMStationaryTurretBehaviorAdapterComponent>(turret);
+            adapter.NextEvaluation = TimeSpan.Zero;
+        });
+
+        await server.WaitRunTicks(2);
+
+        await server.WaitAssertion(() =>
+        {
+            var adapter = entities.GetComponent<LuaMStationaryTurretBehaviorAdapterComponent>(turret);
+            Assert.That(adapter.NextEvaluation, Is.GreaterThan(TimeSpan.FromSeconds(1.5)));
+        });
+
+        await server.WaitAssertion(() =>
+        {
+            // A live player next to the turret must switch it back to the fast cadence.
+            var adapter = entities.GetComponent<LuaMStationaryTurretBehaviorAdapterComponent>(turret);
+            adapter.NextEvaluation = TimeSpan.Zero;
+            var session = playerMan.GetSessionById(pair.Client.Session!.UserId);
+            var actor = entities.SpawnEntity(
+                "MobHuman",
+                entities.GetComponent<TransformComponent>(turret).Coordinates);
+            playerMan.SetAttachedEntity(session, actor, true);
+        });
+
+        await server.WaitRunTicks(2);
+
+        await server.WaitAssertion(() =>
+        {
+            var adapter = entities.GetComponent<LuaMStationaryTurretBehaviorAdapterComponent>(turret);
+            Assert.That(adapter.NextEvaluation, Is.GreaterThan(TimeSpan.Zero));
+            Assert.That(adapter.NextEvaluation, Is.LessThan(TimeSpan.FromSeconds(1)));
         });
 
         await pair.CleanReturnAsync();

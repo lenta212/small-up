@@ -710,6 +710,120 @@ public sealed class LuaMShipPersistenceDatabaseTest
     }
 
     [Test]
+    public async Task ExpiredButUnchangedActiveLeaseCanBeRenewed()
+    {
+        await using var connection = await OpenSqliteAsync();
+        var options = new DbContextOptionsBuilder<SqliteServerDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var db = NewServerDb(() => options, inMemory: true);
+        var owner = new NetUserId(Guid.NewGuid());
+        var shipId = Guid.NewGuid();
+        var startedAt = DateTime.UtcNow;
+        await db.InitPrefsAsync(owner, NewProfile("Expired Renewal Owner"));
+        await db.StoreLuaMShipSnapshotAsync(NewStoreRequest(shipId, owner, startedAt, "heartbeat payload"));
+
+        var claim = NewClaimRequest(shipId, owner, 0, startedAt.AddSeconds(1), startedAt.AddSeconds(2));
+        var claimed = await db.ClaimLuaMShipRestoreAsync(claim);
+        await db.CompleteLuaMShipRestoreAsync(new LuaMShipRestoreCompleteRequest(
+            shipId,
+            owner,
+            1,
+            claim.LeaseId,
+            startedAt.AddSeconds(1)));
+
+        // The lease expired at startedAt + 2s. The same claim (lease id and
+        // revision unchanged) is a heartbeat that was merely late, so it must
+        // renew instead of spinning on LeaseConflict forever.
+        var renewed = await db.RenewLuaMShipLeaseAsync(new LuaMShipLeaseRenewRequest(
+            shipId,
+            owner,
+            2,
+            claim.LeaseId,
+            0,
+            startedAt.AddSeconds(3),
+            startedAt.AddSeconds(8)));
+        var wrongLease = await db.RenewLuaMShipLeaseAsync(new LuaMShipLeaseRenewRequest(
+            shipId,
+            owner,
+            2,
+            Guid.NewGuid(),
+            0,
+            startedAt.AddSeconds(4),
+            startedAt.AddSeconds(9)));
+        var staleRevision = await db.RenewLuaMShipLeaseAsync(new LuaMShipLeaseRenewRequest(
+            shipId,
+            owner,
+            2,
+            claim.LeaseId,
+            0,
+            startedAt.AddSeconds(5),
+            startedAt.AddSeconds(10)));
+
+        var after = await db.GetLuaMShipSnapshotAsync(shipId, owner);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(claimed.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.Success));
+            Assert.That(renewed.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.Success));
+            Assert.That(renewed.LeaseRevision, Is.EqualTo(1));
+            Assert.That(wrongLease.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.LeaseConflict));
+            Assert.That(staleRevision.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.LeaseConflict));
+            Assert.That(after!.Status, Is.EqualTo(DbLuaMShipSnapshotStatus.Active));
+            Assert.That(after.LeaseId, Is.EqualTo(claim.LeaseId));
+            Assert.That(after.LeaseRevision, Is.EqualTo(1));
+            Assert.That(after.LeaseExpiresAtUtc, Is.GreaterThan(startedAt.AddSeconds(3)));
+        });
+    }
+
+    [Test]
+    public async Task ExpiredActiveLeaseStillAllowsFinalSnapshotStore()
+    {
+        await using var connection = await OpenSqliteAsync();
+        var options = new DbContextOptionsBuilder<SqliteServerDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var db = NewServerDb(() => options, inMemory: true);
+        var owner = new NetUserId(Guid.NewGuid());
+        var shipId = Guid.NewGuid();
+        var startedAt = DateTime.UtcNow;
+        await db.InitPrefsAsync(owner, NewProfile("Expired Store Owner"));
+        await db.StoreLuaMShipSnapshotAsync(NewStoreRequest(shipId, owner, startedAt, "pre-stall payload"));
+
+        var claim = NewClaimRequest(shipId, owner, 0, startedAt.AddSeconds(1), startedAt.AddSeconds(2));
+        await db.ClaimLuaMShipRestoreAsync(claim);
+        await db.CompleteLuaMShipRestoreAsync(new LuaMShipRestoreCompleteRequest(
+            shipId,
+            owner,
+            1,
+            claim.LeaseId,
+            startedAt.AddSeconds(1)));
+
+        // Lease expired at startedAt + 2s. A stalled live process must still be
+        // able to finalize its ship state to Stored and drop the lease row.
+        var replacement = NewStoreRequest(shipId, owner, startedAt.AddSeconds(3), "final payload") with
+        {
+            ExpectedRevision = 2,
+            PayloadRevision = 2,
+            LeaseId = claim.LeaseId,
+            ShipName = "Renamed After Stall",
+        };
+        var stored = await db.StoreLuaMShipSnapshotAsync(replacement);
+        var after = await db.GetLuaMShipSnapshotAsync(shipId, owner);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.Success));
+            Assert.That(stored.Revision, Is.EqualTo(3));
+            Assert.That(after!.Status, Is.EqualTo(DbLuaMShipSnapshotStatus.Stored));
+            Assert.That(after.Revision, Is.EqualTo(3));
+            Assert.That(after.PayloadRevision, Is.EqualTo(2));
+            Assert.That(after.LeaseId, Is.Null);
+            Assert.That(after.Payload, Is.EqualTo(replacement.Payload));
+        });
+    }
+
+    [Test]
     public async Task ConcurrentIdenticalInitialStoresResolveAsOneSuccessAndOneReplay()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"luam-ship-store-{Guid.NewGuid():N}.db");

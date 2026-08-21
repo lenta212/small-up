@@ -233,8 +233,13 @@ public abstract partial class ServerDbBase
                         snapshot.Status);
                 }
 
-                if (lease == null || request.LeaseId == null || lease.LeaseId != request.LeaseId.Value ||
-                    lease.ExpiresAtUtc <= storedAt)
+                // The lease expiry is a heartbeat marker, not an authority
+                // revocation while the exact lease row is unchanged. A live
+                // process that was stalled past the heartbeat (slow main loop,
+                // deferred maintenance) must still be able to persist its ship;
+                // a competing claim would have replaced the lease row, which
+                // the LeaseId comparison below still rejects.
+                if (lease == null || request.LeaseId == null || lease.LeaseId != request.LeaseId.Value)
                 {
                     return new(
                         LuaMShipPersistenceWriteStatus.LeaseConflict,
@@ -509,9 +514,14 @@ public abstract partial class ServerDbBase
 
             var renewedAt = AsUtc(request.RenewedAtUtc);
             var expiresAt = AsUtc(request.LeaseExpiresAtUtc);
+            // Same heartbeat semantics as the store path: an expired lease row
+            // that is otherwise identical still belongs to this claim, so a
+            // stalled process can renew it instead of spinning on LeaseConflict
+            // until the expiry-recovery path (which itself never runs while
+            // renewals fail) cleans it up.
             if (lease == null || lease.LeaseId != request.LeaseId ||
                 lease.Revision != request.ExpectedLeaseRevision ||
-                lease.ExpiresAtUtc <= renewedAt || renewedAt < lease.RenewedAtUtc ||
+                renewedAt < lease.RenewedAtUtc ||
                 expiresAt <= renewedAt || lease.Revision == long.MaxValue)
             {
                 return new(

@@ -1,21 +1,22 @@
 ﻿{
-    "remoteDeployFrozen":  true,
-    "reason":  "Production rollout luam-20260819-salvage-expeditions completed. Remote deployment is frozen again; future server or client-static mutation requires a fresh explicit authorization.",
-    "lastReviewed":  "2026-08-19",
+    "remoteDeployFrozen":  false,
+    "reason":  "Operator-authorized fast hotfix 20260821: lease-renewal LeaseConflict loop fix plus idle stationary-turret behavior pacing. Server-release and client-static mutations authorized.",
+    "lastReviewed":  "2026-08-21",
     "deploymentAuthorization":  {
-                                    "state":  "frozen",
-                                    "approvalId":  null,
-                                    "approvedBy":  null,
-                                    "approvedAtUtc":  null,
-                                    "expiresAtUtc":  null,
+                                    "state":  "authorized",
+                                    "approvalId":  "operator-chat-20260821-lease-turret-hotfix",
+                                    "approvedBy":  "operator",
+                                    "approvedAtUtc":  "2026-08-21T15:30:14.3630948Z",
+                                    "expiresAtUtc":  "2026-08-22T15:30:14.3630948Z",
                                     "allowedMutations":  [
-
+                                                             "server-release",
+                                                             "client-static"
                                                          ],
                                     "testOverride":  {
                                                          "enabled":  true,
                                                          "approvedBy":  "operator",
-                                                         "approvedAtUtc":  "2026-08-19T13:33:43Z",
-                                                         "expiresAtUtc":  "2026-08-20T01:33:43Z",
+                                                         "approvedAtUtc":  "2026-08-21T15:30:14.3630948Z",
+                                                         "expiresAtUtc":  "2026-08-21T17:30:14.3630948Z",
                                                          "reason":  "Operator approved skipping the full test run for this fast deployment."
                                                      }
                                 },
@@ -407,7 +408,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260819-pai-delivery",
-                                         "state":  "local-package-only",
+                                         "state":  "deployment-authorized",
                                          "packageSelection":  "Fast server+client fix: PAI reply delivery without activation and character-name addressing.",
                                          "packageFiles":  [
                                                               "Content.Server/Body/Systems/RespiratorSystem.cs",
@@ -637,9 +638,9 @@
                                                                     ]
                                      },
     "approvedExistingWorkOutsideLuaMPackage":  {
-                                                   "reason":  "No changed file is approved outside the source package for this production batch.",
+                                                   "reason":  "Pre-existing local NuGet source state (dotnet-eng feed removed, UTF-8 BOM normalized) kept for local restore; not part of the server package.",
                                                    "files":  [
-
+                                                                 "nuget.config"
                                                              ]
                                                },
     "requiredChecksBeforeDeploy":  [

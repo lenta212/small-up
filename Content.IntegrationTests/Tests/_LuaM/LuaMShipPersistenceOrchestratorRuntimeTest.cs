@@ -26,6 +26,7 @@ using Robust.Shared.Maths;
 using Robust.Shared.Network;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Utility;
+using Serilog.Events;
 
 namespace Content.IntegrationTests.Tests._LuaM;
 
@@ -1413,6 +1414,19 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
     {
         var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
         var server = pair.Server;
+        bool JudgeExpectedRenewalConflict(string sawmillName, LogEvent message)
+        {
+            if (sawmillName != "luam.ship-persistence")
+                return false;
+
+            var rendered = message.RenderMessage();
+            return rendered.StartsWith(
+                       "Failed to renew active lease for ship ",
+                       StringComparison.Ordinal) &&
+                   rendered.Contains("lease renewal failed: LeaseConflict", StringComparison.Ordinal);
+        }
+
+        pair.ServerLogHandler.JudgeLog += JudgeExpectedRenewalConflict;
         var entities = server.ResolveDependency<IEntityManager>();
         var loader = entities.System<MapLoaderSystem>();
         var maps = entities.System<SharedMapSystem>();
@@ -1598,6 +1612,14 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                     "A transient renew failure must keep the live grid tracked for retry and cleanup.");
             });
 
+            await RunOnServerAsync(async () =>
+            {
+                await orchestrator.MaintainLeasesAsync(now.AddMinutes(3));
+                return true;
+            });
+            Assert.That(recoveryCount, Is.EqualTo(1),
+                "Maintenance must still recover expired leases while a live in-memory renewal is failing.");
+
             await server.WaitPost(() => entities.DeleteEntity(grid));
             var missingGrid = await RunOnServerAsync(() => orchestrator.RenewAsync(
                 storedRequest.ShipId,
@@ -1614,8 +1636,179 @@ public sealed class LuaMShipPersistenceOrchestratorRuntimeTest
                 await orchestrator.MaintainLeasesAsync(now.AddMinutes(6));
                 return true;
             });
-            Assert.That(recoveryCount, Is.EqualTo(1),
+            Assert.That(recoveryCount, Is.EqualTo(2),
                 "Periodic maintenance must recover orphan leases even when no ship is active in memory.");
+            database.VerifyAll();
+        }
+        finally
+        {
+            await server.WaitPost(() =>
+            {
+                if (entities.EntityExists(grid))
+                    entities.DeleteEntity(grid);
+                if (maps.MapExists(mapId))
+                    maps.DeleteMap(mapId);
+            });
+            pair.ServerLogHandler.JudgeLog -= JudgeExpectedRenewalConflict;
+            await pair.CleanReturnAsync();
+        }
+    }
+
+    [Test]
+    public async Task LandedLeaseRenewalConflictIsAdoptedAsAlreadyProcessed()
+    {
+        var pair = await PoolManager.GetServerClient(new PoolSettings { Dirty = true });
+        var server = pair.Server;
+        var entities = server.ResolveDependency<IEntityManager>();
+        var loader = entities.System<MapLoaderSystem>();
+        var maps = entities.System<SharedMapSystem>();
+        var runtime = entities.System<LuaMFullShipPersistenceSystem>();
+        var database = new Mock<IServerDbManager>(MockBehavior.Strict);
+        var owner = new NetUserId(Guid.NewGuid());
+        var now = DateTime.UtcNow;
+        var leaseId = Guid.Empty;
+        LuaMShipSnapshotStoreRequest? storedRequest = null;
+        MapId mapId = default;
+        EntityUid grid = EntityUid.Invalid;
+
+        database
+            .Setup(db => db.StoreLuaMShipSnapshotAsync(
+                It.IsAny<LuaMShipSnapshotStoreRequest>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<LuaMShipSnapshotStoreRequest, CancellationToken>((request, _) => storedRequest = request)
+            .ReturnsAsync((LuaMShipSnapshotStoreRequest request, CancellationToken _) => new(
+                LuaMShipPersistenceWriteStatus.Success,
+                request.ShipId,
+                0,
+                DbLuaMShipSnapshotStatus.Stored));
+        database
+            .Setup(db => db.ClaimLuaMShipRestoreAsync(
+                It.Is<LuaMShipRestoreClaimRequest>(request =>
+                    request.OwnerUserId == owner &&
+                    request.ExpectedRevision == 0 &&
+                    request.RestoreRoundId == 42),
+                It.IsAny<CancellationToken>()))
+            .Callback<LuaMShipRestoreClaimRequest, CancellationToken>((request, _) => leaseId = request.LeaseId)
+            .ReturnsAsync((LuaMShipRestoreClaimRequest request, CancellationToken _) => new(
+                LuaMShipPersistenceWriteStatus.Success,
+                request.ShipId,
+                1,
+                DbLuaMShipSnapshotStatus.Restoring,
+                request.LeaseId,
+                0));
+        database
+            .Setup(db => db.CompleteLuaMShipRestoreAsync(
+                It.Is<LuaMShipRestoreCompleteRequest>(request =>
+                    request.OwnerUserId == owner &&
+                    request.ExpectedRevision == 1),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((LuaMShipRestoreCompleteRequest request, CancellationToken _) => new(
+                LuaMShipPersistenceWriteStatus.Success,
+                request.ShipId,
+                2,
+                DbLuaMShipSnapshotStatus.Active,
+                request.LeaseId,
+                0));
+        database
+            .Setup(db => db.RenewLuaMShipLeaseAsync(
+                It.Is<LuaMShipLeaseRenewRequest>(request =>
+                    request.OwnerUserId == owner &&
+                    request.ExpectedSnapshotRevision == 2 &&
+                    request.LeaseId == leaseId &&
+                    request.ExpectedLeaseRevision == 0),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((LuaMShipLeaseRenewRequest request, CancellationToken _) => new(
+                LuaMShipPersistenceWriteStatus.LeaseConflict,
+                request.ShipId,
+                request.ExpectedSnapshotRevision,
+                DbLuaMShipSnapshotStatus.Active,
+                request.LeaseId,
+                request.ExpectedLeaseRevision));
+        database
+            .Setup(db => db.GetLuaMShipSnapshotAsync(
+                It.IsAny<Guid>(),
+                owner,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => ToRecord(
+                    storedRequest!,
+                    2,
+                    DbLuaMShipSnapshotStatus.Active,
+                    leaseId,
+                    "orchestrator-runtime-test",
+                    42,
+                    1));
+
+        try
+        {
+            async Task<T> RunOnServerAsync<T>(Func<Task<T>> callback)
+            {
+                var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+                await server.WaitPost(() =>
+                {
+                    _ = CompleteAsync();
+                    return;
+
+                    async Task CompleteAsync()
+                    {
+                        try
+                        {
+                            completion.SetResult(await callback());
+                        }
+                        catch (Exception exception)
+                        {
+                            completion.SetException(exception);
+                        }
+                    }
+                });
+                return await completion.Task;
+            }
+
+            await server.WaitPost(() =>
+            {
+                maps.CreateMap(out mapId);
+                Assert.That(loader.TryLoadGrid(mapId, SeedPath, out var loaded), Is.True);
+                Assert.That(loaded, Is.Not.Null);
+                grid = loaded!.Value.Owner;
+            });
+
+            var orchestrator = entities.System<LuaMShipPersistenceOrchestrator>();
+            orchestrator.ConfigureForTesting(
+                database.Object,
+                runtime,
+                "orchestrator-runtime-test");
+            var result = await RunOnServerAsync(() => orchestrator.RegisterAsync(
+                grid,
+                owner,
+                new LuaMShipSnapshotMetadata(
+                    "VesselTestPersistence",
+                    "Purchased Test Ship",
+                    "PT-42",
+                    125_000,
+                    false,
+                    42),
+                now));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(result!.Success, Is.True, result.Reason);
+                Assert.That(result.LeaseId, Is.EqualTo(leaseId));
+                Assert.That(orchestrator.ActiveLeases, Has.Count.EqualTo(1));
+            });
+
+            // The renewal actually landed in the durable store (lease revision
+            // advanced to 1) but the response was lost. The orchestrator must
+            // adopt the landed revision instead of spinning on LeaseConflict.
+            var landed = await RunOnServerAsync(() => orchestrator.RenewAsync(
+                storedRequest!.ShipId,
+                now.AddSeconds(1)));
+            Assert.Multiple(() =>
+            {
+                Assert.That(landed.Success, Is.True, landed.Reason);
+                Assert.That(landed.Status, Is.EqualTo(LuaMShipPersistenceWriteStatus.AlreadyProcessed));
+                Assert.That(orchestrator.ActiveLeases, Has.Count.EqualTo(1));
+                Assert.That(orchestrator.ActiveLeases.Single().LeaseRevision, Is.EqualTo(1));
+            });
+
             database.VerifyAll();
         }
         finally

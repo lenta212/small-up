@@ -752,6 +752,35 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
             nowUtc + _leaseDuration), cancel);
         if (!renewed.Success || renewed.LeaseRevision == null)
         {
+            // A commit can land in the database while the response is lost.
+            // Re-read the durable row: if our exact renewal is already there,
+            // adopt the newer lease revision instead of retrying forever with a
+            // stale in-memory revision (which eventually expires and turns into
+            // the permanent LeaseConflict loop).
+            if (renewed.Status is LuaMShipPersistenceWriteStatus.LeaseConflict
+                or LuaMShipPersistenceWriteStatus.RevisionConflict)
+            {
+                var durable = await _database.GetLuaMShipSnapshotAsync(
+                    active.ShipId,
+                    active.OwnerUserId,
+                    cancel);
+                if (durable != null &&
+                    durable.LeaseId == active.LeaseId &&
+                    durable.LeaseRevision == active.LeaseRevision + 1 &&
+                    durable.Status is DbLuaMShipSnapshotStatus.Active
+                        or DbLuaMShipSnapshotStatus.Restoring)
+                {
+                    _active[shipId] = active with { LeaseRevision = durable.LeaseRevision.Value };
+                    return new(
+                        true,
+                        LuaMShipPersistenceWriteStatus.AlreadyProcessed,
+                        active.RegistryRevision,
+                        active.LeaseId,
+                        active.Grid,
+                        null);
+                }
+            }
+
             return Failure(renewed.Status, $"lease renewal failed: {renewed.Status}");
         }
 
@@ -1098,10 +1127,11 @@ public sealed class LuaMShipPersistenceOrchestrator : EntitySystem
 
     private async Task MaintainLeasesCoreAsync(DateTime nowUtc, CancellationToken cancel)
     {
-        var activeLeasesSafe = await RenewAllActiveShipsAsync(nowUtc, cancel);
-        if (!activeLeasesSafe)
-            return;
-
+        // Recovery must run even when an in-memory renewal failed. Otherwise one
+        // permanently stuck lease (for example a ship whose heartbeat expired
+        // while the round stayed live) blocks the cleanup of every other
+        // orphaned/expired lease and produces an endless error loop.
+        await RenewAllActiveShipsAsync(nowUtc, cancel);
         await _database.RecoverExpiredLuaMShipLeasesAsync(nowUtc, 100, cancel);
     }
 
