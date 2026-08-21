@@ -1,16 +1,15 @@
 ﻿{
-    "remoteDeployFrozen":  false,
-    "reason":  "Operator-authorized fast hotfix 20260821: lease-renewal LeaseConflict loop fix plus idle stationary-turret behavior pacing. Server-release and client-static mutations authorized.",
+    "remoteDeployFrozen":  true,
+    "reason":  "Production rollout luam-20260821-lease-turret-hotfix completed. Remote deployment is frozen again; future server or client-static mutation requires a fresh explicit authorization.",
     "lastReviewed":  "2026-08-21",
     "deploymentAuthorization":  {
-                                    "state":  "authorized",
-                                    "approvalId":  "operator-chat-20260821-lease-turret-hotfix",
-                                    "approvedBy":  "operator",
-                                    "approvedAtUtc":  "2026-08-21T15:30:14.3630948Z",
-                                    "expiresAtUtc":  "2026-08-22T15:30:14.3630948Z",
+                                    "state":  "frozen",
+                                    "approvalId":  null,
+                                    "approvedBy":  null,
+                                    "approvedAtUtc":  null,
+                                    "expiresAtUtc":  null,
                                     "allowedMutations":  [
-                                                             "server-release",
-                                                             "client-static"
+
                                                          ],
                                     "testOverride":  {
                                                          "enabled":  true,
@@ -408,7 +407,7 @@
                                  ],
     "pendingLocalIntegrationBatch":  {
                                          "name":  "20260819-pai-delivery",
-                                         "state":  "deployment-authorized",
+                                         "state":  "local-package-only",
                                          "packageSelection":  "Fast server+client fix: PAI reply delivery without activation and character-name addressing.",
                                          "packageFiles":  [
                                                               "Content.Server/Body/Systems/RespiratorSystem.cs",

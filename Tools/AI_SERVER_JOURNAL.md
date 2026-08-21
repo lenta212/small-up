@@ -1741,3 +1741,13 @@ Next action: monitor player reconnection and do not assume the un-deployed relea
 - Hotfix deploy: tag `luam-20260821-lease-turret-hotfix`, `server-release` + `client-static` authorized, testOverride active (full suite not re-run per operator). Expected: service restart ends round 221; three stuck leases self-heal on first maintenance cycle; idle turret sim cost drops.
 - Health before deploy: service active, `/status` round 221, players 1 (operator). Journal mirror SHA pre-deploy reconciled.
 - Next action: complete guarded deploy, verify `/status`, lease errors stop, CPU/frametime improvement, then append deploy outcome and reinstall the journal mirror (`root:root`, 0644).
+
+## 2026-08-21T16:45:00Z -- deploy luam-20260821-lease-turret-hotfix completed
+
+- Deployed: tag `luam-20260821-lease-turret-hotfix`, server package SHA256 `24461ddafcca0f76b34861b7bcaf5de750a21076b73394009279ea7fa0fc60aa`, receipt SHA256 `b6c34efd62b85bae97de49e9c6a75f476346f43616492203d9ca116313a06fc5`. Client unchanged (`0ddb27f7...`, external delivery, HTTP 200).
+- First attempt: ship-save barrier HTTP 409 (`LeaseConflict` items 2-3 on the known stuck leases). Playbook flow applied: nftables guard `udp dport 1212 drop` inserted in `ufw-user-input` (handle 187), `monolith-ds.service` restarted (round 221 ended; in-memory active leases cleared), retry passed barrier `b5e0ebad-b540-4093-8997-82c268d0b85c` (`attempted=0 saved=0 failed=0 active_remaining=0 frozen=true`), guard deleted.
+- Backups: `server-luam-20260821-lease-turret-hotfix`, `data-luam-20260821-lease-turret-hotfix.tar.gz`, `server_config-before-luam-20260821-lease-turret-hotfix.toml` (config SHA `250f67c0...` matches repo `server_config.remote.toml`).
+- Postflight: service active (ExecMainStartTimestamp 2026-08-21 19:41:59 MSK), `/status` round 223 lobby, players 0, `/info` version `0ddb27f7...`. Zero LeaseConflict since the new process start; 3 `Cannot keep up` in the first 10 min (lobby). Old-process shutdown noise (serializer/truncated Колосс Централл during round 221 teardown) was transient.
+- Expected follow-up: at the next round start the fixed maintenance should renew/recover the three stuck leases (`0bdc6d06-...`, `860657c8-...`, `add9e9a7-...`) without LeaseConflict; idle turret sim cost should drop on empty stations. Nightly `monolith-admin-log-archive.timer` will VACUUM `preferences.db` at 04:05 MSK (0 players) reclaiming ~5.5 GB.
+- Journal mirror installed at `/opt/monolith-ds/AI_SERVER_JOURNAL.md` (root:root 0644). Release policy frozen again.
+- Next action: verify in-game that the round starts cleanly, leases renew, and `Cannot keep up` frequency drops; confirm disk after tonight's VACUUM.
