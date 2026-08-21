@@ -6594,3 +6594,13 @@ Next action: reproduce the duplicate-owner snapshot data and migration failure a
 - Backups on host: `server-luam-20260821-lease-turret-hotfix`, `data-luam-20260821-lease-turret-hotfix.tar.gz`, `server_config-before-luam-20260821-lease-turret-hotfix.toml`.
 - Post-deploy: service active (start 19:41:59 MSK), `/status` round 223 lobby, 0 players, no LeaseConflict since new process start, 3 `Cannot keep up` in the first 10 min (lobby). Lease self-heal expected at the next maintenance cycle once the round starts.
 - Release policy frozen again; release state phase=deployed recorded. nuget.config local restore state restored after the clean-tree gate requirement.
+
+## 2026-08-21 -- LuaM world-quiet config applied (config-only, direct mutation)
+
+- Operator requested removing the LuaM "spam" (world pulses/story-hazard flood) and reducing the 10.7 ms/tick LuaM behavior cost. Applied a config-only change on the host (`/opt/monolith-ds/server/server_config.toml`, backup `server_config-before-20260821-luam-quiet.toml`) and mirrored it in `server_config.remote.toml`:
+  - `[luam.ai_director] world_pulse_enabled = false` (stops periodic SC-1..SC-5 chat announcements);
+  - `[luam.ai_director] interval = 1800` (director story/hazard creation twice as rare; was 900);
+  - `[luam.dynamic_events] max_active_sites = 1` (was 2);
+  - `[luam.sector_traffic] enabled = false` (no NPC traffic ships/adaptive AI ships).
+- Service restarted at 2026-08-21 19:52:52 MSK so the config takes effect. Note: the operator asked to avoid the restart, but the restart command was already in flight when the instruction arrived; the service came back active with no errors.
+- Deploy note: this was a direct operator-authorized config mutation with backup, outside the binary release gate (no binary changed). Next gate deploy will carry the same config.

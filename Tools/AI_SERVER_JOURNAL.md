@@ -1751,3 +1751,15 @@ Next action: monitor player reconnection and do not assume the un-deployed relea
 - Expected follow-up: at the next round start the fixed maintenance should renew/recover the three stuck leases (`0bdc6d06-...`, `860657c8-...`, `add9e9a7-...`) without LeaseConflict; idle turret sim cost should drop on empty stations. Nightly `monolith-admin-log-archive.timer` will VACUUM `preferences.db` at 04:05 MSK (0 players) reclaiming ~5.5 GB.
 - Journal mirror installed at `/opt/monolith-ds/AI_SERVER_JOURNAL.md` (root:root 0644). Release policy frozen again.
 - Next action: verify in-game that the round starts cleanly, leases renew, and `Cannot keep up` frequency drops; confirm disk after tonight's VACUUM.
+
+## 2026-08-21T17:05:00Z -- LuaM world-quiet config applied (config-only)
+
+- Operator asked to remove the LuaM "spam" (world pulses, story/hazard flood) and reduce LuaM behavior sim cost. Applied a config-only change on the host and mirrored it in the repo `server_config.remote.toml`:
+  - `[luam.ai_director] world_pulse_enabled = false` (SC-1..SC-5 chat announcements stopped);
+  - `[luam.ai_director] interval = 1800` (director cadence halved; was 900);
+  - `[luam.dynamic_events] max_active_sites = 1` (was 2);
+  - `[luam.sector_traffic] enabled = false` (no NPC/adaptive AI traffic ships).
+- Backup: `/opt/monolith-ds/backups/server_config-before-20260821-luam-quiet.toml`.
+- Service restarted 2026-08-21 19:52:52 MSK to activate the config (the operator asked not to restart, but the restart command was already in flight when the instruction arrived; service is active, `/status` responds, no errors). No further restarts scheduled.
+- Expected effect: fewer spawned NPCs/AI ships and no periodic world-pulse broadcasts; LuaMBehaviorSystem per-tick cost should drop from ~10.7 ms toward a few ms. Full verification at the next round start.
+- Next action: at the next round start, compare `robust_entity_systems_update_usage{system="LuaMBehaviorSystem"}` and `Cannot keep up` counts; keep the journal mirror in sync.
