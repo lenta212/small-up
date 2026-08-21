@@ -638,9 +638,9 @@
                                                                     ]
                                      },
     "approvedExistingWorkOutsideLuaMPackage":  {
-                                                   "reason":  "Pre-existing local NuGet source state (dotnet-eng feed removed, UTF-8 BOM normalized) kept for local restore; not part of the server package.",
+                                                   "reason":  "No changed file is approved outside the source package for this production batch.",
                                                    "files":  [
-                                                                 "nuget.config"
+
                                                              ]
                                                },
     "requiredChecksBeforeDeploy":  [
