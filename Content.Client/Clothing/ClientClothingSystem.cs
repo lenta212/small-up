@@ -164,7 +164,7 @@ public sealed partial class ClientClothingSystem : ClothingSystem
         if (rsi == null)
             return false;
 
-        var state = $"{layer.State}-{speciesId}";
+        var state = $"{layer.State}-{speciesId.ToLowerInvariant()}";
         if (!rsi.TryGetState(state, out _))
             return false;
 
