@@ -117,11 +117,19 @@ public sealed partial class ClientClothingSystem : ClothingSystem
                 return;
         }
 
-        // add each layer to the visuals
+        // Add each layer to the visuals. Explicit layers can still use species-specific
+        // RSI states when the prototype does not define a separate species entry.
         var i = 0;
         foreach (var layer in layers)
         {
-            var key = layer.MapKeys?.FirstOrDefault();
+            var visualLayer = layer;
+            if (inventory.SpeciesId != null &&
+                TryGetSpeciesLayer(uid, item, layer, inventory.SpeciesId, out var speciesLayer))
+            {
+                visualLayer = speciesLayer;
+            }
+
+            var key = visualLayer.MapKeys?.FirstOrDefault();
             if (key == null)
             {
                 // using the $"{args.Slot}" layer key as the "bookmark" for layer ordering until layer draw depths get added
@@ -130,8 +138,55 @@ public sealed partial class ClientClothingSystem : ClothingSystem
             }
 
             item.MappedLayer = key;
-            args.Layers.Add((key, layer));
+            args.Layers.Add((key, visualLayer));
         }
+    }
+
+    private bool TryGetSpeciesLayer(
+        EntityUid uid,
+        ClothingComponent clothing,
+        PrototypeLayerData layer,
+        string speciesId,
+        [NotNullWhen(true)] out PrototypeLayerData? speciesLayer)
+    {
+        speciesLayer = null;
+        if (layer.State == null)
+            return false;
+
+        RSI? rsi = null;
+        if (layer.RsiPath != null)
+            rsi = _cache.GetResource<RSIResource>(SpriteSpecifierSerializer.TextureRoot / layer.RsiPath).RSI;
+        else if (clothing.RsiPath != null)
+            rsi = _cache.GetResource<RSIResource>(SpriteSpecifierSerializer.TextureRoot / clothing.RsiPath).RSI;
+        else if (TryComp(uid, out SpriteComponent? sprite))
+            rsi = sprite.BaseRSI;
+
+        if (rsi == null)
+            return false;
+
+        var state = $"{layer.State}-{speciesId}";
+        if (!rsi.TryGetState(state, out _))
+            return false;
+
+        speciesLayer = new PrototypeLayerData
+        {
+            Shader = layer.Shader,
+            TexturePath = layer.TexturePath,
+            RsiPath = layer.RsiPath,
+            State = state,
+            Scale = layer.Scale,
+            Rotation = layer.Rotation,
+            Offset = layer.Offset,
+            Visible = layer.Visible,
+            Color = layer.Color,
+            MapKeys = layer.MapKeys,
+            RenderingStrategy = layer.RenderingStrategy,
+            CopyToShaderParameters = layer.CopyToShaderParameters,
+            Cycle = layer.Cycle,
+            Loop = layer.Loop,
+        };
+
+        return true;
     }
 
     /// <summary>
