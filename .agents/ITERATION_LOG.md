@@ -1,3 +1,13 @@
+## 2026-09-20 -- ship persistence split and GitHub hygiene prep
+
+- Objective: begin separating the LuaM shuttle/ship persistence code surface and prepare the worktree for a GitHub upload without local runtime clutter.
+- Code organization: moved `LuaMShipRestoreScope` and `LuaMPlayerControlledBodyComponent` out of `LuaMFullShipPersistenceSystem.cs` into their own files under `Content.Server/_LuaM/ShipPersistence/`. This keeps the runtime system focused on snapshot behavior without changing persistence semantics.
+- Git hygiene: expanded `.gitignore` for local transient/release/runtime artifacts: `.tmp*`, `.tmp/`, `.run/`, `.local-server-data/`, `ServerBackups/`, and `logs/`. The existing untracked `.tmp_metrics2.txt` is now ignored.
+- Secret sweep: reviewed tracked sensitive-name candidates and ran a tracked-file grep for common secret markers. Findings were ordinary GitHub Actions secret references, code that handles/redacts tokens, or test/config variable names; no raw reusable secret was found in tracked source during this pass.
+- Validation: `dotnet build Content.Server/Content.Server.csproj -t:Compile --configuration DebugOpt --no-restore --no-dependencies -v:minimal` passes with 0 errors and the existing warning set.
+- Repository state: local `nuget.config` edit is intentionally kept per operator instruction; current work also modifies `.gitignore` and ship-persistence split files.
+- Next action: continue splitting database/orchestrator/API boundaries and prepare a clean GitHub commit when the operator is ready.
+
 ## 2026-08-19T16:10:00Z -- PAI proximity chatter muted at the gateway (live)
 
 - Applied a gateway-side mute for the PAI proximity greet: `/chat` with `selectedTemplateId=unknown-personal-receiver` and "подошёл(ла) к тебе" returns an empty reply without calling the provider, so the PAI stops looping small talk and no tokens are spent.

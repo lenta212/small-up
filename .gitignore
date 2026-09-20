@@ -64,6 +64,8 @@ artifacts/
 *.tli
 *.tlh
 *.tmp
+*.tmp.*
+.tmp*
 *.tmp_proj
 *.log
 *.vspscc
@@ -199,8 +201,13 @@ ClientBin/
 node_modules/
 orleans.codegen.cs
 .local-server-data-dev/
+.local-server-data/
+.run/
+.tmp/
 .packaging-run/
 DeploymentPackages/
+ServerBackups/
+logs/
 server_config_local.toml
 server_config.remote.toml
 
