@@ -106,7 +106,9 @@ public sealed partial class RadioSystem : EntitySystem
     /// </summary>
     public int GetFrequency(EntityUid source, RadioChannelPrototype channel)
     {
-        if (channel.ID == RadioChannelPrototype.CustomChannelId && channel.Frequency > 0)
+        if (channel.ID == RadioChannelPrototype.CustomChannelId &&
+            channel.RuntimeName != null &&
+            channel.Frequency > 0)
             return channel.Frequency;
 
         if (TryComp<RadioMicrophoneComponent>(source, out var radioMicrophone))
