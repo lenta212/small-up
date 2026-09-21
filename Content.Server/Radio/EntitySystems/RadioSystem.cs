@@ -217,13 +217,13 @@ public sealed partial class RadioSystem : EntitySystem
         else
             speech = _chat.GetSpeechVerb(messageSource, message);
 
-        var content = escapeMarkup
-            ? FormattedMessage.EscapeText(message)
-            : message;
         var sourceMapId = Transform(radioSource).MapID;
         var interference = GetInterferenceLevel(sourceMapId, channel.ID);
         if (interference > 0)
             message = AddRadioInterference(message, interference);
+        var content = escapeMarkup
+            ? FormattedMessage.EscapeText(message)
+            : message;
 
         // Frontier: append frequency if the channel requests it
         string channelText;

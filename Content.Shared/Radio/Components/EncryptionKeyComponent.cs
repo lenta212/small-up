@@ -28,6 +28,15 @@ public sealed partial class EncryptionKeyComponent : Component
     [DataField("gradientColor")]
     public Color? GradientColor;
 
+    [DataField("frequencyPasswordSalt")]
+    public byte[]? FrequencyPasswordSalt;
+
+    [DataField("frequencyPasswordHash")]
+    public byte[]? FrequencyPasswordHash;
+
+    [DataField("frequencyPasswordIterations")]
+    public int FrequencyPasswordIterations = 120_000;
+
     [DataField("customFrequency")]
     public int? CustomFrequency;
 
@@ -47,6 +56,6 @@ public sealed partial class EncryptionKeyComponent : Component
     public string? DefaultChannel;
 
     [DataField("ownerUserId")]
-public NetUserId? OwnerUserId;
+    public NetUserId? OwnerUserId;
 
 }
