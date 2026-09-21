@@ -313,7 +313,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
 
     private void OnDeleteAllKeys(EntityUid uid, TelecomKeyServiceConsoleComponent _, TelecomDeleteAllKeysMessage args)
     {
-        if (!TryGetActorUserId(args.Actor, out var requesterId))
+        if (!TryGetActorCharacter(args.Actor, out var requesterId))
             return;
 
         var frequencies = GetOwnedFrequencies(requesterId);
@@ -343,7 +343,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
         PlayKeyDeletionSound(uid);
     }
 
-    private void RefreshKeyState(EntityUid uid, NetUserId requesterId)
+    private void RefreshKeyState(EntityUid uid, NetEntity requesterId)
     {
         if (TryComp(uid, out EncryptionKeyHolderComponent? holder))
         {
@@ -461,7 +461,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
         }
     }
 
-    private IEnumerable<TelecomOwnedKeyInfo> GetOwnedKeyInfos(NetUserId owner)
+    private IEnumerable<TelecomOwnedKeyInfo> GetOwnedKeyInfos(NetEntity owner)
     {
         return GetOwnedKeys(owner)
             .OrderBy(entry => entry.Key.CustomFrequency)
