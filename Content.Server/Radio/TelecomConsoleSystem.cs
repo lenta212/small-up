@@ -279,6 +279,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
             return;
         }
 
+        Dirty(key, component);
         _keys.UpdateChannels(uid, holder);
         SetKeyState(uid, holder, null, requesterId);
     }
