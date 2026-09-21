@@ -115,3 +115,10 @@
   color: "#D95D39"
   # long range since otherwise it'd defeat the point of a handheld radio independent of telecomms
   #longRange: true # Frontier - Move to server on cove
+
+- type: radioChannel
+  id: EncryptedCustom
+  name: chat-radio-common
+  frequency: 1
+  color: "#999999"
+  keycode: "¤"

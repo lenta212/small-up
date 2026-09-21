@@ -21,6 +21,10 @@
   description: An encryption key for the broadband channel. Limited to a 6000 meters range.
   components:
   - type: EncryptionKey
+    frame: crypt_gray
+    icon: common_label
+    tag: common
+    color: "#808080"
     channels:
     - Common
     defaultChannel: Common
