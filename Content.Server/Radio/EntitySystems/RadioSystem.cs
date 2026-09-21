@@ -57,10 +57,26 @@ public sealed partial class RadioSystem : EntitySystem
         base.Initialize();
         SubscribeLocalEvent<IntrinsicRadioReceiverComponent, RadioReceiveEvent>(OnIntrinsicReceive);
         SubscribeLocalEvent<IntrinsicRadioTransmitterComponent, EntitySpokeEvent>(OnIntrinsicSpeak);
+        SubscribeLocalEvent<EncryptionKeyComponent, GetDefaultRadioChannelEvent>(OnGetDefaultRadioChannel);
 
         _exemptQuery = GetEntityQuery<TelecomExemptComponent>();
     }
 
+
+    private void OnGetDefaultRadioChannel(EntityUid uid, EncryptionKeyComponent key, ref GetDefaultRadioChannelEvent args)
+    {
+        if (args.RequestedKeyCode is not { } requestedCode ||
+            key.CustomKeyCode != requestedCode ||
+            key.CustomFrequency is not { } frequency ||
+            string.IsNullOrWhiteSpace(key.ChannelName))
+            return;
+
+        args.RuntimeChannel = RadioChannelPrototype.CreateRuntime(
+            key.ChannelName,
+            requestedCode,
+            frequency,
+            key.Color ?? Color.Green);
+    }
 
     public override void Update(float frameTime)
     {
@@ -426,7 +442,9 @@ public sealed partial class RadioSystem : EntitySystem
             if (transform.MapID == mapId &&
                 power.Powered &&
                 keys.Channels.Contains(channelId) &&
-                GetFrequency(uid, channel) == frequency &&
+                (channelId != RadioChannelPrototype.CustomChannelId
+                    ? GetFrequency(uid, channel) == frequency
+                    : HasCustomFrequency(keys, frequency)) &&
                 IsBelowInterferenceThreshold(uid, telecom) &&
                 (!telecom.ServiceKeyRequired ||
                  (telecom.ServiceKeyChannel != null && keys.Channels.Contains(telecom.ServiceKeyChannel))))
@@ -434,6 +452,18 @@ public sealed partial class RadioSystem : EntitySystem
                 return true;
             }
         }
+        return false;
+    }
+
+    private bool HasCustomFrequency(EncryptionKeyHolderComponent holder, int frequency)
+    {
+        foreach (var keyUid in holder.KeyContainer.ContainedEntities)
+        {
+            if (TryComp<EncryptionKeyComponent>(keyUid, out var key) &&
+                key.CustomFrequency == frequency)
+                return true;
+        }
+
         return false;
     }
 
