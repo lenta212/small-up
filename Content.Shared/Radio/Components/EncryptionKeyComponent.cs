@@ -25,6 +25,9 @@ public sealed partial class EncryptionKeyComponent : Component
     [DataField("color")]
     public Color? Color;
 
+    [DataField("gradientColor")]
+    public Color? GradientColor;
+
     [DataField("customFrequency")]
     public int? CustomFrequency;
 

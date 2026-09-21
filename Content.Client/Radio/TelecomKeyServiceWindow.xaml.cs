@@ -1,3 +1,5 @@
+using System.Linq;
+using Content.Client.Decals.UI;
 using Content.Shared.Radio;
 using Robust.Client.UserInterface.Controls;
 using Content.Client.UserInterface.Controls;
@@ -14,9 +16,13 @@ public sealed partial class TelecomKeyServiceWindow : FancyWindow
     private readonly LineEdit _frequency;
     private readonly LineEdit _channelName;
     private readonly LineEdit _tag;
-    private readonly LineEdit _color;
+    private readonly ColorSelectorSliders _colorPickerStart;
+    private readonly ColorSelectorSliders _colorPickerEnd;
+    private readonly CheckBox _useGradient;
     private readonly Button _lock;
     private readonly RichTextLabel _status;
+    private PaletteColorPicker? _startPalette;
+    private PaletteColorPicker? _endPalette;
 
     public TelecomKeyServiceWindow()
     {
@@ -24,9 +30,19 @@ public sealed partial class TelecomKeyServiceWindow : FancyWindow
         _frequency = FindControl<LineEdit>("Frequency");
         _channelName = FindControl<LineEdit>("ChannelName");
         _tag = FindControl<LineEdit>("Tag");
-        _color = FindControl<LineEdit>("Color");
+        _colorPickerStart = FindControl<ColorSelectorSliders>("ColorPickerStart");
+        _colorPickerEnd = FindControl<ColorSelectorSliders>("ColorPickerEnd");
+        _useGradient = FindControl<CheckBox>("UseGradient");
         _lock = FindControl<Button>("Lock");
         _status = FindControl<RichTextLabel>("Status");
+
+        _colorPickerStart.Color = Color.Green;
+        _colorPickerEnd.Color = Color.Lime;
+        _colorPickerEnd.Disabled = true;
+        _useGradient.OnToggled += args => _colorPickerEnd.Disabled = !args.Pressed;
+
+        FindControl<Button>("PaletteStart").OnPressed += _ => TogglePalette(ref _startPalette, color => _colorPickerStart.Color = color);
+        FindControl<Button>("PaletteEnd").OnPressed += _ => TogglePalette(ref _endPalette, color => _colorPickerEnd.Color = color);
         FindControl<Button>("Create").OnPressed += _ => CreateKeyClicked();
         _lock.OnPressed += _ => ToggleLock?.Invoke(_lock.Text == Loc.GetString("telecom-key-console-unlock"));
     }
@@ -37,8 +53,33 @@ public sealed partial class TelecomKeyServiceWindow : FancyWindow
             return;
         CreateKey?.Invoke(new TelecomCreateKeyMessage
         {
-            Frequency = frequency, ChannelName = _channelName.Text, Tag = _tag.Text, Color = _color.Text
+            Frequency = frequency,
+            ChannelName = _channelName.Text,
+            Tag = _tag.Text,
+            Color = _colorPickerStart.Color.ToHex(),
+            GradientColor = _useGradient.Pressed ? _colorPickerEnd.Color.ToHex() : null
         });
+    }
+
+    private void TogglePalette(ref PaletteColorPicker? picker, Action<Color> setColor)
+    {
+        if (picker == null)
+        {
+            picker = new PaletteColorPicker();
+            picker.PaletteList.OnItemSelected += args =>
+            {
+                var selected = args.ItemList.GetSelected().FirstOrDefault();
+                if (selected?.Metadata is Color color)
+                    setColor(color);
+            };
+            picker.OpenToLeft();
+            return;
+        }
+
+        if (picker.IsOpen)
+            picker.Close();
+        else
+            picker.Open();
     }
 
     public void UpdateState(TelecomKeyServiceState state)

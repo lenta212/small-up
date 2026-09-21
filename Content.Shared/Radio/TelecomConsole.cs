@@ -73,6 +73,7 @@ public sealed class TelecomCreateKeyMessage : BoundUserInterfaceMessage
     public string ChannelName = string.Empty;
     public string? Tag;
     public string? Color;
+    public string? GradientColor;
 }
 
 [Serializable, NetSerializable]
