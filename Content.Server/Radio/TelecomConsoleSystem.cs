@@ -98,8 +98,10 @@ public sealed class TelecomConsoleSystem : EntitySystem
             state.Channels.Add(new TelecomChannelInfo { Id = channel.ID, Name = channel.LocalizedName });
         }
 
-        var hasFrequencyPassword = frequency is { } requestedFrequency &&
-                                   TryGetFrequencyProfile(requestedFrequency, out var frequencyProfile);
+        var hasFrequencyPassword = false;
+        FrequencyProfile? frequencyProfile = null;
+        if (frequency is { } requestedFrequency)
+            hasFrequencyPassword = TryGetFrequencyProfile(requestedFrequency, out frequencyProfile);
         if (hasFrequencyPassword)
         {
             state.RequiresPassword = true;
@@ -175,7 +177,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
             return;
         }
 
-        if (!_prototypes.TryIndex<RadioChannelPrototype>(RadioChannelPrototype.CustomChannelId, out _))
+        if (!_prototypes.TryIndex<RadioChannelPrototype>(RadioChannelPrototype.CustomChannelId, out var carrierChannel))
         {
             SetKeyState(uid, holder, "telecom-key-console-invalid-frequency", requesterId);
             return;
@@ -289,14 +291,15 @@ public sealed class TelecomConsoleSystem : EntitySystem
     {
         if (!TryGetActorUserId(args.Actor, out var requesterId) ||
             !TryGetEntity(args.Key, out var keyUid) ||
-            !TryComp(keyUid, out EncryptionKeyComponent? key) ||
+            keyUid is not { } resolvedKeyUid ||
+            !TryComp(resolvedKeyUid, out EncryptionKeyComponent? key) ||
             key.OwnerUserId != requesterId)
             return;
 
         var frequency = key.CustomFrequency;
-        RemoveKey(keyUid);
+        RemoveKey(resolvedKeyUid);
         if (frequency is { } deletedFrequency &&
-            !GetOwnedKeys(requesterId).Any(entry => entry.Key.CustomFrequency == deletedFrequency && entry.Uid != keyUid))
+            !GetOwnedKeys(requesterId).Any(entry => entry.Key.CustomFrequency == deletedFrequency && entry.Uid != resolvedKeyUid))
             _frequencyProfiles.Remove(deletedFrequency);
 
         RefreshKeyState(uid, requesterId);
