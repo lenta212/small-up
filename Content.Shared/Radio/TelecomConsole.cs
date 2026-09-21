@@ -1,4 +1,5 @@
 using Robust.Shared.Map;
+using Robust.Shared.Network;
 using Robust.Shared.Serialization;
 
 namespace Content.Shared.Radio;
@@ -55,8 +56,20 @@ public sealed class TelecomLogQueryMessage : BoundUserInterfaceMessage
 public sealed class TelecomKeyServiceState : BoundUserInterfaceState
 {
     public List<TelecomChannelInfo> Channels = new();
+    public List<TelecomOwnedKeyInfo> Keys = new();
     public bool KeysLocked;
     public string? Error;
+}
+
+[Serializable, NetSerializable]
+public sealed class TelecomOwnedKeyInfo
+{
+    public NetEntity Key;
+    public int Frequency;
+    public string Name = string.Empty;
+    public string Code = string.Empty;
+    public string? Color;
+    public string? GradientColor;
 }
 
 [Serializable, NetSerializable]
@@ -74,6 +87,22 @@ public sealed class TelecomCreateKeyMessage : BoundUserInterfaceMessage
     public string? Tag;
     public string? Color;
     public string? GradientColor;
+    public string? Password;
+}
+
+[Serializable, NetSerializable]
+public sealed class TelecomDeleteKeyMessage : BoundUserInterfaceMessage
+{
+    public NetEntity Key;
+}
+
+[Serializable, NetSerializable]
+public sealed class TelecomDeleteAllKeysMessage : BoundUserInterfaceMessage;
+
+[Serializable, NetSerializable]
+public sealed class TelecomDetachFrequencyMessage : BoundUserInterfaceMessage
+{
+    public int Frequency;
 }
 
 [Serializable, NetSerializable]

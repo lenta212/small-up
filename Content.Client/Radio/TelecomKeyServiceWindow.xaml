@@ -1,25 +1,35 @@
 <controls:FancyWindow xmlns="https://spacestation14.io" xmlns:controls="clr-namespace:Content.Client.UserInterface.Controls"
-                      Title="{Loc 'telecom-key-console-title'}" MinSize="460 620">
-  <ScrollContainer VerticalExpand="True">
-    <BoxContainer Orientation="Vertical" Margin="6" SeparationOverride="4">
-      <LineEdit Name="Frequency" PlaceHolder="{Loc 'telecom-key-console-frequency'}"/>
-      <LineEdit Name="ChannelName" PlaceHolder="{Loc 'telecom-key-console-name'}"/>
-      <LineEdit Name="Tag" PlaceHolder="{Loc 'telecom-key-console-tag'}" MaxWidth="420"/>
+                      Title="{Loc 'telecom-key-console-title'}" MinSize="620 700">
+  <TabContainer Name="Tabs" VerticalExpand="True" HorizontalExpand="True">
+    <ScrollContainer Name="CreatePage" VerticalExpand="True">
+      <BoxContainer Orientation="Vertical" Margin="6" SeparationOverride="4">
+        <LineEdit Name="Frequency" PlaceHolder="{Loc 'telecom-key-console-frequency'}"/>
+        <LineEdit Name="Password" PlaceHolder="{Loc 'telecom-key-console-frequency-password'}"/>
+        <LineEdit Name="ChannelName" PlaceHolder="{Loc 'telecom-key-console-name'}"/>
+        <LineEdit Name="Tag" PlaceHolder="{Loc 'telecom-key-console-tag'}" MaxWidth="420"/>
 
-      <Label Text="{Loc 'telecom-key-console-color-start'}"/>
-      <ColorSelectorSliders Name="ColorPickerStart" IsAlphaVisible="False"/>
-      <Button Name="PaletteStart" Text="{Loc 'telecom-key-console-palette'}"/>
+        <Label Text="{Loc 'telecom-key-console-color-start'}"/>
+        <ColorSelectorSliders Name="ColorPickerStart" IsAlphaVisible="False"/>
+        <Button Name="PaletteStart" Text="{Loc 'telecom-key-console-palette'}"/>
 
-      <CheckBox Name="UseGradient" Text="{Loc 'telecom-key-console-gradient'}"/>
-      <Label Text="{Loc 'telecom-key-console-color-end'}"/>
-      <ColorSelectorSliders Name="ColorPickerEnd" IsAlphaVisible="False"/>
-      <Button Name="PaletteEnd" Text="{Loc 'telecom-key-console-palette'}"/>
+        <CheckBox Name="UseGradient" Text="{Loc 'telecom-key-console-gradient'}"/>
+        <Label Text="{Loc 'telecom-key-console-color-end'}"/>
+        <ColorSelectorSliders Name="ColorPickerEnd" IsAlphaVisible="False"/>
+        <Button Name="PaletteEnd" Text="{Loc 'telecom-key-console-palette'}"/>
 
-      <BoxContainer>
-        <Button Name="Create" Text="{Loc 'telecom-key-console-create'}"/>
-        <Button Name="Lock" Text="{Loc 'telecom-key-console-lock'}"/>
+        <BoxContainer>
+          <Button Name="Create" Text="{Loc 'telecom-key-console-create'}"/>
+          <Button Name="Lock" Text="{Loc 'telecom-key-console-lock'}"/>
+        </BoxContainer>
+        <RichTextLabel Name="Status"/>
       </BoxContainer>
-      <RichTextLabel Name="Status"/>
-    </BoxContainer>
-  </ScrollContainer>
+    </ScrollContainer>
+    <ScrollContainer Name="ManagePage" VerticalExpand="True">
+      <BoxContainer Orientation="Vertical" Margin="6" SeparationOverride="4">
+        <Label Text="{Loc 'telecom-key-console-management-help'}"/>
+        <Button Name="DeleteAll" Text="{Loc 'telecom-key-console-delete-all'}"/>
+        <BoxContainer Name="KeyList" Orientation="Vertical" SeparationOverride="3"/>
+      </BoxContainer>
+    </ScrollContainer>
+  </TabContainer>
 </controls:FancyWindow>

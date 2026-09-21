@@ -14,6 +14,9 @@ public sealed class TelecomKeyServiceBoundUserInterface : BoundUserInterface
         _window = this.CreateWindow<TelecomKeyServiceWindow>();
         _window.CreateKey += message => SendMessage(message);
         _window.ToggleLock += locked => SendMessage(new TelecomToggleLockMessage { Locked = locked });
+        _window.DeleteKey += key => SendMessage(new TelecomDeleteKeyMessage { Key = key });
+        _window.DeleteAllKeys += () => SendMessage(new TelecomDeleteAllKeysMessage());
+        _window.DetachFrequency += frequency => SendMessage(new TelecomDetachFrequencyMessage { Frequency = frequency });
     }
 
     protected override void UpdateState(BoundUserInterfaceState state)
