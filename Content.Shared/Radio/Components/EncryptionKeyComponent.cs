@@ -55,6 +55,9 @@ public sealed partial class EncryptionKeyComponent : Component
     [DataField("defaultChannel", customTypeSerializer: typeof(PrototypeIdSerializer<RadioChannelPrototype>))]
     public string? DefaultChannel;
 
+    [DataField("ownerCharacter")]
+    public NetEntity? OwnerCharacter;
+
     [DataField("ownerUserId")]
     public NetUserId? OwnerUserId;
 

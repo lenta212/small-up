@@ -32,7 +32,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
 
     private sealed class FrequencyProfile
     {
-        public NetUserId Owner;
+        public NetEntity Owner;
         public string ChannelName = string.Empty;
         public Color Color = Color.Green;
         public Color? GradientColor;
@@ -68,7 +68,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
     private void OnKeyServiceOpened(EntityUid uid, TelecomKeyServiceConsoleComponent component, BoundUIOpenedEvent args)
     {
         if (TryComp(uid, out EncryptionKeyHolderComponent? holder) &&
-            TryGetActorUserId(args.Actor, out var requesterId))
+            TryGetActorCharacter(args.Actor, out var requesterId))
             SetKeyState(uid, holder, null, requesterId);
     }
 
@@ -161,7 +161,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
         if (!TryComp(uid, out TransformComponent? transform) ||
             !TryComp(uid, out EncryptionKeyHolderComponent? holder) ||
             !holder.KeysUnlocked ||
-            !TryGetActorUserId(args.Actor, out var requesterId))
+            !TryGetActorCharacter(args.Actor, out var requesterId))
             return;
 
         var tag = args.Tag?.Trim();
@@ -261,7 +261,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
         component.Tag = NullIfEmpty(args.Tag);
         component.Color = profile.Color;
         component.GradientColor = profile.GradientColor;
-        component.OwnerUserId = requesterId;
+        component.OwnerCharacter = requesterId;
         component.FrequencyPasswordSalt = profile.PasswordSalt;
         component.FrequencyPasswordHash = profile.PasswordHash;
         component.FrequencyPasswordIterations = profile.PasswordIterations;
@@ -281,7 +281,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
     private void OnToggleLock(EntityUid uid, TelecomKeyServiceConsoleComponent _, TelecomToggleLockMessage args)
     {
         if (!TryComp(uid, out EncryptionKeyHolderComponent? holder) ||
-            !TryGetActorUserId(args.Actor, out var requesterId))
+            !TryGetActorCharacter(args.Actor, out var requesterId))
             return;
         holder.KeysUnlocked = !args.Locked;
         SetKeyState(uid, holder, null, requesterId);
@@ -289,11 +289,11 @@ public sealed class TelecomConsoleSystem : EntitySystem
 
     private void OnDeleteKey(EntityUid uid, TelecomKeyServiceConsoleComponent _, TelecomDeleteKeyMessage args)
     {
-        if (!TryGetActorUserId(args.Actor, out var requesterId) ||
+        if (!TryGetActorCharacter(args.Actor, out var requesterId) ||
             !TryGetEntity(args.Key, out var keyUid) ||
             keyUid is not { } resolvedKeyUid ||
             !TryComp(resolvedKeyUid, out EncryptionKeyComponent? key) ||
-            key.OwnerUserId != requesterId)
+            key.OwnerCharacter != requesterId)
             return;
 
         var frequency = key.CustomFrequency;
@@ -324,7 +324,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
 
     private void OnDetachFrequency(EntityUid uid, TelecomKeyServiceConsoleComponent _, TelecomDetachFrequencyMessage args)
     {
-        if (!TryGetActorUserId(args.Actor, out var requesterId) ||
+        if (!TryGetActorCharacter(args.Actor, out var requesterId) ||
             !TryGetFrequencyProfile(args.Frequency, out var profile) ||
             profile!.Owner != requesterId)
             return;
@@ -362,7 +362,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
         }
     }
 
-    private void SetKeyState(EntityUid uid, EncryptionKeyHolderComponent holder, string? error, NetUserId? requesterId = null)
+    private void SetKeyState(EntityUid uid, EncryptionKeyHolderComponent holder, string? error, NetEntity? requesterId = null)
     {
         var state = new TelecomKeyServiceState { KeysLocked = !holder.KeysUnlocked, Error = error };
         foreach (var channel in _prototypes.EnumeratePrototypes<RadioChannelPrototype>()
@@ -387,15 +387,15 @@ public sealed class TelecomConsoleSystem : EntitySystem
         _ui.SetUiState(uid, TelecomConsoleUiKey.KeyService, state);
     }
 
-    private bool TryGetActorUserId(EntityUid actor, out NetUserId userId)
+    private bool TryGetActorCharacter(EntityUid actor, out NetEntity character)
     {
-        if (TryComp(actor, out ActorComponent? actorComponent))
+        if (TryComp<ActorComponent>(actor, out _))
         {
-            userId = actorComponent.PlayerSession.UserId;
+            character = GetNetEntity(actor);
             return true;
         }
 
-        userId = default;
+        character = default;
         return false;
     }
 
@@ -407,7 +407,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
         var keys = EntityQueryEnumerator<EncryptionKeyComponent>();
         while (keys.MoveNext(out var key))
         {
-            if (key.CustomFrequency != frequency || key.OwnerUserId is not { } owner)
+            if (key.CustomFrequency != frequency || key.OwnerCharacter is not { } owner)
                 continue;
 
             profile = new FrequencyProfile
@@ -428,7 +428,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
         return false;
     }
 
-    private HashSet<int> GetOwnedFrequencies(NetUserId owner)
+    private HashSet<int> GetOwnedFrequencies(NetEntity owner)
     {
         var frequencies = new HashSet<int>();
         foreach (var (frequency, profile) in _frequencyProfiles)
@@ -446,12 +446,12 @@ public sealed class TelecomConsoleSystem : EntitySystem
         return frequencies;
     }
 
-    private IEnumerable<(EntityUid Uid, EncryptionKeyComponent Key)> GetOwnedKeys(NetUserId owner)
+    private IEnumerable<(EntityUid Uid, EncryptionKeyComponent Key)> GetOwnedKeys(NetEntity owner)
     {
         var keys = EntityQueryEnumerator<EncryptionKeyComponent>();
         while (keys.MoveNext(out var uid, out var key))
         {
-            if (key.OwnerUserId == owner && key.CustomFrequency is not null)
+            if (key.OwnerCharacter == owner && key.CustomFrequency is not null)
                 yield return (uid, key);
         }
     }
