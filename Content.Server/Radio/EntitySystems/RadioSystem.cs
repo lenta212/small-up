@@ -353,6 +353,9 @@ public sealed partial class RadioSystem : EntitySystem
         var customKey = FindCustomKey(radioSource, channel);
         var channelName = customKey?.ChannelName ?? channel.LocalizedName;
         var channelColor = customKey?.Color ?? channel.Color;
+        var renderedMessage = customKey?.GradientColor is { } gradientColor
+            ? ApplyTextGradient(message, channelColor, gradientColor)
+            : message;
         var languageColor = channelColor;
 
         if (language.SpeechOverride.Color is { } colorOverride)
@@ -370,8 +373,25 @@ public sealed partial class RadioSystem : EntitySystem
             ("verb", Loc.GetString(_random.Pick(speech.SpeechVerbStrings))),
             ("channel", $"\\[{channelName}\\]"),
             ("name", name),
-            ("message", message),
+            ("message", renderedMessage),
             ("language", languageDisplay));
+    }
+
+    private static string ApplyTextGradient(string message, Color start, Color end)
+    {
+        if (message.Length < 2)
+            return message;
+
+        var builder = new StringBuilder(message.Length * 24);
+        for (var i = 0; i < message.Length; i++)
+        {
+            var color = Color.InterpolateBetween(start, end, (float)i / (message.Length - 1));
+            builder.Append("[color=").Append(color.ToHex()).Append(']');
+            builder.Append(message[i]);
+            builder.Append("[/color]");
+        }
+
+        return builder.ToString();
     }
 
     private EncryptionKeyComponent? FindCustomKey(EntityUid radioSource, RadioChannelPrototype channel)

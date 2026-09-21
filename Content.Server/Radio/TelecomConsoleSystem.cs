@@ -171,9 +171,11 @@ public sealed class TelecomConsoleSystem : EntitySystem
             return;
         }
 
-        // Проверка занятости частоты
-        var newFrequencyClaim = !_frequencyOwners.ContainsKey(args.Frequency);
-        if (_frequencyOwners.TryGetValue(args.Frequency, out var owner) && owner != requesterId)
+        // Частота навсегда закрепляется за первым создателем в рамках раунда.
+        // Если реестр был пересоздан, восстанавливаем владельца из уже созданных ключей.
+        var hasFrequencyOwner = TryGetFrequencyOwner(args.Frequency, out var owner);
+        var newFrequencyClaim = !hasFrequencyOwner;
+        if (hasFrequencyOwner && owner != requesterId)
         {
             SetKeyState(uid, holder, "telecom-key-console-frequency-taken");
             return;
@@ -194,6 +196,9 @@ public sealed class TelecomConsoleSystem : EntitySystem
         component.Color = args.Color != null && Color.TryParse(args.Color, out var color)
             ? color
             : Color.Green;
+        component.GradientColor = args.GradientColor != null && Color.TryParse(args.GradientColor, out var gradientColor)
+            ? gradientColor
+            : null;
         component.OwnerUserId = requesterId;
 
         if (!_containers.Insert(key, holder.KeyContainer))
@@ -208,6 +213,26 @@ public sealed class TelecomConsoleSystem : EntitySystem
         }
         _keys.UpdateChannels(uid, holder);
         SetKeyState(uid, holder, null);
+    }
+
+    private bool TryGetFrequencyOwner(int frequency, out NetUserId owner)
+    {
+        if (_frequencyOwners.TryGetValue(frequency, out owner))
+            return true;
+
+        var keys = EntityQueryEnumerator<EncryptionKeyComponent>();
+        while (keys.MoveNext(out var key))
+        {
+            if (key.CustomFrequency == frequency && key.OwnerUserId is { } existingOwner)
+            {
+                _frequencyOwners[frequency] = existingOwner;
+                owner = existingOwner;
+                return true;
+            }
+        }
+
+        owner = default;
+        return false;
     }
 
     private void OnToggleLock(EntityUid uid, TelecomKeyServiceConsoleComponent _, TelecomToggleLockMessage args)
