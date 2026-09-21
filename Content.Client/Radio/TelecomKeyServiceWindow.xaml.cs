@@ -38,8 +38,6 @@ public sealed partial class TelecomKeyServiceWindow : FancyWindow
 
         _colorPickerStart.Color = Color.Green;
         _colorPickerEnd.Color = Color.Lime;
-        _colorPickerEnd.Disabled = true;
-        _useGradient.OnToggled += args => _colorPickerEnd.Disabled = !args.Pressed;
 
         FindControl<Button>("PaletteStart").OnPressed += _ => TogglePalette(ref _startPalette, color => _colorPickerStart.Color = color);
         FindControl<Button>("PaletteEnd").OnPressed += _ => TogglePalette(ref _endPalette, color => _colorPickerEnd.Color = color);
