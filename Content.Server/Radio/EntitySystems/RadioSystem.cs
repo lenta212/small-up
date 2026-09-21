@@ -1,4 +1,5 @@
 using Content.Server._NF.Radio; // Frontier
+using Content.Server.Atmos.EntitySystems;
 using Content.Server.Administration.Logs;
 using Content.Server.Chat.Systems;
 using Content.Server._EinsteinEngines.Language;
@@ -8,19 +9,24 @@ using Content.Shared._Mono.Radio;
 using Content.Shared.Chat;
 using Content.Shared.Corvax.TTS; // Corvax-TTS
 using Content.Shared.Database;
+using Content.Shared.Examine;
 using Content.Shared._EinsteinEngines.Language;
 using Content.Shared._EinsteinEngines.Language.Systems;
+using Content.Shared.Atmos;
 using Content.Shared.Radio;
 using Content.Shared.Radio.Components;
 using Content.Shared.Speech;
 using Content.Shared.Ghost; // Nuclear-14
 using Robust.Shared.Map;
+using Robust.Server.GameObjects;
 using Robust.Shared.Network;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Random;
 using Robust.Shared.Replays;
 using Robust.Shared.Utility;
+using System.Linq;
+using System.Text;
 
 namespace Content.Server.Radio.EntitySystems;
 
@@ -36,9 +42,13 @@ public sealed partial class RadioSystem : EntitySystem
     [Dependency] private IRobustRandom _random = default!;
     [Dependency] private ChatSystem _chat = default!;
     [Dependency] private LanguageSystem _language = default!; // Einstein Engines - Language
+    [Dependency] private AtmosphereSystem _atmosphere = default!;
+    [Dependency] private TransformSystem _transform = default!;
 
     // set used to prevent radio feedback loops.
     private readonly HashSet<string> _messages = new();
+    private readonly List<TelecomRadioLogEntry> _telecomLogs = new();
+    private const int MaxTelecomLogEntries = 4096;
 
     private EntityQuery<TelecomExemptComponent> _exemptQuery;
 
@@ -51,6 +61,35 @@ public sealed partial class RadioSystem : EntitySystem
         _exemptQuery = GetEntityQuery<TelecomExemptComponent>();
     }
 
+
+    public override void Update(float frameTime)
+    {
+        base.Update(frameTime);
+
+        var servers = EntityQueryEnumerator<TelecomServerComponent, ApcPowerReceiverComponent, TransformComponent>();
+        while (servers.MoveNext(out var uid, out var telecom, out var power, out var transform))
+        {
+            var mixture = _atmosphere.GetTileMixture(transform.GridUid, transform.MapUid,
+                _transform.GetGridTilePositionOrDefault((uid, transform)), true);
+            if (mixture == null)
+                continue;
+
+            if (power.PowerDisabled && telecom.InterferenceThreshold > 0 &&
+                mixture.Temperature < telecom.InterferenceThreshold)
+                power.PowerDisabled = false;
+
+            if (power.Powered && telecom.HeatGeneration > 0)
+            {
+                var heatCapacity = _atmosphere.GetHeatCapacity(mixture, true);
+                if (heatCapacity > Atmospherics.MinimumHeatCapacity)
+                    mixture.Temperature += telecom.HeatGeneration * frameTime / heatCapacity;
+
+                if (telecom.CriticalTemperature > 0 && mixture.Temperature >= telecom.CriticalTemperature)
+                    power.PowerDisabled = true;
+            }
+        }
+    }
+
     private void OnIntrinsicSpeak(EntityUid uid, IntrinsicRadioTransmitterComponent component, EntitySpokeEvent args)
     {
         if (args.Channel != null && component.Channels.Contains(args.Channel.ID))
@@ -58,6 +97,7 @@ public sealed partial class RadioSystem : EntitySystem
             SendRadioMessage(uid, args.Message, args.Channel, uid, language: args.Language); // Einstein Engines - Language
             args.Channel = null; // prevent duplicate messages from other listeners.
         }
+
     }
 
     //Nuclear-14
@@ -68,6 +108,17 @@ public sealed partial class RadioSystem : EntitySystem
     {
         if (TryComp<RadioMicrophoneComponent>(source, out var radioMicrophone))
             return radioMicrophone.Frequency;
+
+        if (TryComp<EncryptionKeyHolderComponent>(source, out var holder))
+        {
+            foreach (var keyUid in holder.KeyContainer.ContainedEntities)
+            {
+                if (TryComp<EncryptionKeyComponent>(keyUid, out var key) &&
+                    key.Channels.Contains(channel.ID) &&
+                    key.CustomFrequency is { } customFrequency)
+                    return customFrequency;
+            }
+        }
 
         return channel.Frequency;
     }
@@ -164,6 +215,10 @@ public sealed partial class RadioSystem : EntitySystem
         var content = escapeMarkup
             ? FormattedMessage.EscapeText(message)
             : message;
+        var sourceMapId = Transform(radioSource).MapID;
+        var interference = GetInterferenceLevel(sourceMapId, channel.ID);
+        if (interference > 0)
+            message = AddRadioInterference(message, interference);
 
         // Frontier: append frequency if the channel requests it
         string channelText;
@@ -181,7 +236,7 @@ public sealed partial class RadioSystem : EntitySystem
         //     ("channel", channelText), // Frontier: $"\\[{channel.LocalizedName}\\]"<channelText
         //     ("name", name),
         //     ("message", content));
-        var wrappedMessage = WrapRadioMessage(messageSource, channel, name, content, language); // Einstein Engines - Language
+        var wrappedMessage = WrapRadioMessage(messageSource, radioSource, channel, name, content, language); // Einstein Engines - Language
 
         // most radios are relayed to chat, so lets parse the chat message beforehand
         // var chat = new ChatMessage(
@@ -197,7 +252,7 @@ public sealed partial class RadioSystem : EntitySystem
 
         // Einstein Engines - Language begin
         var obfuscated = _language.ObfuscateSpeech(content, language);
-        var obfuscatedWrapped = WrapRadioMessage(messageSource, channel, name, obfuscated, language);
+        var obfuscatedWrapped = WrapRadioMessage(messageSource, radioSource, channel, name, obfuscated, language);
         var notUdsMsg = new ChatMessage(ChatChannel.Radio, obfuscated, obfuscatedWrapped, NetEntity.Invalid, null);
         var ev = new RadioReceiveEvent(messageSource, channel, msg, notUdsMsg, language, radioSource, []);
         // Einstein Engines - Language end
@@ -207,14 +262,15 @@ public sealed partial class RadioSystem : EntitySystem
         RaiseLocalEvent(radioSource, ref sendAttemptEv);
         var canSend = !sendAttemptEv.Cancelled;
 
-        var sourceMapId = Transform(radioSource).MapID;
-        var hasActiveServer = HasActiveServer(sourceMapId, channel.ID);
         var sourceServerExempt = _exemptQuery.HasComp(radioSource);
 
         var radioQuery = EntityQueryEnumerator<ActiveRadioComponent, TransformComponent>();
+        var delivered = false;
 
         if (frequency == null) // Nuclear-14
-            frequency = GetFrequency(messageSource, channel); // Nuclear-14
+            frequency = GetFrequency(radioSource, channel); // Nuclear-14
+
+        var hasActiveServer = HasActiveServer(sourceMapId, channel.ID, frequency.Value);
 
         while (canSend && radioQuery.MoveNext(out var receiver, out var radio, out var transform))
         {
@@ -256,6 +312,15 @@ public sealed partial class RadioSystem : EntitySystem
 
             // send the message
             RaiseLocalEvent(receiver, ref ev);
+            delivered = true;
+        }
+
+        if (delivered && HasLoggingServer(sourceMapId, channel.ID))
+        {
+            _telecomLogs.Add(new TelecomRadioLogEntry(
+                DateTime.UtcNow, sourceMapId, channel.ID, frequency.Value, transformEv.Name, message));
+            if (_telecomLogs.Count > MaxTelecomLogEntries)
+                _telecomLogs.RemoveRange(0, _telecomLogs.Count - MaxTelecomLogEntries);
         }
 
         RaiseLocalEvent(new RadioSpokeEvent(messageSource, content, obfuscated, language, ev.Receivers.ToArray())); // Corvax-TTS
@@ -272,6 +337,7 @@ public sealed partial class RadioSystem : EntitySystem
     // Einstein Engines - Language begin
     private string WrapRadioMessage(
         EntityUid source,
+        EntityUid radioSource,
         RadioChannelPrototype channel,
         string name,
         string message,
@@ -279,7 +345,10 @@ public sealed partial class RadioSystem : EntitySystem
     {
         // TODO: code duplication with ChatSystem.WrapMessage
         var speech = _chat.GetSpeechVerb(source, message);
-        var languageColor = channel.Color;
+        var customKey = FindCustomKey(radioSource, channel.ID);
+        var channelName = customKey?.ChannelName ?? channel.LocalizedName;
+        var channelColor = customKey?.Color ?? channel.Color;
+        var languageColor = channelColor;
 
         if (language.SpeechOverride.Color is { } colorOverride)
             languageColor = Color.InterpolateBetween(Color.White, colorOverride, colorOverride.A); // Changed first param to Color.White so it shows color correctly.
@@ -289,31 +358,173 @@ public sealed partial class RadioSystem : EntitySystem
             : "";
 
         return Loc.GetString(speech.Bold ? "chat-radio-message-wrap-bold" : "chat-radio-message-wrap",
-            ("color", channel.Color),
+            ("color", channelColor),
             ("languageColor", languageColor),
             ("fontType", language.SpeechOverride.FontId ?? speech.FontId),
             ("fontSize", language.SpeechOverride.FontSize ?? speech.FontSize),
             ("verb", Loc.GetString(_random.Pick(speech.SpeechVerbStrings))),
-            ("channel", $"\\[{channel.LocalizedName}\\]"),
+            ("channel", $"\\[{channelName}\\]"),
             ("name", name),
             ("message", message),
             ("language", languageDisplay));
     }
+
+    private EncryptionKeyComponent? FindCustomKey(EntityUid radioSource, string channelId)
+    {
+        if (!TryComp<EncryptionKeyHolderComponent>(radioSource, out var holder))
+            return null;
+
+        foreach (var keyUid in holder.KeyContainer.ContainedEntities)
+        {
+            if (TryComp<EncryptionKeyComponent>(keyUid, out var key) &&
+                key.Channels.Contains(channelId) && key.ChannelName != null)
+                return key;
+        }
+
+        return null;
+    }
     // Einstein Engines - Language end
 
     /// <inheritdoc cref="TelecomServerComponent"/>
-    private bool HasActiveServer(MapId mapId, string channelId)
+    private bool HasActiveServer(MapId mapId, string channelId, int frequency)
     {
-        var servers = EntityQuery<TelecomServerComponent, EncryptionKeyHolderComponent, ApcPowerReceiverComponent, TransformComponent>();
-        foreach (var (_, keys, power, transform) in servers)
+        if (IsRestrictedChannel(channelId))
+            return false;
+        if (!_prototype.TryIndex<RadioChannelPrototype>(channelId, out var channel))
+            return false;
+
+        var servers = EntityQueryEnumerator<TelecomServerComponent, EncryptionKeyHolderComponent, ApcPowerReceiverComponent, TransformComponent>();
+        while (servers.MoveNext(out var uid, out var telecom, out var keys, out var power, out var transform))
         {
             if (transform.MapID == mapId &&
                 power.Powered &&
-                keys.Channels.Contains(channelId))
+                keys.Channels.Contains(channelId) &&
+                GetFrequency(uid, channel) == frequency &&
+                IsBelowInterferenceThreshold(uid, telecom) &&
+                (!telecom.ServiceKeyRequired ||
+                 (telecom.ServiceKeyChannel != null && keys.Channels.Contains(telecom.ServiceKeyChannel))))
             {
                 return true;
             }
         }
         return false;
     }
+
+    private bool HasLoggingServer(MapId mapId, string channelId)
+    {
+        if (IsRestrictedChannel(channelId))
+            return false;
+
+        var servers = EntityQueryEnumerator<TelecomServerComponent, EncryptionKeyHolderComponent, ApcPowerReceiverComponent, TransformComponent>();
+        while (servers.MoveNext(out var uid, out var telecom, out var keys, out var power, out var transform))
+        {
+            if (transform.MapID == mapId && power.Powered &&
+                telecom.HasMode(TelecomServerMode.Logs_Save) &&
+                keys.Channels.Contains(channelId) &&
+                IsBelowInterferenceThreshold(uid, telecom) &&
+                (!telecom.ServiceKeyRequired ||
+                 (telecom.ServiceKeyChannel != null && keys.Channels.Contains(telecom.ServiceKeyChannel))))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool IsBelowInterferenceThreshold(EntityUid uid, TelecomServerComponent telecom)
+    {
+        if (telecom.InterferenceThreshold <= 0)
+            return true;
+
+        if (!TryComp(uid, out TransformComponent? transform))
+            return true;
+
+        var mixture = _atmosphere.GetTileMixture(transform.GridUid, transform.MapUid,
+            _transform.GetGridTilePositionOrDefault((uid, transform)), true);
+        return mixture == null || telecom.CriticalTemperature <= 0 ||
+               mixture.Temperature < telecom.CriticalTemperature;
+    }
+
+    private int GetInterferenceLevel(MapId mapId, string channelId)
+    {
+        var level = 0;
+        var servers = EntityQueryEnumerator<TelecomServerComponent, EncryptionKeyHolderComponent,
+            ApcPowerReceiverComponent, TransformComponent>();
+        while (servers.MoveNext(out var uid, out var telecom, out var keys, out var power, out var transform))
+        {
+            if (transform.MapID != mapId || !power.Powered || !keys.Channels.Contains(channelId) ||
+                telecom.InterferenceThreshold <= 0 || !TryGetAtmosphereTemperature(uid, out var temperature))
+                continue;
+
+            if (temperature >= telecom.CriticalTemperature)
+                return 3;
+
+            var step = (telecom.CriticalTemperature - telecom.InterferenceThreshold) / 3f;
+            if (temperature >= telecom.InterferenceThreshold + step * 2)
+                level = Math.Max(level, 3);
+            else if (temperature >= telecom.InterferenceThreshold + step)
+                level = Math.Max(level, 2);
+            else if (temperature >= telecom.InterferenceThreshold)
+                level = Math.Max(level, 1);
+        }
+
+        return level;
+    }
+
+    private bool TryGetAtmosphereTemperature(EntityUid uid, out float temperature)
+    {
+        temperature = 0;
+        if (!TryComp(uid, out TransformComponent? transform))
+            return false;
+
+        var mixture = _atmosphere.GetTileMixture(transform.GridUid, transform.MapUid,
+            _transform.GetGridTilePositionOrDefault((uid, transform)), true);
+        if (mixture == null)
+            return false;
+
+        temperature = mixture.Temperature;
+        return true;
+    }
+
+    private static string AddRadioInterference(string message, int level)
+    {
+        var interval = level switch
+        {
+            1 => 10,
+            2 => 5,
+            _ => 1
+        };
+        var result = new StringBuilder(message.Length + message.Length / interval + 1);
+        for (var i = 0; i < message.Length; i++)
+        {
+            if (i > 0 && i % interval == 0)
+                result.Append('#');
+            result.Append(message[i]);
+        }
+        return result.ToString();
+    }
+
+    /// <summary>Returns radio records saved by telecom servers, applying all supplied filters.</summary>
+    public IReadOnlyList<TelecomRadioLogEntry> QueryTelecomLogs(TelecomRadioLogFilter filter)
+    {
+        return _telecomLogs.Where(entry =>
+                !IsRestrictedChannel(entry.Channel) &&
+                (!filter.Map.HasValue || entry.Map == filter.Map.Value) &&
+                (string.IsNullOrWhiteSpace(filter.Channel) ||
+                 entry.Channel.Equals(filter.Channel, StringComparison.OrdinalIgnoreCase)) &&
+                (!filter.Frequency.HasValue || entry.Frequency == filter.Frequency.Value) &&
+                (string.IsNullOrWhiteSpace(filter.Speaker) ||
+                 entry.Speaker.Contains(filter.Speaker, StringComparison.OrdinalIgnoreCase)) &&
+                (!filter.From.HasValue || entry.Timestamp >= filter.From.Value) &&
+                (!filter.To.HasValue || entry.Timestamp <= filter.To.Value) &&
+                (string.IsNullOrWhiteSpace(filter.Words) ||
+                 filter.Words.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                     .All(word => entry.Message.Contains(word, StringComparison.OrdinalIgnoreCase))))
+            .ToArray();
+    }
+
+    private static bool IsRestrictedChannel(string id) =>
+        id.Equals("Syndicate", StringComparison.OrdinalIgnoreCase) ||
+        id.Equals("Binary", StringComparison.OrdinalIgnoreCase) ||
+        id.Equals("Chimera", StringComparison.OrdinalIgnoreCase) ||
+        id.Contains("Collective", StringComparison.OrdinalIgnoreCase);
 }

@@ -64,6 +64,11 @@
     keysExtractionMethod: Prying
     keySlots: 10
   - type: TelecomServer
+    modes:
+    - Logs_Save
+    heatGeneration: 1000
+    interferenceThreshold: 330
+    criticalTemperature: 430
   - type: ContainerContainer
     containers:
       key_slots: !type:Container
@@ -87,6 +92,41 @@
       - EncryptionKeySecurity
       - EncryptionKeyService
       - EncryptionKeyCommand
+
+- type: entity
+  parent: BaseComputer
+  id: TelecomLogConsole
+  name: telecom log console
+  components:
+  - type: UserInterface
+    interfaces:
+      enum.TelecomConsoleUiKey.Log:
+        type: TelecomLogConsoleBoundUserInterface
+  - type: ActivatableUI
+    key: enum.TelecomConsoleUiKey.Log
+  - type: TelecomLogConsole
+
+- type: entity
+  parent: BaseComputer
+  id: TelecomKeyServiceConsole
+  name: telecom key service console
+  components:
+  - type: UserInterface
+    interfaces:
+      enum.TelecomConsoleUiKey.KeyService:
+        type: TelecomKeyServiceBoundUserInterface
+  - type: ActivatableUI
+    key: enum.TelecomConsoleUiKey.KeyService
+  - type: WiresPanel
+    open: true
+  - type: EncryptionKeyHolder
+    keysExtractionMethod: Prying
+    keySlots: 1
+    keysUnlocked: true
+  - type: ContainerContainer
+    containers:
+      key_slots: !type:Container
+  - type: TelecomKeyServiceConsole
 
 - type: entity
   parent: TelecomServer

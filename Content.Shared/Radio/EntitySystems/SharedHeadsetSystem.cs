@@ -1,3 +1,4 @@
+using System.Linq;
 using Content.Shared.Emp;
 using Content.Shared.Inventory;
 using Content.Shared.Inventory.Events;
@@ -25,8 +26,26 @@ public abstract class SharedHeadsetSystem : EntitySystem
             return;
         }
 
-        if (TryComp(uid, out EncryptionKeyHolderComponent? keyHolder))
-            args.Args.Channel ??= keyHolder.DefaultChannel;
+        if (!TryComp(uid, out EncryptionKeyHolderComponent? keyHolder))
+            return;
+
+        if (args.Args.RequestedKeyCode is { } requested)
+        {
+            foreach (var keyUid in keyHolder.KeyContainer.ContainedEntities)
+            {
+                if (TryComp<EncryptionKeyComponent>(keyUid, out var key) &&
+                    key.CustomKeyCode is { } customKeyCode &&
+                    char.ToLower(customKeyCode) == char.ToLower(requested))
+                {
+                    args.Args.Channel ??= key.Channels.FirstOrDefault();
+                    return;
+                }
+            }
+
+            return;
+        }
+
+        args.Args.Channel ??= keyHolder.DefaultChannel;
     }
 
     protected virtual void OnGotEquipped(EntityUid uid, HeadsetComponent component, GotEquippedEvent args)

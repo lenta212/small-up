@@ -1,0 +1,14 @@
+<controls:FancyWindow xmlns="https://spacestation14.io" xmlns:controls="clr-namespace:Content.Client.UserInterface.Controls"
+                      Title="{Loc 'telecom-key-console-title'}" MinSize="420 300">
+  <BoxContainer Orientation="Vertical" Margin="6" SeparationOverride="4">
+    <LineEdit Name="Frequency" PlaceHolder="{Loc 'telecom-key-console-frequency'}"/>
+    <LineEdit Name="ChannelName" PlaceHolder="{Loc 'telecom-key-console-name'}"/>
+    <LineEdit Name="Tag" PlaceHolder="{Loc 'telecom-key-console-tag'}" MaxWidth="420"/>
+    <LineEdit Name="Color" PlaceHolder="{Loc 'telecom-key-console-color'}"/>
+    <BoxContainer>
+      <Button Name="Create" Text="{Loc 'telecom-key-console-create'}"/>
+      <Button Name="Lock" Text="{Loc 'telecom-key-console-lock'}"/>
+    </BoxContainer>
+    <RichTextLabel Name="Status"/>
+  </BoxContainer>
+</controls:FancyWindow>

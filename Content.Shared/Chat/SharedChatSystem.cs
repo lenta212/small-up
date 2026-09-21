@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using Content.Shared._Starlight.CollectiveMind; // Goobstation - Starlight collective mind port
 using System.Text.RegularExpressions;
 using Content.Shared.Popups;
+using Content.Shared.Inventory;
 using Content.Shared.Radio;
 using Content.Shared.Speech;
 using Robust.Shared.Prototypes;
@@ -37,6 +38,7 @@ public abstract partial class SharedChatSystem : EntitySystem
 
     [Dependency] private IPrototypeManager _prototypeManager = default!;
     [Dependency] private SharedPopupSystem _popup = default!;
+    [Dependency] private InventorySystem _inventory = default!;
 
     /// <summary>
     /// Cache of the keycodes for faster lookup.
@@ -187,10 +189,18 @@ public abstract partial class SharedChatSystem : EntitySystem
             return true;
         }
 
-        if (!_keyCodes.TryGetValue(channelKey, out channel) && !quiet)
+        if (!_keyCodes.TryGetValue(channelKey, out channel))
         {
-            var msg = Loc.GetString("chat-manager-no-such-channel", ("key", channelKey));
-            _popup.PopupEntity(msg, source, source);
+            var ev = new GetDefaultRadioChannelEvent { RequestedKeyCode = channelKey };
+            if (TryComp(source, out InventoryComponent? inventory))
+                _inventory.RelayEvent((source, inventory), ref ev);
+            if (ev.Channel != null)
+                _prototypeManager.TryIndex(ev.Channel, out channel);
+            else if (!quiet)
+            {
+                var msg = Loc.GetString("chat-manager-no-such-channel", ("key", channelKey));
+                _popup.PopupEntity(msg, source, source);
+            }
         }
 
         return true;
