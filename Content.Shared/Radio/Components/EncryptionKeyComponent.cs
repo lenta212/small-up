@@ -1,3 +1,4 @@
+using Robust.Shared.GameStates;
 using Robust.Shared.GameObjects;
 using Content.Shared.Chat;
 using Robust.Shared.Maths;
@@ -12,7 +13,7 @@ namespace Content.Shared.Radio.Components;
 ///     It should be used for intercoms and other radios in future.
 /// </summary>
 
-[RegisterComponent, AutoGenerateComponentState]
+[RegisterComponent, NetworkedComponent, AutoGenerateComponentState]
 public sealed partial class EncryptionKeyComponent : Component
 {
     [DataField("frame")]
