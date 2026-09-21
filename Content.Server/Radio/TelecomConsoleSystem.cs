@@ -140,6 +140,11 @@ public sealed class TelecomConsoleSystem : EntitySystem
             return;
         }
 
+        if (frequency is null && !state.Authorized)
+            entries = entries
+                .Where(entry => !entry.Channel.Equals(RadioChannelPrototype.CustomChannelId, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
         foreach (var entry in entries)
         {
             state.Entries.Add(new TelecomLogEntryNet

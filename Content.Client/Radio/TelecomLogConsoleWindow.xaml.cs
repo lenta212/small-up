@@ -60,6 +60,7 @@ public sealed partial class TelecomLogConsoleWindow : FancyWindow
     public void UpdateState(TelecomLogConsoleState state)
     {
         _maps = state.Maps;
+        _channels = state.Channels;
         _map.Clear();
         foreach (var map in _maps)
             _map.AddItem($"{Loc.GetString("telecom-log-console-map")} {map}");
