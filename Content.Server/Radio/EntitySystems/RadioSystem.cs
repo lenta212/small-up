@@ -106,6 +106,9 @@ public sealed partial class RadioSystem : EntitySystem
     /// </summary>
     public int GetFrequency(EntityUid source, RadioChannelPrototype channel)
     {
+        if (channel.ID == RadioChannelPrototype.CustomChannelId && channel.Frequency > 0)
+            return channel.Frequency;
+
         if (TryComp<RadioMicrophoneComponent>(source, out var radioMicrophone))
             return radioMicrophone.Frequency;
 
@@ -345,7 +348,7 @@ public sealed partial class RadioSystem : EntitySystem
     {
         // TODO: code duplication with ChatSystem.WrapMessage
         var speech = _chat.GetSpeechVerb(source, message);
-        var customKey = FindCustomKey(radioSource, channel.ID);
+        var customKey = FindCustomKey(radioSource, channel);
         var channelName = customKey?.ChannelName ?? channel.LocalizedName;
         var channelColor = customKey?.Color ?? channel.Color;
         var languageColor = channelColor;
@@ -369,7 +372,7 @@ public sealed partial class RadioSystem : EntitySystem
             ("language", languageDisplay));
     }
 
-    private EncryptionKeyComponent? FindCustomKey(EntityUid radioSource, string channelId)
+    private EncryptionKeyComponent? FindCustomKey(EntityUid radioSource, RadioChannelPrototype channel)
     {
         if (!TryComp<EncryptionKeyHolderComponent>(radioSource, out var holder))
             return null;
@@ -377,7 +380,9 @@ public sealed partial class RadioSystem : EntitySystem
         foreach (var keyUid in holder.KeyContainer.ContainedEntities)
         {
             if (TryComp<EncryptionKeyComponent>(keyUid, out var key) &&
-                key.Channels.Contains(channelId) && key.ChannelName != null)
+                key.Channels.Contains(channel.ID) &&
+                key.ChannelName != null &&
+                (!key.CustomFrequency.HasValue || key.CustomFrequency == channel.Frequency))
                 return key;
         }
 

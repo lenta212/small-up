@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Content.Shared.Chat;
 using Content.Shared.Radio;
 using Content.Shared.Radio.Components;
 using Content.Shared.Radio.EntitySystems;
@@ -24,6 +25,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
 
     // Реестр занятых частот на раунд: частота -> владелец
     private readonly Dictionary<int, NetUserId> _frequencyOwners = new();
+    private readonly Dictionary<char, int> _customKeyCodeFrequencies = new();
 
     public override void Initialize()
     {
@@ -39,6 +41,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
     private void OnRoundRestart(RoundRestartCleanupEvent ev)
     {
         _frequencyOwners.Clear();
+        _customKeyCodeFrequencies.Clear();
     }
 
     private void OnLogOpened(EntityUid uid, TelecomLogConsoleComponent component, BoundUIOpenedEvent args)
@@ -130,7 +133,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
         }
 
         // Несущий канал для ВСЕХ кастомных ключей — больше не Common
-        if (!_prototypes.TryIndex<RadioChannelPrototype>("EncryptedCustom", out var carrierChannel))
+        if (!_prototypes.TryIndex<RadioChannelPrototype>(RadioChannelPrototype.CustomChannelId, out var carrierChannel))
         {
             if (TryComp(uid, out EncryptionKeyHolderComponent? invalidHolder))
                 SetKeyState(uid, invalidHolder, "telecom-key-console-invalid-frequency");
@@ -147,25 +150,46 @@ public sealed class TelecomConsoleSystem : EntitySystem
             return;
 
         var requesterId = actorComp.PlayerSession.UserId;
+        var customKeyCode = string.IsNullOrWhiteSpace(tag)
+            ? (char?) null
+            : char.ToLowerInvariant(tag[0]);
+
+        if (customKeyCode is { } requestedCode &&
+            (requestedCode == SharedChatSystem.DefaultChannelKey ||
+             _prototypes.EnumeratePrototypes<RadioChannelPrototype>()
+                 .Any(channel => char.ToLowerInvariant(channel.KeyCode) == requestedCode)))
+        {
+            SetKeyState(uid, holder, "telecom-key-console-invalid-tag");
+            return;
+        }
+
+        if (customKeyCode is { } reservedCode &&
+            _customKeyCodeFrequencies.TryGetValue(reservedCode, out var reservedFrequency) &&
+            reservedFrequency != args.Frequency)
+        {
+            SetKeyState(uid, holder, "telecom-key-console-invalid-tag");
+            return;
+        }
 
         // Проверка занятости частоты
+        var newFrequencyClaim = !_frequencyOwners.ContainsKey(args.Frequency);
         if (_frequencyOwners.TryGetValue(args.Frequency, out var owner) && owner != requesterId)
         {
             SetKeyState(uid, holder, "telecom-key-console-frequency-taken");
             return;
         }
         _frequencyOwners[args.Frequency] = requesterId;
+        if (customKeyCode is { } claimedCode)
+            _customKeyCodeFrequencies[claimedCode] = args.Frequency;
 
         var key = Spawn("EncryptionKeyCommon", transform.Coordinates);
         var component = EnsureComp<EncryptionKeyComponent>(key);
         component.Channels.Clear();
-        component.Channels.Add(carrierChannel.ID);
+        component.Channels.Add(RadioChannelPrototype.CustomChannelId);
         component.DefaultChannel = null; // кастомный ключ не подменяет общий канал
         component.CustomFrequency = args.Frequency;
         component.ChannelName = NullIfEmpty(args.ChannelName) ?? $"Канал {args.Frequency}";
-        component.CustomKeyCode = string.IsNullOrWhiteSpace(tag)
-            ? null
-            : char.ToLower(tag[0]);
+        component.CustomKeyCode = customKeyCode;
         component.Tag = NullIfEmpty(args.Tag);
         component.Color = args.Color != null && Color.TryParse(args.Color, out var color)
             ? color
@@ -175,7 +199,11 @@ public sealed class TelecomConsoleSystem : EntitySystem
         if (!_containers.Insert(key, holder.KeyContainer))
         {
             QueueDel(key);
-            _frequencyOwners.Remove(args.Frequency);
+            if (newFrequencyClaim)
+                _frequencyOwners.Remove(args.Frequency);
+            if (customKeyCode is { } failedCode &&
+                newFrequencyClaim)
+                _customKeyCodeFrequencies.Remove(failedCode);
             return;
         }
         _keys.UpdateChannels(uid, holder);
@@ -225,6 +253,6 @@ public sealed class TelecomConsoleSystem : EntitySystem
         id.Equals("Syndicate", StringComparison.OrdinalIgnoreCase) ||
         id.Equals("Binary", StringComparison.OrdinalIgnoreCase) ||
         id.Equals("Chimera", StringComparison.OrdinalIgnoreCase) ||
-        id.Equals("EncryptedCustom", StringComparison.OrdinalIgnoreCase) ||
+        id.Equals(RadioChannelPrototype.CustomChannelId, StringComparison.OrdinalIgnoreCase) ||
         id.Contains("Collective", StringComparison.OrdinalIgnoreCase);
 }

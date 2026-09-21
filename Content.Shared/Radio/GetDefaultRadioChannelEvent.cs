@@ -6,6 +6,7 @@ namespace Content.Shared.Radio;
 public sealed class GetDefaultRadioChannelEvent : EntityEventArgs, IInventoryRelayEvent
 {
     public char? RequestedKeyCode;
+    public RadioChannelPrototype? RuntimeChannel;
     /// <summary>
     ///     Id of the default <see cref="RadioChannelPrototype"/> that will get addressed when using the
     ///     department/default channel prefix. See <see cref="SharedChatSystem.DefaultChannelKey"/>.

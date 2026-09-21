@@ -1,4 +1,3 @@
-using System.Linq;
 using Content.Shared.Emp;
 using Content.Shared.Inventory;
 using Content.Shared.Inventory.Events;
@@ -35,9 +34,14 @@ public abstract class SharedHeadsetSystem : EntitySystem
             {
                 if (TryComp<EncryptionKeyComponent>(keyUid, out var key) &&
                     key.CustomKeyCode is { } customKeyCode &&
-                    char.ToLower(customKeyCode) == char.ToLower(requested))
+                    key.CustomFrequency is { } frequency &&
+                    char.ToLowerInvariant(customKeyCode) == char.ToLowerInvariant(requested))
                 {
-                    args.Args.Channel ??= key.Channels.FirstOrDefault();
+                    args.Args.RuntimeChannel = RadioChannelPrototype.CreateRuntime(
+                        key.ChannelName ?? $"Канал {frequency}",
+                        customKeyCode,
+                        frequency,
+                        key.Color ?? Color.Lime);
                     return;
                 }
             }
