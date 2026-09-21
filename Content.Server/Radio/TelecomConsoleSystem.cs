@@ -313,7 +313,7 @@ public sealed class TelecomConsoleSystem : EntitySystem
 
     private void OnDeleteAllKeys(EntityUid uid, TelecomKeyServiceConsoleComponent _, TelecomDeleteAllKeysMessage args)
     {
-        if (!TryGetActorUserId(args.Actor, out var requesterId))
+        if (!TryGetActorCharacter(args.Actor, out var requesterId))
             return;
 
         var frequencies = GetOwnedFrequencies(requesterId);
