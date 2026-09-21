@@ -18,7 +18,7 @@ telecom-console-invalid-password = Неверный пароль
 telecom-key-console-frequency-required-for-logs = Укажите частоту, чтобы просмотреть защищённые логи кастомного канала
 telecom-key-console-title = Обслуживание ключей
 telecom-key-console-tag = Код вызова (один символ, например к)
-telecom-key-console-frequency = Новая частота, например 14888
+telecom-key-console-frequency = Новая частота, например 1234
 telecom-key-console-name = Имя канала
 telecom-key-console-invalid-frequency = Такой частоты нет среди доступных радиоканалов
 telecom-key-console-invalid-tag = Код вызова должен содержать ровно один символ
@@ -47,3 +47,8 @@ telecom-key-console-lock = Заблокировать ключи
 telecom-key-console-unlock = Разблокировать ключи
 encryption-keys-extract-verb = Извлечь ключи
 telecom-server-temperature = Температура сервера: {$temperature} K
+
+telecom-log-console-circuitboard = Плата консоли просмотра телекоммуникаций
+telecom-log-console-circuitboard-desc = Плата для сборки консоли просмотра телекоммуникационных логов.
+telecom-key-service-console-circuitboard = Плата консоли обслуживания телекоммуникационных ключей
+telecom-key-service-console-circuitboard-desc = Плата для сборки консоли обслуживания телекоммуникационных ключей.

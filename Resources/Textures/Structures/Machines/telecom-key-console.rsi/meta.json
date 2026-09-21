@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "license": "CC-BY-SA-3.0",
+  "size": {
+    "x": 32,
+    "y": 32
+  },
+  "states": [
+    {
+      "name": "key_service_off",
+      "directions": 4
+    },
+    {
+      "name": "key_service_on",
+      "directions": 4
+    },
+    {
+      "name": "key_view_off",
+      "directions": 4
+    },
+    {
+      "name": "key_view_on",
+      "directions": 4
+    },
+    {
+      "name": "view_screen",
+      "directions": 4
+    },
+    {
+      "name": "frequency_editor",
+      "directions": 4
+    }
+  ]
+}

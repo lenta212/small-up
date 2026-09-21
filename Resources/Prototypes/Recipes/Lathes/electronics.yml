@@ -638,3 +638,17 @@
   parent: BaseCircuitboardRecipe
   id: CrystallizerMachineCircuitboard
   result: CrystallizerMachineCircuitboard
+
+- type: latheRecipe
+  id: TelecomLogConsoleCircuitboard
+  result: TelecomLogConsoleCircuitboard
+  completetime: 5
+  materials:
+    Steel: 2000
+
+- type: latheRecipe
+  id: TelecomKeyServiceConsoleCircuitboard
+  result: TelecomKeyServiceConsoleCircuitboard
+  completetime: 5
+  materials:
+    Steel: 2000

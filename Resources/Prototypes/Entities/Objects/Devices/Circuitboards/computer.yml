@@ -565,3 +565,25 @@
       state: cpu_rogue
     - type: ComputerBoard
       prototype: RogueComputerComms
+
+- type: entity
+  parent: BaseComputerCircuitboard
+  id: TelecomLogConsoleCircuitboard
+  name: telecom-log-console-circuitboard
+  description: telecom-log-console-circuitboard-desc
+  components:
+    - type: Sprite
+      state: cpu_science
+    - type: ComputerBoard
+      prototype: TelecomLogConsole
+
+- type: entity
+  parent: BaseComputerCircuitboard
+  id: TelecomKeyServiceConsoleCircuitboard
+  name: telecom-key-service-console-circuitboard
+  description: telecom-key-service-console-circuitboard-desc
+  components:
+    - type: Sprite
+      state: cpu_science
+    - type: ComputerBoard
+      prototype: TelecomKeyServiceConsole

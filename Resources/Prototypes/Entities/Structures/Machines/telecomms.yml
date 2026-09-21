@@ -98,6 +98,26 @@
   id: TelecomLogConsole
   name: telecom log console
   components:
+  - type: Sprite
+    sprite: Structures/Machines/computers.rsi
+    layers:
+    - map: ["computerLayerBody"]
+      state: computer
+    - map: ["computerLayerKeyboard"]
+      state: generic_keyboard
+    - map: ["computerLayerScreen"]
+      sprite: Structures/Machines/telecom-key-console.rsi
+      state: view_screen
+    - map: ["telecomViewKey"]
+      sprite: Structures/Machines/telecom-key-console.rsi
+      state: key_view_off
+    - map: ["telecomServiceKey"]
+      sprite: Structures/Machines/telecom-key-console.rsi
+      state: key_service_off
+    - map: ["computerLayerKeys"]
+      state: generic_keys
+    - map: ["enum.WiresVisualLayers.MaintenancePanel"]
+      state: generic_panel_open
   - type: UserInterface
     interfaces:
       enum.TelecomConsoleUiKey.Log:
@@ -111,6 +131,26 @@
   id: TelecomKeyServiceConsole
   name: telecom key service console
   components:
+  - type: Sprite
+    sprite: Structures/Machines/computers.rsi
+    layers:
+    - map: ["computerLayerBody"]
+      state: computer
+    - map: ["computerLayerKeyboard"]
+      state: generic_keyboard
+    - map: ["computerLayerScreen"]
+      sprite: Structures/Machines/telecom-key-console.rsi
+      state: frequency_editor
+    - map: ["telecomViewKey"]
+      sprite: Structures/Machines/telecom-key-console.rsi
+      state: key_view_off
+    - map: ["telecomServiceKey"]
+      sprite: Structures/Machines/telecom-key-console.rsi
+      state: key_service_off
+    - map: ["computerLayerKeys"]
+      state: generic_keys
+    - map: ["enum.WiresVisualLayers.MaintenancePanel"]
+      state: generic_panel_open
   - type: UserInterface
     interfaces:
       enum.TelecomConsoleUiKey.KeyService:
@@ -118,7 +158,6 @@
   - type: ActivatableUI
     key: enum.TelecomConsoleUiKey.KeyService
   - type: WiresPanel
-    open: true
   - type: EncryptionKeyHolder
     keysExtractionMethod: Prying
     keySlots: 1

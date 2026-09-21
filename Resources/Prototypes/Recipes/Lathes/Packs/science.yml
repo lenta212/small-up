@@ -6,6 +6,8 @@
   - ProtolatheMachineCircuitboard
   - AutolatheMachineCircuitboard
   - CircuitImprinterMachineCircuitboard
+  - TelecomLogConsoleCircuitboard
+  - TelecomKeyServiceConsoleCircuitboard
   - ExosuitFabricatorMachineCircuitboard
   - BorgChargerCircuitboard
 

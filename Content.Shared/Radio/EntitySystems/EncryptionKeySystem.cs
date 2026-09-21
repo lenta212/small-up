@@ -8,6 +8,7 @@ using Content.Shared.Popups;
 using Content.Shared.Radio.Components;
 using Content.Shared.Tools.Components;
 using Content.Shared.Wires;
+using Content.Shared.Verbs;
 using Robust.Shared.Audio.Systems;
 using Robust.Shared.Containers;
 using Robust.Shared.Network;
@@ -41,6 +42,7 @@ public sealed partial class EncryptionKeySystem : EntitySystem
 
         SubscribeLocalEvent<EncryptionKeyHolderComponent, ComponentStartup>(OnStartup);
         SubscribeLocalEvent<EncryptionKeyHolderComponent, InteractUsingEvent>(OnInteractUsing);
+        SubscribeLocalEvent<EncryptionKeyHolderComponent, GetVerbsEvent<AlternativeVerb>>(OnGetVerbs);
         SubscribeLocalEvent<EncryptionKeyHolderComponent, EntInsertedIntoContainerMessage>(OnContainerModified);
         SubscribeLocalEvent<EncryptionKeyHolderComponent, EntRemovedFromContainerMessage>(OnContainerModified);
         SubscribeLocalEvent<EncryptionKeyHolderComponent, EncryptionRemovalFinishedEvent>(OnKeyRemoval);
@@ -51,15 +53,32 @@ public sealed partial class EncryptionKeySystem : EntitySystem
         if (args.Cancelled)
             return;
 
+        ExtractKeys(uid, component, args.User);
+    }
+
+    private void OnGetVerbs(EntityUid uid, EncryptionKeyHolderComponent component, GetVerbsEvent<AlternativeVerb> args)
+    {
+        if (!args.CanAccess || !args.CanInteract || !component.KeysUnlocked ||
+            component.KeyContainer.ContainedEntities.Count == 0)
+            return;
+
+        args.Verbs.Add(new AlternativeVerb
+        {
+            Text = Loc.GetString("encryption-keys-extract-verb"),
+            Act = () => ExtractKeys(uid, component, args.User),
+            Priority = 1
+        });
+    }
+
+    private void ExtractKeys(EntityUid uid, EncryptionKeyHolderComponent component, EntityUid user)
+    {
         var contained = component.KeyContainer.ContainedEntities.ToArray();
         _container.EmptyContainer(component.KeyContainer, reparent: false);
         foreach (var ent in contained)
-        {
-            _hands.PickupOrDrop(args.User, ent, dropNear: true);
-        }
+            _hands.PickupOrDrop(user, ent, dropNear: true);
 
-        _popup.PopupPredicted(Loc.GetString("encryption-keys-all-extracted"), uid, args.User);
-        _audio.PlayPredicted(component.KeyExtractionSound, uid, args.User);
+        _popup.PopupPredicted(Loc.GetString("encryption-keys-all-extracted"), uid, user);
+        _audio.PlayPredicted(component.KeyExtractionSound, uid, user);
     }
 
     public void UpdateChannels(EntityUid uid, EncryptionKeyHolderComponent component)
@@ -145,12 +164,6 @@ public sealed partial class EncryptionKeySystem : EntitySystem
             return;
         }
 
-        if (!_wires.IsPanelOpen(uid))
-        {
-            _popup.PopupClient(Loc.GetString("encryption-keys-panel-locked"), uid, args.User);
-            return;
-        }
-
         if (component.KeyContainer.ContainedEntities.Count == 0)
         {
             _popup.PopupClient(Loc.GetString("encryption-keys-no-keys"), uid, args.User);
@@ -184,11 +197,27 @@ public sealed partial class EncryptionKeySystem : EntitySystem
             using (args.PushGroup(nameof(EncryptionKeyComponent)))
             {
                 args.PushMarkup(Loc.GetString("examine-encryption-channels-prefix"));
-                AddChannelsExamine(component.Channels,
-                    component.DefaultChannel,
-                    args,
-                    _protoManager,
-                    "examine-encryption-channel");
+                var standardChannels = new HashSet<string>(component.Channels);
+                foreach (var keyUid in component.KeyContainer.ContainedEntities)
+                {
+                    if (!TryComp<EncryptionKeyComponent>(keyUid, out var key) ||
+                        key.CustomFrequency is not { } customFrequency)
+                        continue;
+
+                    foreach (var channel in key.Channels)
+                        standardChannels.Remove(channel);
+
+                    AddCustomChannelExamine(key, customFrequency, args);
+                }
+
+                if (standardChannels.Count > 0)
+                {
+                    AddChannelsExamine(standardChannels,
+                        component.DefaultChannel,
+                        args,
+                        _protoManager,
+                        "examine-encryption-channel");
+                }
             }
         }
     }
@@ -201,7 +230,23 @@ public sealed partial class EncryptionKeySystem : EntitySystem
         if(component.Channels.Count > 0)
         {
             args.PushMarkup(Loc.GetString("examine-encryption-channels-prefix"));
+            if (component.CustomFrequency is { } customFrequency)
+            {
+                var key = component.CustomKeyCode is { } customKeyCode
+                    ? $"{SharedChatSystem.RadioChannelPrefix}{customKeyCode}"
+                    : SharedChatSystem.RadioCommonPrefix.ToString();
+                var channelName = component.ChannelName ?? $"Канал {customFrequency}";
+                var color = component.Color ?? Color.Green;
+                args.PushMarkup(Loc.GetString("examine-encryption-channel",
+                    ("color", color),
+                    ("key", key),
+                    ("id", channelName),
+                    ("freq", customFrequency)));
+            }
+            else
+            {
             AddChannelsExamine(component.Channels, component.DefaultChannel, args, _protoManager, "examine-encryption-channel");
+            }
         }
     }
 
@@ -247,6 +292,19 @@ public sealed partial class EncryptionKeySystem : EntitySystem
                 examineEvent.PushMarkup(msg);
             }
         }
+    }
+
+    private void AddCustomChannelExamine(EncryptionKeyComponent component, int frequency,
+        ExaminedEvent examineEvent)
+    {
+        var key = component.CustomKeyCode is { } customKeyCode
+            ? $"{SharedChatSystem.RadioChannelPrefix}{customKeyCode}"
+            : SharedChatSystem.RadioCommonPrefix.ToString();
+        examineEvent.PushMarkup(Loc.GetString("examine-encryption-channel",
+            ("color", component.Color ?? Color.Green),
+            ("key", key),
+            ("id", component.ChannelName ?? $"Канал {frequency}"),
+            ("freq", frequency)));
     }
 
     [Serializable, NetSerializable]

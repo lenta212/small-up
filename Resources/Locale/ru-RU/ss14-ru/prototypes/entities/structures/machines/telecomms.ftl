@@ -24,3 +24,8 @@ ent-TelecomServerFilledService = { ent-TelecomServer }
 ent-TelecomServerFilledCommand = { ent-TelecomServer }
     .suffix = Командование
     .desc = { ent-TelecomServer.desc }
+
+ent-TelecomLogConsole = Консоль просмотра телекоммуникационных логов
+    .desc = Консоль для просмотра записей телекоммуникационного сервера.
+ent-TelecomKeyServiceConsole = Консоль обслуживания телекоммуникационных ключей
+    .desc = Консоль для создания и настройки ключей шифрования.
