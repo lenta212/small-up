@@ -5,6 +5,8 @@ namespace Content.Shared.Radio;
 [Prototype]
 public sealed partial class RadioChannelPrototype : IPrototype
 {
+    public const string CustomChannelId = "EncryptedCustom";
+
     /// <summary>
     /// Human-readable name for the channel.
     /// </summary>
@@ -12,7 +14,10 @@ public sealed partial class RadioChannelPrototype : IPrototype
     public LocId Name { get; private set; } = string.Empty;
 
     [ViewVariables(VVAccess.ReadOnly)]
-    public string LocalizedName => Loc.GetString(Name);
+    public string LocalizedName => RuntimeName ?? Loc.GetString(Name);
+
+    [ViewVariables(VVAccess.ReadOnly)]
+    public string? RuntimeName { get; private set; }
 
     /// <summary>
     /// Single-character prefix to determine what channel a message should be sent to.
@@ -49,4 +54,21 @@ public sealed partial class RadioChannelPrototype : IPrototype
     /// </summary>
     [DataField("maxRange"), ViewVariables]
     public float? MaxRange = null;
+
+    public static RadioChannelPrototype CreateRuntime(
+        string name,
+        char keyCode,
+        int frequency,
+        Color color)
+    {
+        return new RadioChannelPrototype
+        {
+            ID = CustomChannelId,
+            RuntimeName = name,
+            KeyCode = keyCode,
+            Frequency = frequency,
+            Color = color,
+            ShowFrequency = true,
+        };
+    }
 }

@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using Content.Shared._Starlight.CollectiveMind; // Goobstation - Starlight collective mind port
 using System.Text.RegularExpressions;
 using Content.Shared.Popups;
+using Content.Shared.Inventory;
 using Content.Shared.Radio;
 using Content.Shared.Speech;
 using Robust.Shared.Prototypes;
@@ -37,6 +38,7 @@ public abstract partial class SharedChatSystem : EntitySystem
 
     [Dependency] private IPrototypeManager _prototypeManager = default!;
     [Dependency] private SharedPopupSystem _popup = default!;
+    [Dependency] private InventorySystem _inventory = default!;
 
     /// <summary>
     /// Cache of the keycodes for faster lookup.
@@ -125,7 +127,8 @@ public abstract partial class SharedChatSystem : EntitySystem
         if (!(input.StartsWith(RadioChannelPrefix) || input.StartsWith(RadioChannelAltPrefix)))
             return;
 
-        if (!_keyCodes.TryGetValue(char.ToLower(input[1]), out _))
+        var keyCode = char.ToLowerInvariant(input[1]);
+        if (!HasRuntimeRadioChannel(source, keyCode) && !_keyCodes.ContainsKey(keyCode))
             return;
 
         prefix = input[..2];
@@ -174,7 +177,7 @@ public abstract partial class SharedChatSystem : EntitySystem
         }
 
         var channelKey = input[1];
-        channelKey = char.ToLower(channelKey);
+        channelKey = char.ToLowerInvariant(channelKey);
         output = SanitizeMessageCapital(input[2..].TrimStart());
 
         if (channelKey == DefaultChannelKey)
@@ -187,13 +190,42 @@ public abstract partial class SharedChatSystem : EntitySystem
             return true;
         }
 
-        if (!_keyCodes.TryGetValue(channelKey, out channel) && !quiet)
+        var customEvent = new GetDefaultRadioChannelEvent { RequestedKeyCode = channelKey };
+        if (TryComp(source, out InventoryComponent? inventory))
+            _inventory.RelayEvent((source, inventory), ref customEvent);
+
+        if (customEvent.RuntimeChannel is { } runtimeChannel)
+        {
+            channel = runtimeChannel;
+            return true;
+        }
+
+        if (_keyCodes.TryGetValue(channelKey, out channel))
+            return true;
+
+        if (customEvent.Channel != null)
+        {
+            _prototypeManager.TryIndex(customEvent.Channel, out channel);
+            return true;
+        }
+
+        if (!quiet)
         {
             var msg = Loc.GetString("chat-manager-no-such-channel", ("key", channelKey));
             _popup.PopupEntity(msg, source, source);
         }
 
         return true;
+    }
+
+    private bool HasRuntimeRadioChannel(EntityUid source, char keyCode)
+    {
+        var ev = new GetDefaultRadioChannelEvent { RequestedKeyCode = keyCode };
+        if (!TryComp(source, out InventoryComponent? inventory))
+            return false;
+
+        _inventory.RelayEvent((source, inventory), ref ev);
+        return ev.RuntimeChannel != null || ev.Channel != null;
     }
 
     // Goobstation - Starlight collective mind port

@@ -25,8 +25,31 @@ public abstract class SharedHeadsetSystem : EntitySystem
             return;
         }
 
-        if (TryComp(uid, out EncryptionKeyHolderComponent? keyHolder))
-            args.Args.Channel ??= keyHolder.DefaultChannel;
+        if (!TryComp(uid, out EncryptionKeyHolderComponent? keyHolder))
+            return;
+
+        if (args.Args.RequestedKeyCode is { } requested)
+        {
+            foreach (var keyUid in keyHolder.KeyContainer.ContainedEntities)
+            {
+                if (TryComp<EncryptionKeyComponent>(keyUid, out var key) &&
+                    key.CustomKeyCode is { } customKeyCode &&
+                    key.CustomFrequency is { } frequency &&
+                    char.ToLowerInvariant(customKeyCode) == char.ToLowerInvariant(requested))
+                {
+                    args.Args.RuntimeChannel = RadioChannelPrototype.CreateRuntime(
+                        key.ChannelName ?? $"Канал {frequency}",
+                        customKeyCode,
+                        frequency,
+                        key.Color ?? Color.Lime);
+                    return;
+                }
+            }
+
+            return;
+        }
+
+        args.Args.Channel ??= keyHolder.DefaultChannel;
     }
 
     protected virtual void OnGotEquipped(EntityUid uid, HeadsetComponent component, GotEquippedEvent args)
