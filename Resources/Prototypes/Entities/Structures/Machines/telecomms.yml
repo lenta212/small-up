@@ -109,20 +109,21 @@
     - map: ["computerLayerBody"]
       state: computer
     - map: ["computerLayerKeyboard"]
-      state: generic_keyboard
+      sprite: Structures/Machines/telecom-key-console.rsi
+      state: key_view_off
+      shader: unshaded
     - map: ["computerLayerScreen"]
       sprite: Structures/Machines/telecom-key-console.rsi
       state: view_screen
-    - map: ["telecomViewKey"]
-      sprite: Structures/Machines/telecom-key-console.rsi
-      state: key_view_off
-    - map: ["telecomServiceKey"]
-      sprite: Structures/Machines/telecom-key-console.rsi
-      state: key_service_off
-    - map: ["computerLayerKeys"]
-      state: generic_keys
     - map: ["enum.WiresVisualLayers.MaintenancePanel"]
       state: generic_panel_open
+  - type: Appearance
+  - type: GenericVisualizer
+    visuals:
+      enum.PowerDeviceVisuals.Powered:
+        computerLayerKeyboard:
+          True: { state: key_view_on }
+          False: { state: key_view_off }
   - type: UserInterface
     interfaces:
       enum.TelecomConsoleUiKey.Log:
@@ -145,20 +146,21 @@
     - map: ["computerLayerBody"]
       state: computer
     - map: ["computerLayerKeyboard"]
-      state: generic_keyboard
+      sprite: Structures/Machines/telecom-key-console.rsi
+      state: key_service_off
+      shader: unshaded
     - map: ["computerLayerScreen"]
       sprite: Structures/Machines/telecom-key-console.rsi
       state: frequency_editor
-    - map: ["telecomViewKey"]
-      sprite: Structures/Machines/telecom-key-console.rsi
-      state: key_view_off
-    - map: ["telecomServiceKey"]
-      sprite: Structures/Machines/telecom-key-console.rsi
-      state: key_service_off
-    - map: ["computerLayerKeys"]
-      state: generic_keys
     - map: ["enum.WiresVisualLayers.MaintenancePanel"]
       state: generic_panel_open
+  - type: Appearance
+  - type: GenericVisualizer
+    visuals:
+      enum.PowerDeviceVisuals.Powered:
+        computerLayerKeyboard:
+          True: { state: key_service_on }
+          False: { state: key_service_off }
   - type: UserInterface
     interfaces:
       enum.TelecomConsoleUiKey.KeyService:
