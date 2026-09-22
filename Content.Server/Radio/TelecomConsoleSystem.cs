@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Content.Shared.Chat;
+using Content.Server.DeviceLinking.Systems;
+using Content.Shared.DeviceLinking;
 using Content.Shared.Radio;
 using Content.Shared.Radio.Components;
 using Content.Shared.Radio.EntitySystems;
@@ -87,12 +89,39 @@ public sealed class TelecomConsoleSystem : EntitySystem
         DateTime? from = ParseDate(request?.From);
         DateTime? to = ParseDate(request?.To);
         int? frequency = int.TryParse(request?.Frequency, out var parsedFrequency) ? parsedFrequency : null;
-        var filter = new TelecomRadioLogFilter(map, request?.Channel, frequency, request?.Speaker, from, to, request?.Words);
-        var entries = radio.QueryTelecomLogs(filter);
         var state = new TelecomLogConsoleState();
         state.Maps.Add(map);
+        var linkedServers = new HashSet<EntityUid>();
+        var deviceLink = EntityManager.System<DeviceLinkSystem>();
+        var linkedServerQuery = EntityQueryEnumerator<TelecomServerComponent>();
+        while (linkedServerQuery.MoveNext(out var server, out _))
+        {
+            if (deviceLink.GetLinks(uid, server).Count > 0)
+                linkedServers.Add(server);
+        }
+
+        var filter = new TelecomRadioLogFilter(map, request?.Channel, frequency, request?.Speaker, from, to, request?.Words, linkedServers);
+        var entries = radio.QueryTelecomLogs(filter);
+        var connectedChannels = new HashSet<string>();
+        foreach (var server in linkedServers)
+        {
+            if (!TryComp(server, out EncryptionKeyHolderComponent? holder))
+                continue;
+
+            foreach (var keyUid in holder.KeyContainer.ContainedEntities)
+            {
+                if (!TryComp(keyUid, out EncryptionKeyComponent? key))
+                    continue;
+
+                foreach (var channelId in key.Channels)
+                {
+                    if (!IsRestrictedChannel(channelId))
+                        connectedChannels.Add(channelId);
+                }
+            }
+        }
         foreach (var channel in _prototypes.EnumeratePrototypes<RadioChannelPrototype>()
-                     .Where(channel => !IsRestrictedChannel(channel.ID))
+                     .Where(channel => connectedChannels.Contains(channel.ID))
                      .OrderBy(channel => channel.ID))
         {
             state.Channels.Add(new TelecomChannelInfo { Id = channel.ID, Name = channel.LocalizedName });

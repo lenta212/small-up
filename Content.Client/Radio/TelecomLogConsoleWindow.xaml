@@ -15,6 +15,8 @@
     </BoxContainer>
     <LineEdit Name="Password" MinWidth="420" PlaceHolder="{Loc 'telecom-log-console-password'}"/>
     <RichTextLabel Name="Status"/>
-    <RichTextLabel Name="Entries" VerticalExpand="True"/>
+    <ScrollContainer Name="EntriesScroll" VerticalExpand="True" HorizontalExpand="True">
+      <RichTextLabel Name="Entries" />
+    </ScrollContainer>
   </BoxContainer>
 </controls:FancyWindow>

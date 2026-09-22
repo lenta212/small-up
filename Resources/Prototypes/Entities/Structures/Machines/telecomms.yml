@@ -60,13 +60,16 @@
   - type: Transform
     anchored: true
   - type: Pullable
+  - type: DeviceLinkSink
+    ports:
+    - Toggle
   - type: EncryptionKeyHolder
     keysExtractionMethod: Prying
-    keySlots: 10
+    keySlots: 1
   - type: TelecomServer
     modes:
     - Logs_Save
-    heatGeneration: 1000
+    heatGeneration: 2000
     interferenceThreshold: 330
     criticalTemperature: 430
   - type: ContainerContainer
@@ -81,6 +84,8 @@
   suffix: Filled All
   categories: [ HideSpawnMenu ] # Frontier
   components:
+  - type: EncryptionKeyHolder
+    keySlots: 10
   - type: ContainerFill
     containers:
       key_slots:
@@ -124,6 +129,9 @@
         type: TelecomLogConsoleBoundUserInterface
   - type: ActivatableUI
     key: enum.TelecomConsoleUiKey.Log
+  - type: DeviceLinkSource
+    ports:
+    - On
   - type: TelecomLogConsole
 
 - type: entity

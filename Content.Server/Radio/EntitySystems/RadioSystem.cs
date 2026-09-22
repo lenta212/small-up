@@ -336,10 +336,11 @@ public sealed partial class RadioSystem : EntitySystem
             delivered = true;
         }
 
-        if (delivered && HasLoggingServer(sourceMapId, channel.ID))
+        var loggingServers = GetLoggingServers(sourceMapId, channel.ID, frequency.Value);
+        if (delivered && loggingServers.Count > 0)
         {
             _telecomLogs.Add(new TelecomRadioLogEntry(
-                DateTime.UtcNow, sourceMapId, channel.ID, frequency.Value, transformEv.Name, message));
+                DateTime.UtcNow, sourceMapId, channel.ID, frequency.Value, transformEv.Name, message, loggingServers));
             if (_telecomLogs.Count > MaxTelecomLogEntries)
                 _telecomLogs.RemoveRange(0, _telecomLogs.Count - MaxTelecomLogEntries);
         }
@@ -467,24 +468,35 @@ public sealed partial class RadioSystem : EntitySystem
         return false;
     }
 
-    private bool HasLoggingServer(MapId mapId, string channelId)
+    private HashSet<EntityUid> GetLoggingServers(MapId mapId, string channelId, int frequency)
     {
+        var result = new HashSet<EntityUid>();
         if (IsRestrictedChannel(channelId))
-            return false;
+            return result;
 
         var servers = EntityQueryEnumerator<TelecomServerComponent, EncryptionKeyHolderComponent, ApcPowerReceiverComponent, TransformComponent>();
         while (servers.MoveNext(out var uid, out var telecom, out var keys, out var power, out var transform))
         {
-            if (transform.MapID == mapId && power.Powered &&
-                telecom.HasMode(TelecomServerMode.Logs_Save) &&
-                keys.Channels.Contains(channelId) &&
-                IsBelowInterferenceThreshold(uid, telecom) &&
-                (!telecom.ServiceKeyRequired ||
-                 (telecom.ServiceKeyChannel != null && keys.Channels.Contains(telecom.ServiceKeyChannel))))
-                return true;
+            if (transform.MapID != mapId || !power.Powered ||
+                !telecom.HasMode(TelecomServerMode.Logs_Save) ||
+                !IsBelowInterferenceThreshold(uid, telecom) ||
+                (telecom.ServiceKeyRequired &&
+                 (telecom.ServiceKeyChannel == null || !keys.Channels.Contains(telecom.ServiceKeyChannel))))
+                continue;
+
+            foreach (var keyUid in keys.KeyContainer.ContainedEntities)
+            {
+                if (!TryComp<EncryptionKeyComponent>(keyUid, out var key) ||
+                    !key.Channels.Contains(channelId) ||
+                    (key.CustomFrequency is { } customFrequency && customFrequency != frequency))
+                    continue;
+
+                result.Add(uid);
+                break;
+            }
         }
 
-        return false;
+        return result;
     }
 
     private bool IsBelowInterferenceThreshold(EntityUid uid, TelecomServerComponent telecom)
@@ -554,7 +566,7 @@ public sealed partial class RadioSystem : EntitySystem
         for (var i = 0; i < message.Length; i++)
         {
             if (i > 0 && i % interval == 0)
-                result.Append('#');
+                result.Append("##");
             result.Append(message[i]);
         }
         return result.ToString();
@@ -566,6 +578,7 @@ public sealed partial class RadioSystem : EntitySystem
         return _telecomLogs.Where(entry =>
                 !IsRestrictedChannel(entry.Channel) &&
                 (!filter.Map.HasValue || entry.Map == filter.Map.Value) &&
+                (filter.Servers is null || entry.Servers.Overlaps(filter.Servers)) &&
                 (string.IsNullOrWhiteSpace(filter.Channel) ||
                  entry.Channel.Equals(filter.Channel, StringComparison.OrdinalIgnoreCase)) &&
                 (!filter.Frequency.HasValue || entry.Frequency == filter.Frequency.Value) &&

@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using Content.Shared.Radio;
+using Robust.Shared.GameObjects;
 using Robust.Shared.Map;
 
 namespace Content.Server.Radio;
@@ -9,7 +11,8 @@ public readonly record struct TelecomRadioLogEntry(
     string Channel,
     int Frequency,
     string Speaker,
-    string Message);
+    string Message,
+    HashSet<EntityUid> Servers);
 
 public readonly record struct TelecomRadioLogFilter(
     MapId? Map = null,
@@ -18,4 +21,5 @@ public readonly record struct TelecomRadioLogFilter(
     string? Speaker = null,
     DateTime? From = null,
     DateTime? To = null,
-    string? Words = null);
+    string? Words = null,
+    HashSet<EntityUid>? Servers = null);
